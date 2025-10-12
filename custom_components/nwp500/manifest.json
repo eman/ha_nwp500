@@ -1,0 +1,12 @@
+{
+  "domain": "nwp500",
+  "name": "Navien NWP500 Heat Pump Water Heater",
+  "codeowners": ["@eman"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/eman/ha_nwp500",
+  "integration_type": "device",
+  "iot_class": "cloud_polling",
+  "requirements": ["nwp500-python==1.0.3", "awsiotsdk>=1.20.0"],
+  "version": "1.0.0"
+}
