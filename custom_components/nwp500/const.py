@@ -252,14 +252,14 @@ DEVICE_STATUS_SENSORS: Final = {
     "total_energy_capacity": {
         "name": "Total Energy Capacity", 
         "device_class": "energy",
-        "unit": "kWh",
-        "state_class": None,
+        "unit": "Wh",
+        "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "available_energy_capacity": {
         "name": "Available Energy Capacity",
         "device_class": "energy", 
-        "unit": "kWh",
+        "unit": "Wh",
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },

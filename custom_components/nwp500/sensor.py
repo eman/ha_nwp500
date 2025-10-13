@@ -162,7 +162,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         key="total_energy_capacity", 
         name="Total Energy Capacity",
         device_class=SensorDeviceClass.ENERGY,
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         entity_registry_enabled_default=False,
         value_fn=lambda status: getattr(status, 'totalEnergyCapacity', None),
     ))
@@ -171,7 +171,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         key="available_energy_capacity",
         name="Available Energy Capacity",
         device_class=SensorDeviceClass.ENERGY, 
-        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
         entity_registry_enabled_default=False,
         value_fn=lambda status: getattr(status, 'availableEnergyCapacity', None),
     ))

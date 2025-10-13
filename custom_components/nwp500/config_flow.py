@@ -62,7 +62,7 @@ async def validate_input(hass, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
     if not NWP500_AVAILABLE:
         _LOGGER.error(
-            "nwp500-python library not installed. Please install with: pip install nwp500-python==1.0.3 awsiotsdk>=1.20.0"
+            "nwp500-python library not installed. Please install with: pip install nwp500-python==1.1.2 awsiotsdk>=1.20.0"
         )
         raise CannotConnect("nwp500-python library not available")
     

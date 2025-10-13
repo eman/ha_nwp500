@@ -78,7 +78,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             from nwp500 import NavienAuthClient, NavienAPIClient, NavienMqttClient
         except ImportError as err:
             _LOGGER.error(
-                "nwp500-python library not installed. Please install with: pip install nwp500-python==1.1.1 awsiotsdk>=1.20.0"
+                "nwp500-python library not installed. Please install with: pip install nwp500-python==1.1.2 awsiotsdk>=1.20.0"
             )
             raise UpdateFailed(f"nwp500-python library not available: {err}") from err
         
