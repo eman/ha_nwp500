@@ -78,7 +78,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             from nwp500 import NavienAuthClient, NavienAPIClient, NavienMqttClient
         except ImportError as err:
             _LOGGER.error(
-                "nwp500-python library not installed. Please install with: pip install nwp500-python==1.0.3 awsiotsdk>=1.20.0"
+                "nwp500-python library not installed. Please install with: pip install nwp500-python==1.1.1 awsiotsdk>=1.20.0"
             )
             raise UpdateFailed(f"nwp500-python library not available: {err}") from err
         
@@ -100,11 +100,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             
             _LOGGER.info("Found %d devices", len(self.devices))
             
-            # Setup MQTT client for real-time updates
-            # NOTE: The AWS IoT SDK used by nwp500-python performs blocking I/O operations
-            # during connection which generates warnings. This is a limitation of the
-            # underlying AWS IoT SDK and cannot be avoided while maintaining compatibility.
+            # Setup MQTT client for real-time updates with event emitter
             self.mqtt_client = NavienMqttClient(self.auth_client)
+            
+            # Set up event listeners using the event emitter functionality
+            self.mqtt_client.on('device_status_update', self._on_device_status_event)
+            self.mqtt_client.on('device_feature_update', self._on_device_feature_event)
+            self.mqtt_client.on('connection_lost', self._on_connection_lost)
+            self.mqtt_client.on('connection_restored', self._on_connection_restored)
             
             # Connect to MQTT - this may generate blocking I/O warnings from AWS IoT SDK
             # but it's unavoidable since the underlying library does blocking operations
@@ -142,8 +145,50 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             await self.async_shutdown()
             raise UpdateFailed(f"Failed to connect to Navien service: {err}") from err
 
+    def _on_device_status_event(self, event_data) -> None:
+        """Handle device status event from event emitter."""
+        _LOGGER.debug("Received device status event: %s", event_data)
+        
+        try:
+            # Extract status from event data
+            status = event_data.get('status')
+            device = event_data.get('device')
+            
+            if status and device:
+                mac_address = device.device_info.mac_address
+                if self.data and mac_address in self.data:
+                    self.data[mac_address]["status"] = status
+                    self.data[mac_address]["last_update"] = time.time()
+                    
+                    # Schedule update for all listeners using thread-safe method
+                    self.hass.loop.call_soon_threadsafe(self.async_update_listeners)
+        except Exception as err:
+            _LOGGER.error("Error handling device status event: %s", err)
+
+    def _on_device_feature_event(self, event_data) -> None:
+        """Handle device feature event from event emitter."""
+        _LOGGER.debug("Received device feature event: %s", event_data)
+        
+        try:
+            feature = event_data.get('feature')
+            device = event_data.get('device')
+            
+            if feature and device:
+                mac_address = device.device_info.mac_address
+                self.device_features[mac_address] = feature
+        except Exception as err:
+            _LOGGER.error("Error handling device feature event: %s", err)
+
+    def _on_connection_lost(self, event_data) -> None:
+        """Handle MQTT connection lost event."""
+        _LOGGER.warning("MQTT connection lost: %s", event_data)
+
+    def _on_connection_restored(self, event_data) -> None:
+        """Handle MQTT connection restored event."""
+        _LOGGER.info("MQTT connection restored: %s", event_data)
+
     def _on_device_status_update(self, status) -> None:
-        """Handle device status update from MQTT."""
+        """Handle device status update from MQTT (legacy callback)."""
         # START DIAGNOSTIC CODE
         _LOGGER.error("NWP500 Diagnostic Data: %s", status)
         # END DIAGNOSTIC CODE
@@ -181,7 +226,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Error handling device status update: %s", err)
 
     def _on_device_feature_update(self, feature) -> None:
-        """Handle device feature update from MQTT."""
+        """Handle device feature update from MQTT (legacy callback)."""
         try:
             _LOGGER.debug("Received device feature update: %s", feature)
             
@@ -219,7 +264,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             elif command == "set_temperature":
                 temperature = kwargs.get("temperature")
                 if temperature:
-                    await self.mqtt_client.set_dhw_temperature(device, int(temperature))
+                    # Use set_dhw_temperature_display which takes the display temperature directly
+                    # This is more intuitive as it matches what users see on the device/app
+                    await self.mqtt_client.set_dhw_temperature_display(device, int(temperature))
             elif command == "set_dhw_mode":
                 mode = kwargs.get("mode")
                 if mode:
@@ -240,6 +287,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         """Shutdown the coordinator."""
         if self.mqtt_client:
             try:
+                # Remove event listeners
+                self.mqtt_client.off('device_status_update', self._on_device_status_event)
+                self.mqtt_client.off('device_feature_update', self._on_device_feature_event)
+                self.mqtt_client.off('connection_lost', self._on_connection_lost)
+                self.mqtt_client.off('connection_restored', self._on_connection_restored)
+                
                 self.mqtt_client.stop_all_periodic_tasks()
                 self.mqtt_client.disconnect()
             except Exception as err:
