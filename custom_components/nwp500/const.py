@@ -15,7 +15,7 @@ CONF_PASSWORD: Final = "password"
 
 # Default values
 DEFAULT_NAME: Final = "Navien NWP500"
-DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
+DEFAULT_SCAN_INTERVAL: Final = 20  # seconds
 
 # Device types and models
 DEVICE_TYPE_WATER_HEATER: Final = 52
@@ -51,6 +51,8 @@ DHW_MODE_TO_HA: Final = {
     2: STATE_ELECTRIC,      # Electric Only
     3: STATE_ECO,           # Energy Saver (Eco)
     4: STATE_HIGH_DEMAND,   # High Demand
+    5: "vacation",          # Vacation mode
+    6: "off",               # Power Off
 }
 
 HA_TO_DHW_MODE: Final = {
@@ -58,6 +60,8 @@ HA_TO_DHW_MODE: Final = {
     STATE_HEAT_PUMP: 1,     # "heat_pump" -> Heat Pump Only mode
     STATE_HIGH_DEMAND: 4,   # "high_demand" -> High Demand mode
     STATE_ELECTRIC: 2,      # "electric" -> Electric Only mode
+    "vacation": 5,          # "vacation" -> Vacation mode
+    "off": 6,               # "off" -> Power Off mode
 }
 
 # Temperature ranges (from nwp500-python v1.1.1 documentation)

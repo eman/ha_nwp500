@@ -106,7 +106,7 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 
 ## Library Version 1.1.1 Features
 
-This integration uses nwp500-python v1.1.3 which includes:
+This integration uses nwp500-python v1.1.4 which includes:
 
 ### Enhanced DHW Mode Control
 - Direct control via `mqtt.set_dhw_mode()`
@@ -169,7 +169,7 @@ Most sensors are **disabled by default** to avoid cluttering your entity list. Y
 ### Common Issues
 
 **Integration won't load:**
-- Ensure nwp500-python==1.1.3 is installed
+- Ensure nwp500-python==1.1.4 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
