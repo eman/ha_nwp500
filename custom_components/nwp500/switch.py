@@ -63,23 +63,22 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
             return None
         
         try:
-            # Check if DHW (Domestic Hot Water) is being used/heated
-            dhw_use = getattr(status, 'dhwUse', None)
-            if dhw_use is not None:
-                return dhw_use
+            # According to the documentation, check dhwOperationSetting for power state
+            # dhwOperationSetting == 6 means POWER_OFF (device is powered off)
+            # Any other value means the device is powered on (even if idle/standby)
+            dhw_operation_setting = getattr(status, 'dhwOperationSetting', None)
+            if dhw_operation_setting is not None:
+                # Handle both enum and integer values
+                dhw_value = dhw_operation_setting.value if hasattr(dhw_operation_setting, 'value') else dhw_operation_setting
+                return dhw_value != 6  # 6 = POWER_OFF
             
-            # Fallback: check if any heating elements or compressor is running
-            comp_use = getattr(status, 'compUse', None)
-            heat_upper = getattr(status, 'heatUpperUse', None)
-            heat_lower = getattr(status, 'heatLowerUse', None)
-            
-            if any([comp_use, heat_upper, heat_lower]):
-                return True
-            
-            # Fallback to operation mode - device is "on" if in any active mode
+            # Fallback: if dhwOperationSetting is not available, use operationMode
+            # operationMode == 0 means STANDBY (device is on but idle)
+            # Only truly "off" if we can't determine the state
             operation_mode = getattr(status, 'operationMode', None)
             if operation_mode is not None:
-                return str(operation_mode).lower() not in ['off', 'none', '0']
+                # Device is "on" if it has any operation mode value (including 0 for standby)
+                return True
         
         except (AttributeError, TypeError):
             pass

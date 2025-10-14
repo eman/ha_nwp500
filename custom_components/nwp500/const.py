@@ -273,7 +273,7 @@ DEVICE_STATUS_BINARY_SENSORS: Final = {
         "entity_registry_enabled_default": True,
     },
     "freeze_protection_use": {
-        "name": "Freeze Protection Active",
+        "name": "Freeze Protection",
         "device_class": "safety",
         "entity_registry_enabled_default": False,
     },
@@ -303,12 +303,12 @@ DEVICE_STATUS_BINARY_SENSORS: Final = {
         "entity_registry_enabled_default": False,
     },
     "heat_upper_use": {
-        "name": "Upper Electric Element On",
+        "name": "Upper Electric Heating Element",
         "device_class": "heat",
         "entity_registry_enabled_default": True,
     },
     "heat_lower_use": {
-        "name": "Lower Electric Element On", 
+        "name": "Lower Electric Heating Element", 
         "device_class": "heat",
         "entity_registry_enabled_default": True,
     },
@@ -318,12 +318,12 @@ DEVICE_STATUS_BINARY_SENSORS: Final = {
         "entity_registry_enabled_default": False,
     },
     "scald_use": {
-        "name": "Scald Protection Active",
+        "name": "Scald Warning",
         "device_class": "safety",
         "entity_registry_enabled_default": False,
     },
     "anti_legionella_use": {
-        "name": "Anti-Legionella Active",
+        "name": "Anti-Legionella",
         "device_class": "safety",
         "entity_registry_enabled_default": False,
     },
@@ -338,7 +338,7 @@ DEVICE_STATUS_BINARY_SENSORS: Final = {
         "entity_registry_enabled_default": False,
     },
     "error_buzzer_use": {
-        "name": "Error Buzzer Active",
+        "name": "Error Buzzer",
         "device_class": "sound",
         "entity_registry_enabled_default": False,
     },

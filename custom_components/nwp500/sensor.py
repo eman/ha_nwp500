@@ -179,7 +179,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
     # Percentage sensors
     descriptions.append(NWP500SensorEntityDescription(
         key="dhw_charge_per",
-        name="DHW Charge Percentage",
+        name="DHW Charge",
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=PERCENTAGE,
         entity_registry_enabled_default=True,

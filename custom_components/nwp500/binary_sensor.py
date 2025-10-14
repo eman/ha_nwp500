@@ -39,7 +39,7 @@ def create_binary_sensor_descriptions() -> tuple[NWP500BinarySensorEntityDescrip
     
     descriptions.append(NWP500BinarySensorEntityDescription(
         key="freeze_protection_use",
-        name="Freeze Protection Active",
+        name="Freeze Protection",
         device_class=BinarySensorDeviceClass.SAFETY,
         entity_registry_enabled_default=False,
         value_fn=lambda status: getattr(status, 'freezeProtectionUse', None),
@@ -87,7 +87,7 @@ def create_binary_sensor_descriptions() -> tuple[NWP500BinarySensorEntityDescrip
     
     descriptions.append(NWP500BinarySensorEntityDescription(
         key="heat_upper_use",
-        name="Upper Electric Element On",
+        name="Upper Electric Heating Element",
         device_class=BinarySensorDeviceClass.HEAT,
         entity_registry_enabled_default=True,
         value_fn=lambda status: getattr(status, 'heatUpperUse', None),
@@ -95,7 +95,7 @@ def create_binary_sensor_descriptions() -> tuple[NWP500BinarySensorEntityDescrip
     
     descriptions.append(NWP500BinarySensorEntityDescription(
         key="heat_lower_use",
-        name="Lower Electric Element On", 
+        name="Lower Electric Heating Element", 
         device_class=BinarySensorDeviceClass.HEAT,
         entity_registry_enabled_default=True,
         value_fn=lambda status: getattr(status, 'heatLowerUse', None),
@@ -111,7 +111,7 @@ def create_binary_sensor_descriptions() -> tuple[NWP500BinarySensorEntityDescrip
     
     descriptions.append(NWP500BinarySensorEntityDescription(
         key="scald_use",
-        name="Scald Protection Active",
+        name="Scald Warning",
         device_class=BinarySensorDeviceClass.SAFETY,
         entity_registry_enabled_default=False,
         value_fn=lambda status: getattr(status, 'scaldUse', None),
@@ -119,7 +119,7 @@ def create_binary_sensor_descriptions() -> tuple[NWP500BinarySensorEntityDescrip
     
     descriptions.append(NWP500BinarySensorEntityDescription(
         key="anti_legionella_use",
-        name="Anti-Legionella Active",
+        name="Anti-Legionella",
         device_class=BinarySensorDeviceClass.SAFETY,
         entity_registry_enabled_default=False,
         value_fn=lambda status: getattr(status, 'antiLegionellaUse', None),
@@ -144,7 +144,7 @@ def create_binary_sensor_descriptions() -> tuple[NWP500BinarySensorEntityDescrip
     
     descriptions.append(NWP500BinarySensorEntityDescription(
         key="error_buzzer_use",
-        name="Error Buzzer Active",
+        name="Error Buzzer",
         device_class=BinarySensorDeviceClass.SOUND,
         entity_registry_enabled_default=False,
         value_fn=lambda status: getattr(status, 'errorBuzzerUse', None),
@@ -252,3 +252,47 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
                 return None
         
         return None
+
+    @property
+    def state(self) -> str | None:
+        """Return the state of the binary sensor."""
+        # For specific sensors, display custom state values
+        if self.entity_description.key == "scald_use":
+            # Scald Warning sensor displays "enabled/disabled"
+            is_on = self.is_on
+            if is_on is None:
+                return None
+            return "enabled" if is_on else "disabled"
+        elif self.entity_description.key == "freeze_protection_use":
+            # Freeze Protection sensor displays "enabled/disabled"
+            is_on = self.is_on
+            if is_on is None:
+                return None
+            return "enabled" if is_on else "disabled"
+        elif self.entity_description.key == "anti_legionella_use":
+            # Anti-Legionella sensor displays "enabled/disabled"
+            is_on = self.is_on
+            if is_on is None:
+                return None
+            return "enabled" if is_on else "disabled"
+        elif self.entity_description.key == "error_buzzer_use":
+            # Error Buzzer sensor displays "enabled/disabled"
+            is_on = self.is_on
+            if is_on is None:
+                return None
+            return "enabled" if is_on else "disabled"
+        elif self.entity_description.key == "heat_upper_use":
+            # Upper Electric Heating Element displays "active/inactive"
+            is_on = self.is_on
+            if is_on is None:
+                return None
+            return "active" if is_on else "inactive"
+        elif self.entity_description.key == "heat_lower_use":
+            # Lower Electric Heating Element displays "active/inactive"
+            is_on = self.is_on
+            if is_on is None:
+                return None
+            return "active" if is_on else "inactive"
+        
+        # For all other binary sensors, use the default behavior (on/off)
+        return super().state
