@@ -70,15 +70,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         if not hasattr(self, '_device_info_request_counter'):
                             self._device_info_request_counter = {}
                         
-                        if counter >= 10:
-                            self._device_info_request_counter[mac_address] = 0
+                        counter = self._device_info_request_counter.get(mac_address, 0) + 1
+                        counter = counter % 10
+                        self._device_info_request_counter[mac_address] = counter
+                        
+                        if counter == 0:  # Every 10th update (10 * 30 seconds = ~5 minutes)
                             try:
                                 await self.mqtt_client.request_device_info(device)
-                                _LOGGER.debug("Sent fallback device info request for device %s", mac_address)
-                            except Exception as info_err:
-                                _LOGGER.debug("Failed to send fallback device info request for %s: %s", mac_address, info_err)
-                        else:
-                            self._device_info_request_counter[mac_address] = counter
+                                _LOGGER.debug(
+                                    "Sent fallback device info request for device %s", 
                                     mac_address
                                 )
                             except Exception as info_err:
