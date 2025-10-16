@@ -68,7 +68,7 @@ HA_TO_DHW_MODE: Final = {
     # away_mode and on_off features, not through operation_mode
 }
 
-# Temperature ranges (from nwp500-python v1.1.1 documentation)
+# Temperature ranges (from nwp500-python v1.1.5 documentation)
 MIN_TEMPERATURE: Final = 80  # °F (minimum safe operating temperature)
 MAX_TEMPERATURE: Final = 150  # °F (maximum supported by device)
 
