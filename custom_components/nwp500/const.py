@@ -46,24 +46,26 @@ HA_TO_OPERATION_MODE: Final = {
     "vacation": 5,           # "vacation" -> VACATION
 }
 
-# DHW modes that can be set via mqtt.set_dhw_mode()
-# Based on v1.1.1 documentation and CLI example
+# DHW modes that can be read from the device (for display/status purposes)
+# This includes all possible device states including vacation and off
 DHW_MODE_TO_HA: Final = {
     1: STATE_HEAT_PUMP,     # Heat Pump Only
     2: STATE_ELECTRIC,      # Electric Only
     3: STATE_ECO,           # Energy Saver (Eco)
     4: STATE_HIGH_DEMAND,   # High Demand
-    5: "vacation",          # Vacation mode
-    6: "off",               # Power Off
+    5: "vacation",          # Vacation mode (displayed but controlled via away_mode)
+    6: "off",               # Power Off (displayed but controlled via on_off)
 }
 
+# DHW modes that can be set via async_set_operation_mode() 
+# This only includes "normal" operation modes, excluding special states
 HA_TO_DHW_MODE: Final = {
     STATE_ECO: 3,           # "eco" -> Energy Saver mode
     STATE_HEAT_PUMP: 1,     # "heat_pump" -> Heat Pump Only mode
     STATE_HIGH_DEMAND: 4,   # "high_demand" -> High Demand mode
     STATE_ELECTRIC: 2,      # "electric" -> Electric Only mode
-    "vacation": 5,          # "vacation" -> Vacation mode
-    "off": 6,               # "off" -> Power Off mode
+    # Note: vacation (5) and off (6) modes are handled separately via 
+    # away_mode and on_off features, not through operation_mode
 }
 
 # Temperature ranges (from nwp500-python v1.1.1 documentation)

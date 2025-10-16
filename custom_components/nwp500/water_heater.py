@@ -367,6 +367,8 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
 
     async def async_turn_away_mode_on(self) -> None:
         """Turn away mode on by setting to vacation mode."""
+        # Vacation mode is handled separately from operation modes since it's not in operation_list
+        # This follows HA design where away_mode is a dedicated feature, not an operation mode
         success = await self.coordinator.async_control_device(
             self.mac_address, "set_dhw_mode", mode=5  # VACATION mode
         )
