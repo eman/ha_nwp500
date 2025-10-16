@@ -30,9 +30,6 @@ async def async_setup_entry(
         
         # Add power switch
         entities.append(NWP500PowerSwitch(coordinator, mac_address, device))
-        
-        # Add freeze protection switch if available
-        entities.append(NWP500FreezeProtectionSwitch(coordinator, mac_address, device))
     
     async_add_entities(entities, True)
 
@@ -102,53 +99,3 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
         
         if success:
             await self.coordinator.async_request_refresh()
-
-
-class NWP500FreezeProtectionSwitch(NWP500Entity, SwitchEntity):
-    """Navien NWP500 freeze protection switch."""
-
-    def __init__(
-        self,
-        coordinator: NWP500DataUpdateCoordinator,
-        mac_address: str,
-        device,
-    ) -> None:
-        """Initialize the switch."""
-        super().__init__(coordinator, mac_address, device)
-        self._attr_unique_id = f"{mac_address}_freeze_protection"
-        self._attr_name = f"{self.device_name} Freeze Protection"
-        self._attr_icon = "mdi:snowflake"
-
-    @property
-    def is_on(self) -> bool | None:
-        """Return True if freeze protection is enabled."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
-            return None
-        
-        try:
-            freeze_protection = getattr(status, 'freezeProtectionUse', None)
-            return freeze_protection if freeze_protection is not None else None
-        except (AttributeError, TypeError):
-            return None
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        # Only show if freeze protection status is available
-        if not super().available:
-            return False
-        
-        status = self.device_data.get("status")
-        return status is not None and hasattr(status, 'freezeProtectionUse')
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn freeze protection on."""
-        _LOGGER.warning("Freeze protection control not implemented - read-only status")
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn freeze protection off."""
-        _LOGGER.warning("Freeze protection control not implemented - read-only status")
