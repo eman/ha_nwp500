@@ -139,9 +139,9 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                     mode_value = operation_setting
                 
                 # Handle vacation mode (5) - it's managed by away_mode, not operation_mode
-                # When in vacation mode, return eco as the default operational state
+                # When in vacation mode, return None so only away_mode represents vacation state
                 if mode_value == 5:  # VACATION mode
-                    return STATE_ECO
+                    return None
                 
                 # Handle power off mode (6) - return None so only declared 
                 # operation modes are exposed
