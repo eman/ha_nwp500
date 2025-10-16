@@ -43,7 +43,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         )
         
         # Update name with location information if available
-        device_name = device_info.name
+        device_name = device_info["name"]
         if hasattr(self.device, 'location') and self.device.location:
             location = self.device.location
             location_parts = []

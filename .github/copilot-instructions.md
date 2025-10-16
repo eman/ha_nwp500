@@ -10,7 +10,7 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **nwp500-python**: The core Python library that handles communication with Navien NWP500 devices
   - GitHub Repository: https://github.com/eman/nwp500-python
   - Documentation: https://nwp500-python.readthedocs.io/en/stable/
-  - Current Version: 1.1.5 (see `custom_components/nwp500/manifest.json`)
+  - Current Version: 1.2.0 (see `custom_components/nwp500/manifest.json`)
 
 ### Home Assistant Integration
 - Platform: Home Assistant Custom Component
