@@ -29,6 +29,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.devices = []
         self.device_features = {}
         self._periodic_task = None
+        self._device_info_request_counter = {}  # Track fallback device info requests
         
         super().__init__(
             hass,
@@ -67,9 +68,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         # Also request device info occasionally 
                         # (every 10th coordinator update cycle)
                         # This provides a fallback if periodic requests aren't working
-                        if not hasattr(self, '_device_info_request_counter'):
-                            self._device_info_request_counter = {}
-                        
                         counter = self._device_info_request_counter.get(mac_address, 0) + 1
                         counter = counter % 10
                         self._device_info_request_counter[mac_address] = counter
