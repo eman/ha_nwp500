@@ -52,6 +52,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 # Keep existing data if available, or initialize with device info only
                 if self.data and mac_address in self.data:
                     device_data[mac_address] = self.data[mac_address].copy()
+                    # Always use the fresh Device object from self.devices, not from persisted data
+                    device_data[mac_address]["device"] = device
                 else:
                     device_data[mac_address] = {
                         "device": device,
@@ -104,7 +106,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install with: "
-                "pip install nwp500-python==1.1.5 awsiotsdk>=1.20.0"
+                "pip install nwp500-python==1.2.0 awsiotsdk>=1.20.0"
             )
             raise UpdateFailed(f"nwp500-python library not available: {err}") from err
         

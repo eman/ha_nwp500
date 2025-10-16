@@ -104,19 +104,25 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 1.1.5 Features
+## Library Version 1.2.0 Features
 
-This integration uses nwp500-python v1.1.5 which includes:
+This integration uses nwp500-python v1.2.0 which includes:
 
-### Enhanced DHW Mode Control
-- Direct control via `mqtt.set_dhw_mode()`
-- Improved mode mapping and reliability
-- Better error handling and diagnostics
+### Enhanced MQTT Reconnection and Reliability
+- **Improved MQTT Reconnection**: Fixes connection interruption issues with AWS MQTT (AWS_ERROR_MQTT_UNEXPECTED_HANGUP)
+- **Automatic Recovery**: Automatically handles AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION errors
+- **Command Queuing**: Commands sent while disconnected are queued and sent automatically when reconnected
+- **Exponential Backoff**: Robust reconnection with intelligent retry logic
 
-### Intuitive Temperature Control
-- Uses `mqtt.set_dhw_temperature_display()` for direct display temperature setting
-- No manual temperature conversion required
-- What you set is what you see on the device
+### Anti-Legionella Protection Control
+- **Monitoring**: Track periodic disinfection cycles (140°F heating)
+- **Safety Compliance**: Monitor legionella prevention status
+- **Operational Status**: Track when anti-legionella protection is active
+
+### Reservation Management
+- **Schedule Control**: Schedule automatic temperature and mode changes
+- **Program Management**: Monitor and control reservation settings
+- **Automated Operations**: Set up timed operations for energy efficiency
 
 ### Event Emitter Integration
 The integration leverages the new event emitter functionality for:
@@ -169,7 +175,7 @@ Most sensors are **disabled by default** to avoid cluttering your entity list. Y
 ### Common Issues
 
 **Integration won't load:**
-- Ensure nwp500-python==1.1.5 is installed
+- Ensure nwp500-python==1.2.0 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
