@@ -104,7 +104,7 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 1.1.1 Features
+## Library Version 1.1.5 Features
 
 This integration uses nwp500-python v1.1.5 which includes:
 
