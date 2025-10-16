@@ -41,7 +41,7 @@ def create_binary_sensor_descriptions() -> tuple[NWP500BinarySensorEntityDescrip
         key="freeze_protection_use",
         name="Freeze Protection",
         device_class=BinarySensorDeviceClass.SAFETY,
-        entity_registry_enabled_default=False,
+        entity_registry_enabled_default=True,
         value_fn=lambda status: getattr(status, 'freezeProtectionUse', None),
     ))
     
