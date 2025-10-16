@@ -12,6 +12,7 @@ from homeassistant.components.water_heater import (
     STATE_HIGH_DEMAND,
     STATE_ELECTRIC,
 )
+from homeassistant.const import STATE_OFF
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
@@ -144,10 +145,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                 if mode_value == 5:  # VACATION mode
                     return STATE_ECO
                 
-                # Handle power off mode (6) - return None so only declared 
-                # operation modes are exposed
+                # Handle power off mode (6) - return explicit "off" state 
+                # for better UI clarity and semantic consistency with ON_OFF feature
                 if mode_value == 6:  # POWER_OFF mode  
-                    return None
+                    return STATE_OFF
                 
                 # Map normal operation modes to Home Assistant states
                 return DHW_MODE_TO_HA.get(mode_value, "unknown")
@@ -155,7 +156,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         except (AttributeError, TypeError):
             pass
         
-        return None
+        return "unknown"
 
     @property
     def operation_list(self) -> List[str]:
