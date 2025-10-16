@@ -12,11 +12,10 @@ from homeassistant.components.water_heater import (
     STATE_HIGH_DEMAND,
     STATE_ELECTRIC,
 )
+from homeassistant.const import STATE_OFF
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
-    STATE_OFF,
-    STATE_ON,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
@@ -26,8 +25,9 @@ from .const import (
     DOMAIN,
     MAX_TEMPERATURE,
     MIN_TEMPERATURE,
-    OPERATION_MODE_TO_HA,
+    DHW_MODE_TO_HA,
     HA_TO_DHW_MODE,
+    OPERATION_MODE_TO_HA,
 )
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
@@ -60,6 +60,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         WaterHeaterEntityFeature.TARGET_TEMPERATURE
         | WaterHeaterEntityFeature.OPERATION_MODE
         | WaterHeaterEntityFeature.ON_OFF
+        | WaterHeaterEntityFeature.AWAY_MODE
     )
 
     def __init__(
@@ -120,7 +121,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
 
     @property
     def current_operation(self) -> str | None:
-        """Return current operation mode."""
+        """Return current operation mode based on dhwOperationSetting."""
         if not self.device_data:
             return None
         
@@ -129,8 +130,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             return None
         
         try:
-            # Use dhwOperationSetting (user's configured mode) rather than operationMode (current state)
-            # This provides more consistent behavior for the water heater entity
+            # Use dhwOperationSetting as the primary source for water heater state
             operation_setting = getattr(status, 'dhwOperationSetting', None)
             if operation_setting is not None:
                 # Convert enum to value if it's an enum
@@ -139,28 +139,36 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                 else:
                     mode_value = operation_setting
                 
-                # Map to Home Assistant operation mode
-                return OPERATION_MODE_TO_HA.get(mode_value, "unknown")
-            
-            # Fallback to operationMode if dhwOperationSetting is not available
-            operation_mode = getattr(status, 'operationMode', None)
-            if operation_mode is not None:
-                if hasattr(operation_mode, 'value'):
-                    mode_value = operation_mode.value
-                else:
-                    mode_value = operation_mode
-                    
-                return OPERATION_MODE_TO_HA.get(mode_value, "unknown")
+                # Handle vacation mode (5) - it's managed by away_mode, not operation_mode
+                # When in vacation mode, return eco as the underlying operational state
+                # The vacation state is properly exposed via is_away_mode_on property
+                if mode_value == 5:  # VACATION mode
+                    return STATE_ECO
+                
+                # Handle power off mode (6) - return explicit "off" state 
+                # for better UI clarity and semantic consistency with ON_OFF feature
+                if mode_value == 6:  # POWER_OFF mode  
+                    return STATE_OFF
+                
+                # Map normal operation modes to Home Assistant states
+                return DHW_MODE_TO_HA.get(mode_value, "unknown")
                 
         except (AttributeError, TypeError):
             pass
         
-        return None
+        return "unknown"
 
     @property
     def operation_list(self) -> List[str]:
-        """Return the list of available operation modes."""
-        # Based on the Home Assistant water heater states that map to DHW modes
+        """Return the list of available operation modes.
+        
+        Note: This excludes vacation and power-off modes because:
+        - Vacation mode is handled by the AWAY_MODE feature
+        - Power-off mode is handled by the ON_OFF feature
+        
+        This follows Home Assistant's design where operation modes represent
+        active heating modes, while special states are handled by dedicated features.
+        """
         return [STATE_ECO, STATE_HEAT_PUMP, STATE_HIGH_DEMAND, STATE_ELECTRIC]
 
     @property
@@ -208,11 +216,26 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         return None
 
     @property
-    def state(self) -> str:
-        """Return the current state."""
-        if self.is_on is None:
-            return "unknown"
-        return STATE_ON if self.is_on else STATE_OFF
+    def is_away_mode_on(self) -> bool | None:
+        """Return true if away mode (vacation mode) is on."""
+        if not self.device_data:
+            return None
+        
+        status = self.device_data.get("status")
+        if not status:
+            return None
+        
+        try:
+            operation_setting = getattr(status, 'dhwOperationSetting', None)
+            if operation_setting is not None:
+                if hasattr(operation_setting, 'value'):
+                    return operation_setting.value == 5  # VACATION mode
+                else:
+                    return operation_setting == 5
+        except (AttributeError, TypeError):
+            pass
+            
+        return False
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -236,19 +259,33 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             current_operation_name = "unknown"
             dhw_setting_name = "unknown"
             
+            # Use OPERATION_MODE_TO_HA for operationMode (current actual state)
             if operation_mode is not None:
                 if hasattr(operation_mode, 'value'):
-                    current_operation_name = OPERATION_MODE_TO_HA.get(operation_mode.value, f"mode_{operation_mode.value}")
-                
+                    current_operation_name = OPERATION_MODE_TO_HA.get(
+                        operation_mode.value, f"mode_{operation_mode.value}"
+                    )
+            
+            # Use DHW_MODE_TO_HA for dhwOperationSetting (user configured mode)
             if dhw_operation_setting is not None:
                 if hasattr(dhw_operation_setting, 'value'):
-                    dhw_setting_name = OPERATION_MODE_TO_HA.get(dhw_operation_setting.value, f"mode_{dhw_operation_setting.value}")
+                    dhw_setting_name = DHW_MODE_TO_HA.get(
+                        dhw_operation_setting.value, 
+                        f"mode_{dhw_operation_setting.value}"
+                    )
+                else:
+                    dhw_setting_name = DHW_MODE_TO_HA.get(
+                        dhw_operation_setting, f"mode_{dhw_operation_setting}"
+                    )
             
             attrs.update({
                 # User-friendly operation mode display
                 "dhw_mode_setting": dhw_setting_name,  # What user has configured
-                "current_operation_state": current_operation_name,  # What device is currently doing
-                "mode_description": f"Set: {dhw_setting_name.replace('_', ' ').title()}, Running: {current_operation_name.replace('_', ' ').title()}",
+                "current_operation_state": current_operation_name,  # What device is doing
+                "mode_description": (
+                    f"Set: {dhw_setting_name.replace('_', ' ').title()}, "
+                    f"Running: {current_operation_name.replace('_', ' ').title()}"
+                ),
                 
                 # Temperature and status info
                 "outside_temperature": getattr(status, 'outsideTemperature', None),
@@ -329,15 +366,32 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         # When turning "on", set to energy saver (eco) mode as default
         await self.async_set_operation_mode(STATE_ECO)
 
-    async def async_turn_off(self) -> None:
-        """Turn the water heater off."""
-        # Note: NWP500 may not support complete power off via MQTT
-        # This would require checking if power control is available
+    async def async_turn_away_mode_on(self) -> None:
+        """Turn away mode on by setting to vacation mode."""
+        # Vacation mode is handled separately from operation modes since it's not in operation_list
+        # This follows HA design where away_mode is a dedicated feature, not an operation mode
         success = await self.coordinator.async_control_device(
-            self.mac_address, "set_power", power_on=False
+            self.mac_address, "set_dhw_mode", mode=5  # VACATION mode
         )
         
         if success:
             await self.coordinator.async_request_refresh()
         else:
-            _LOGGER.warning("Power off may not be supported via MQTT for this device")
+            _LOGGER.error("Failed to set vacation mode")
+
+    async def async_turn_away_mode_off(self) -> None:
+        """Turn away mode off by returning to eco mode."""
+        await self.async_set_operation_mode(STATE_ECO)
+
+    async def async_turn_off(self) -> None:
+        """Turn the water heater off by setting to power off mode."""
+        # Use DHW mode 6 (POWER_OFF) instead of the uncertain set_power method
+        # This maps to the "off" operation mode in our DHW_MODE_TO_HA mapping
+        success = await self.coordinator.async_control_device(
+            self.mac_address, "set_dhw_mode", mode=6  # POWER_OFF mode
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to set water heater to power off mode")

@@ -29,6 +29,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.devices = []
         self.device_features = {}
         self._periodic_task = None
+        self._device_info_request_counter = {}  # Track fallback device info requests
         
         super().__init__(
             hass,
@@ -63,8 +64,32 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     try:
                         await self.mqtt_client.request_device_status(device)
                         _LOGGER.debug("Requested status update for device %s", mac_address)
+                        
+                        # Also request device info occasionally 
+                        # (every 10th coordinator update cycle)
+                        # This provides a fallback if periodic requests aren't working
+                        counter = self._device_info_request_counter.get(mac_address, 0) + 1
+                        counter = counter % 10
+                        self._device_info_request_counter[mac_address] = counter
+                        
+                        if counter == 0:  # Every 10th update (10 * 30 seconds = ~5 minutes)
+                            try:
+                                await self.mqtt_client.request_device_info(device)
+                                _LOGGER.debug(
+                                    "Sent fallback device info request for device %s", 
+                                    mac_address
+                                )
+                            except Exception as info_err:
+                                _LOGGER.debug(
+                                    "Failed to send fallback device info request for %s: %s", 
+                                    mac_address, info_err
+                                )
+                                
                     except Exception as err:
-                        _LOGGER.warning("Failed to request status for device %s: %s", mac_address, err)
+                        _LOGGER.warning(
+                            "Failed to request status for device %s: %s", 
+                            mac_address, err
+                        )
             
             return device_data
             
@@ -78,7 +103,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             from nwp500 import NavienAuthClient, NavienAPIClient, NavienMqttClient
         except ImportError as err:
             _LOGGER.error(
-                "nwp500-python library not installed. Please install with: pip install nwp500-python==1.1.3 awsiotsdk>=1.20.0"
+                "nwp500-python library not installed. Please install with: "
+                "pip install nwp500-python==1.1.5 awsiotsdk>=1.20.0"
             )
             raise UpdateFailed(f"nwp500-python library not available: {err}") from err
         
@@ -123,22 +149,55 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 # Subscribe to device status updates
                 for device in self.devices:
                     try:
-                        await self.mqtt_client.subscribe_device_status(device, self._on_device_status_update)
+                        await self.mqtt_client.subscribe_device_status(
+                            device, self._on_device_status_update
+                        )
                         # Also subscribe to device feature updates for firmware/serial info
-                        await self.mqtt_client.subscribe_device_feature(device, self._on_device_feature_update)
+                        await self.mqtt_client.subscribe_device_feature(
+                            device, self._on_device_feature_update
+                        )
                     except Exception as err:
-                        _LOGGER.warning("Failed to subscribe to device %s: %s", device.device_info.mac_address, err)
+                        _LOGGER.warning(
+                            "Failed to subscribe to device %s: %s", 
+                            device.device_info.mac_address, err
+                        )
                 
                 # Start periodic status requests via MQTT (every 5 minutes)
                 for device in self.devices:
                     try:
-                        await self.mqtt_client.start_periodic_device_status_requests(device, 300.0)
-                        # Also request device info periodically (every 30 minutes for firmware info)
-                        await self.mqtt_client.start_periodic_device_info_requests(device, 1800.0)
+                        await self.mqtt_client.start_periodic_device_status_requests(
+                            device, 300.0
+                        )
+                        # Also request device info periodically 
+                        # (every 30 minutes for firmware info)
+                        await self.mqtt_client.start_periodic_device_info_requests(
+                            device, 1800.0
+                        )
+                        
+                        # Make an immediate device info request to get 
+                        # firmware/serial data right away
+                        try:
+                            await self.mqtt_client.request_device_info(device)
+                            _LOGGER.info(
+                                "Sent immediate device info request for %s", 
+                                device.device_info.mac_address
+                            )
+                        except Exception as info_err:
+                            _LOGGER.warning(
+                                "Failed to send immediate device info request for %s: %s", 
+                                device.device_info.mac_address, info_err
+                            )
+                            
                     except Exception as err:
-                        _LOGGER.warning("Failed to start periodic requests for device %s: %s", device.device_info.mac_address, err)
+                        _LOGGER.warning(
+                            "Failed to start periodic requests for device %s: %s", 
+                            device.device_info.mac_address, err
+                        )
             
-            _LOGGER.info("Successfully connected to Navien cloud service with %d devices", len(self.devices))
+            _LOGGER.info(
+                "Successfully connected to Navien cloud service with %d devices", 
+                len(self.devices)
+            )
             
         except Exception as err:
             _LOGGER.error("Failed to setup clients: %s", err)
@@ -189,9 +248,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
     def _on_device_status_update(self, status) -> None:
         """Handle device status update from MQTT (legacy callback)."""
-        # START DIAGNOSTIC CODE
-        _LOGGER.error("NWP500 Diagnostic Data: %s", status)
-        # END DIAGNOSTIC CODE
         try:
             # Find the device by checking the status data
             # The status should contain mac_address or we can match by other means
@@ -282,6 +338,44 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("Failed to send command %s: %s", command, err)
             return False
+
+    async def async_request_device_info(self, mac_address: str = None) -> bool:
+        """Manually request device info for a specific device or all devices."""
+        if not self.mqtt_client:
+            _LOGGER.error("MQTT client not available")
+            return False
+        
+        devices_to_update = []
+        if mac_address:
+            # Request for specific device
+            for dev in self.devices:
+                if dev.device_info.mac_address == mac_address:
+                    devices_to_update.append(dev)
+                    break
+        else:
+            # Request for all devices
+            devices_to_update = self.devices
+        
+        if not devices_to_update:
+            _LOGGER.error("No devices found for device info request")
+            return False
+        
+        success_count = 0
+        for device in devices_to_update:
+            try:
+                await self.mqtt_client.request_device_info(device)
+                _LOGGER.info(
+                    "Sent manual device info request for %s", 
+                    device.device_info.mac_address
+                )
+                success_count += 1
+            except Exception as err:
+                _LOGGER.error(
+                    "Failed to send manual device info request for %s: %s", 
+                    device.device_info.mac_address, err
+                )
+        
+        return success_count > 0
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
