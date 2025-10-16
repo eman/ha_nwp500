@@ -15,7 +15,9 @@ CONF_PASSWORD: Final = "password"
 
 # Default values
 DEFAULT_NAME: Final = "Navien NWP500"
-DEFAULT_SCAN_INTERVAL: Final = 20  # seconds
+# Default polling interval for device status updates. 
+# Set to 30 seconds to balance data freshness and server load.
+DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
 
 # Device types and models
 DEVICE_TYPE_WATER_HEATER: Final = 52
