@@ -1,12 +1,12 @@
-# NWP500 Home Assistant Integration - v1.1.1 Upgrade Summary
+# NWP500 Home Assistant Integration - v1.1.5 Upgrade Summary
 
 ## Overview
-This document summarizes the comprehensive upgrade of the Navien NWP500 Home Assistant integration to support nwp500-python library version 1.1.1.
+This document summarizes the comprehensive upgrade of the Navien NWP500 Home Assistant integration to support nwp500-python library version 1.1.5.
 
 ## Major Changes
 
 ### 1. Library Version Update
-- **Updated**: `nwp500-python==1.0.3` → `nwp500-python==1.1.1`
+- **Updated**: `nwp500-python==1.0.3` → `nwp500-python==1.1.5`
 - **Files Modified**: `manifest.json`
 
 ### 2. Water Heater Entity Enhancements
