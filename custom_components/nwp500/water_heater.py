@@ -155,7 +155,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         except (AttributeError, TypeError):
             pass
         
-        return "unknown"
+        return None
 
     @property
     def operation_list(self) -> List[str]:
