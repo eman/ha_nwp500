@@ -32,17 +32,17 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
     def _build_device_info(self) -> DeviceInfo:
         """Build device info with all available information."""
+        # Start with base device info
         device_info = DeviceInfo(
             identifiers={(DOMAIN, self.mac_address)},
             name=self.device.device_info.device_name or "Navien NWP500",
             manufacturer="Navien",
             model="NWP500",
+            connections={("mac", self.mac_address.lower())},
         )
         
-        # Add MAC address to device info connections
-        device_info["connections"] = {("mac", self.mac_address.lower())}
-        
-        # Add location information if available (makes devices easier to identify)
+        # Update name with location information if available
+        device_name = device_info.name
         if hasattr(self.device, 'location') and self.device.location:
             location = self.device.location
             location_parts = []
@@ -51,24 +51,23 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             if location.state:
                 location_parts.append(location.state)
             if location_parts:
-                # Update the device name to include location
-                device_info["name"] = f"{device_info['name']} ({', '.join(location_parts)})"
+                # Create new DeviceInfo with updated name
+                device_name = f"{device_name} ({', '.join(location_parts)})"
         
         # Get device feature info for additional details
+        serial_number = None
+        sw_version = None
         device_feature = self.coordinator.device_features.get(self.mac_address)
         if device_feature:
             _LOGGER.debug("Device feature available for %s", self.mac_address)
-            # Add serial number
+            # Get serial number
             serial_number = getattr(device_feature, 'controllerSerialNumber', None)
-            if serial_number:
-                device_info["serial_number"] = serial_number
             
-            # Add controller firmware version as the primary sw_version
+            # Build comprehensive version string showing all firmware versions
             controller_version = getattr(device_feature, 'controllerSwVersion', None)
             panel_version = getattr(device_feature, 'panelSwVersion', None)
             wifi_version = getattr(device_feature, 'wifiSwVersion', None)
             
-            # Build a comprehensive version string showing all firmware versions
             version_parts = []
             if controller_version:
                 version_parts.append(f"Controller: {controller_version}")
@@ -79,24 +78,31 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             
             if version_parts:
                 sw_version = " | ".join(version_parts)
-                device_info["sw_version"] = sw_version
         
-        # Add hardware version based on device type and connection status
-        # This should always be available from basic device info
+        # Build hardware version based on device type and connection status
         hw_version_parts = [f"Type {self.device.device_info.device_type}"]
         
-        # Check connection status - use the same pattern as extra_state_attributes
+        # Check connection status
         if hasattr(self.device.device_info, 'connected') and self.device.device_info.connected is not None:
             connection_status = "Connected" if self.device.device_info.connected else "Disconnected"
             hw_version_parts.append(connection_status)
         
         hw_version = " | ".join(hw_version_parts)
-        device_info["hw_version"] = hw_version
         
-        # Add suggested area based on device type (water heaters are typically in utility rooms)
-        device_info["suggested_area"] = "Utility Room"
+        # Create final DeviceInfo with all attributes
+        final_device_info = DeviceInfo(
+            identifiers={(DOMAIN, self.mac_address)},
+            name=device_name,
+            manufacturer="Navien",
+            model="NWP500",
+            connections={("mac", self.mac_address.lower())},
+            serial_number=serial_number,
+            sw_version=sw_version,
+            hw_version=hw_version,
+            suggested_area="Utility Room",
+        )
         
-        return device_info
+        return final_device_info
 
     @property
     def device_info(self) -> DeviceInfo:
