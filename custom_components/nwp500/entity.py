@@ -64,21 +64,10 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             # Get serial number
             serial_number = getattr(device_feature, 'controllerSerialNumber', None)
             
-            # Build comprehensive version string showing all firmware versions
+            # Use controller firmware version as primary sw_version (HA convention)
+            # This provides a concise version identifier for the main device firmware
             controller_version = getattr(device_feature, 'controllerSwVersion', None)
-            panel_version = getattr(device_feature, 'panelSwVersion', None)
-            wifi_version = getattr(device_feature, 'wifiSwVersion', None)
-            
-            version_parts = []
-            if controller_version:
-                version_parts.append(f"Controller: {controller_version}")
-            if panel_version:
-                version_parts.append(f"Panel: {panel_version}")
-            if wifi_version:
-                version_parts.append(f"WiFi: {wifi_version}")
-            
-            if version_parts:
-                sw_version = " | ".join(version_parts)
+            sw_version = controller_version  # Simple, clean version for HA device info
         
         # Build hardware version based on device type and connection status
         hw_version_parts = [f"Type {self.device.device_info.device_type}"]
@@ -166,11 +155,27 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             # Add device feature info if available (technical details not in device info)
             device_feature = self.coordinator.device_features.get(self.mac_address)
             if device_feature:
-                # Keep additional technical information that doesn't belong in device info
+                # Individual firmware versions for technical analysis
+                controller_version = getattr(device_feature, 'controllerSwVersion', None)
+                panel_version = getattr(device_feature, 'panelSwVersion', None)
+                wifi_version = getattr(device_feature, 'wifiSwVersion', None)
+                
                 attrs.update({
-                    "controller_sw_version": getattr(device_feature, 'controllerSwVersion', None),
-                    "panel_sw_version": getattr(device_feature, 'panelSwVersion', None), 
-                    "wifi_sw_version": getattr(device_feature, 'wifiSwVersion', None),
+                    "controller_sw_version": controller_version,
+                    "panel_sw_version": panel_version, 
+                    "wifi_sw_version": wifi_version,
                 })
+                
+                # Add composite firmware version string for comprehensive view
+                version_parts = []
+                if controller_version:
+                    version_parts.append(f"Controller: {controller_version}")
+                if panel_version:
+                    version_parts.append(f"Panel: {panel_version}")
+                if wifi_version:
+                    version_parts.append(f"WiFi: {wifi_version}")
+                
+                if version_parts:
+                    attrs["firmware_versions"] = " | ".join(version_parts)
         
         return attrs
