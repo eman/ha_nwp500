@@ -70,9 +70,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                             self._device_info_request_counter = {}
                         
                         counter = self._device_info_request_counter.get(mac_address, 0) + 1
+                        counter = counter % 10
                         self._device_info_request_counter[mac_address] = counter
                         
-                        if counter % 10 == 0:  # Every 10th update (10 * 20 seconds = ~3.3 minutes)
+                        if counter == 0:  # Every 10th update (10 * 20 seconds = ~3.3 minutes)
                             try:
                                 await self.mqtt_client.request_device_info(device)
                                 _LOGGER.debug("Sent fallback device info request for device %s", mac_address)

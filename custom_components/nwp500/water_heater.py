@@ -143,9 +143,9 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                 if mode_value == 5:  # VACATION mode
                     return STATE_ECO
                 
-                # Handle power off mode (6) - return off for consistency
+                # Handle power off mode (6) - return None so only declared operation modes are exposed
                 if mode_value == 6:  # POWER_OFF mode  
-                    return "off"
+                    return None
                 
                 # Map normal operation modes to Home Assistant states
                 return DHW_MODE_TO_HA.get(mode_value, "unknown")
