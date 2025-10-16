@@ -143,7 +143,8 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                 if mode_value == 5:  # VACATION mode
                     return STATE_ECO
                 
-                # Handle power off mode (6) - return None so only declared operation modes are exposed
+                # Handle power off mode (6) - return None so only declared 
+                # operation modes are exposed
                 if mode_value == 6:  # POWER_OFF mode  
                     return None
                 
@@ -212,8 +213,6 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             
         return None
 
-
-
     @property
     def is_away_mode_on(self) -> bool | None:
         """Return true if away mode (vacation mode) is on."""
@@ -235,6 +234,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             pass
             
         return False
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return additional state attributes."""
@@ -260,20 +260,30 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             # Use OPERATION_MODE_TO_HA for operationMode (current actual state)
             if operation_mode is not None:
                 if hasattr(operation_mode, 'value'):
-                    current_operation_name = OPERATION_MODE_TO_HA.get(operation_mode.value, f"mode_{operation_mode.value}")
+                    current_operation_name = OPERATION_MODE_TO_HA.get(
+                        operation_mode.value, f"mode_{operation_mode.value}"
+                    )
             
             # Use DHW_MODE_TO_HA for dhwOperationSetting (user configured mode)
             if dhw_operation_setting is not None:
                 if hasattr(dhw_operation_setting, 'value'):
-                    dhw_setting_name = DHW_MODE_TO_HA.get(dhw_operation_setting.value, f"mode_{dhw_operation_setting.value}")
+                    dhw_setting_name = DHW_MODE_TO_HA.get(
+                        dhw_operation_setting.value, 
+                        f"mode_{dhw_operation_setting.value}"
+                    )
                 else:
-                    dhw_setting_name = DHW_MODE_TO_HA.get(dhw_operation_setting, f"mode_{dhw_operation_setting}")
+                    dhw_setting_name = DHW_MODE_TO_HA.get(
+                        dhw_operation_setting, f"mode_{dhw_operation_setting}"
+                    )
             
             attrs.update({
                 # User-friendly operation mode display
                 "dhw_mode_setting": dhw_setting_name,  # What user has configured
-                "current_operation_state": current_operation_name,  # What device is currently doing
-                "mode_description": f"Set: {dhw_setting_name.replace('_', ' ').title()}, Running: {current_operation_name.replace('_', ' ').title()}",
+                "current_operation_state": current_operation_name,  # What device is doing
+                "mode_description": (
+                    f"Set: {dhw_setting_name.replace('_', ' ').title()}, "
+                    f"Running: {current_operation_name.replace('_', ' ').title()}"
+                ),
                 
                 # Temperature and status info
                 "outside_temperature": getattr(status, 'outsideTemperature', None),
@@ -356,7 +366,14 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
 
     async def async_turn_away_mode_on(self) -> None:
         """Turn away mode on by setting to vacation mode."""
-        await self.async_set_operation_mode("vacation")
+        success = await self.coordinator.async_control_device(
+            self.mac_address, "set_dhw_mode", mode=5  # VACATION mode
+        )
+        
+        if success:
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to set vacation mode")
 
     async def async_turn_away_mode_off(self) -> None:
         """Turn away mode off by returning to eco mode."""
