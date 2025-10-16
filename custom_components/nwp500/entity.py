@@ -26,6 +26,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         super().__init__(coordinator)
         self.mac_address = mac_address
         self.device = device
+        self._last_feature_update = None
         
         # Build device info with available information
         self._attr_device_info = self._build_device_info()
@@ -107,15 +108,19 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info, updating if new feature data is available."""
-        # Check if device features have been updated since initialization
+        # Check if device features have been updated since last rebuild
         current_feature = self.coordinator.device_features.get(self.mac_address)
         
-        # Always rebuild device info to ensure it's current
-        # This ensures hardware version and other basic info is always included
-        self._attr_device_info = self._build_device_info()
+        # Only rebuild if features have changed or this is the first access
+        feature_changed = (
+            current_feature != self._last_feature_update or 
+            self._attr_device_info is None
+        )
         
-        # Track feature updates to avoid unnecessary rebuilds in the future
-        if current_feature:
+        if feature_changed:
+            # Rebuild device info with current feature data
+            self._attr_device_info = self._build_device_info()
+            # Update tracking to prevent unnecessary rebuilds
             self._last_feature_update = current_feature
         
         return self._attr_device_info
