@@ -270,7 +270,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
     # Operation mode sensors
     descriptions.append(NWP500SensorEntityDescription(
         key="operation_mode",
-        name="Operation Mode",
+        name="Current Operation Mode",
         entity_registry_enabled_default=True,
         value_fn=lambda status: getattr(status, 'operationMode', None).name if hasattr(getattr(status, 'operationMode', None), 'name') else str(getattr(status, 'operationMode', None)),
     ))

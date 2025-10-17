@@ -25,9 +25,9 @@ from .const import (
     DOMAIN,
     MAX_TEMPERATURE,
     MIN_TEMPERATURE,
-    DHW_MODE_TO_HA,
+    DHW_OPERATION_SETTING_TO_HA,
     HA_TO_DHW_MODE,
-    OPERATION_MODE_TO_HA,
+    CURRENT_OPERATION_MODE_TO_HA,
 )
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
@@ -151,7 +151,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                     return STATE_OFF
                 
                 # Map normal operation modes to Home Assistant states
-                return DHW_MODE_TO_HA.get(mode_value, "unknown")
+                return DHW_OPERATION_SETTING_TO_HA.get(mode_value, "unknown")
                 
         except (AttributeError, TypeError):
             pass
@@ -259,22 +259,22 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             current_operation_name = "unknown"
             dhw_setting_name = "unknown"
             
-            # Use OPERATION_MODE_TO_HA for operationMode (current actual state)
+            # Use CURRENT_OPERATION_MODE_TO_HA for operationMode (current actual state)
             if operation_mode is not None:
                 if hasattr(operation_mode, 'value'):
-                    current_operation_name = OPERATION_MODE_TO_HA.get(
+                    current_operation_name = CURRENT_OPERATION_MODE_TO_HA.get(
                         operation_mode.value, f"mode_{operation_mode.value}"
                     )
             
-            # Use DHW_MODE_TO_HA for dhwOperationSetting (user configured mode)
+            # Use DHW_OPERATION_SETTING_TO_HA for dhwOperationSetting (user configured mode)
             if dhw_operation_setting is not None:
                 if hasattr(dhw_operation_setting, 'value'):
-                    dhw_setting_name = DHW_MODE_TO_HA.get(
+                    dhw_setting_name = DHW_OPERATION_SETTING_TO_HA.get(
                         dhw_operation_setting.value, 
                         f"mode_{dhw_operation_setting.value}"
                     )
                 else:
-                    dhw_setting_name = DHW_MODE_TO_HA.get(
+                    dhw_setting_name = DHW_OPERATION_SETTING_TO_HA.get(
                         dhw_operation_setting, f"mode_{dhw_operation_setting}"
                     )
             

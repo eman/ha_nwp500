@@ -22,39 +22,33 @@ DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
 # Device types and models
 DEVICE_TYPE_WATER_HEATER: Final = 52
 
-# Operation modes mapping for Home Assistant water heater entity
-# Maps nwp500-python OperationMode enum values to HA water heater states
-OPERATION_MODE_TO_HA: Final = {
+# CurrentOperationMode mapping for Home Assistant water heater entity
+# Maps nwp500-python CurrentOperationMode enum values to HA water heater states
+CURRENT_OPERATION_MODE_TO_HA: Final = {
     0: "standby",           # STANDBY
-    1: STATE_HEAT_PUMP,     # HEAT_PUMP -> "heat_pump"
-    2: STATE_ELECTRIC,      # ELECTRIC -> "electric"  
-    3: STATE_ECO,           # ENERGY_SAVER -> "eco" (maps to ENERGY_SAVER in HA)
-    4: STATE_HIGH_DEMAND,   # HIGH_DEMAND -> "high_demand"
-    5: "vacation",          # VACATION
-    6: "off",               # POWER_OFF
     32: STATE_HEAT_PUMP,    # HEAT_PUMP_MODE (operational state)
     64: STATE_ECO,          # HYBRID_EFFICIENCY_MODE (operational state) 
     96: STATE_HIGH_DEMAND,  # HYBRID_BOOST_MODE (operational state)
 }
 
-# Reverse mapping for setting operation modes
-HA_TO_OPERATION_MODE: Final = {
+# DhwOperationSetting mapping for Home Assistant water heater entity
+# Maps nwp500-python DhwOperationSetting enum values to HA water heater states  
+DHW_OPERATION_SETTING_TO_HA: Final = {
+    1: STATE_HEAT_PUMP,     # HEAT_PUMP -> "heat_pump"
+    2: STATE_ELECTRIC,      # ELECTRIC -> "electric"  
+    3: STATE_ECO,           # ENERGY_SAVER -> "eco"
+    4: STATE_HIGH_DEMAND,   # HIGH_DEMAND -> "high_demand"
+    5: "vacation",          # VACATION
+    6: "off",               # POWER_OFF
+}
+
+# Reverse mapping for setting DHW operation modes
+HA_TO_DHW_OPERATION_SETTING: Final = {
     STATE_ECO: 3,            # "eco" -> ENERGY_SAVER
     STATE_HEAT_PUMP: 1,      # "heat_pump" -> HEAT_PUMP
     STATE_HIGH_DEMAND: 4,    # "high_demand" -> HIGH_DEMAND
     STATE_ELECTRIC: 2,       # "electric" -> ELECTRIC
     "vacation": 5,           # "vacation" -> VACATION
-}
-
-# DHW modes that can be read from the device (for display/status purposes)
-# This includes all possible device states including vacation and off
-DHW_MODE_TO_HA: Final = {
-    1: STATE_HEAT_PUMP,     # Heat Pump Only
-    2: STATE_ELECTRIC,      # Electric Only
-    3: STATE_ECO,           # Energy Saver (Eco)
-    4: STATE_HIGH_DEMAND,   # High Demand
-    5: "vacation",          # Vacation mode (displayed but controlled via away_mode)
-    6: "off",               # Power Off (displayed but controlled via on_off)
 }
 
 # DHW modes that can be set via async_set_operation_mode() 
@@ -68,7 +62,10 @@ HA_TO_DHW_MODE: Final = {
     # away_mode and on_off features, not through operation_mode
 }
 
-# Temperature ranges (from nwp500-python v1.1.5 documentation)
+# Legacy alias for backward compatibility within this component
+DHW_MODE_TO_HA: Final = DHW_OPERATION_SETTING_TO_HA
+
+# Temperature ranges (from nwp500-python v2.0.0 documentation)
 MIN_TEMPERATURE: Final = 80  # °F (minimum safe operating temperature)
 MAX_TEMPERATURE: Final = 150  # °F (maximum supported by device)
 
