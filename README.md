@@ -104,9 +104,9 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 1.2.0 Features
+## Library Version 1.2.2 Features
 
-This integration uses nwp500-python v1.2.0 which includes:
+This integration uses nwp500-python v1.2.2 which includes:
 
 ### Enhanced MQTT Reconnection and Reliability
 - **Improved MQTT Reconnection**: Fixes connection interruption issues with AWS MQTT (AWS_ERROR_MQTT_UNEXPECTED_HANGUP)
@@ -175,7 +175,7 @@ Most sensors are **disabled by default** to avoid cluttering your entity list. Y
 ### Common Issues
 
 **Integration won't load:**
-- Ensure nwp500-python==1.2.0 is installed
+- Ensure nwp500-python==1.2.2 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
