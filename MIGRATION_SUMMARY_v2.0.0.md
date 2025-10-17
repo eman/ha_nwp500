@@ -19,28 +19,33 @@ Successfully migrated the ha_nwp500 Home Assistant custom component from nwp500-
 
 #### New Mapping Structure
 ```python
+# Note: STATE_* constants come from homeassistant.components.water_heater
+# (STATE_ECO, STATE_HEAT_PUMP, STATE_HIGH_DEMAND, STATE_ELECTRIC)
+
 # Real-time device operation states (CurrentOperationMode enum)
 CURRENT_OPERATION_MODE_TO_HA = {
     0: "standby",           # STANDBY
-    32: STATE_HEAT_PUMP,    # HEAT_PUMP_MODE
-    64: STATE_ECO,          # HYBRID_EFFICIENCY_MODE  
-    96: STATE_HIGH_DEMAND,  # HYBRID_BOOST_MODE
+    32: STATE_HEAT_PUMP,    # HEAT_PUMP_MODE -> "heat_pump"
+    64: STATE_ECO,          # HYBRID_EFFICIENCY_MODE -> "eco"
+    96: STATE_HIGH_DEMAND,  # HYBRID_BOOST_MODE -> "high_demand"
 }
 
-# User operation settings (DhwOperationSetting enum)
+# User operation settings (DhwOperationSetting enum) 
 DHW_OPERATION_SETTING_TO_HA = {
-    1: STATE_HEAT_PUMP,     # HEAT_PUMP
-    2: STATE_ELECTRIC,      # ELECTRIC
-    3: STATE_ECO,           # ENERGY_SAVER
-    4: STATE_HIGH_DEMAND,   # HIGH_DEMAND
+    1: STATE_HEAT_PUMP,     # HEAT_PUMP -> "heat_pump"
+    2: STATE_ELECTRIC,      # ELECTRIC -> "electric"
+    3: STATE_ECO,           # ENERGY_SAVER -> "eco"
+    4: STATE_HIGH_DEMAND,   # HIGH_DEMAND -> "high_demand"
     5: "vacation",          # VACATION
     6: "off",               # POWER_OFF
 }
 ```
 
 #### Updated Reverse Mapping
-- **Renamed**: `HA_TO_OPERATION_MODE` → `HA_TO_DHW_OPERATION_SETTING`
-- **Added**: Legacy alias `DHW_MODE_TO_HA = DHW_OPERATION_SETTING_TO_HA` for backward compatibility
+- **Restructured**: Clear separation between normal operation modes and special states
+- **`HA_TO_DHW_MODE`**: Only normal operation modes usable in `async_set_operation_mode()` 
+- **`HA_TO_DHW_OPERATION_SETTING`**: Complete mapping including special states (vacation)
+- **Rationale**: Special states like vacation and power_off are handled via dedicated Home Assistant features (away_mode, on_off) rather than the operation_mode feature
 
 ### 3. Updated Water Heater Implementation (`water_heater.py`)
 

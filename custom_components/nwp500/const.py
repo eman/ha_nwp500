@@ -42,24 +42,24 @@ DHW_OPERATION_SETTING_TO_HA: Final = {
     6: "off",               # POWER_OFF
 }
 
-# Reverse mapping for setting DHW operation modes
-HA_TO_DHW_OPERATION_SETTING: Final = {
-    STATE_ECO: 3,            # "eco" -> ENERGY_SAVER
-    STATE_HEAT_PUMP: 1,      # "heat_pump" -> HEAT_PUMP
-    STATE_HIGH_DEMAND: 4,    # "high_demand" -> HIGH_DEMAND
-    STATE_ELECTRIC: 2,       # "electric" -> ELECTRIC
-    "vacation": 5,           # "vacation" -> VACATION
-}
-
-# DHW modes that can be set via async_set_operation_mode() 
-# This only includes "normal" operation modes, excluding special states
+# Reverse mapping for setting DHW operation modes via async_set_operation_mode()
+# This only includes "normal" operation modes that can be set through the operation_mode feature
+# Special states (vacation, power_off) are handled separately via away_mode and on_off features
 HA_TO_DHW_MODE: Final = {
     STATE_ECO: 3,           # "eco" -> Energy Saver mode
     STATE_HEAT_PUMP: 1,     # "heat_pump" -> Heat Pump Only mode
     STATE_HIGH_DEMAND: 4,   # "high_demand" -> High Demand mode
     STATE_ELECTRIC: 2,      # "electric" -> Electric Only mode
-    # Note: vacation (5) and off (6) modes are handled separately via 
-    # away_mode and on_off features, not through operation_mode
+    # Note: vacation (5) and power_off (6) modes are excluded here since they are
+    # handled via dedicated away_mode and on_off features, not operation_mode
+}
+
+# Complete mapping for all DHW operation settings (includes special states)
+# Use this when you need to handle vacation mode or when displaying current DHW setting
+HA_TO_DHW_OPERATION_SETTING: Final = {
+    **HA_TO_DHW_MODE,       # Include all normal operation modes
+    "vacation": 5,          # VACATION mode (handled via away_mode feature)
+    # Note: power_off (6) is handled implicitly via on_off feature, not stored in this mapping
 }
 
 # Legacy alias for backward compatibility within this component
