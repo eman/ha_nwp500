@@ -218,7 +218,7 @@ DEVICE_STATUS_SENSORS: Final = {
     "fan_pwm": {
         "name": "Fan PWM",
         "device_class": None,
-        "unit": "%",
+        "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
