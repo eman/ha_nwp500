@@ -104,7 +104,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         try:
             # Reuse existing data structure to reduce memory allocations
             # Only create new dict if this is the first update
-            device_data = self.data if self.data else {}
+            device_data = dict(self.data) if self.data else {}
             
             for device in self.devices:
                 mac_address = device.device_info.mac_address
