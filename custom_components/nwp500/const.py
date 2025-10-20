@@ -24,7 +24,9 @@ MIN_SCAN_INTERVAL: Final = 10  # seconds (minimum to avoid server overload)
 MAX_SCAN_INTERVAL: Final = 300  # seconds (maximum 5 minutes)
 
 # Performance monitoring
-SLOW_UPDATE_THRESHOLD: Final = 2.0  # seconds - warn if update takes longer than this
+# MQTT request/response typically takes 2-4 seconds due to cloud roundtrip
+# Set threshold to 5 seconds to avoid false warnings during normal operation
+SLOW_UPDATE_THRESHOLD: Final = 5.0  # seconds - warn if update takes longer than this
 
 # Device types and models
 DEVICE_TYPE_WATER_HEATER: Final = 52

@@ -10,7 +10,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to Navien service",
+      "cannot_connect": "Failed to connect to Navien service. If authentication succeeded but no devices were found, please verify your device is registered in the NaviLink app and is online.",
       "invalid_auth": "Invalid email or password",
       "unknown": "Unexpected error occurred"
     },

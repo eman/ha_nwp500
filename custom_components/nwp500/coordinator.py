@@ -176,7 +176,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             if duration > SLOW_UPDATE_THRESHOLD:
                 _LOGGER.warning(
                     "Slow coordinator update detected: %.2fs (threshold: %.1fs). "
-                    "Consider increasing scan interval or checking network connectivity.",
+                    "This may indicate network latency or connectivity issues. "
+                    "Consider increasing scan interval in integration options if this persists.",
                     duration,
                     SLOW_UPDATE_THRESHOLD,
                 )
@@ -218,7 +219,17 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             # Get devices
             self.devices = await self.api_client.list_devices()
             if not self.devices:
-                raise UpdateFailed("No devices found")
+                _LOGGER.error(
+                    "No devices found for account %s. "
+                    "Please verify: (1) Device is registered in NaviLink app, "
+                    "(2) Device is online and connected to WiFi, "
+                    "(3) Using correct account credentials.",
+                    email
+                )
+                raise UpdateFailed(
+                    "No devices found for this account. "
+                    "Please check the NaviLink app to verify your device is registered and online."
+                )
             
             _LOGGER.info("Found %d devices", len(self.devices))
             
@@ -483,8 +494,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.mqtt_client.off('connection_lost', self._on_connection_lost)
                 self.mqtt_client.off('connection_restored', self._on_connection_restored)
                 
-                self.mqtt_client.stop_all_periodic_tasks()
-                self.mqtt_client.disconnect()
+                await self.mqtt_client.stop_all_periodic_tasks()
+                await self.mqtt_client.disconnect()
             except Exception as err:
                 _LOGGER.debug("Error disconnecting MQTT client: %s", err)
             self.mqtt_client = None

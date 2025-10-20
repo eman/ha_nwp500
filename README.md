@@ -186,6 +186,34 @@ Most sensors are **disabled by default** to avoid cluttering your entity list. Y
 
 ### Common Issues
 
+**"No devices found" error during setup:**
+
+This error means authentication succeeded, but the Navien cloud API returned an empty device list. To resolve:
+
+1. **Verify device in NaviLink app**: 
+   - Open the NaviLink Smart Control mobile app
+   - Ensure your NWP500 device appears in the app
+   - Verify you can control the device from the app
+
+2. **Check device online status**:
+   - Ensure the device is powered on
+   - Verify WiFi connection is active on the device
+   - Check the device's WiFi indicator light
+
+3. **Re-register device if necessary**:
+   - In the NaviLink app, try removing and re-adding the device
+   - Follow the device setup wizard in the app
+   - Wait a few minutes for registration to complete
+
+4. **Verify account credentials**:
+   - Ensure you're using the correct Navien account
+   - If you have multiple accounts, verify which one has the device registered
+   - Try logging out and back into the NaviLink app
+
+5. **Check for multiple users**:
+   - Only the account that registered the device may see it in the API
+   - Contact the device owner if you're using a shared device
+
 **Integration won't load:**
 - Ensure nwp500-python==3.0.0 is installed
 - Check Home Assistant logs for specific errors

@@ -125,7 +125,16 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
             devices = await api_client.list_devices()
             
             if not devices:
-                raise InvalidAuth("No devices found for this account")
+                _LOGGER.error(
+                    "No devices found for account %s. "
+                    "Authentication succeeded but device list is empty. "
+                    "Please verify device is registered in NaviLink app.",
+                    email
+                )
+                raise CannotConnect(
+                    "No devices found for this account. "
+                    "Please check the NaviLink app to verify your device is registered and online."
+                )
                 
             # Get first device for title
             device = devices[0]
