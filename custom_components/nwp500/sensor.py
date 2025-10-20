@@ -68,13 +68,23 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         # Determine the value function based on special handling needs
         if config.get("special") == "enum_name":
             # Special handling for enum types that need .name extraction
-            value_fn = lambda status, attr=attr_name: (
-                (val := getattr(status, attr, None)).name if val is not None and hasattr(val, 'name')
-                else str(val) if val is not None else None
-            )
+            def _make_enum_value_fn(attr: str) -> Callable[[Any], str | None]:
+                def value_fn(status: Any) -> str | None:
+                    val = getattr(status, attr, None)
+                    if val is not None and hasattr(val, 'name'):
+                        return val.name  # type: ignore[no-any-return]
+                    elif val is not None:
+                        return str(val)
+                    return None
+                return value_fn
+            value_fn = _make_enum_value_fn(attr_name)
         else:
             # Standard attribute getter
-            value_fn = lambda status, attr=attr_name: getattr(status, attr, None)
+            def _make_standard_value_fn(attr: str) -> Callable[[Any], Any]:
+                def value_fn(status: Any) -> Any:
+                    return getattr(status, attr, None)
+                return value_fn
+            value_fn = _make_standard_value_fn(attr_name)
         
         descriptions.append(NWP500SensorEntityDescription(
             key=key,

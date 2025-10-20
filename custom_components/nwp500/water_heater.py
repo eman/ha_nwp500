@@ -236,7 +236,9 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                     dhw_value, f"mode_{dhw_value}"
                 )
             
-            # Efficiently get multiple status attributes at once
+            # Performance optimization: Batch fetch multiple status attributes at once
+            # Single pass through device status dict vs 13 individual getattr() calls
+            # Reduces attribute access overhead and improves extra_state_attributes performance
             status_attrs = self._get_status_attrs(
                 'outsideTemperature', 'operationBusy', 'errorCode', 'subErrorCode',
                 'dischargeTemperature', 'suctionTemperature', 'freezeProtectionUse',
