@@ -7,16 +7,23 @@ from typing import Any
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    CONF_SCAN_INTERVAL,
+    DEFAULT_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
+    MAX_SCAN_INTERVAL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
 # Import at module level to avoid blocking calls in event loop
 try:
-    from nwp500 import NavienAuthClient, NavienAPIClient
+    from nwp500 import NavienAuthClient, NavienAPIClient  # type: ignore[attr-defined]
     NWP500_AVAILABLE = True
 except ImportError:
     NWP500_AVAILABLE = False
@@ -34,9 +41,17 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(
+        config_entry: config_entries.ConfigEntry,
+    ) -> OptionsFlowHandler:
+        """Get the options flow for this handler."""
+        return OptionsFlowHandler(config_entry)
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
         
@@ -58,12 +73,44 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
 
-async def validate_input(hass, data: dict[str, Any]) -> dict[str, Any]:
+class OptionsFlowHandler(config_entries.OptionsFlow):
+    """Handle options flow for NWP500 integration."""
+
+    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
+        """Initialize options flow."""
+        self.config_entry = config_entry
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Manage the options."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=user_input)
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_SCAN_INTERVAL,
+                        default=self.config_entry.options.get(
+                            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
+                        ),
+                    ): vol.All(
+                        vol.Coerce(int),
+                        vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                    ),
+                }
+            ),
+        )
+
+
+async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
     if not NWP500_AVAILABLE:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            "pip install nwp500-python==2.0.0 awsiotsdk>=1.25.0"
+            "pip install nwp500-python==3.0.0 awsiotsdk>=1.25.0"
         )
         raise CannotConnect("nwp500-python library not available")
     

@@ -9,7 +9,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import DOMAIN, get_enum_value
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
 
@@ -41,7 +41,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device,
+        device: Any,
     ) -> None:
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)
@@ -52,11 +52,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
     @property
     def is_on(self) -> bool | None:
         """Return True if switch is on."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return None
         
         try:
@@ -65,9 +61,8 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
             # Any other value means the device is powered on (even if idle/standby)
             dhw_operation_setting = getattr(status, 'dhwOperationSetting', None)
             if dhw_operation_setting is not None:
-                # Handle both enum and integer values
-                dhw_value = dhw_operation_setting.value if hasattr(dhw_operation_setting, 'value') else dhw_operation_setting
-                return dhw_value != 6  # 6 = POWER_OFF
+                dhw_value = get_enum_value(dhw_operation_setting)
+                return bool(dhw_value != 6)  # 6 = POWER_OFF
             
             # Fallback: if dhwOperationSetting is not available, use operationMode
             # operationMode == 0 means STANDBY (device is on but idle)

@@ -28,6 +28,7 @@ from .const import (
     DHW_OPERATION_SETTING_TO_HA,
     HA_TO_DHW_MODE,
     CURRENT_OPERATION_MODE_TO_HA,
+    get_enum_value,
 )
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
@@ -67,7 +68,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device,
+        device: Any,
     ) -> None:
         """Initialize the water heater."""
         super().__init__(coordinator, mac_address, device)
@@ -77,11 +78,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
     @property
     def current_temperature(self) -> float | None:
         """Return the current temperature."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return None
         
         # Get average tank temperature from upper and lower sensors
@@ -90,11 +87,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             lower_temp = getattr(status, 'tankLowerTemperature', None)
             
             if upper_temp is not None and lower_temp is not None:
-                return (upper_temp + lower_temp) / 2
+                return float((upper_temp + lower_temp) / 2)
             elif upper_temp is not None:
-                return upper_temp
+                return float(upper_temp)
             elif lower_temp is not None:
-                return lower_temp
+                return float(lower_temp)
         except (AttributeError, TypeError):
             pass
             
@@ -103,11 +100,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return None
         
         # Get target DHW temperature from status
@@ -122,22 +115,14 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
     @property
     def current_operation(self) -> str | None:
         """Return current operation mode based on dhwOperationSetting."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return None
         
         try:
             # Use dhwOperationSetting as the primary source for water heater state
             operation_setting = getattr(status, 'dhwOperationSetting', None)
             if operation_setting is not None:
-                # Convert enum to value if it's an enum
-                if hasattr(operation_setting, 'value'):
-                    mode_value = operation_setting.value
-                else:
-                    mode_value = operation_setting
+                mode_value = get_enum_value(operation_setting)
                 
                 # Handle vacation mode (5) - it's managed by away_mode, not operation_mode
                 # When in vacation mode, return eco as the underlying operational state
@@ -174,21 +159,14 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
     @property
     def is_on(self) -> bool | None:
         """Return True if the water heater is on."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return None
         
         try:
             # Check dhwOperationSetting to see if device is set to a valid operating mode
             operation_setting = getattr(status, 'dhwOperationSetting', None)
             if operation_setting is not None:
-                if hasattr(operation_setting, 'value'):
-                    mode_value = operation_setting.value
-                else:
-                    mode_value = operation_setting
+                mode_value = get_enum_value(operation_setting)
                 
                 # Device is "on" if not in POWER_OFF (6) or STANDBY (0) modes
                 return mode_value not in [0, 6]
@@ -205,10 +183,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             # Final fallback to operationMode
             operation_mode = getattr(status, 'operationMode', None)
             if operation_mode is not None:
-                if hasattr(operation_mode, 'value'):
-                    return operation_mode.value not in [0, 6]  # Not STANDBY or POWER_OFF
-                else:
-                    return operation_mode not in [0, 6]
+                return get_enum_value(operation_mode) not in [0, 6]  # Not STANDBY or POWER_OFF
         
         except (AttributeError, TypeError):
             pass
@@ -218,20 +193,13 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
     @property
     def is_away_mode_on(self) -> bool | None:
         """Return true if away mode (vacation mode) is on."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return None
         
         try:
             operation_setting = getattr(status, 'dhwOperationSetting', None)
             if operation_setting is not None:
-                if hasattr(operation_setting, 'value'):
-                    return operation_setting.value == 5  # VACATION mode
-                else:
-                    return operation_setting == 5
+                return bool(get_enum_value(operation_setting) == 5)  # VACATION mode
         except (AttributeError, TypeError):
             pass
             
@@ -242,11 +210,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         """Return additional state attributes."""
         attrs = super().extra_state_attributes
         
-        if not self.device_data:
-            return attrs
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return attrs
         
         # Add useful status information
@@ -255,28 +219,30 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             operation_mode = getattr(status, 'operationMode', None)
             dhw_operation_setting = getattr(status, 'dhwOperationSetting', None)
             
-            # Convert enum operation modes to friendly names
+            # Convert enum operation modes to friendly names using get_enum_value
             current_operation_name = "unknown"
             dhw_setting_name = "unknown"
             
             # Use CURRENT_OPERATION_MODE_TO_HA for operationMode (current actual state)
             if operation_mode is not None:
-                if hasattr(operation_mode, 'value'):
-                    current_operation_name = CURRENT_OPERATION_MODE_TO_HA.get(
-                        operation_mode.value, f"mode_{operation_mode.value}"
-                    )
+                current_operation_name = CURRENT_OPERATION_MODE_TO_HA.get(
+                    get_enum_value(operation_mode), f"mode_{get_enum_value(operation_mode)}"
+                )
             
             # Use DHW_OPERATION_SETTING_TO_HA for dhwOperationSetting (user configured mode)
             if dhw_operation_setting is not None:
-                if hasattr(dhw_operation_setting, 'value'):
-                    dhw_setting_name = DHW_OPERATION_SETTING_TO_HA.get(
-                        dhw_operation_setting.value, 
-                        f"mode_{dhw_operation_setting.value}"
-                    )
-                else:
-                    dhw_setting_name = DHW_OPERATION_SETTING_TO_HA.get(
-                        dhw_operation_setting, f"mode_{dhw_operation_setting}"
-                    )
+                dhw_value = get_enum_value(dhw_operation_setting)
+                dhw_setting_name = DHW_OPERATION_SETTING_TO_HA.get(
+                    dhw_value, f"mode_{dhw_value}"
+                )
+            
+            # Efficiently get multiple status attributes at once
+            status_attrs = self._get_status_attrs(
+                'outsideTemperature', 'operationBusy', 'errorCode', 'subErrorCode',
+                'dischargeTemperature', 'suctionTemperature', 'freezeProtectionUse',
+                'currentInstPower', 'dhwChargePer', 'wifiRssi', 'compUse',
+                'heatUpperUse', 'heatLowerUse'
+            )
             
             attrs.update({
                 # User-friendly operation mode display
@@ -287,24 +253,24 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                     f"Running: {current_operation_name.replace('_', ' ').title()}"
                 ),
                 
-                # Temperature and status info
-                "outside_temperature": getattr(status, 'outsideTemperature', None),
-                "operation_busy": getattr(status, 'operationBusy', None),
-                "error_code": getattr(status, 'errorCode', None),
-                "sub_error_code": getattr(status, 'subErrorCode', None),
-                "discharge_temperature": getattr(status, 'dischargeTemperature', None),
-                "suction_temperature": getattr(status, 'suctionTemperature', None),
-                "freeze_protection_active": getattr(status, 'freezeProtectionUse', None),
-                "current_power": getattr(status, 'currentInstPower', None),
-                "dhw_charge_percentage": getattr(status, 'dhwChargePer', None),
-                "wifi_rssi": getattr(status, 'wifiRssi', None),
+                # Temperature and status info (from efficient batch get)
+                "outside_temperature": status_attrs['outsideTemperature'],
+                "operation_busy": status_attrs['operationBusy'],
+                "error_code": status_attrs['errorCode'],
+                "sub_error_code": status_attrs['subErrorCode'],
+                "discharge_temperature": status_attrs['dischargeTemperature'],
+                "suction_temperature": status_attrs['suctionTemperature'],
+                "freeze_protection_active": status_attrs['freezeProtectionUse'],
+                "current_power": status_attrs['currentInstPower'],
+                "dhw_charge_percentage": status_attrs['dhwChargePer'],
+                "wifi_rssi": status_attrs['wifiRssi'],
                 
-                # Component status
-                "compressor_running": getattr(status, 'compUse', None),
-                "upper_element_on": getattr(status, 'heatUpperUse', None),
-                "lower_element_on": getattr(status, 'heatLowerUse', None),
+                # Component status (from efficient batch get)
+                "compressor_running": status_attrs['compUse'],
+                "upper_element_on": status_attrs['heatUpperUse'],
+                "lower_element_on": status_attrs['heatLowerUse'],
                 
-                # Raw values for diagnostics (keep existing)
+                # Raw values for diagnostics
                 "operation_mode_raw": operation_mode,
                 "dhw_operation_setting_raw": dhw_operation_setting,
             })
@@ -313,7 +279,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         
         return attrs
 
-    async def async_set_temperature(self, **kwargs) -> None:
+    async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature.
         
         Uses set_dhw_temperature_display() which takes the display temperature
@@ -361,7 +327,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         else:
             _LOGGER.error("Failed to set operation mode to %s", operation_mode)
 
-    async def async_turn_on(self) -> None:
+    async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the water heater on by setting it to energy saver mode."""
         # When turning "on", set to energy saver (eco) mode as default
         await self.async_set_operation_mode(STATE_ECO)
@@ -383,7 +349,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         """Turn away mode off by returning to eco mode."""
         await self.async_set_operation_mode(STATE_ECO)
 
-    async def async_turn_off(self) -> None:
+    async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the water heater off by setting to power off mode."""
         # Use DHW mode 6 (POWER_OFF) instead of the uncertain set_power method
         # This maps to the "off" operation mode in our DHW_MODE_TO_HA mapping

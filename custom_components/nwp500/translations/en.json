@@ -17,5 +17,19 @@
     "abort": {
       "already_configured": "Account is already configured"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "NWP500 Options",
+        "description": "Configure advanced settings for your Navien NWP500 integration.",
+        "data": {
+          "scan_interval": "Update interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds."
+        }
+      }
+    }
   }
 }

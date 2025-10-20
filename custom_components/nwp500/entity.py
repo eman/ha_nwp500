@@ -20,7 +20,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device,
+        device: Any,
     ) -> None:
         """Initialize the entity."""
         super().__init__(coordinator)
@@ -30,6 +30,36 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         
         # Build device info with available information
         self._attr_device_info = self._build_device_info()
+
+    @property
+    def _status(self) -> Any | None:
+        """Get device status with minimal overhead.
+        
+        This property provides a cached, efficient way to access device status
+        without repeating null checks throughout entity code.
+        
+        Returns:
+            Device status object or None if unavailable
+        """
+        if not self.device_data:
+            return None
+        return self.device_data.get("status")
+
+    def _get_status_attrs(self, *attrs: str) -> dict[str, Any]:
+        """Efficiently get multiple status attributes at once.
+        
+        This helper method reduces repetitive getattr() calls by fetching
+        multiple attributes in a single operation.
+        
+        Args:
+            *attrs: Variable number of attribute names to fetch
+            
+        Returns:
+            Dictionary mapping attribute names to their values (or None)
+        """
+        if not (status := self._status):
+            return {attr: None for attr in attrs}
+        return {attr: getattr(status, attr, None) for attr in attrs}
 
     def _build_device_info(self) -> DeviceInfo:
         """Build device info with all available information."""
@@ -111,6 +141,10 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             self._attr_device_info = self._build_device_info()
             # Update tracking to prevent unnecessary rebuilds
             self._last_feature_update = current_feature
+        
+        # Ensure we always return a DeviceInfo, not None
+        if self._attr_device_info is None:
+            self._attr_device_info = self._build_device_info()
         
         return self._attr_device_info
 

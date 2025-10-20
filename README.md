@@ -104,9 +104,21 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 1.2.3 Features
+## Library Version 3.0.0
 
-This integration uses nwp500-python v1.2.3 which includes:
+This integration uses nwp500-python v3.0.0 which includes:
+
+### Breaking Changes from v2.0.0
+- **Removed**: Deprecated `OperationMode` enum (fully replaced by `DhwOperationSetting` and `CurrentOperationMode`)
+- **Removed**: Migration helper functions from v2.x
+- **Clean API**: Streamlined enum structure for better type safety
+
+### Enhanced Type Safety
+- **DhwOperationSetting**: User-configured mode preferences (Heat Pump, Electric, Energy Saver, High Demand, Vacation, Power Off)
+- **CurrentOperationMode**: Real-time operational states (Standby, Heat Pump Mode, Hybrid Efficiency Mode, Hybrid Boost Mode)
+- **Better IDE Support**: More specific enum types prevent accidental misuse
+
+### Continued Features from v2.x
 
 ### Enhanced MQTT Reconnection and Reliability
 - **Improved MQTT Reconnection**: Fixes connection interruption issues with AWS MQTT (AWS_ERROR_MQTT_UNEXPECTED_HANGUP)
@@ -175,7 +187,7 @@ Most sensors are **disabled by default** to avoid cluttering your entity list. Y
 ### Common Issues
 
 **Integration won't load:**
-- Ensure nwp500-python==1.2.3 is installed
+- Ensure nwp500-python==3.0.0 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**

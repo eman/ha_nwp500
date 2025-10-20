@@ -18,7 +18,7 @@ from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
 
 
-@dataclass
+@dataclass(frozen=True)
 class NWP500BinarySensorEntityDescription(BinarySensorEntityDescription):
     """Describes NWP500 binary sensor entity."""
 
@@ -226,7 +226,7 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device,
+        device: Any,
         description: NWP500BinarySensorEntityDescription,
     ) -> None:
         """Initialize the binary sensor."""
@@ -238,11 +238,7 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
     @property
     def is_on(self) -> bool | None:
         """Return true if the binary sensor is on."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return None
         
         if self.entity_description.value_fn:
@@ -252,47 +248,3 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
                 return None
         
         return None
-
-    @property
-    def state(self) -> str | None:
-        """Return the state of the binary sensor."""
-        # For specific sensors, display custom state values
-        if self.entity_description.key == "scald_use":
-            # Scald Warning sensor displays "enabled/disabled"
-            is_on = self.is_on
-            if is_on is None:
-                return None
-            return "enabled" if is_on else "disabled"
-        elif self.entity_description.key == "freeze_protection_use":
-            # Freeze Protection sensor displays "enabled/disabled"
-            is_on = self.is_on
-            if is_on is None:
-                return None
-            return "enabled" if is_on else "disabled"
-        elif self.entity_description.key == "anti_legionella_use":
-            # Anti-Legionella sensor displays "enabled/disabled"
-            is_on = self.is_on
-            if is_on is None:
-                return None
-            return "enabled" if is_on else "disabled"
-        elif self.entity_description.key == "error_buzzer_use":
-            # Error Buzzer sensor displays "enabled/disabled"
-            is_on = self.is_on
-            if is_on is None:
-                return None
-            return "enabled" if is_on else "disabled"
-        elif self.entity_description.key == "heat_upper_use":
-            # Upper Electric Heating Element displays "active/inactive"
-            is_on = self.is_on
-            if is_on is None:
-                return None
-            return "active" if is_on else "inactive"
-        elif self.entity_description.key == "heat_lower_use":
-            # Lower Electric Heating Element displays "active/inactive"
-            is_on = self.is_on
-            if is_on is None:
-                return None
-            return "active" if is_on else "inactive"
-        
-        # For all other binary sensors, use the default behavior (on/off)
-        return super().state

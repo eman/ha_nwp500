@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
@@ -45,7 +46,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device,
+        device: Any,
     ) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator, mac_address, device)
@@ -56,11 +57,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the current target temperature."""
-        if not self.device_data:
-            return None
-        
-        status = self.device_data.get("status")
-        if not status:
+        if not (status := self._status):
             return None
         
         try:

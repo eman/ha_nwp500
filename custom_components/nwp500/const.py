@@ -1,5 +1,5 @@
 """Constants for the Navien NWP500 integration."""
-from typing import Final
+from typing import Final, Any
 from homeassistant.components.water_heater import (
     STATE_ECO,
     STATE_HEAT_PUMP,
@@ -12,15 +12,39 @@ DOMAIN: Final = "nwp500"
 # Configuration
 CONF_EMAIL: Final = "email"
 CONF_PASSWORD: Final = "password"
+CONF_SCAN_INTERVAL: Final = "scan_interval"
 
 # Default values
 DEFAULT_NAME: Final = "Navien NWP500"
 # Default polling interval for device status updates. 
 # Set to 30 seconds to balance data freshness and server load.
+# Users can configure this via integration options (10-300 seconds).
 DEFAULT_SCAN_INTERVAL: Final = 30  # seconds
+MIN_SCAN_INTERVAL: Final = 10  # seconds (minimum to avoid server overload)
+MAX_SCAN_INTERVAL: Final = 300  # seconds (maximum 5 minutes)
+
+# Performance monitoring
+SLOW_UPDATE_THRESHOLD: Final = 2.0  # seconds - warn if update takes longer than this
 
 # Device types and models
 DEVICE_TYPE_WATER_HEATER: Final = 52
+
+
+# Utility functions
+def get_enum_value(obj: Any) -> Any:
+    """Get the value of an enum or return the object itself.
+    
+    This helper function safely extracts values from enums while
+    gracefully handling non-enum types.
+    
+    Args:
+        obj: An enum object or any other type
+        
+    Returns:
+        The .value attribute if the object has one, otherwise the object itself
+    """
+    return obj.value if hasattr(obj, 'value') else obj
+
 
 # CurrentOperationMode mapping for Home Assistant water heater entity
 # Maps nwp500-python CurrentOperationMode enum values to HA water heater states
@@ -65,7 +89,7 @@ HA_TO_DHW_OPERATION_SETTING: Final = {
 # Legacy alias for backward compatibility within this component
 DHW_MODE_TO_HA: Final = DHW_OPERATION_SETTING_TO_HA
 
-# Temperature ranges (from nwp500-python v2.0.0 documentation)
+# Temperature ranges (from nwp500-python documentation)
 MIN_TEMPERATURE: Final = 80  # °F (minimum safe operating temperature)
 MAX_TEMPERATURE: Final = 150  # °F (maximum supported by device)
 
@@ -356,5 +380,270 @@ DEVICE_STATUS_BINARY_SENSORS: Final = {
         "name": "Program Reservation Active",
         "device_class": None,
         "entity_registry_enabled_default": False,
+    },
+}
+
+# Data-driven sensor configuration
+# This replaces ~400 lines of repetitive sensor description code
+SENSOR_CONFIGS: Final = {
+    # Temperature sensors
+    "outside_temperature": {
+        "attr": "outsideTemperature",
+        "name": "Outside Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": True,
+    },
+    "tank_upper_temperature": {
+        "attr": "tankUpperTemperature",
+        "name": "Tank Upper Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": True,
+    },
+    "tank_lower_temperature": {
+        "attr": "tankLowerTemperature",
+        "name": "Tank Lower Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": True,
+    },
+    "discharge_temperature": {
+        "attr": "dischargeTemperature",
+        "name": "Discharge Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "suction_temperature": {
+        "attr": "suctionTemperature",
+        "name": "Suction Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "evaporator_temperature": {
+        "attr": "evaporatorTemperature",
+        "name": "Evaporator Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "ambient_temperature": {
+        "attr": "ambientTemperature",
+        "name": "Ambient Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "dhw_temperature": {
+        "attr": "dhwTemperature",
+        "name": "DHW Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": True,
+    },
+    "dhw_temperature_2": {
+        "attr": "dhwTemperature2",
+        "name": "DHW Temperature 2",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "current_inlet_temperature": {
+        "attr": "currentInletTemperature",
+        "name": "Current Inlet Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "freeze_protection_temperature": {
+        "attr": "freezeProtectionTemperature",
+        "name": "Freeze Protection Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "target_super_heat": {
+        "attr": "targetSuperHeat",
+        "name": "Target Super Heat",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "current_super_heat": {
+        "attr": "currentSuperHeat",
+        "name": "Current Super Heat",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    # Power and energy sensors
+    "current_inst_power": {
+        "attr": "currentInstPower",
+        "name": "Current Power",
+        "device_class": "power",
+        "unit": "W",
+        "state_class": "measurement",
+        "enabled": True,
+    },
+    "total_energy_capacity": {
+        "attr": "totalEnergyCapacity",
+        "name": "Total Energy Capacity",
+        "device_class": "energy",
+        "unit": "Wh",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "available_energy_capacity": {
+        "attr": "availableEnergyCapacity",
+        "name": "Available Energy Capacity",
+        "device_class": "energy",
+        "unit": "Wh",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    # Percentage sensors
+    "dhw_charge_per": {
+        "attr": "dhwChargePer",
+        "name": "DHW Charge",
+        "unit": "%",
+        "state_class": "measurement",
+        "enabled": True,
+    },
+    "mixing_rate": {
+        "attr": "mixingRate",
+        "name": "Mixing Rate",
+        "unit": "%",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "fan_pwm": {
+        "attr": "fanPwm",
+        "name": "Fan PWM",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    # Signal strength
+    "wifi_rssi": {
+        "attr": "wifiRssi",
+        "name": "WiFi RSSI",
+        "device_class": "signal_strength",
+        "unit": "dBm",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    # Status and error codes
+    "error_code": {
+        "attr": "errorCode",
+        "name": "Error Code",
+        "enabled": True,
+    },
+    "sub_error_code": {
+        "attr": "subErrorCode",
+        "name": "Sub Error Code",
+        "enabled": False,
+    },
+    # Flow rate sensors
+    "current_dhw_flow_rate": {
+        "attr": "currentDhwFlowRate",
+        "name": "Current DHW Flow Rate",
+        "unit": "GPM",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "cumulated_dhw_flow_rate": {
+        "attr": "cumulatedDhwFlowRate",
+        "name": "Cumulated DHW Flow Rate",
+        "unit": "gallons",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    # Fan sensors
+    "target_fan_rpm": {
+        "attr": "targetFanRpm",
+        "name": "Target Fan RPM",
+        "unit": "RPM",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "current_fan_rpm": {
+        "attr": "currentFanRpm",
+        "name": "Current Fan RPM",
+        "unit": "RPM",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    # Vacation sensors
+    "vacation_day_setting": {
+        "attr": "vacationDaySetting",
+        "name": "Vacation Day Setting",
+        "unit": "days",
+        "enabled": False,
+    },
+    "vacation_day_elapsed": {
+        "attr": "vacationDayElapsed",
+        "name": "Vacation Day Elapsed",
+        "unit": "days",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    # Diagnostic sensors
+    "eev_step": {
+        "attr": "eevStep",
+        "name": "EEV Step",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "current_state_num": {
+        "attr": "currentStateNum",
+        "name": "Current State Number",
+        "enabled": False,
+    },
+    "smart_diagnostic": {
+        "attr": "smartDiagnostic",
+        "name": "Smart Diagnostic",
+        "enabled": False,
+    },
+    "special_function_status": {
+        "attr": "specialFunctionStatus",
+        "name": "Special Function Status",
+        "enabled": False,
+    },
+    "fault_status_1": {
+        "attr": "faultStatus1",
+        "name": "Fault Status 1",
+        "enabled": False,
+    },
+    "fault_status_2": {
+        "attr": "faultStatus2",
+        "name": "Fault Status 2",
+        "enabled": False,
+    },
+    # Operation mode sensors (these have custom value_fn handling)
+    "operation_mode": {
+        "attr": "operationMode",
+        "name": "Current Operation Mode",
+        "enabled": True,
+        "special": "enum_name",  # Custom handling for enum.name
+    },
+    "dhw_operation_setting": {
+        "attr": "dhwOperationSetting",
+        "name": "DHW Operation Setting",
+        "enabled": True,
+        "special": "enum_name",  # Custom handling for enum.name
     },
 }

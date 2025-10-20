@@ -24,3 +24,8 @@ Thumbs.db
 *.db-wal
 *.log
 token.txt
+
+# Type checking
+.mypy_cache/
+.tox/
+.venv/

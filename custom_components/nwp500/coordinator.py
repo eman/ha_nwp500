@@ -5,14 +5,22 @@ import asyncio
 import logging
 import time
 from datetime import timedelta
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    CONF_SCAN_INTERVAL,
+    SLOW_UPDATE_THRESHOLD,
+)
+
+if TYPE_CHECKING:
+    from nwp500 import NavienAuthClient, NavienAPIClient, NavienMqttClient  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -23,46 +31,97 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize the coordinator."""
         self.entry = entry
-        self.auth_client = None
-        self.api_client = None
-        self.mqtt_client = None
-        self.devices = []
-        self.device_features = {}
-        self._periodic_task = None
-        self._device_info_request_counter = {}  # Track fallback device info requests
+        self.auth_client: NavienAuthClient | None = None
+        self.api_client: NavienAPIClient | None = None
+        self.mqtt_client: NavienMqttClient | None = None
+        self.devices: list[Any] = []
+        self.device_features: dict[str, Any] = {}
+        self._periodic_task: asyncio.Task[Any] | None = None
+        self._device_info_request_counter: dict[str, int] = {}  # Track fallback device info requests
+        
+        # Performance tracking
+        self._update_count: int = 0
+        self._total_update_time: float = 0.0
+        self._slowest_update: float = 0.0
+        
+        # Get scan interval from options, fall back to default
+        scan_interval = entry.options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
         
         super().__init__(
             hass,
             _LOGGER,
             name=DOMAIN,
-            update_interval=timedelta(seconds=DEFAULT_SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
         )
+        
+        # Register options update listener
+        self.entry.async_on_unload(entry.add_update_listener(self.async_options_updated))
+
+    @staticmethod
+    async def async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Handle options update."""
+        await hass.config_entries.async_reload(entry.entry_id)
+
+    def get_performance_stats(self) -> dict[str, Any]:
+        """Get coordinator performance statistics.
+        
+        Returns:
+            Dictionary with performance metrics including:
+            - update_count: Number of updates performed
+            - average_time: Average update duration in seconds
+            - slowest_time: Slowest update duration in seconds
+            - total_time: Total time spent in updates
+        """
+        if self._update_count == 0:
+            return {
+                "update_count": 0,
+                "average_time": 0.0,
+                "slowest_time": 0.0,
+                "total_time": 0.0,
+            }
+        
+        return {
+            "update_count": self._update_count,
+            "average_time": self._total_update_time / self._update_count,
+            "slowest_time": self._slowest_update,
+            "total_time": self._total_update_time,
+        }
 
     async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from API endpoint."""
+        """Fetch data from API endpoint.
+        
+        Optimized to reduce memory churn by reusing existing device_data dict
+        and only updating changed fields instead of copying entire structures.
+        
+        Performance metrics are tracked and logged for monitoring.
+        """
+        # Track performance metrics
+        start_time = time.monotonic()
+        
         if not self.auth_client:
             await self._setup_clients()
         
         try:
-            # Initialize device data from existing data or create new entries
-            device_data = {}
+            # Reuse existing data structure to reduce memory allocations
+            # Only create new dict if this is the first update
+            device_data = self.data if self.data else {}
+            
             for device in self.devices:
                 mac_address = device.device_info.mac_address
                 
-                # Keep existing data if available, or initialize with device info only
-                if self.data and mac_address in self.data:
-                    device_data[mac_address] = self.data[mac_address].copy()
-                    # Always use the fresh Device object from self.devices, not from persisted data
-                    device_data[mac_address]["device"] = device
-                else:
+                # Initialize device entry if missing, otherwise reuse existing
+                if mac_address not in device_data:
                     device_data[mac_address] = {
                         "device": device,
                         "status": None,  # Will be updated via MQTT
                         "last_update": None,
                     }
+                else:
+                    # Just update the device reference (device object may have changed)
+                    device_data[mac_address]["device"] = device
                 
                 # Request fresh status via MQTT (async, will update via callback)
-                if self.mqtt_client and self.mqtt_client.is_connected:
+                if self.mqtt_client is not None and self.mqtt_client.is_connected:
                     try:
                         await self.mqtt_client.request_device_status(device)
                         _LOGGER.debug("Requested status update for device %s", mac_address)
@@ -93,20 +152,55 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                             mac_address, err
                         )
             
+            # Calculate and log performance metrics
+            duration = time.monotonic() - start_time
+            self._update_count += 1
+            self._total_update_time += duration
+            
+            if duration > self._slowest_update:
+                self._slowest_update = duration
+            
+            # Log performance for monitoring
+            avg_time = self._total_update_time / self._update_count
+            
+            _LOGGER.debug(
+                "Coordinator update #%d completed in %.2fs for %d device(s) (avg: %.2fs, slowest: %.2fs)",
+                self._update_count,
+                duration,
+                len(self.devices),
+                avg_time,
+                self._slowest_update,
+            )
+            
+            # Warn if update is unusually slow
+            if duration > SLOW_UPDATE_THRESHOLD:
+                _LOGGER.warning(
+                    "Slow coordinator update detected: %.2fs (threshold: %.1fs). "
+                    "Consider increasing scan interval or checking network connectivity.",
+                    duration,
+                    SLOW_UPDATE_THRESHOLD,
+                )
+            
             return device_data
             
         except Exception as err:
-            _LOGGER.error("Error fetching data: %s", err)
+            # Track failed update time as well
+            duration = time.monotonic() - start_time
+            _LOGGER.error(
+                "Error fetching data after %.2fs: %s",
+                duration,
+                err,
+            )
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
     async def _setup_clients(self) -> None:
         """Set up the API and MQTT clients."""
         try:
-            from nwp500 import NavienAuthClient, NavienAPIClient, NavienMqttClient
+            from nwp500 import NavienAuthClient, NavienAPIClient, NavienMqttClient  # type: ignore[attr-defined]
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install with: "
-                "pip install nwp500-python==2.0.0 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==3.0.0 awsiotsdk>=1.25.0"
             )
             raise UpdateFailed(f"nwp500-python library not available: {err}") from err
         
@@ -206,7 +300,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             await self.async_shutdown()
             raise UpdateFailed(f"Failed to connect to Navien service: {err}") from err
 
-    def _on_device_status_event(self, event_data) -> None:
+    def _on_device_status_event(self, event_data: dict[str, Any]) -> None:
         """Handle device status event from event emitter."""
         _LOGGER.debug("Received device status event: %s", event_data)
         
@@ -226,7 +320,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("Error handling device status event: %s", err)
 
-    def _on_device_feature_event(self, event_data) -> None:
+    def _on_device_feature_event(self, event_data: dict[str, Any]) -> None:
         """Handle device feature event from event emitter."""
         _LOGGER.debug("Received device feature event: %s", event_data)
         
@@ -240,15 +334,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("Error handling device feature event: %s", err)
 
-    def _on_connection_lost(self, event_data) -> None:
+    def _on_connection_lost(self, event_data: dict[str, Any]) -> None:
         """Handle MQTT connection lost event."""
         _LOGGER.warning("MQTT connection lost: %s", event_data)
 
-    def _on_connection_restored(self, event_data) -> None:
+    def _on_connection_restored(self, event_data: dict[str, Any]) -> None:
         """Handle MQTT connection restored event."""
         _LOGGER.info("MQTT connection restored: %s", event_data)
 
-    def _on_device_status_update(self, status) -> None:
+    def _on_device_status_update(self, status: Any) -> None:
         """Handle device status update from MQTT (legacy callback)."""
         try:
             # Find the device by checking the status data
@@ -283,7 +377,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("Error handling device status update: %s", err)
 
-    def _on_device_feature_update(self, feature) -> None:
+    def _on_device_feature_update(self, feature: Any) -> None:
         """Handle device feature update from MQTT (legacy callback)."""
         try:
             _LOGGER.debug("Received device feature update: %s", feature)
@@ -299,7 +393,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("Error handling device feature update: %s", err)
 
-    async def async_control_device(self, mac_address: str, command: str, **kwargs) -> bool:
+    async def async_control_device(self, mac_address: str, command: str, **kwargs: Any) -> bool:
         """Send control command to device."""
         if not self.mqtt_client:
             _LOGGER.error("MQTT client not available")
@@ -341,7 +435,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Failed to send command %s: %s", command, err)
             return False
 
-    async def async_request_device_info(self, mac_address: str = None) -> bool:
+    async def async_request_device_info(self, mac_address: str | None = None) -> bool:
         """Manually request device info for a specific device or all devices."""
         if not self.mqtt_client:
             _LOGGER.error("MQTT client not available")
