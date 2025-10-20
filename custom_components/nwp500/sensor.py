@@ -69,8 +69,8 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         if config.get("special") == "enum_name":
             # Special handling for enum types that need .name extraction
             value_fn = lambda status, attr=attr_name: (
-                enum_val.name if (enum_val := getattr(status, attr, None)) is not None and hasattr(enum_val, 'name')
-                else str(enum_val) if enum_val is not None else None
+                (val := getattr(status, attr, None)).name if val is not None and hasattr(val, 'name')
+                else str(val) if val is not None else None
             )
         else:
             # Standard attribute getter
