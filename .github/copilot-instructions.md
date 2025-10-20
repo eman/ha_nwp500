@@ -10,7 +10,7 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **nwp500-python**: The core Python library that handles communication with Navien NWP500 devices
   - GitHub Repository: https://github.com/eman/nwp500-python
   - Documentation: https://nwp500-python.readthedocs.io/en/stable/
-  - Current Version: 1.2.3 (see `custom_components/nwp500/manifest.json`)
+  - Current Version: 3.0.0 (see `custom_components/nwp500/manifest.json`)
 
 ### Home Assistant Integration
 - Platform: Home Assistant Custom Component
@@ -44,9 +44,16 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **Async/Await**: Use async/await patterns for I/O operations
 
 ### Testing & Linting
-⚠️ **Important**: Linting and testing frameworks have not been configured yet, but code should be written with these standards in mind:
+✅ **Type Checking with mypy**:
+- **Configuration**: `mypy.ini` and `tox.ini`
+- **Run Command**: `tox -e mypy` (from project root with virtual environment)
+- **Setup**: Virtual environment in `.venv/` with tox and mypy installed
+- **Always run mypy**: Before completing any task that modifies Python code
+- **Standard**: Must pass with zero errors before committing changes
+
+⚠️ **Future Testing**:
+- Expect future implementation of pytest for unit tests
 - Code should be testable and follow best practices
-- Expect future implementation of pytest, black, flake8, or similar tools
 - Write defensive code with proper error handling
 
 ## Device Integration Details
@@ -154,12 +161,40 @@ custom_components/nwp500/
 - API methods: Refer to library documentation for available control methods
 - MQTT events: Integration uses event emitter functionality from v1.1.1+
 
+## Task Completion Requirements
+
+### ⚠️ MANDATORY: Type Checking
+
+**Before completing ANY task that modifies Python code:**
+
+```bash
+# Run from project root
+.venv/bin/tox -e mypy
+```
+
+**Must pass with zero errors.** If errors occur:
+1. Review error messages carefully
+2. Apply fixes following patterns in `TYPE_CHECKING.md`
+3. Re-run until clean
+4. See `MYPY_SETUP_SUMMARY.md` for common issues and solutions
+
+### Task Completion Checklist
+
+For every task involving Python code changes:
+
+- [ ] Code changes complete
+- [ ] Type hints added to new code  
+- [ ] **`tox -e mypy` passes with zero errors** ← MANDATORY
+- [ ] Code tested in Docker container (when applicable)
+- [ ] Documentation updated (if applicable)
+- [ ] Changes verified in running Home Assistant instance
+
 ## Future Considerations
 
 ### Planned Improvements
-- Linting setup (black, flake8, mypy)
+- ~~Linting setup (black, flake8, mypy)~~ ✅ mypy completed
 - Testing framework (pytest)
-- CI/CD pipeline
+- CI/CD pipeline with automated type checking
 - Enhanced error handling and diagnostics
 
 ### Compatibility
