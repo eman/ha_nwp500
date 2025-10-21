@@ -19,9 +19,7 @@
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
-        "python.linting.enabled": true,
-        "python.linting.mypyEnabled": true,
-        "python.linting.mypyPath": "/usr/local/bin/mypy",
+        "mypy-type-checker.args": ["--config-file", "mypy.ini"],
         "python.testing.pytestEnabled": true,
         "python.testing.pytestPath": "/usr/local/bin/pytest",
         "python.analysis.typeCheckingMode": "basic",
