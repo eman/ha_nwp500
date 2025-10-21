@@ -1,4 +1,5 @@
 """Binary sensor platform for Navien NWP500 integration."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -25,173 +26,225 @@ class NWP500BinarySensorEntityDescription(BinarySensorEntityDescription):
     value_fn: Callable[[Any], bool | None] | None = None
 
 
-def create_binary_sensor_descriptions() -> tuple[NWP500BinarySensorEntityDescription, ...]:
+def create_binary_sensor_descriptions() -> (
+    tuple[NWP500BinarySensorEntityDescription, ...]
+):
     """Create binary sensor descriptions from constants."""
     descriptions = []
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="operation_busy",
-        name="Operation Busy",
-        device_class=BinarySensorDeviceClass.RUNNING,
-        entity_registry_enabled_default=True,
-        value_fn=lambda status: getattr(status, 'operationBusy', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="freeze_protection_use",
-        name="Freeze Protection",
-        device_class=BinarySensorDeviceClass.SAFETY,
-        entity_registry_enabled_default=True,
-        value_fn=lambda status: getattr(status, 'freezeProtectionUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="dhw_use",
-        name="DHW In Use",
-        device_class=BinarySensorDeviceClass.RUNNING,
-        entity_registry_enabled_default=True,
-        value_fn=lambda status: getattr(status, 'dhwUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="dhw_use_sustained",
-        name="DHW Use Sustained",
-        device_class=BinarySensorDeviceClass.RUNNING, 
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'dhwUseSustained', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="comp_use",
-        name="Compressor Running",
-        device_class=BinarySensorDeviceClass.RUNNING,
-        entity_registry_enabled_default=True,
-        value_fn=lambda status: getattr(status, 'compUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="eev_use",
-        name="EEV Active",
-        device_class=BinarySensorDeviceClass.RUNNING,
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'eevUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="eva_fan_use",
-        name="Evaporator Fan Running",
-        device_class=BinarySensorDeviceClass.RUNNING,
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'evaFanUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="heat_upper_use",
-        name="Upper Electric Heating Element",
-        device_class=BinarySensorDeviceClass.HEAT,
-        entity_registry_enabled_default=True,
-        value_fn=lambda status: getattr(status, 'heatUpperUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="heat_lower_use",
-        name="Lower Electric Heating Element", 
-        device_class=BinarySensorDeviceClass.HEAT,
-        entity_registry_enabled_default=True,
-        value_fn=lambda status: getattr(status, 'heatLowerUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="current_heat_use",
-        name="Current Heat Use",
-        device_class=BinarySensorDeviceClass.HEAT,
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'currentHeatUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="scald_use",
-        name="Scald Warning",
-        device_class=BinarySensorDeviceClass.SAFETY,
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'scaldUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="anti_legionella_use",
-        name="Anti-Legionella",
-        device_class=BinarySensorDeviceClass.SAFETY,
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'antiLegionellaUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="anti_legionella_operation_busy",
-        name="Anti-Legionella Operation Busy",
-        device_class=BinarySensorDeviceClass.RUNNING,
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'antiLegionellaOperationBusy', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="air_filter_alarm_use",
-        name="Air Filter Status",
-        # Changed from PROBLEM to make it show normal/abnormal instead of problem/ok
-        entity_registry_enabled_default=False,
-        # Invert logic: False = normal (off), True = needs attention (on)
-        value_fn=lambda status: not getattr(status, 'airFilterAlarmUse', True),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="error_buzzer_use",
-        name="Error Buzzer",
-        device_class=BinarySensorDeviceClass.SOUND,
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'errorBuzzerUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="eco_use",
-        name="Eco Mode Active",
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'ecoUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="program_reservation_use",
-        name="Program Reservation Active",
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'programReservationUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="shut_off_valve_use",
-        name="Shut Off Valve Use",
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'shutOffValveUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="con_ovr_sensor_use",
-        name="Condenser Override Sensor Use",
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'conOvrSensorUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="wtr_ovr_sensor_use",
-        name="Water Override Sensor Use",
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'wtrOvrSensorUse', None),
-    ))
-    
-    descriptions.append(NWP500BinarySensorEntityDescription(
-        key="did_reload",
-        name="Device Reloaded",
-        entity_registry_enabled_default=False,
-        value_fn=lambda status: getattr(status, 'didReload', None),
-    ))
-    
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="operation_busy",
+            name="Operation Busy",
+            device_class=BinarySensorDeviceClass.RUNNING,
+            entity_registry_enabled_default=True,
+            value_fn=lambda status: getattr(status, "operationBusy", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="freeze_protection_use",
+            name="Freeze Protection",
+            device_class=BinarySensorDeviceClass.SAFETY,
+            entity_registry_enabled_default=True,
+            value_fn=lambda status: getattr(
+                status, "freezeProtectionUse", None
+            ),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="dhw_use",
+            name="DHW In Use",
+            device_class=BinarySensorDeviceClass.RUNNING,
+            entity_registry_enabled_default=True,
+            value_fn=lambda status: getattr(status, "dhwUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="dhw_use_sustained",
+            name="DHW Use Sustained",
+            device_class=BinarySensorDeviceClass.RUNNING,
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "dhwUseSustained", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="comp_use",
+            name="Compressor Running",
+            device_class=BinarySensorDeviceClass.RUNNING,
+            entity_registry_enabled_default=True,
+            value_fn=lambda status: getattr(status, "compUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="eev_use",
+            name="EEV Active",
+            device_class=BinarySensorDeviceClass.RUNNING,
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "eevUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="eva_fan_use",
+            name="Evaporator Fan Running",
+            device_class=BinarySensorDeviceClass.RUNNING,
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "evaFanUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="heat_upper_use",
+            name="Upper Electric Heating Element",
+            device_class=BinarySensorDeviceClass.HEAT,
+            entity_registry_enabled_default=True,
+            value_fn=lambda status: getattr(status, "heatUpperUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="heat_lower_use",
+            name="Lower Electric Heating Element",
+            device_class=BinarySensorDeviceClass.HEAT,
+            entity_registry_enabled_default=True,
+            value_fn=lambda status: getattr(status, "heatLowerUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="current_heat_use",
+            name="Current Heat Use",
+            device_class=BinarySensorDeviceClass.HEAT,
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "currentHeatUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="scald_use",
+            name="Scald Warning",
+            device_class=BinarySensorDeviceClass.SAFETY,
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "scaldUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="anti_legionella_use",
+            name="Anti-Legionella",
+            device_class=BinarySensorDeviceClass.SAFETY,
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "antiLegionellaUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="anti_legionella_operation_busy",
+            name="Anti-Legionella Operation Busy",
+            device_class=BinarySensorDeviceClass.RUNNING,
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(
+                status, "antiLegionellaOperationBusy", None
+            ),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="air_filter_alarm_use",
+            name="Air Filter Status",
+            # Changed from PROBLEM to make it show normal/abnormal
+            entity_registry_enabled_default=False,
+            # Invert logic: False = normal (off), True = needs attention
+            value_fn=lambda status: not getattr(
+                status, "airFilterAlarmUse", True
+            ),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="error_buzzer_use",
+            name="Error Buzzer",
+            device_class=BinarySensorDeviceClass.SOUND,
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "errorBuzzerUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="eco_use",
+            name="Eco Mode Active",
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "ecoUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="program_reservation_use",
+            name="Program Reservation Active",
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(
+                status, "programReservationUse", None
+            ),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="shut_off_valve_use",
+            name="Shut Off Valve Use",
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "shutOffValveUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="con_ovr_sensor_use",
+            name="Condenser Override Sensor Use",
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "conOvrSensorUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="wtr_ovr_sensor_use",
+            name="Water Override Sensor Use",
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "wtrOvrSensorUse", None),
+        )
+    )
+
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="did_reload",
+            name="Device Reloaded",
+            entity_registry_enabled_default=False,
+            value_fn=lambda status: getattr(status, "didReload", None),
+        )
+    )
+
     return tuple(descriptions)
 
 
@@ -204,16 +257,20 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up binary sensor entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
-    
+    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ]
+
     entities = []
     for mac_address, device_data in coordinator.data.items():
         device = device_data["device"]
         for description in BINARY_SENSOR_DESCRIPTIONS:
             entities.append(
-                NWP500BinarySensor(coordinator, mac_address, device, description)
+                NWP500BinarySensor(
+                    coordinator, mac_address, device, description
+                )
             )
-    
+
     async_add_entities(entities, True)
 
 
@@ -240,11 +297,11 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
         """Return true if the binary sensor is on."""
         if not (status := self._status):
             return None
-        
+
         if self.entity_description.value_fn:
             try:
                 return self.entity_description.value_fn(status)
             except (AttributeError, TypeError):
                 return None
-        
+
         return None

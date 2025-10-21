@@ -1,4 +1,5 @@
 """Number platform for Navien NWP500 integration."""
+
 from __future__ import annotations
 
 import logging
@@ -23,13 +24,17 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up number entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
-    
+    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ]
+
     entities = []
     for mac_address, device_data in coordinator.data.items():
         device = device_data["device"]
-        entities.append(NWP500TargetTemperature(coordinator, mac_address, device))
-    
+        entities.append(
+            NWP500TargetTemperature(coordinator, mac_address, device)
+        )
+
     async_add_entities(entities, True)
 
 
@@ -59,11 +64,11 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):
         """Return the current target temperature."""
         if not (status := self._status):
             return None
-        
+
         try:
-            target_temp = getattr(status, 'dhwTargetTemperatureSetting', None)
+            target_temp = getattr(status, "dhwTargetTemperatureSetting", None)
             if target_temp is None:
-                target_temp = getattr(status, 'dhwTemperatureSetting', None)
+                target_temp = getattr(status, "dhwTemperatureSetting", None)
             return float(target_temp) if target_temp is not None else None
         except (AttributeError, TypeError):
             return None
@@ -73,6 +78,6 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):
         success = await self.coordinator.async_control_device(
             self.mac_address, "set_temperature", temperature=int(value)
         )
-        
+
         if success:
             await self.coordinator.async_request_refresh()

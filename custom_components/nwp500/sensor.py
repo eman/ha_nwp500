@@ -1,4 +1,5 @@
 """Sensor platform for Navien NWP500 integration."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -34,12 +35,12 @@ class NWP500SensorEntityDescription(SensorEntityDescription):
 
 def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
     """Create sensor descriptions from configuration data.
-    
+
     This function creates all sensor entity descriptions from the SENSOR_CONFIGS
     data structure, eliminating ~400 lines of repetitive code.
     """
     descriptions: list[NWP500SensorEntityDescription] = []
-    
+
     # Unit mapping for string-based units to HA constants
     unit_map: dict[str, str] = {
         "°F": UnitOfTemperature.FAHRENHEIT,
@@ -47,7 +48,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         "Wh": UnitOfEnergy.WATT_HOUR,
         "%": PERCENTAGE,
     }
-    
+
     # Device class mapping for string-based device classes
     device_class_map: dict[str, SensorDeviceClass] = {
         "temperature": SensorDeviceClass.TEMPERATURE,
@@ -55,47 +56,62 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         "energy": SensorDeviceClass.ENERGY,
         "signal_strength": SensorDeviceClass.SIGNAL_STRENGTH,
     }
-    
+
     # State class mapping
     state_class_map: dict[str, SensorStateClass] = {
         "measurement": SensorStateClass.MEASUREMENT,
         "total_increasing": SensorStateClass.TOTAL_INCREASING,
     }
-    
+
     for key, config in SENSOR_CONFIGS.items():
         attr_name: str = config["attr"]  # type: ignore[assignment]
-        
+
         # Determine the value function based on special handling needs
         if config.get("special") == "enum_name":
             # Special handling for enum types that need .name extraction
             def _make_enum_value_fn(attr: str) -> Callable[[Any], str | None]:
                 def value_fn(status: Any) -> str | None:
                     val = getattr(status, attr, None)
-                    if val is not None and hasattr(val, 'name'):
+                    if val is not None and hasattr(val, "name"):
                         return val.name  # type: ignore[no-any-return]
                     elif val is not None:
                         return str(val)
                     return None
+
                 return value_fn
+
             value_fn = _make_enum_value_fn(attr_name)
         else:
             # Standard attribute getter
             def _make_standard_value_fn(attr: str) -> Callable[[Any], Any]:
                 def value_fn(status: Any) -> Any:
                     return getattr(status, attr, None)
+
                 return value_fn
+
             value_fn = _make_standard_value_fn(attr_name)
-        
-        descriptions.append(NWP500SensorEntityDescription(
-            key=key,
-            name=str(config["name"]),
-            device_class=device_class_map.get(str(config.get("device_class", ""))),
-            state_class=state_class_map.get(str(config.get("state_class", ""))),
-            native_unit_of_measurement=unit_map.get(str(config.get("unit", "")), config.get("unit")),  # type: ignore[arg-type]
-            entity_registry_enabled_default=bool(config.get("enabled", False)),
-            value_fn=value_fn,
-        ))
-    
+
+        descriptions.append(
+            NWP500SensorEntityDescription(
+                key=key,
+                name=str(config["name"]),
+                device_class=device_class_map.get(
+                    str(config.get("device_class", ""))
+                ),
+                state_class=state_class_map.get(
+                    str(config.get("state_class", ""))
+                ),
+                native_unit_of_measurement=unit_map.get(
+                    str(config.get("unit", "")),
+                    str(config.get("unit", "")),
+                ),
+                entity_registry_enabled_default=bool(
+                    config.get("enabled", False)
+                ),
+                value_fn=value_fn,
+            )
+        )
+
     return tuple(descriptions)
 
 
@@ -109,14 +125,18 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensor entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
-    
+    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ]
+
     entities = []
     for mac_address, device_data in coordinator.data.items():
         device = device_data["device"]
         for description in SENSOR_DESCRIPTIONS:
-            entities.append(NWP500Sensor(coordinator, mac_address, device, description))
-    
+            entities.append(
+                NWP500Sensor(coordinator, mac_address, device, description)
+            )
+
     async_add_entities(entities, True)
 
 
@@ -138,16 +158,19 @@ class NWP500Sensor(NWP500Entity, SensorEntity):
 
     @property
     def native_value(self) -> Any:
-        """Return the state of the sensor using the optimized _status property."""
+        """Return the state of the sensor using optimized _status."""
         if not (status := self._status):
             return None
-        
+
         # Access value_fn from our custom description class
         description = self.entity_description
-        if isinstance(description, NWP500SensorEntityDescription) and description.value_fn:
+        if (
+            isinstance(description, NWP500SensorEntityDescription)
+            and description.value_fn
+        ):
             try:
                 return description.value_fn(status)
             except (AttributeError, TypeError):
                 return None
-        
+
         return None
