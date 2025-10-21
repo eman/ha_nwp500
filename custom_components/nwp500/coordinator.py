@@ -327,17 +327,20 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 # (every 5 minutes)
                 for device in self.devices:
                     try:
-                        start_status = (
+                        await (
                             self.mqtt_client
-                            .start_periodic_device_status_requests
+                            .start_periodic_device_status_requests(
+                                device, 300.0
+                            )
                         )
-                        await start_status(device, 300.0)
                         # Also request device info periodically
                         # (every 30 minutes for firmware info)
-                        info_req = (
-                            self.mqtt_client.start_periodic_device_info_requests
+                        await (
+                            self.mqtt_client
+                            .start_periodic_device_info_requests(
+                                device, 1800.0
+                            )
                         )
-                        await info_req(device, 1800.0)
 
                         # Make an immediate device info request to get
                         # firmware/serial data right away
