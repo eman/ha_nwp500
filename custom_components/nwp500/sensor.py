@@ -103,7 +103,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
                 ),
                 native_unit_of_measurement=unit_map.get(
                     str(config.get("unit", "")),
-                    str(config.get("unit")),
+                    str(config.get("unit", "")),
                 ),
                 entity_registry_enabled_default=bool(
                     config.get("enabled", False)
