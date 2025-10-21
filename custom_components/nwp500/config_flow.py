@@ -1,4 +1,5 @@
 """Config flow for Navien NWP500 integration."""
+
 from __future__ import annotations
 
 import logging
@@ -23,7 +24,11 @@ _LOGGER = logging.getLogger(__name__)
 
 # Import at module level to avoid blocking calls in event loop
 try:
-    from nwp500 import NavienAuthClient, NavienAPIClient  # type: ignore[attr-defined]
+    from nwp500 import (  # type: ignore[attr-defined]
+        NavienAuthClient,
+        NavienAPIClient,
+    )
+
     NWP500_AVAILABLE = True
 except ImportError:
     NWP500_AVAILABLE = False
@@ -54,7 +59,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     ) -> config_entries.ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
-        
+
         if user_input is not None:
             try:
                 info = await validate_input(self.hass, user_input)
@@ -66,7 +71,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                return self.async_create_entry(title=info["title"], data=user_input)
+                return self.async_create_entry(
+                    title=info["title"], data=user_input
+                )
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
@@ -105,47 +112,50 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         )
 
 
-async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
+async def validate_input(
+    hass: HomeAssistant, data: dict[str, Any]
+) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
     if not NWP500_AVAILABLE:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            "pip install nwp500-python==3.0.0 awsiotsdk>=1.25.0"
+            "pip install nwp500-python==3.1.0 awsiotsdk>=1.25.0"
         )
         raise CannotConnect("nwp500-python library not available")
-    
+
     email = data[CONF_EMAIL]
     password = data[CONF_PASSWORD]
-    
+
     try:
         async with NavienAuthClient(email, password) as auth_client:
             api_client = NavienAPIClient(auth_client=auth_client)
-            
+
             # Try to get devices to validate credentials
             devices = await api_client.list_devices()
-            
+
             if not devices:
                 _LOGGER.error(
                     "No devices found for account %s. "
                     "Authentication succeeded but device list is empty. "
                     "Please verify device is registered in NaviLink app.",
-                    email
+                    email,
                 )
                 raise CannotConnect(
                     "No devices found for this account. "
-                    "Please check the NaviLink app to verify your device is registered and online."
+                    "Please check the NaviLink app to verify your device "
+                    "is registered and online."
                 )
-                
+
             # Get first device for title
             device = devices[0]
             device_name = device.device_info.device_name or "NWP500"
-            
+
     except Exception as err:
         _LOGGER.error("Failed to authenticate with Navien: %s", err)
         if "401" in str(err) or "unauthorized" in str(err).lower():
             raise InvalidAuth from err
         raise CannotConnect from err
-    
+
     return {"title": f"Navien {device_name}"}
 
 

@@ -1,4 +1,5 @@
 """Switch platform for Navien NWP500 integration."""
+
 from __future__ import annotations
 
 import logging
@@ -22,15 +23,17 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up switch entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
-    
+    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
+        config_entry.entry_id
+    ]
+
     entities = []
     for mac_address, device_data in coordinator.data.items():
         device = device_data["device"]
-        
+
         # Add power switch
         entities.append(NWP500PowerSwitch(coordinator, mac_address, device))
-    
+
     async_add_entities(entities, True)
 
 
@@ -54,27 +57,31 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
         """Return True if switch is on."""
         if not (status := self._status):
             return None
-        
+
         try:
-            # According to the documentation, check dhwOperationSetting for power state
-            # dhwOperationSetting == 6 means POWER_OFF (device is powered off)
-            # Any other value means the device is powered on (even if idle/standby)
-            dhw_operation_setting = getattr(status, 'dhwOperationSetting', None)
+            # According to the documentation, check dhwOperationSetting
+            # for power state. dhwOperationSetting == 6 means POWER_OFF
+            # (device is powered off). Any other value means the device
+            # is powered on (even if idle/standby)
+            dhw_operation_setting = getattr(
+                status, "dhwOperationSetting", None
+            )
             if dhw_operation_setting is not None:
                 dhw_value = get_enum_value(dhw_operation_setting)
                 return bool(dhw_value != 6)  # 6 = POWER_OFF
-            
-            # Fallback: if dhwOperationSetting is not available, use operationMode
-            # operationMode == 0 means STANDBY (device is on but idle)
-            # Only truly "off" if we can't determine the state
-            operation_mode = getattr(status, 'operationMode', None)
+
+            # Fallback: if dhwOperationSetting is not available, use
+            # operationMode. operationMode == 0 means STANDBY (device
+            # is on but idle). Only truly "off" if we can't determine
+            operation_mode = getattr(status, "operationMode", None)
             if operation_mode is not None:
-                # Device is "on" if it has any operation mode value (including 0 for standby)
+                # Device is "on" if it has any operation mode value
+                # (including 0 for standby)
                 return True
-        
+
         except (AttributeError, TypeError):
             pass
-            
+
         return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -82,7 +89,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
         success = await self.coordinator.async_control_device(
             self.mac_address, "set_power", power_on=True
         )
-        
+
         if success:
             await self.coordinator.async_request_refresh()
 
@@ -91,6 +98,6 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
         success = await self.coordinator.async_control_device(
             self.mac_address, "set_power", power_on=False
         )
-        
+
         if success:
             await self.coordinator.async_request_refresh()
