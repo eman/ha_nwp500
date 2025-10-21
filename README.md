@@ -302,7 +302,7 @@ pytest
 
 ```bash
 # Run mypy (from project root with virtual environment active)
-.venv/bin/tox -e mypy
+tox -e mypy
 ```
 
 See project instructions for detailed type checking requirements and setup.
