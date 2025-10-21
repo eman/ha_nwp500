@@ -10,5 +10,6 @@ awsiotsdk>=1.25.0
 # Development dependencies
 # These are used for testing and type checking but not required at runtime
 mypy>=1.0.0
+pyright>=1.1.0
 homeassistant>=2024.1.0
 tox>=4.0.0
