@@ -9,7 +9,20 @@ awsiotsdk>=1.25.0
 
 # Development dependencies
 # These are used for testing and type checking but not required at runtime
+
+# Type checking
 mypy>=1.0.0
 pyright>=1.1.0
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+pytest-homeassistant-custom-component>=0.13.0
+pytest-timeout>=2.1.0
+
+# Home Assistant
 homeassistant>=2024.1.0
+
+# Test automation
 tox>=4.0.0

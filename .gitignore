@@ -29,3 +29,12 @@ token.txt
 .mypy_cache/
 .tox/
 .venv/
+
+# Test and coverage artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.tox/
+*.cover
+.hypothesis/
