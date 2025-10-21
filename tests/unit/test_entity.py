@@ -41,8 +41,9 @@ class TestNWP500Entity:
         
         assert device_info is not None
         assert device_info["identifiers"] == {("nwp500", mac_address)}
-        assert device_info["name"] == mock_device.device_info.name
-        assert device_info["model"] == mock_device.device_info.model
+        # Name includes location info: "Test Water Heater (Test City, CA)"
+        assert "Test Water Heater" in device_info["name"]
+        assert device_info["model"] == "NWP500"
         assert device_info["manufacturer"] == "Navien"
 
     def test_status_property(

@@ -37,12 +37,21 @@ def mock_config_entry() -> ConfigEntry:
 def mock_device() -> MagicMock:
     """Create a mock NWP500 device."""
     device = MagicMock()
+    
+    # Mock device_info with proper attributes
     device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
     device.device_info.model = "NWP500"
-    device.device_info.name = "Test Water Heater"
+    device.device_info.device_name = "Test Water Heater"
     device.device_info.serial_number = "TEST123456"
-    # Fix identifiers to return proper tuple
-    device.device_info.identifiers = ("nwp500", "AA:BB:CC:DD:EE:FF")
+    device.device_info.device_type = 52  # NWP500 type
+    device.device_info.connected = True
+    
+    # Mock location with proper attributes (return None for optional fields)
+    location = MagicMock()
+    location.city = "Test City"
+    location.state = "CA"
+    device.location = location
+    
     return device
 
 
