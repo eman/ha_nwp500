@@ -255,9 +255,70 @@ logger:
 - Improved operation mode mapping
 - Enhanced error handling and diagnostics
 
+## Development
+
+### Development Container (Recommended)
+
+The easiest way to start developing is using VS Code Dev Containers:
+
+1. Install [VS Code](https://code.visualstudio.com/) and the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+2. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+3. Open this repository in VS Code
+4. Click "Reopen in Container" when prompted (or use Command Palette → `Dev Containers: Reopen in Container`)
+5. VS Code will build a complete development environment with all dependencies
+
+**What's included:**
+- Python 3.12 with all project dependencies
+- Type checkers (mypy, pyright)
+- Testing tools (pytest, tox)
+- Linters and formatters (ruff, black)
+- Docker-in-Docker for running Home Assistant
+- Pre-configured VS Code extensions and settings
+
+See [.devcontainer/README.md](.devcontainer/README.md) for more details.
+
+### Local Development
+
+If not using devcontainer:
+
+```bash
+# Create virtual environment
+python3.12 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run type checking (required before commits)
+tox -e mypy
+
+# Run tests
+pytest
+```
+
+### Type Checking
+
+**Required before committing:** All code must pass mypy type checking with zero errors.
+
+```bash
+# Run mypy (from project root with virtual environment active)
+.venv/bin/tox -e mypy
+```
+
+See project instructions for detailed type checking requirements and setup.
+
 ## Contributing
 
 This integration is actively maintained. Please report issues or contribute improvements through GitHub.
+
+### Contribution Guidelines
+
+1. Use the devcontainer for consistent development environment
+2. Ensure all tests pass: `pytest`
+3. **Required:** Pass type checking: `tox -e mypy`
+4. Follow existing code style and conventions
+5. Add tests for new features
+6. Update documentation as needed
 
 ## License
 
