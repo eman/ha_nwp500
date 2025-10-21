@@ -20,8 +20,7 @@
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
         "mypy-type-checker.args": ["--config-file", "mypy.ini"],
-        "python.testing.pytestEnabled": true,
-        "python.testing.pytestPath": "/usr/local/bin/pytest",
+        "python.testing.unittestEnabled": false,
         "python.analysis.typeCheckingMode": "basic",
         "python.analysis.autoImportCompletions": true,
         "editor.formatOnSave": false,
