@@ -92,26 +92,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         if not (status := self._status):
             return None
 
-        # Use dhwTemperature as primary source - this is the actual DHW
-        # output temperature (what you get when using hot water)
         try:
             dhw_temp = getattr(status, "dhwTemperature", None)
             if dhw_temp is not None:
                 return float(dhw_temp)
-        except (AttributeError, TypeError):
-            pass
-
-        # Fallback to average tank temperature if DHW temp unavailable
-        try:
-            upper_temp = getattr(status, "tankUpperTemperature", None)
-            lower_temp = getattr(status, "tankLowerTemperature", None)
-
-            if upper_temp is not None and lower_temp is not None:
-                return float((upper_temp + lower_temp) / 2)
-            elif upper_temp is not None:
-                return float(upper_temp)
-            elif lower_temp is not None:
-                return float(lower_temp)
         except (AttributeError, TypeError):
             pass
 
