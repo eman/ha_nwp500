@@ -95,13 +95,11 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
             value_fn = _make_standard_value_fn(attr_name)
         
         # Get unit - None for enum sensors to prevent numeric interpretation
-        unit = config.get("unit", "")
-        if is_enum_sensor:
+        unit = config.get("unit")
+        if is_enum_sensor or not unit:
             native_unit = None
-        elif unit:
-            native_unit = unit_map.get(str(unit), str(unit))
         else:
-            native_unit = None
+            native_unit = unit_map.get(str(unit), str(unit))
 
         descriptions.append(
             NWP500SensorEntityDescription(
