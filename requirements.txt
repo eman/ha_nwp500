@@ -2,7 +2,7 @@
 # These dependencies are also listed in custom_components/nwp500/manifest.json
 
 # Core integration library
-nwp500-python==3.1.0
+nwp500-python==3.1.1
 
 # AWS IoT SDK for MQTT communication
 awsiotsdk>=1.25.0

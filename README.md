@@ -104,11 +104,11 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 3.1.0
+## Library Version 3.1.1
 
-This integration uses nwp500-python v3.1.0 which includes:
+This integration uses nwp500-python v3.1.1 which includes:
 
-### Improvements in v3.1.0
+### Improvements in v3.1.1
 - **Documentation**: PEP 257 compliant docstrings for better IDE support
 - **Code Quality**: 80 character line limit for improved readability
 - **Comprehensive Documentation**: Enhanced API documentation
@@ -220,7 +220,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==3.1.0 is installed
+- Ensure nwp500-python==3.1.1 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**

@@ -16,6 +16,8 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from awscrt.exceptions import AwsCrtError
+
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
@@ -169,6 +171,21 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                     "Fallback device info request: %s",
                                     mac_address,
                                 )
+                            except AwsCrtError as info_err:
+                                # Handle clean session cancellation gracefully
+                                if info_err.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
+                                    _LOGGER.debug(
+                                        "Device info request queued due to "
+                                        "MQTT reconnection for %s",
+                                        mac_address,
+                                    )
+                                else:
+                                    _LOGGER.debug(
+                                        "Fallback device info request failed "
+                                        "for %s: %s",
+                                        mac_address,
+                                        info_err,
+                                    )
                             except Exception as info_err:
                                 _LOGGER.debug(
                                     "Fallback device info request failed "
@@ -177,6 +194,22 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                     info_err,
                                 )
 
+                    except AwsCrtError as err:
+                        # Handle clean session cancellation gracefully
+                        # This occurs during MQTT reconnection and is expected
+                        # The command will be queued and retried automatically
+                        if err.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
+                            _LOGGER.debug(
+                                "Status request queued due to MQTT "
+                                "reconnection for device %s",
+                                mac_address,
+                            )
+                        else:
+                            _LOGGER.warning(
+                                "Failed to request status for device %s: %s",
+                                mac_address,
+                                err,
+                            )
                     except Exception as err:
                         _LOGGER.warning(
                             "Failed to request status for device %s: %s",
@@ -240,7 +273,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==3.1.0 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==3.1.1 awsiotsdk>=1.25.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -529,9 +562,36 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 return False
 
             # Request status update after command
-            await self.mqtt_client.request_device_status(device)
+            try:
+                await self.mqtt_client.request_device_status(device)
+            except AwsCrtError as status_err:
+                # Handle clean session cancellation gracefully
+                if status_err.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
+                    _LOGGER.debug(
+                        "Status request after command queued due to "
+                        "MQTT reconnection for device %s",
+                        mac_address,
+                    )
+                else:
+                    _LOGGER.warning(
+                        "Failed to request status after command for %s: %s",
+                        mac_address,
+                        status_err,
+                    )
             return True
 
+        except AwsCrtError as err:
+            # Handle clean session cancellation gracefully
+            if err.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
+                _LOGGER.info(
+                    "Command %s queued due to MQTT reconnection for "
+                    "device %s",
+                    command,
+                    mac_address,
+                )
+                return True  # Command is queued, will be sent on reconnect
+            _LOGGER.error("Failed to send command %s: %s", command, err)
+            return False
         except Exception as err:
             _LOGGER.error("Failed to send command %s: %s", command, err)
             return False
@@ -568,6 +628,21 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     device.device_info.mac_address,
                 )
                 success_count += 1
+            except AwsCrtError as err:
+                # Handle clean session cancellation gracefully
+                if err.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
+                    _LOGGER.debug(
+                        "Device info request queued due to MQTT "
+                        "reconnection for %s",
+                        device.device_info.mac_address,
+                    )
+                    # Do not count as success since it's only queued, not completed
+                else:
+                    _LOGGER.error(
+                        "Failed to send manual device info request for %s: %s",
+                        device.device_info.mac_address,
+                        err,
+                    )
             except Exception as err:
                 _LOGGER.error(
                     "Failed to send manual device info request for %s: %s",

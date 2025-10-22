@@ -65,9 +65,12 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
 
     for key, config in SENSOR_CONFIGS.items():
         attr_name: str = config["attr"]  # type: ignore[assignment]
+        
+        # Check if this is a text/enum sensor (no numeric value)
+        is_enum_sensor = config.get("special") == "enum_name"
 
         # Determine the value function based on special handling needs
-        if config.get("special") == "enum_name":
+        if is_enum_sensor:
             # Special handling for enum types that need .name extraction
             def _make_enum_value_fn(attr: str) -> Callable[[Any], str | None]:
                 def value_fn(status: Any) -> str | None:
@@ -90,6 +93,13 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
                 return value_fn
 
             value_fn = _make_standard_value_fn(attr_name)
+        
+        # Get unit - None for enum sensors to prevent numeric interpretation
+        unit = config.get("unit")
+        if is_enum_sensor or not unit:
+            native_unit = None
+        else:
+            native_unit = unit_map.get(str(unit), str(unit))
 
         descriptions.append(
             NWP500SensorEntityDescription(
@@ -101,10 +111,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
                 state_class=state_class_map.get(
                     str(config.get("state_class", ""))
                 ),
-                native_unit_of_measurement=unit_map.get(
-                    str(config.get("unit", "")),
-                    str(config.get("unit", "")),
-                ),
+                native_unit_of_measurement=native_unit,
                 entity_registry_enabled_default=bool(
                     config.get("enabled", False)
                 ),
