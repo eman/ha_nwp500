@@ -636,7 +636,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         "reconnection for %s",
                         device.device_info.mac_address,
                     )
-                    success_count += 1  # Count as success since it's queued
+                    # Do not count as success since it's only queued, not completed
                 else:
                     _LOGGER.error(
                         "Failed to send manual device info request for %s: %s",
