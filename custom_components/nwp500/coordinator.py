@@ -322,6 +322,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             self.mqtt_client.on(
                 "connection_restored", self._on_connection_restored
             )
+            self.mqtt_client.on(
+                "reconnection_failed", self._on_reconnection_failed
+            )
 
             # Connect to MQTT - this may generate blocking I/O warnings
             # from AWS IoT SDK but it's unavoidable since the underlying
@@ -458,6 +461,25 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
     def _on_connection_restored(self, event_data: dict[str, Any]) -> None:
         """Handle MQTT connection restored event."""
         _LOGGER.info("MQTT connection restored: %s", event_data)
+
+    def _on_reconnection_failed(self, event_data: dict[str, Any]) -> None:
+        """Handle MQTT reconnection failed event.
+
+        When reconnection fails after max attempts, automatically reset
+        the reconnection state and trigger a new reconnection cycle.
+        """
+        attempt_count = event_data.get("attempt_count", 0)
+        _LOGGER.warning(
+            "MQTT reconnection failed after %d attempts. "
+            "Resetting reconnection state and retrying...",
+            attempt_count,
+        )
+
+        if self.mqtt_client:
+            # Schedule reset_reconnect on the main event loop
+            asyncio.run_coroutine_threadsafe(
+                self.mqtt_client.reset_reconnect(), self.hass.loop
+            )
 
     def _on_device_status_update(self, status: Any) -> None:
         """Handle device status update from MQTT (legacy callback)."""
@@ -668,6 +690,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 )
                 self.mqtt_client.off(
                     "connection_restored", self._on_connection_restored
+                )
+                self.mqtt_client.off(
+                    "reconnection_failed", self._on_reconnection_failed
                 )
 
                 await self.mqtt_client.stop_all_periodic_tasks()
