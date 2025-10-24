@@ -311,7 +311,7 @@ tox -e coverage  # Tests with coverage (requires ≥80%)
 All code changes are automatically validated through GitHub Actions CI pipeline:
 
 - **Type Checking**: Both mypy and pyright must pass with zero errors
-- **Unit Tests**: Comprehensive test suite with 82%+ coverage
+- **Unit Tests**: Comprehensive test suite with 80%+ coverage
 - **Python Versions**: Tests run on Python 3.12 and 3.13
 
 The CI workflow runs on:
