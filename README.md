@@ -1,5 +1,9 @@
 # Navien NWP500 Heat Pump Water Heater - Home Assistant Integration
 
+[![CI](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml/badge.svg)](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/eman/ha_nwp500/branch/main/graph/badge.svg)](https://codecov.io/gh/eman/ha_nwp500)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
 This custom integration provides comprehensive monitoring and control of Navien NWP500 Heat Pump Water Heaters through Home Assistant.
 
 ## Features
@@ -293,23 +297,42 @@ source .venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Run type checking (required before commits)
-tox -e mypy
+# Run all checks
+tox
 
-# Run tests
-pytest
+# Run specific checks
+tox -e mypy      # Type checking with mypy
+tox -e pyright   # Type checking with pyright
+tox -e coverage  # Tests with coverage (requires ≥80%)
 ```
+
+### Continuous Integration
+
+All code changes are automatically validated through GitHub Actions CI pipeline:
+
+- **Type Checking**: Both mypy and pyright must pass with zero errors
+- **Unit Tests**: Comprehensive test suite with 82%+ coverage
+- **Python Versions**: Tests run on Python 3.12 and 3.13
+
+The CI workflow runs on:
+- Push to `main` and `develop` branches
+- All pull requests
+- Manual workflow dispatch
+
+View the CI status and detailed results in the [Actions tab](https://github.com/eman/ha_nwp500/actions).
 
 ### Type Checking
 
-**Required before committing:** All code must pass mypy type checking with zero errors.
+**Required before committing:** All code must pass both mypy and pyright type checking with zero errors.
 
 ```bash
-# Run mypy (from project root with virtual environment active)
-tox -e mypy
+# Run type checks (from project root with virtual environment active)
+tox -e mypy      # Check with mypy
+tox -e pyright   # Check with pyright
+tox              # Run all checks including type checking
 ```
 
-See project instructions for detailed type checking requirements and setup.
+See `.github/copilot-instructions.md` for detailed type checking requirements and patterns.
 
 ## Contributing
 
@@ -318,11 +341,14 @@ This integration is actively maintained. Please report issues or contribute impr
 ### Contribution Guidelines
 
 1. Use the devcontainer for consistent development environment
-2. Ensure all tests pass: `pytest`
-3. **Required:** Pass type checking: `tox -e mypy`
-4. Follow existing code style and conventions
-5. Add tests for new features
-6. Update documentation as needed
+2. **Required:** Pass all tox checks: `tox`
+   - mypy and pyright type checking (0 errors)
+   - Unit tests with ≥80% coverage
+3. Follow existing code style and conventions
+4. Add tests for new features
+5. Update documentation as needed
+
+All pull requests are automatically validated by CI. Ensure all checks pass before requesting review.
 
 ### Releases
 
