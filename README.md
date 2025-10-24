@@ -1,7 +1,6 @@
 # Navien NWP500 Heat Pump Water Heater - Home Assistant Integration
 
 [![CI](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml/badge.svg)](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/eman/ha_nwp500/branch/main/graph/badge.svg)](https://codecov.io/gh/eman/ha_nwp500)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 This custom integration provides comprehensive monitoring and control of Navien NWP500 Heat Pump Water Heaters through Home Assistant.
@@ -304,6 +303,7 @@ tox
 tox -e mypy      # Type checking with mypy
 tox -e pyright   # Type checking with pyright
 tox -e coverage  # Tests with coverage (requires ≥80%)
+tox -e hacs      # HACS validation
 ```
 
 ### Continuous Integration

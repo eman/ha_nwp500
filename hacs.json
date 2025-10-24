@@ -1,0 +1,7 @@
+{
+  "name": "Navien NWP500 Heat Pump Water Heater",
+  "homeassistant": "2024.10.0",
+  "filename": "nwp500.zip",
+  "hide_default_branch": false,
+  "zip_release": true
+}
