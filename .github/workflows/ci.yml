@@ -72,7 +72,6 @@ jobs:
 
       - name: Run tests
         run: tox -e py$(echo "${{ matrix.python-version }}" | tr -d .)
-        continue-on-error: ${{ matrix.python-version == '3.12' }}
 
   coverage:
     name: Test Coverage
