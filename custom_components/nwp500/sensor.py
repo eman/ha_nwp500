@@ -165,11 +165,9 @@ class NWP500Sensor(NWP500Entity, SensorEntity):
 
     @property
     def native_value(self) -> Any:
-        """Return the state of the sensor using optimized _status."""
+        """Return the state of the sensor."""
         if not (status := self._status):
             return None
-
-        # Access value_fn from our custom description class
         description = self.entity_description
         if (
             isinstance(description, NWP500SensorEntityDescription)
@@ -179,5 +177,4 @@ class NWP500Sensor(NWP500Entity, SensorEntity):
                 return description.value_fn(status)
             except (AttributeError, TypeError):
                 return None
-
         return None

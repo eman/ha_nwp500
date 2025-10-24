@@ -14,7 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, DEVICE_STATUS_BINARY_SENSORS
+from .const import DOMAIN
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
 
@@ -277,7 +277,7 @@ async def async_setup_entry(
 class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
     """Navien NWP500 binary sensor entity."""
 
-    entity_description: NWP500BinarySensorEntityDescription
+    entity_description: NWP500BinarySensorEntityDescription  # pyright: ignore[reportIncompatibleVariableOverride]
 
     def __init__(
         self,
@@ -288,7 +288,7 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
     ) -> None:
         """Initialize the binary sensor."""
         super().__init__(coordinator, mac_address, device)
-        self.entity_description = description
+        self.entity_description = description  # pyright: ignore[reportIncompatibleVariableOverride]
         self._attr_unique_id = f"{mac_address}_{description.key}"
         self._attr_name = f"{self.device_name} {description.name}"
 
@@ -297,11 +297,9 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
         """Return true if the binary sensor is on."""
         if not (status := self._status):
             return None
-
         if self.entity_description.value_fn:
             try:
                 return self.entity_description.value_fn(status)
             except (AttributeError, TypeError):
                 return None
-
         return None

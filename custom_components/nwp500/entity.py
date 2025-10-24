@@ -31,6 +31,35 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
         # Build device info with available information
         self._attr_device_info = self._build_device_info()
+        
+        # Set initial attribute states
+        self._update_attrs()
+
+    def _update_attrs(self) -> None:
+        """Update dynamic attributes based on current data."""
+        # Update extra state attributes
+        self._attr_extra_state_attributes = self._build_extra_state_attributes()
+        
+        # Update device info if features changed
+        self._update_device_info()
+
+    def _update_device_info(self) -> None:
+        """Update device info if feature data has changed."""
+        current_feature = self.coordinator.device_features.get(self.mac_address)
+        
+        feature_changed = (
+            current_feature != self._last_feature_update
+            or self._attr_device_info is None
+        )
+        
+        if feature_changed:
+            self._attr_device_info = self._build_device_info()
+            self._last_feature_update = current_feature
+
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._update_attrs()
+        super()._handle_coordinator_update()
 
     @property
     def _status(self) -> Any | None:
@@ -140,30 +169,6 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         return final_device_info
 
     @property
-    def device_info(self) -> DeviceInfo:
-        """Return device info, updating if new feature data is available."""
-        # Check if device features have been updated since last rebuild
-        current_feature = self.coordinator.device_features.get(self.mac_address)
-
-        # Only rebuild if features have changed or this is the first access
-        feature_changed = (
-            current_feature != self._last_feature_update
-            or self._attr_device_info is None
-        )
-
-        if feature_changed:
-            # Rebuild device info with current feature data
-            self._attr_device_info = self._build_device_info()
-            # Update tracking to prevent unnecessary rebuilds
-            self._last_feature_update = current_feature
-
-        # Ensure we always return a DeviceInfo, not None
-        if self._attr_device_info is None:
-            self._attr_device_info = self._build_device_info()
-
-        return self._attr_device_info
-
-    @property
     def device_data(self) -> dict[str, Any] | None:
         """Return the device data."""
         if not self.coordinator.data:
@@ -175,16 +180,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         """Return the device name."""
         return self.device.device_info.device_name or "NWP500"
 
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        return (
-            self.coordinator.last_update_success
-            and self.device_data is not None
-        )
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def _build_extra_state_attributes(self) -> dict[str, Any]:
         """Return additional state attributes."""
         attrs = {}
 
