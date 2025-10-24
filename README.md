@@ -324,6 +324,16 @@ This integration is actively maintained. Please report issues or contribute impr
 5. Add tests for new features
 6. Update documentation as needed
 
+### Releases
+
+This project follows [Semantic Versioning](https://semver.org/). For details on creating releases, see [RELEASING.md](RELEASING.md).
+
+To create a release:
+1. Update version in `manifest.json` and `CHANGELOG.md`
+2. Commit changes
+3. Create and push a tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z" && git push origin vX.Y.Z`
+4. GitHub Actions will automatically create the release and build artifacts
+
 ## License
 
 This integration is released under the MIT License.

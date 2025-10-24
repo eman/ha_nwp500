@@ -39,6 +39,9 @@ This is a Home Assistant custom component that provides integration for Navien N
 
 ## Code Standards
 
+### General Best Practices
+- **Always Get Current Date**: Never assume or hardcode dates. Always use `date +%Y-%m-%d` command to get the correct date for changelogs, releases, or any date-dependent content.
+
 ### Style Guidelines
 - **PEP 8 Compliance**: All code must conform to PEP 8 standards
 - **Line Length**: Maximum 100 characters per line
