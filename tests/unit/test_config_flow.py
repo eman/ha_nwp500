@@ -173,7 +173,6 @@ class TestConfigFlow:
         assert result2["data"]["scan_interval"] == 45
 
 
-@pytest.mark.skip(reason="Requires mock nwp500 library import")
 @pytest.mark.asyncio
 async def test_validate_input_success():
     """Test input validation succeeds."""
@@ -206,7 +205,6 @@ async def test_validate_input_success():
         assert "Test Water Heater" in result["title"]
 
 
-@pytest.mark.skip(reason="Requires mock nwp500 library import")
 @pytest.mark.asyncio
 async def test_validate_input_library_unavailable():
     """Test input validation fails when library is unavailable."""
@@ -220,7 +218,7 @@ async def test_validate_input_library_unavailable():
             )
 
 
-@pytest.mark.skip(reason="Requires mock nwp500 library import")
+@pytest.mark.skip(reason="Requires specific nwp500 library error message mocking")
 @pytest.mark.asyncio
 async def test_validate_input_auth_failure():
     """Test input validation fails on auth error."""
@@ -241,7 +239,7 @@ async def test_validate_input_auth_failure():
             )
 
 
-@pytest.mark.skip(reason="Requires mock nwp500 library import")
+@pytest.mark.skip(reason="Requires specific nwp500 library error message mocking")
 @pytest.mark.asyncio
 async def test_validate_input_no_devices():
     """Test input validation fails when no devices found."""

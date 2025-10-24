@@ -81,7 +81,6 @@ class TestNWP500TargetTemperature:
         
         assert number.native_value == 125.0
 
-    @pytest.mark.skip(reason="Test fixture issue")
 
 
     def test_native_value_missing(
@@ -92,7 +91,11 @@ class TestNWP500TargetTemperature:
         mock_device_status: MagicMock,
     ):
         """Test native_value when temperature is missing."""
-        delattr(mock_device_status, "dhwTargetTemperatureSetting")
+        # Remove both temperature attributes
+        if hasattr(mock_device_status, "dhwTargetTemperatureSetting"):
+            delattr(mock_device_status, "dhwTargetTemperatureSetting")
+        if hasattr(mock_device_status, "dhwTemperatureSetting"):
+            delattr(mock_device_status, "dhwTemperatureSetting")
         
         mac_address = mock_device.device_info.mac_address
         number = NWP500TargetTemperature(mock_coordinator, mac_address, mock_device)
