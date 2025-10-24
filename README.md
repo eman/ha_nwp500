@@ -303,6 +303,7 @@ tox
 tox -e mypy      # Type checking with mypy
 tox -e pyright   # Type checking with pyright
 tox -e coverage  # Tests with coverage (requires ≥80%)
+tox -e hacs      # HACS validation
 ```
 
 ### Continuous Integration
