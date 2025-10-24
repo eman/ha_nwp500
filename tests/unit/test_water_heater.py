@@ -422,9 +422,9 @@ class TestNWP500WaterHeater:
         
         await heater.async_turn_off()
         
-        # Turn off sets power_on to False
+        # Turn off sets to POWER_OFF mode (mode=6)
         mock_coordinator.async_control_device.assert_called_once_with(
-            mac_address, "set_power", power_on=False
+            mac_address, "set_dhw_mode", mode=6
         )
         mock_coordinator.async_request_refresh.assert_called_once()
 
