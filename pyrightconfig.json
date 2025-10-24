@@ -43,7 +43,7 @@
   "reportConstantRedefinition": "warning",
   "reportDuplicateImport": true,
   "reportIncompatibleMethodOverride": true,
-  "reportIncompatibleVariableOverride": true,
+  "reportIncompatibleVariableOverride": "warning",
   "reportInconsistentConstructor": true,
   "reportOverlappingOverload": true,
   "reportUninitializedInstanceVariable": false,

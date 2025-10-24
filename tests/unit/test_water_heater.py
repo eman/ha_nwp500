@@ -294,3 +294,250 @@ class TestNWP500WaterHeater:
             mac_address, "set_dhw_mode", mode=3  # ECO mode value
         )
         mock_coordinator.async_request_refresh.assert_called_once()
+
+    def test_extra_state_attributes(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test extra_state_attributes property."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        attrs = heater.extra_state_attributes
+        
+        assert attrs is not None
+        assert "dhw_mode_setting" in attrs
+        assert "current_operation_state" in attrs
+        assert "outside_temperature" in attrs
+
+    def test_extra_state_attributes_no_status(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Test extra_state_attributes when status unavailable."""
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {}
+        }
+        
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        attrs = heater.extra_state_attributes
+        
+        # Should return base attributes even without status
+        assert attrs is not None
+
+    @pytest.mark.asyncio
+    async def test_async_set_temperature_none(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test setting temperature with None value."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        mock_coordinator.async_control_device = AsyncMock()
+        
+        await heater.async_set_temperature()
+        
+        # Should not call control_device when temperature is None
+        mock_coordinator.async_control_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_async_set_operation_mode_invalid(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test setting invalid operation mode."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        mock_coordinator.async_control_device = AsyncMock()
+        
+        await heater.async_set_operation_mode("invalid_mode")
+        
+        # Should not call control_device with invalid mode
+        mock_coordinator.async_control_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_on(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test turning water heater on."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+        
+        await heater.async_turn_on()
+        
+        # Turn on sets to ECO mode (mode=3), not power_on
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address, "set_dhw_mode", mode=3
+        )
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_off(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test turning water heater off."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+        
+        await heater.async_turn_off()
+        
+        # Turn off sets power_on to False
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address, "set_power", power_on=False
+        )
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_away_mode_on(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test turning away mode on."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+        
+        await heater.async_turn_away_mode_on()
+        
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address, "set_dhw_mode", mode=5  # VACATION mode value
+        )
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_away_mode_off(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test turning away mode off."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+        
+        await heater.async_turn_away_mode_off()
+        
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address, "set_dhw_mode", mode=3  # ECO mode value  
+        )
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    def test_current_operation_unknown(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test current_operation returns unknown for unmapped value."""
+        # Set to unmapped operation setting value
+        mock_device_status.dhwOperationSetting.value = 99
+        
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        assert heater.current_operation == "unknown"
+
+    def test_is_on_fallback_to_component_status(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test is_on falls back to checking component status."""
+        # Remove dhwOperationSetting to trigger fallback
+        delattr(mock_device_status, "dhwOperationSetting")
+        
+        # Set component statuses
+        mock_device_status.dhwUse = True
+        
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        assert heater.is_on is True
+
+    def test_is_on_fallback_to_operation_mode(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test is_on falls back to operationMode."""
+        # Remove dhwOperationSetting to trigger fallback
+        delattr(mock_device_status, "dhwOperationSetting")
+        
+        # Set all component statuses to False
+        mock_device_status.dhwUse = False
+        mock_device_status.compUse = False
+        mock_device_status.heatUpperUse = False
+        mock_device_status.heatLowerUse = False
+        
+        # Keep operationMode
+        mock_device_status.operationMode.value = 32
+        
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        assert heater.is_on is True

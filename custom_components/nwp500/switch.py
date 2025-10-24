@@ -57,31 +57,16 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
         """Return True if switch is on."""
         if not (status := self._status):
             return None
-
         try:
-            # According to the documentation, check dhwOperationSetting
-            # for power state. dhwOperationSetting == 6 means POWER_OFF
-            # (device is powered off). Any other value means the device
-            # is powered on (even if idle/standby)
-            dhw_operation_setting = getattr(
-                status, "dhwOperationSetting", None
-            )
+            dhw_operation_setting = getattr(status, "dhwOperationSetting", None)
             if dhw_operation_setting is not None:
                 dhw_value = get_enum_value(dhw_operation_setting)
-                return bool(dhw_value != 6)  # 6 = POWER_OFF
-
-            # Fallback: if dhwOperationSetting is not available, use
-            # operationMode. operationMode == 0 means STANDBY (device
-            # is on but idle). Only truly "off" if we can't determine
+                return bool(dhw_value != 6)
             operation_mode = getattr(status, "operationMode", None)
             if operation_mode is not None:
-                # Device is "on" if it has any operation mode value
-                # (including 0 for standby)
                 return True
-
         except (AttributeError, TypeError):
             pass
-
         return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:

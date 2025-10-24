@@ -9,7 +9,6 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
@@ -29,9 +28,9 @@ try:
         NavienAPIClient,
     )
 
-    NWP500_AVAILABLE = True
+    nwp500_available = True
 except ImportError:
-    NWP500_AVAILABLE = False
+    nwp500_available = False
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -116,7 +115,7 @@ async def validate_input(
     hass: HomeAssistant, data: dict[str, Any]
 ) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
-    if not NWP500_AVAILABLE:
+    if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
             "pip install nwp500-python==3.1.2 awsiotsdk>=1.25.0"

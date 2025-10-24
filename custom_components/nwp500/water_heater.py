@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, List
+from typing import Any
 
 from homeassistant.components.water_heater import (
     WaterHeaterEntity,
@@ -79,35 +79,29 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_water_heater"
         self._attr_name = f"{self.device_name} Water Heater"
+        self._attr_operation_list = [
+            STATE_ECO,
+            STATE_HEAT_PUMP,
+            STATE_HIGH_DEMAND,
+            STATE_ELECTRIC,
+        ]
 
     @property
     def current_temperature(self) -> float | None:
-        """Return the current DHW output temperature.
-        
-        This represents the actual hot water temperature available for use,
-        which matches what users see in the DHW Temperature sensor and
-        is what they expect to see as the "current temperature" of their
-        water heater.
-        """
+        """Return the current DHW output temperature."""
         if not (status := self._status):
             return None
-
         try:
             dhw_temp = getattr(status, "dhwTemperature", None)
-            if dhw_temp is not None:
-                return float(dhw_temp)
+            return float(dhw_temp) if dhw_temp is not None else None
         except (AttributeError, TypeError):
-            pass
-
-        return None
+            return None
 
     @property
     def target_temperature(self) -> float | None:
         """Return the temperature we try to reach."""
         if not (status := self._status):
             return None
-
-        # Get target DHW temperature from status
         try:
             target_temp = getattr(status, "dhwTargetTemperatureSetting", None)
             if target_temp is None:
@@ -121,87 +115,41 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         """Return current operation mode based on dhwOperationSetting."""
         if not (status := self._status):
             return None
-
         try:
-            # Use dhwOperationSetting as the primary source for
-            # water heater state
             operation_setting = getattr(status, "dhwOperationSetting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
-
-                # Handle vacation mode (5) - it's managed by away_mode,
-                # not operation_mode. When in vacation mode, return eco
-                # as the underlying operational state. The vacation
-                # state is properly exposed via is_away_mode_on
-                if mode_value == 5:  # VACATION mode
+                if mode_value == 5:
                     return STATE_ECO
-
-                # Handle power off mode (6) - return explicit "off"
-                # state for better UI clarity and semantic consistency
-                # with ON_OFF feature
-                if mode_value == 6:  # POWER_OFF mode
+                elif mode_value == 6:
                     return STATE_OFF
-
-                # Map normal operation modes to Home Assistant states
-                return DHW_OPERATION_SETTING_TO_HA.get(mode_value, "unknown")
-
+                else:
+                    return DHW_OPERATION_SETTING_TO_HA.get(mode_value, "unknown")
         except (AttributeError, TypeError):
             pass
-
         return "unknown"
-
-    @property
-    def operation_list(self) -> List[str]:
-        """Return the list of available operation modes.
-
-        Note: This excludes vacation and power-off modes because:
-        - Vacation mode is handled by the AWAY_MODE feature
-        - Power-off mode is handled by the ON_OFF feature
-
-        This follows Home Assistant's design where operation modes
-        represent active heating modes, while special states are
-        handled by dedicated features.
-        """
-        return [STATE_ECO, STATE_HEAT_PUMP, STATE_HIGH_DEMAND, STATE_ELECTRIC]
 
     @property
     def is_on(self) -> bool | None:
         """Return True if the water heater is on."""
         if not (status := self._status):
             return None
-
         try:
-            # Check dhwOperationSetting to see if device is set to a
-            # valid operating mode
-            operation_setting = getattr(
-                status, "dhwOperationSetting", None
-            )
+            operation_setting = getattr(status, "dhwOperationSetting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
-
-                # Device is "on" if not in POWER_OFF (6) or STANDBY (0) modes
                 return mode_value not in [0, 6]
-
-            # Fallback: check if any heating elements or compressor is running
             dhw_use = getattr(status, "dhwUse", None)
             comp_use = getattr(status, "compUse", None)
             heat_upper = getattr(status, "heatUpperUse", None)
             heat_lower = getattr(status, "heatLowerUse", None)
-
             if any([dhw_use, comp_use, heat_upper, heat_lower]):
                 return True
-
-            # Final fallback to operationMode
             operation_mode = getattr(status, "operationMode", None)
             if operation_mode is not None:
-                return get_enum_value(operation_mode) not in [
-                    0,
-                    6,
-                ]  # Not STANDBY or POWER_OFF
-
+                return get_enum_value(operation_mode) not in [0, 6]
         except (AttributeError, TypeError):
             pass
-
         return None
 
     @property
@@ -209,22 +157,17 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         """Return true if away mode (vacation mode) is on."""
         if not (status := self._status):
             return None
-
         try:
             operation_setting = getattr(status, "dhwOperationSetting", None)
             if operation_setting is not None:
-                return bool(
-                    get_enum_value(operation_setting) == 5
-                )  # VACATION mode
+                return bool(get_enum_value(operation_setting) == 5)
         except (AttributeError, TypeError):
             pass
-
         return False
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional state attributes."""
-        attrs = super().extra_state_attributes
+    def _build_extra_state_attributes(self) -> dict[str, Any]:
+        """Build additional state attributes for water heater."""
+        attrs = super()._build_extra_state_attributes()
 
         if not (status := self._status):
             return attrs

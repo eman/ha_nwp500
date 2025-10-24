@@ -64,7 +64,6 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):
         """Return the current target temperature."""
         if not (status := self._status):
             return None
-
         try:
             target_temp = getattr(status, "dhwTargetTemperatureSetting", None)
             if target_temp is None:
