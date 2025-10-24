@@ -5,6 +5,7 @@
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/eman/ha_nwp500",
+  "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
   "integration_type": "device",
   "iot_class": "cloud_polling",
   "requirements": ["nwp500-python==3.1.2", "awsiotsdk>=1.25.0"],
