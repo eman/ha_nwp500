@@ -8,9 +8,11 @@ This is a Home Assistant custom component that provides integration for Navien N
 
 ### Primary Library
 - **nwp500-python**: The core Python library that handles communication with Navien NWP500 devices
-  - GitHub Repository: https://github.com/eman/nwp500-python
-  - Documentation: https://nwp500-python.readthedocs.io/en/stable/
-  - Current Version: 3.0.0 (see `custom_components/nwp500/manifest.json`)
+  - **GitHub Repository**: https://github.com/eman/nwp500-python
+  - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
+  - **PyPI Package**: https://pypi.org/project/nwp500-python/
+  - **Current Version**: 3.1.2 (see `custom_components/nwp500/manifest.json`)
+  - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
 - Platform: Home Assistant Custom Component
@@ -83,17 +85,78 @@ The integration maps nwp500-python operation modes to Home Assistant states:
 3. Ensure proper units and device classes
 4. Set appropriate `entity_registry_enabled_default` value
 
+### Updating nwp500-python Library Version
+
+When adopting a new version of the nwp500-python library (the primary dependency), update version references in the following files:
+
+#### 1. **`custom_components/nwp500/manifest.json`** (REQUIRED)
+   - Update the `requirements` array: `"nwp500-python==X.Y.Z"`
+   - This is the authoritative version that Home Assistant uses
+
+#### 2. **`requirements.txt`** (REQUIRED)
+   - Update the version: `nwp500-python==X.Y.Z`
+   - Used for development environment setup
+
+#### 3. **`custom_components/nwp500/coordinator.py`** (REQUIRED)
+   - Update the error message in the ImportError handler
+   - Search for: `"pip install nwp500-python=="`
+   - Update to new version
+
+#### 4. **`custom_components/nwp500/config_flow.py`** (REQUIRED)
+   - Update the error message in the library availability check
+   - Search for: `"pip install nwp500-python=="`
+   - Update to new version
+
+#### 5. **`README.md`** (REQUIRED)
+   - Update the "Library Version X.Y.Z" section header
+   - Add new section documenting improvements/changes in the new version
+   - Update troubleshooting section version reference
+   - Check GitHub release notes: https://github.com/eman/nwp500-python/releases
+
+#### 6. **`.devcontainer/README.md`** (RECOMMENDED)
+   - Update version reference in the "Python Packages" section
+   - Search for: `nwp500-python==`
+
+#### 7. **`.github/copilot-instructions.md`** (THIS FILE)
+   - Update "Current Version" in the "Primary Library" section
+
+#### Workflow for Version Updates
+
+```bash
+# 1. Check for new versions
+pip index versions nwp500-python
+
+# 2. Check release notes
+curl -s https://api.github.com/repos/eman/nwp500-python/releases | jq '.[0]'
+
+# 3. Update all files listed above
+
+# 4. Run type checking (MANDATORY)
+.venv/bin/tox -e mypy
+
+# 5. Test in Docker container (if applicable)
+docker compose up -d
+```
+
+#### Version Update Checklist
+
+- [ ] Check PyPI for latest version
+- [ ] Review GitHub release notes for breaking changes
+- [ ] Update `manifest.json` requirements
+- [ ] Update `requirements.txt`
+- [ ] Update error messages in `coordinator.py`
+- [ ] Update error messages in `config_flow.py`
+- [ ] Update `README.md` with version and improvements
+- [ ] Update `.devcontainer/README.md`
+- [ ] Update this file's "Current Version"
+- [ ] Run `tox -e mypy` - must pass with zero errors
+- [ ] Test in development environment (optional but recommended)
+
 ### Unit Corrections
 - Energy values from device are in **Wh** (watt-hours), not kWh
 - Temperature values are in **Fahrenheit**
 - Power values are in **Watts**
 - Flow rates are in **GPM** (gallons per minute)
-
-### Version Updates
-When updating nwp500-python version:
-1. Update `manifest.json` requirements
-2. Update error messages in `coordinator.py` and `config_flow.py`
-3. Update documentation references in `README.md`
 
 ## Development Environment
 
