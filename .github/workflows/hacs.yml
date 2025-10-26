@@ -21,3 +21,4 @@ jobs:
         with:
           category: integration
           ignore: brands
+          repository: ${{ github.repository }}
