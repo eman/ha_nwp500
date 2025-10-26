@@ -273,7 +273,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==3.1.3 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==3.1.4 awsiotsdk>=1.25.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -462,13 +462,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         """Handle MQTT connection restored event."""
         _LOGGER.info("MQTT connection restored: %s", event_data)
 
-    def _on_reconnection_failed(self, event_data: dict[str, Any]) -> None:
+    def _on_reconnection_failed(self, attempt_count: int) -> None:
         """Handle MQTT reconnection failed event.
 
         When reconnection fails after max attempts, automatically reset
         the reconnection state and trigger a new reconnection cycle.
         """
-        attempt_count = event_data.get("attempt_count", 0)
         _LOGGER.warning(
             "MQTT reconnection failed after %d attempts. "
             "Resetting reconnection state and retrying...",

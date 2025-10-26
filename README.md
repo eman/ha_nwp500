@@ -107,9 +107,13 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 3.1.3
+## Library Version 3.1.4
 
-This integration uses nwp500-python v3.1.3 which includes:
+This integration uses nwp500-python v3.1.4 which includes:
+
+### Improvements in v3.1.4
+- **MQTT Reconnection**: Fixed MQTT reconnection failures due to expired AWS credentials
+- **Connection Recovery**: Improved automatic recovery from connection interruptions
 
 ### Improvements in v3.1.3
 - **MQTT Reliability**: Improved MQTT reconnection reliability with active reconnection
