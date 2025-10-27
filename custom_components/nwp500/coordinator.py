@@ -23,6 +23,7 @@ from .const import (
     DOMAIN,
     CONF_SCAN_INTERVAL,
     SLOW_UPDATE_THRESHOLD,
+    CONF_TOKEN_DATA,
 )
 
 # Import nwp500 exception types at module level for type checking
@@ -96,6 +97,36 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         # Register options update listener
         self.entry.async_on_unload(
             entry.add_update_listener(self.async_options_updated)
+        )
+
+    async def _save_tokens(self) -> None:
+        """Save current authentication tokens to entry.data.
+        
+        This enables token persistence across HA restarts, reducing API load
+        and improving startup time by reusing valid tokens.
+        """
+        if not self.auth_client or not self.auth_client.current_tokens:
+            return
+
+        tokens = self.auth_client.current_tokens
+        
+        # Serialize tokens using the library's to_dict() method
+        token_data = tokens.to_dict()
+
+        # Update entry data with tokens (encrypted by HA)
+        new_data = {
+            **self.entry.data,
+            CONF_TOKEN_DATA: token_data,
+        }
+
+        self.hass.config_entries.async_update_entry(
+            self.entry,
+            data=new_data,
+        )
+        
+        _LOGGER.debug(
+            "Saved authentication tokens (expires at: %s)",
+            tokens.expires_at,
         )
 
     @staticmethod
@@ -298,7 +329,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==4.7.1 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==4.8.0 awsiotsdk>=1.25.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -308,9 +339,45 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         password = self.entry.data[CONF_PASSWORD]
 
         try:
-            # Setup authentication client
-            self.auth_client = NavienAuthClient(email, password)
-            await self.auth_client.__aenter__()  # Authenticate
+            # Try to restore from stored tokens for faster startup
+            stored_token_data = self.entry.data.get(CONF_TOKEN_DATA)
+            stored_tokens = None
+
+            if stored_token_data:
+                try:
+                    from nwp500.auth import AuthTokens
+                    
+                    stored_tokens = AuthTokens.from_dict(stored_token_data)
+                    
+                    if not stored_tokens.is_expired:
+                        _LOGGER.info(
+                            "Found valid stored tokens (expires: %s), "
+                            "skipping initial authentication",
+                            stored_tokens.expires_at,
+                        )
+                    else:
+                        _LOGGER.info(
+                            "Stored tokens expired (%s), will re-authenticate",
+                            stored_tokens.expires_at,
+                        )
+                        stored_tokens = None
+                except (KeyError, ValueError, TypeError) as err:
+                    _LOGGER.warning(
+                        "Failed to restore stored tokens: %s. "
+                        "Will perform full authentication.",
+                        err,
+                    )
+                    stored_tokens = None
+
+            # Setup authentication client with stored tokens if available
+            self.auth_client = NavienAuthClient(
+                email, password, stored_tokens=stored_tokens
+            )
+            await self.auth_client.__aenter__()  # Authenticate or restore
+
+            # Save tokens after successful authentication
+            # This updates tokens if they were refreshed or saves new ones
+            await self._save_tokens()
 
             # Setup API client
             self.api_client = NavienAPIClient(auth_client=self.auth_client)
@@ -512,8 +579,17 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         _LOGGER.warning("MQTT connection lost: %s", event_data)
 
     def _on_connection_restored(self, event_data: dict[str, Any]) -> None:
-        """Handle MQTT connection restored event."""
+        """Handle MQTT connection restored event.
+        
+        Connection restoration may involve token refresh, so save updated tokens.
+        """
         _LOGGER.info("MQTT connection restored: %s", event_data)
+        
+        # Schedule token save on the main event loop (thread-safe)
+        # Connection restoration may have refreshed tokens
+        asyncio.run_coroutine_threadsafe(
+            self._save_tokens(), self.hass.loop
+        )
 
     def _on_reconnection_failed(self, attempt_count: int) -> None:
         """Handle MQTT reconnection failed event.

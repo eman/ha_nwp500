@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Token persistence implementation for faster startups and reduced API load
+- Automatic token caching and restoration across Home Assistant restarts
+- Smart token refresh on expiry with automatic fallback to full authentication
+
+### Changed
+- Updated nwp500-python dependency from 4.7.1 to 4.8.0
+- Adopted token restoration support for session persistence
+- Improved startup time and reduced API load with token caching
+- Better rate limit prevention through token persistence
+- Enhanced MQTT reconnection handling to save refreshed tokens
+
 ## [0.1.0] - 2025-10-23
 
 ### Added

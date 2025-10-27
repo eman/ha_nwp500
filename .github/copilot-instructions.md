@@ -11,7 +11,7 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **GitHub Repository**: https://github.com/eman/nwp500-python
   - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
   - **PyPI Package**: https://pypi.org/project/nwp500-python/
-  - **Current Version**: 4.7.1 (see `custom_components/nwp500/manifest.json`)
+  - **Current Version**: 4.8.0 (see `custom_components/nwp500/manifest.json`)
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
@@ -123,6 +123,13 @@ When adopting a new version of the nwp500-python library (the primary dependency
 #### 7. **`.github/copilot-instructions.md`** (THIS FILE)
    - Update "Current Version" in the "Primary Library" section
 
+#### 8. **`tox.ini`** (CRITICAL - OFTEN MISSED!)
+   - Update version in `[testenv]` deps section
+   - Update version in `[testenv:pyright]` deps section
+   - **Important**: Ensure `[testenv:mypy]` includes the library for type resolution
+   - Search for all occurrences: `nwp500-python==`
+   - CI will fail if this file is not updated!
+
 #### Workflow for Version Updates
 
 ```bash
@@ -152,8 +159,11 @@ docker compose up -d
 - [ ] Update `README.md` with version and improvements
 - [ ] Update `.devcontainer/README.md`
 - [ ] Update this file's "Current Version"
-- [ ] Run `tox -e mypy` - must pass with zero errors
+- [ ] **Update `tox.ini` - ALL occurrences (CRITICAL for CI)**
+- [ ] Run `tox -e mypy --recreate` - must pass with zero errors
 - [ ] Test in development environment (optional but recommended)
+
+**⚠️ Common Mistake**: Forgetting to update `tox.ini` causes CI failures because type checkers cannot resolve the new library APIs. Always search for ALL occurrences of `nwp500-python==` in the project.
 
 ### Unit Corrections
 - Energy values from device are in **Wh** (watt-hours), not kWh
