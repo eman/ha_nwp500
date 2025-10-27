@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import DOMAIN
 from .coordinator import NWP500DataUpdateCoordinator
@@ -31,7 +32,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except Exception as err:
+    except UpdateFailed as err:
+        # Coordinator raises UpdateFailed for all setup errors
         _LOGGER.error("Failed to connect to NWP500: %s", err)
         raise ConfigEntryNotReady from err
 
