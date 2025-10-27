@@ -14,6 +14,7 @@ DOMAIN: Final = "nwp500"
 CONF_EMAIL: Final = "email"
 CONF_PASSWORD: Final = "password"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
+CONF_TOKEN_DATA: Final = "token_data"  # Token persistence
 
 # Default values
 DEFAULT_NAME: Final = "Navien NWP500"

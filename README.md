@@ -107,9 +107,16 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 4.7.1
+## Library Version 4.8.0
 
-This integration uses nwp500-python v4.7.1 which includes:
+This integration uses nwp500-python v4.8.0 which includes:
+
+### Improvements in v4.8.0
+- **Token Persistence**: Added `stored_tokens` parameter to `NavienAuthClient.__init__()` for restoring previously saved tokens
+- **Session Continuity**: Reduces API load and improves startup time by reusing valid authentication tokens across application restarts
+- **Smart Authentication**: Automatically skips authentication when valid stored tokens are provided
+- **Auto-Refresh**: Automatically refreshes expired JWT tokens or re-authenticates if AWS credentials expired
+- **Rate Limit Prevention**: Avoids hitting API rate limits from frequent restarts
 
 ### Improvements in v4.7.1
 - **Bug Fixes**: Minor improvements and bug fixes from v4.7
@@ -203,6 +210,13 @@ Most sensors are **disabled by default** to avoid cluttering your entity list. Y
 
 ## Advanced Features
 
+### Token Persistence
+- Automatic token caching across Home Assistant restarts
+- Faster startup times by reusing valid authentication tokens
+- Reduced API load on Navien cloud servers
+- Automatic token refresh when expired
+- Seamless re-authentication when needed
+
 ### Real-time Updates
 - MQTT-based real-time status updates
 - Event-driven architecture for immediate state changes
@@ -251,7 +265,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==4.7.1 is installed
+- Ensure nwp500-python==4.8.0 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
