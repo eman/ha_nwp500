@@ -107,9 +107,25 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 3.1.4
+## Library Version 4.7.1
 
-This integration uses nwp500-python v3.1.4 which includes:
+This integration uses nwp500-python v4.7.1 which includes:
+
+### Improvements in v4.7.1
+- **Bug Fixes**: Minor improvements and bug fixes from v4.7
+
+### Improvements in v4.7
+- **Two-Tier MQTT Reconnection Strategy**: 
+  - Quick reconnection (attempts 1-9) for fast recovery from transient network issues
+  - Deep reconnection (every 10th attempt) with full credential refresh and subscription recovery
+  - Unlimited retries - never gives up permanently
+- **Enhanced Error Handling**: Replaced 25 catch-all exception handlers with specific exception types
+- **New Public API**:
+  - `NavienAuthClient.has_stored_credentials` property
+  - `NavienAuthClient.re_authenticate()` method
+  - `MqttSubscriptionManager.resubscribe_all()` method
+- **Production-Ready MQTT Reconnection**: Never loses connection permanently, handles expired AWS credentials gracefully
+- **Code Quality**: Improved error messages, better debugging capabilities, cleaner maintainable codebase
 
 ### Improvements in v3.1.4
 - **MQTT Reconnection**: Fixed MQTT reconnection failures due to expired AWS credentials
@@ -235,7 +251,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==3.1.2 is installed
+- Ensure nwp500-python==4.7.1 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**

@@ -25,12 +25,37 @@ from .const import (
     SLOW_UPDATE_THRESHOLD,
 )
 
+# Import nwp500 exception types at module level for type checking
+if TYPE_CHECKING:
+    from nwp500.auth import (
+        AuthenticationError,
+        InvalidCredentialsError,
+        TokenRefreshError,
+        TokenExpiredError,
+    )
+    from nwp500.api_client import APIError
+
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
         NavienAuthClient,
         NavienAPIClient,
         NavienMqttClient,
     )
+else:
+    # Import exceptions for runtime use
+    try:
+        from nwp500 import (
+            AuthenticationError,
+            InvalidCredentialsError,
+            TokenRefreshError,
+            TokenExpiredError,
+        )
+    except ImportError:
+        # Fallback if exceptions not available
+        AuthenticationError = Exception  # type: ignore[misc,assignment]
+        InvalidCredentialsError = Exception  # type: ignore[misc,assignment]
+        TokenRefreshError = Exception  # type: ignore[misc,assignment]
+        TokenExpiredError = Exception  # type: ignore[misc,assignment]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -186,7 +211,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                         mac_address,
                                         info_err,
                                     )
-                            except Exception as info_err:
+                            except (RuntimeError, OSError, TimeoutError) as info_err:
                                 _LOGGER.debug(
                                     "Fallback device info request failed "
                                     "for %s: %s",
@@ -210,7 +235,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 mac_address,
                                 err,
                             )
-                    except Exception as err:
+                    except (RuntimeError, OSError, TimeoutError) as err:
                         _LOGGER.warning(
                             "Failed to request status for device %s: %s",
                             mac_address,
@@ -252,7 +277,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             return device_data
 
-        except Exception as err:
+        except (AwsCrtError, RuntimeError, OSError, TimeoutError, AttributeError, KeyError) as err:
             # Track failed update time as well
             duration = time.monotonic() - start_time
             _LOGGER.error(
@@ -273,7 +298,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==3.1.4 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==4.7.1 awsiotsdk>=1.25.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -331,7 +356,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             # library does blocking operations
             try:
                 connected = await self.mqtt_client.connect()
-            except Exception as err:
+            except (AwsCrtError, RuntimeError, OSError, TimeoutError) as err:
                 _LOGGER.warning("MQTT connection failed: %s", err)
                 connected = False
 
@@ -352,7 +377,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         await self.mqtt_client.subscribe_device_feature(
                             device, self._on_device_feature_update
                         )
-                    except Exception as err:
+                    except (AwsCrtError, RuntimeError, OSError, TimeoutError) as err:
                         _LOGGER.warning(
                             "Failed to subscribe to device %s: %s",
                             device.device_info.mac_address,
@@ -389,7 +414,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 "for %s",
                                 device.device_info.mac_address,
                             )
-                        except Exception as info_err:
+                        except (AwsCrtError, RuntimeError, OSError, TimeoutError) as info_err:
                             _LOGGER.warning(
                                 "Failed to send immediate device info "
                                 "request for %s: %s",
@@ -397,7 +422,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 info_err,
                             )
 
-                    except Exception as err:
+                    except (AwsCrtError, RuntimeError, OSError, TimeoutError) as err:
                         _LOGGER.warning(
                             "Failed to start periodic requests for "
                             "device %s: %s",
@@ -411,7 +436,25 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 len(self.devices),
             )
 
-        except Exception as err:
+        except (
+            AuthenticationError,
+            InvalidCredentialsError,
+            TokenRefreshError,
+            TokenExpiredError,
+        ) as err:
+            # Authentication failed - trigger reauth flow
+            _LOGGER.error(
+                "Authentication failed for %s: %s. Starting reauth flow.",
+                email,
+                err,
+            )
+            self.entry.async_start_reauth(self.hass)
+            await self.async_shutdown()
+            raise UpdateFailed(
+                "Authentication failed. Please re-authenticate through "
+                "the notifications panel or Settings > Devices & Services."
+            ) from err
+        except (AwsCrtError, RuntimeError, OSError, TimeoutError) as err:
             _LOGGER.error("Failed to setup clients: %s", err)
             await self.async_shutdown()
             raise UpdateFailed(
@@ -419,7 +462,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             ) from err
 
     def _on_device_status_event(self, event_data: dict[str, Any]) -> None:
-        """Handle device status event from event emitter."""
+        """Handle device status event from event emitter.
+        
+        Uses catch-all exception handling to ensure event handler resilience
+        as per EventEmitter pattern - must not allow callback errors to
+        propagate to the event emitter.
+        """
         _LOGGER.debug("Received device status event: %s", event_data)
 
         try:
@@ -437,11 +485,16 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     self.hass.loop.call_soon_threadsafe(
                         self.async_update_listeners
                     )
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - EventEmitter callback must catch all
             _LOGGER.error("Error handling device status event: %s", err)
 
     def _on_device_feature_event(self, event_data: dict[str, Any]) -> None:
-        """Handle device feature event from event emitter."""
+        """Handle device feature event from event emitter.
+        
+        Uses catch-all exception handling to ensure event handler resilience
+        as per EventEmitter pattern - must not allow callback errors to
+        propagate to the event emitter.
+        """
         _LOGGER.debug("Received device feature event: %s", event_data)
 
         try:
@@ -451,7 +504,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             if feature and device:
                 mac_address = device.device_info.mac_address
                 self.device_features[mac_address] = feature
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - EventEmitter callback must catch all
             _LOGGER.error("Error handling device feature event: %s", err)
 
     def _on_connection_lost(self, event_data: dict[str, Any]) -> None:
@@ -481,7 +534,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             )
 
     def _on_device_status_update(self, status: Any) -> None:
-        """Handle device status update from MQTT (legacy callback)."""
+        """Handle device status update from MQTT (legacy callback).
+        
+        Uses catch-all exception handling to ensure callback resilience
+        as per EventEmitter pattern - must not allow callback errors to
+        propagate to the MQTT client.
+        """
         try:
             # Find the device by checking the status data
             # Status should contain mac_address or match by other means
@@ -523,11 +581,16 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 # thread-safe method
                 self.hass.loop.call_soon_threadsafe(self.async_update_listeners)
 
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - MQTT callback must catch all
             _LOGGER.error("Error handling device status update: %s", err)
 
     def _on_device_feature_update(self, feature: Any) -> None:
-        """Handle device feature update from MQTT (legacy callback)."""
+        """Handle device feature update from MQTT (legacy callback).
+        
+        Uses catch-all exception handling to ensure callback resilience
+        as per EventEmitter pattern - must not allow callback errors to
+        propagate to the MQTT client.
+        """
         try:
             _LOGGER.debug("Received device feature update: %s", feature)
 
@@ -539,7 +602,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.device_features[mac_address] = feature
                 break  # Assume single device for now
 
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - MQTT callback must catch all
             _LOGGER.error("Error handling device feature update: %s", err)
 
     async def async_control_device(
@@ -613,7 +676,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 return True  # Command is queued, will be sent on reconnect
             _LOGGER.error("Failed to send command %s: %s", command, err)
             return False
-        except Exception as err:
+        except (RuntimeError, OSError, TimeoutError, ValueError, TypeError) as err:
             _LOGGER.error("Failed to send command %s: %s", command, err)
             return False
 
@@ -664,7 +727,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         device.device_info.mac_address,
                         err,
                     )
-            except Exception as err:
+            except (RuntimeError, OSError, TimeoutError) as err:
                 _LOGGER.error(
                     "Failed to send manual device info request for %s: %s",
                     device.device_info.mac_address,
@@ -696,14 +759,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
                 await self.mqtt_client.stop_all_periodic_tasks()
                 await self.mqtt_client.disconnect()
-            except Exception as err:
+            except (AwsCrtError, RuntimeError, OSError) as err:
                 _LOGGER.debug("Error disconnecting MQTT client: %s", err)
             self.mqtt_client = None
 
         if self.auth_client:
             try:
                 await self.auth_client.__aexit__(None, None, None)
-            except Exception as err:
+            except (RuntimeError, OSError) as err:
                 _LOGGER.debug("Error closing auth client: %s", err)
             self.auth_client = None
 

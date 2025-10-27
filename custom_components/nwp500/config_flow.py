@@ -10,6 +10,8 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.data_entry_flow import AbortFlow
 
 from .const import (
     DOMAIN,
@@ -45,6 +47,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self._reauth_entry: config_entries.ConfigEntry | None = None
+
     @staticmethod
     @callback
     def async_get_options_flow(
@@ -66,7 +72,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             except InvalidAuth:
                 errors["base"] = "invalid_auth"
-            except Exception:  # pylint: disable=broad-except
+            except Exception:  # noqa: BLE001 - Config flow must not crash UI
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
@@ -76,6 +82,57 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> config_entries.ConfigFlowResult:
+        """Handle reauth when credentials expire or become invalid."""
+        self._reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm reauth and update credentials."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                await validate_input(self.hass, user_input)
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:  # noqa: BLE001 - Config flow must not crash UI
+                _LOGGER.exception("Unexpected exception during reauth")
+                errors["base"] = "unknown"
+            else:
+                if self._reauth_entry:
+                    # Update existing entry with new credentials
+                    self.hass.config_entries.async_update_entry(
+                        self._reauth_entry,
+                        data=user_input,
+                    )
+                    await self.hass.config_entries.async_reload(
+                        self._reauth_entry.entry_id
+                    )
+                    return self.async_abort(reason="reauth_successful")
+                
+                # This should not happen, but handle gracefully
+                return self.async_abort(reason="reauth_failed")
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=STEP_USER_DATA_SCHEMA,
+            errors=errors,
+            description_placeholders={
+                "account": self._reauth_entry.data[CONF_EMAIL]
+                if self._reauth_entry
+                else "unknown"
+            },
         )
 
 
@@ -114,11 +171,16 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
 async def validate_input(
     hass: HomeAssistant, data: dict[str, Any]
 ) -> dict[str, Any]:
-    """Validate the user input allows us to connect."""
+    """Validate the user input allows us to connect.
+    
+    Raises:
+        CannotConnect: If connection to Navien service fails
+        InvalidAuth: If credentials are invalid (401/unauthorized)
+    """
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            "pip install nwp500-python==3.1.4 awsiotsdk>=1.25.0"
+            "pip install nwp500-python==4.7.1 awsiotsdk>=1.25.0"
         )
         raise CannotConnect("nwp500-python library not available")
 
@@ -149,7 +211,11 @@ async def validate_input(
             device = devices[0]
             device_name = device.device_info.device_name or "NWP500"
 
-    except Exception as err:
+    except (CannotConnect, InvalidAuth):
+        # Re-raise our own exceptions
+        raise
+    except (RuntimeError, OSError, TimeoutError, AttributeError, KeyError) as err:
+        # Network, connection, and data access errors
         _LOGGER.error("Failed to authenticate with Navien: %s", err)
         if "401" in str(err) or "unauthorized" in str(err).lower():
             raise InvalidAuth from err
