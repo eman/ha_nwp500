@@ -26,15 +26,15 @@ from .const import (
     CONF_TOKEN_DATA,
 )
 
-# Import nwp500 exception types at module level for type checking
-if TYPE_CHECKING:
-    from nwp500.auth import (
-        AuthenticationError,
-        InvalidCredentialsError,
-        TokenRefreshError,
-        TokenExpiredError,
-    )
-    from nwp500.api_client import APIError
+from nwp500.exceptions import (
+    AuthenticationError,
+    InvalidCredentialsError,
+    TokenRefreshError,
+    TokenExpiredError,
+    MqttError,
+    MqttNotConnectedError,
+    MqttConnectionError,
+)
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -42,21 +42,6 @@ if TYPE_CHECKING:
         NavienAPIClient,
         NavienMqttClient,
     )
-else:
-    # Import exceptions for runtime use
-    try:
-        from nwp500 import (
-            AuthenticationError,
-            InvalidCredentialsError,
-            TokenRefreshError,
-            TokenExpiredError,
-        )
-    except ImportError:
-        # Fallback if exceptions not available
-        AuthenticationError = Exception  # type: ignore[misc,assignment]
-        InvalidCredentialsError = Exception  # type: ignore[misc,assignment]
-        TokenRefreshError = Exception  # type: ignore[misc,assignment]
-        TokenExpiredError = Exception  # type: ignore[misc,assignment]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -329,7 +314,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==4.8.0 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==5.0.0 awsiotsdk>=1.25.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"

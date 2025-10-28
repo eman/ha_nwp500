@@ -107,9 +107,55 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 4.8.0
+## Library Version 5.0.0
 
-This integration uses nwp500-python v4.8.0 which includes:
+This integration uses nwp500-python v5.0.0 which includes:
+
+### BREAKING CHANGES in v5.0.0
+
+**⚠️ Important**: This is a major version update with breaking changes. However, this Home Assistant integration has been updated to handle all changes automatically.
+
+**What Changed in the Library:**
+- **Exception Handling**: Library now uses specific exception types (`MqttNotConnectedError`, `MqttConnectionError`, `RangeValidationError`, etc.) instead of generic `RuntimeError` and `ValueError`
+- **Python Version**: Minimum Python version is now 3.9 (was 3.8)
+- **Type Hints**: Migrated to native type hints (PEP 585): `dict[str, Any]` instead of `Dict[str, Any]`
+
+**Migration Status for this Integration:**
+- ✅ All exception handling updated to use new specific exception types
+- ✅ Integration already uses Python 3.9+ minimum (via Home Assistant requirements)
+- ✅ Type hints already use PEP 585 native syntax
+- ✅ All imports and error handling patterns updated
+- ✅ Full compatibility with new exception architecture
+
+### Improvements in v5.0.0
+
+- **Enterprise Exception Architecture**: Complete exception hierarchy for better error handling
+  - Added `Nwp500Error` as base exception for all library errors
+  - MQTT-specific exceptions: `MqttError`, `MqttConnectionError`, `MqttNotConnectedError`, `MqttPublishError`, `MqttSubscriptionError`, `MqttCredentialsError`
+  - Validation exceptions: `ValidationError`, `ParameterValidationError`, `RangeValidationError`
+  - Device exceptions: `DeviceError`, `DeviceNotFoundError`, `DeviceOfflineError`, `DeviceOperationError`
+  - All exceptions include `error_code`, `details`, and `retriable` attributes
+  - Added comprehensive exception handling example
+
+- **Exception Handling Improvements**:
+  - All exception wrapping now uses exception chaining (`raise ... from e`) to preserve stack traces
+  - Replaced 19+ instances of generic exceptions with specific types
+  - Better error messages and user guidance
+  - Structured logging support with `to_dict()` method on all exceptions
+
+- **Critical Bug Fixes**:
+  - Fixed thread-safe reconnection task creation from MQTT callbacks (prevents `RuntimeError: no running event loop`)
+  - Fixed thread-safe event emission from MQTT callbacks
+  - Fixed device control command codes (power-off/on now use correct command codes)
+  - Fixed MQTT topic pattern matching with wildcards
+  - Fixed missing `OperationMode.STANDBY` enum value
+  - Robust enum conversion with fallbacks for unknown values
+
+- **Code Quality**:
+  - Modern Python type hints (PEP 585)
+  - Better debugging capabilities
+  - Cleaner, more maintainable codebase
+  - Comprehensive test suite for exceptions
 
 ### Improvements in v4.8.0
 - **Token Persistence**: Added `stored_tokens` parameter to `NavienAuthClient.__init__()` for restoring previously saved tokens
@@ -265,7 +311,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==4.8.0 is installed
+- Ensure nwp500-python==5.0.0 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
