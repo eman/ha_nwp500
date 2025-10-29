@@ -293,7 +293,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             return device_data
 
-        except (AwsCrtError, RuntimeError, OSError, TimeoutError, AttributeError, KeyError) as err:
+        except (
+            AwsCrtError,
+            RuntimeError,
+            OSError,
+            TimeoutError,
+            AttributeError,
+            KeyError,
+            MqttError,
+        ) as err:
             # Track failed update time as well
             duration = time.monotonic() - start_time
             _LOGGER.error(
@@ -506,7 +514,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 "Authentication failed. Please re-authenticate through "
                 "the notifications panel or Settings > Devices & Services."
             ) from err
-        except (AwsCrtError, RuntimeError, OSError, TimeoutError) as err:
+        except (AwsCrtError, RuntimeError, OSError, TimeoutError, MqttError) as err:
             _LOGGER.error("Failed to setup clients: %s", err)
             await self.async_shutdown()
             raise UpdateFailed(
@@ -737,7 +745,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 return True  # Command is queued, will be sent on reconnect
             _LOGGER.error("Failed to send command %s: %s", command, err)
             return False
-        except (RuntimeError, OSError, TimeoutError, ValueError, TypeError) as err:
+        except (
+            RuntimeError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            MqttError,
+        ) as err:
             _LOGGER.error("Failed to send command %s: %s", command, err)
             return False
 
@@ -788,7 +803,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         device.device_info.mac_address,
                         err,
                     )
-            except (RuntimeError, OSError, TimeoutError) as err:
+            except (RuntimeError, OSError, TimeoutError, MqttError) as err:
                 _LOGGER.error(
                     "Failed to send manual device info request for %s: %s",
                     device.device_info.mac_address,
