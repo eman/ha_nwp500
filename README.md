@@ -107,145 +107,18 @@ The integration maps nwp500-python library modes to Home Assistant water heater 
 | HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
 | ELECTRIC (2) | electric | Electric elements only |
 
-## Library Version 5.0.2
+## Library Version
 
-This integration uses nwp500-python v5.0.2 which includes:
+This integration currently uses **nwp500-python v6.0.0**.
 
-### Improvements in v5.0.2
+For detailed changelog of the nwp500-python library versions, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
-- **Bug Fix**: Fixed `InvalidStateError` when cancelling MQTT futures during disconnect
-  - Prevents race condition when MQTT connection is being torn down
-  - Improves stability during reconnection scenarios
-  - Better handling of connection state transitions
-
-For full release notes, see: https://github.com/eman/nwp500-python/releases/tag/v5.0.2
-
-### BREAKING CHANGES in v5.0.0
-
-**⚠️ Important**: This is a major version update with breaking changes. However, this Home Assistant integration has been updated to handle all changes automatically.
-
-**What Changed in the Library:**
-- **Exception Handling**: Library now uses specific exception types (`MqttNotConnectedError`, `MqttConnectionError`, `RangeValidationError`, etc.) instead of generic `RuntimeError` and `ValueError`
-- **Python Version**: Minimum Python version is now 3.9 (was 3.8)
-- **Type Hints**: Migrated to native type hints (PEP 585): `dict[str, Any]` instead of `Dict[str, Any]`
-
-**Migration Status for this Integration:**
-- ✅ All exception handling updated to use new specific exception types
-- ✅ Integration already uses Python 3.9+ minimum (via Home Assistant requirements)
-- ✅ Type hints already use PEP 585 native syntax
-- ✅ All imports and error handling patterns updated
-- ✅ Full compatibility with new exception architecture
-
-### Improvements in v5.0.0
-
-- **Enterprise Exception Architecture**: Complete exception hierarchy for better error handling
-  - Added `Nwp500Error` as base exception for all library errors
-  - MQTT-specific exceptions: `MqttError`, `MqttConnectionError`, `MqttNotConnectedError`, `MqttPublishError`, `MqttSubscriptionError`, `MqttCredentialsError`
-  - Validation exceptions: `ValidationError`, `ParameterValidationError`, `RangeValidationError`
-  - Device exceptions: `DeviceError`, `DeviceNotFoundError`, `DeviceOfflineError`, `DeviceOperationError`
-  - All exceptions include `error_code`, `details`, and `retriable` attributes
-  - Added comprehensive exception handling example
-
-- **Exception Handling Improvements**:
-  - All exception wrapping now uses exception chaining (`raise ... from e`) to preserve stack traces
-  - Replaced 19+ instances of generic exceptions with specific types
-  - Better error messages and user guidance
-  - Structured logging support with `to_dict()` method on all exceptions
-
-- **Critical Bug Fixes**:
-  - Fixed thread-safe reconnection task creation from MQTT callbacks (prevents `RuntimeError: no running event loop`)
-  - Fixed thread-safe event emission from MQTT callbacks
-  - Fixed device control command codes (power-off/on now use correct command codes)
-  - Fixed MQTT topic pattern matching with wildcards
-  - Fixed missing `OperationMode.STANDBY` enum value
-  - Robust enum conversion with fallbacks for unknown values
-
-- **Code Quality**:
-  - Modern Python type hints (PEP 585)
-  - Better debugging capabilities
-  - Cleaner, more maintainable codebase
-  - Comprehensive test suite for exceptions
-
-### Improvements in v4.8.0
-- **Token Persistence**: Added `stored_tokens` parameter to `NavienAuthClient.__init__()` for restoring previously saved tokens
-- **Session Continuity**: Reduces API load and improves startup time by reusing valid authentication tokens across application restarts
-- **Smart Authentication**: Automatically skips authentication when valid stored tokens are provided
-- **Auto-Refresh**: Automatically refreshes expired JWT tokens or re-authenticates if AWS credentials expired
-- **Rate Limit Prevention**: Avoids hitting API rate limits from frequent restarts
-
-### Improvements in v4.7.1
-- **Bug Fixes**: Minor improvements and bug fixes from v4.7
-
-### Improvements in v4.7
-- **Two-Tier MQTT Reconnection Strategy**: 
-  - Quick reconnection (attempts 1-9) for fast recovery from transient network issues
-  - Deep reconnection (every 10th attempt) with full credential refresh and subscription recovery
-  - Unlimited retries - never gives up permanently
-- **Enhanced Error Handling**: Replaced 25 catch-all exception handlers with specific exception types
-- **New Public API**:
-  - `NavienAuthClient.has_stored_credentials` property
-  - `NavienAuthClient.re_authenticate()` method
-  - `MqttSubscriptionManager.resubscribe_all()` method
-- **Production-Ready MQTT Reconnection**: Never loses connection permanently, handles expired AWS credentials gracefully
-- **Code Quality**: Improved error messages, better debugging capabilities, cleaner maintainable codebase
-
-### Improvements in v3.1.4
-- **MQTT Reconnection**: Fixed MQTT reconnection failures due to expired AWS credentials
-- **Connection Recovery**: Improved automatic recovery from connection interruptions
-
-### Improvements in v3.1.3
-- **MQTT Reliability**: Improved MQTT reconnection reliability with active reconnection
-- **Connection Stability**: Better handling of connection interruptions and recovery
-
-### Improvements in v3.1.2
-- **Authentication**: Fixes 401 authentication errors with automatic token refresh
-- **Reliability**: Improved session management and token handling
-
-### Improvements in v3.1.1
-- **Documentation**: PEP 257 compliant docstrings for better IDE support
-- **Code Quality**: 80 character line limit for improved readability
-- **Comprehensive Documentation**: Enhanced API documentation
-
-### Breaking Changes from v2.0.0 (in v3.0.0)
-- **Removed**: Deprecated `OperationMode` enum (fully replaced by `DhwOperationSetting` and `CurrentOperationMode`)
-- **Removed**: Migration helper functions from v2.x
-- **Clean API**: Streamlined enum structure for better type safety
-
-### Enhanced Type Safety
-- **DhwOperationSetting**: User-configured mode preferences (Heat Pump, Electric, Energy Saver, High Demand, Vacation, Power Off)
-- **CurrentOperationMode**: Real-time operational states (Standby, Heat Pump Mode, Hybrid Efficiency Mode, Hybrid Boost Mode)
-- **Better IDE Support**: More specific enum types prevent accidental misuse
-
-### Continued Features from v2.x
-
-### Enhanced MQTT Reconnection and Reliability
-- **Improved MQTT Reconnection**: Fixes connection interruption issues with AWS MQTT (AWS_ERROR_MQTT_UNEXPECTED_HANGUP)
-- **Automatic Recovery**: Automatically handles AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION errors
-- **Command Queuing**: Commands sent while disconnected are queued and sent automatically when reconnected
-- **Exponential Backoff**: Robust reconnection with intelligent retry logic
-
-### Anti-Legionella Protection Control
-- **Monitoring**: Track periodic disinfection cycles (140°F heating)
-- **Safety Compliance**: Monitor legionella prevention status
-- **Operational Status**: Track when anti-legionella protection is active
-
-### Reservation Management
-- **Schedule Control**: Schedule automatic temperature and mode changes
-- **Program Management**: Monitor and control reservation settings
-- **Automated Operations**: Set up timed operations for energy efficiency
-
-### Event Emitter Integration
-The integration leverages the new event emitter functionality for:
-- Real-time device status updates
-- Connection status monitoring
-- Better error handling and recovery
-
-### Comprehensive Device Status Fields
-All device status fields from the v1.1.1 library are mapped to entities:
-- Temperature sensors with proper unit conversions
-- Boolean status indicators
-- Diagnostic and performance metrics
-- Energy monitoring capabilities
+Key library features leveraged by this integration:
+- **Event Emitter Pattern**: Real-time device status updates and connection monitoring
+- **MQTT Reconnection**: Automatic recovery from connection interruptions
+- **Token Persistence**: Faster startups with cached authentication
+- **Exception Architecture**: Comprehensive error handling with specific exception types
+- **Command Queuing**: Commands sent while disconnected are queued automatically
 
 ## Entity Registry
 
@@ -320,7 +193,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==5.0.2 is installed
+- Ensure nwp500-python==6.0.0 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
