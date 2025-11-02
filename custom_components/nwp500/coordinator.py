@@ -75,6 +75,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self._total_requests_sent: int = 0
         self._total_responses_received: int = 0
         self._mqtt_connected_since: float | None = None
+        self._consecutive_timeouts: int = 0
+        self._reconnection_in_progress: bool = False
 
         # Get scan interval from options, fall back to default
         scan_interval = entry.options.get(
@@ -87,6 +89,49 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=timedelta(seconds=scan_interval),
         )
+
+        # Install custom exception handler to suppress benign AWS CRT errors
+        # Must be called after super().__init__() so self.hass.loop is available
+        self._install_exception_handler()
+
+    def _install_exception_handler(self) -> None:
+        """Install custom exception handler to suppress benign AWS CRT errors.
+        
+        AWS IoT SDK creates internal futures during MQTT operations. When a clean
+        session reconnection occurs, pending operations are cancelled with
+        AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION. These exceptions can complete
+        after our await/timeout handling, causing "Future exception was never
+        retrieved" errors in Home Assistant logs.
+        
+        This handler suppresses these benign errors while allowing other exceptions
+        to propagate normally.
+        """
+        loop = self.hass.loop
+        original_handler = loop.get_exception_handler()
+
+        def custom_exception_handler(
+            loop: asyncio.AbstractEventLoop,
+            context: dict[str, Any]
+        ) -> None:
+            """Handle uncaught exceptions in the event loop."""
+            exception = context.get("exception")
+            
+            # Suppress AWS CRT clean session errors - these are benign
+            if isinstance(exception, AwsCrtError):
+                if exception.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
+                    _LOGGER.debug(
+                        "Suppressed benign AWS CRT error during MQTT reconnection: %s",
+                        exception
+                    )
+                    return
+            
+            # For all other exceptions, use the original handler or default
+            if original_handler:
+                original_handler(loop, context)
+            else:
+                loop.default_exception_handler(context)
+
+        loop.set_exception_handler(custom_exception_handler)
 
     async def _save_tokens(self) -> None:
         """Save current authentication tokens to entry.data.
@@ -170,6 +215,71 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             "mqtt_connected_since": self._mqtt_connected_since,
         }
 
+    async def _force_mqtt_reconnect(self) -> bool:
+        """Force MQTT client to reconnect.
+        
+        This is called when we detect MQTT is stuck (multiple timeouts).
+        Returns True if reconnection succeeded, False otherwise.
+        """
+        if not self.mqtt_client or self._reconnection_in_progress:
+            return False
+            
+        self._reconnection_in_progress = True
+        
+        try:
+            _LOGGER.warning(
+                "Forcing MQTT reconnection due to repeated timeouts "
+                "(consecutive: %d)",
+                self._consecutive_timeouts,
+            )
+            
+            # Disconnect and reconnect
+            try:
+                await self.mqtt_client.disconnect()
+            except Exception as disconnect_err:  # noqa: BLE001
+                _LOGGER.debug("Error during disconnect: %s", disconnect_err)
+            
+            # Wait a moment before reconnecting
+            await asyncio.sleep(2.0)
+            
+            # Attempt reconnection
+            connected = await self.mqtt_client.connect()
+            
+            if connected:
+                self._mqtt_connected_since = time.time()
+                self._consecutive_timeouts = 0
+                _LOGGER.info(
+                    "MQTT reconnection successful at %.3f",
+                    self._mqtt_connected_since,
+                )
+                
+                # Re-subscribe to all devices
+                for device in self.devices:
+                    try:
+                        await self.mqtt_client.subscribe_device_status(
+                            device, self._on_device_status_update
+                        )
+                        await self.mqtt_client.subscribe_device_feature(
+                            device, self._on_device_feature_update
+                        )
+                    except Exception as subscribe_err:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "Failed to re-subscribe to device %s: %s",
+                            device.device_info.mac_address,
+                            subscribe_err,
+                        )
+                
+                return True
+            else:
+                _LOGGER.error("MQTT reconnection failed")
+                return False
+                
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.error("Error during forced MQTT reconnect: %s", err)
+            return False
+        finally:
+            self._reconnection_in_progress = False
+
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from API endpoint.
 
@@ -240,6 +350,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                             self.mqtt_client.request_device_status(device),
                             timeout=10.0
                         )
+                        
+                        # Request succeeded, reset timeout counter
+                        self._consecutive_timeouts = 0
+                        
                         _LOGGER.debug(
                             "Requested status update for device %s", mac_address
                         )
@@ -298,11 +412,25 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 )
 
                     except asyncio.TimeoutError:
+                        self._consecutive_timeouts += 1
                         _LOGGER.error(
                             "Timeout requesting status for device %s - "
-                            "MQTT may be disconnected. Check MQTT connection state.",
+                            "MQTT may be disconnected (consecutive timeouts: %d). "
+                            "Check MQTT connection state.",
                             mac_address,
+                            self._consecutive_timeouts,
                         )
+                        
+                        # After 3 consecutive timeouts, force reconnection
+                        if self._consecutive_timeouts >= 3:
+                            _LOGGER.warning(
+                                "Detected %d consecutive MQTT timeouts. "
+                                "Will attempt forced reconnection.",
+                                self._consecutive_timeouts,
+                            )
+                            # Schedule reconnection asynchronously 
+                            # (don't block current update)
+                            asyncio.create_task(self._force_mqtt_reconnect())
                     except AwsCrtError as err:
                         # Handle clean session cancellation gracefully
                         # This occurs during MQTT reconnection and is expected
@@ -620,6 +748,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self._last_response_time = response_time
                 self._total_responses_received += 1
                 
+                # Reset timeout counter on successful response
+                self._consecutive_timeouts = 0
+                
                 # Calculate time since last request
                 time_since_request = (
                     response_time - self._last_request_time
@@ -739,6 +870,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             # Track response telemetry first
             response_time = time.time()
             self._total_responses_received += 1
+            
+            # Reset timeout counter on successful response
+            self._consecutive_timeouts = 0
             
             # Calculate time since last request
             time_since_request = (
