@@ -856,11 +856,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             )
 
     def _on_device_status_update(self, status: Any) -> None:
-        """Handle device status update from MQTT (legacy callback).
+        """Handle device status update from MQTT.
         
-        Uses catch-all exception handling to ensure callback resilience
-        as per EventEmitter pattern - must not allow callback errors to
-        propagate to the MQTT client.
+        Uses catch-all exception handling to ensure callback resilience - must not
+        allow callback errors to propagate to the MQTT client.
         """
         try:
             # Find the device by checking the status data
@@ -948,11 +947,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Error handling device status update: %s", err)
 
     def _on_device_feature_update(self, feature: Any) -> None:
-        """Handle device feature update from MQTT (legacy callback).
+        """Handle device feature update from MQTT.
         
-        Uses catch-all exception handling to ensure callback resilience
-        as per EventEmitter pattern - must not allow callback errors to
-        propagate to the MQTT client.
+        Uses catch-all exception handling to ensure callback resilience - must not
+        allow callback errors to propagate to the MQTT client.
         """
         try:
             _LOGGER.debug("Received device feature update: %s", feature)
