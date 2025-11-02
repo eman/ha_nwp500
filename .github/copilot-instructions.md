@@ -41,6 +41,7 @@ This is a Home Assistant custom component that provides integration for Navien N
 
 ### General Best Practices
 - **Always Get Current Date**: Never assume or hardcode dates. Always use `date +%Y-%m-%d` command to get the correct date for changelogs, releases, or any date-dependent content.
+- **No Summary Documents**: Do not create summary documents (e.g., `SUMMARY.md`, `CHANGES.md`) after completing tasks or fixes unless explicitly requested. Code changes and git commit messages are sufficient documentation.
 
 ### Style Guidelines
 - **PEP 8 Compliance**: All code must conform to PEP 8 standards
