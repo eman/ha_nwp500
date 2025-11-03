@@ -1,81 +1,17 @@
 # Navien NWP500 Heat Pump Water Heater - Home Assistant Integration
 
 [![CI](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml/badge.svg)](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-This custom integration provides comprehensive monitoring and control of Navien NWP500 Heat Pump Water Heaters through Home Assistant.
+Home Assistant integration for Navien NWP500 Heat Pump Water Heaters.
 
 ## Features
 
-### Water Heater Entity
-- **Temperature Control**: Set target DHW (Domestic Hot Water) temperature
-- **Operation Mode Control**: Switch between Heat Pump, Energy Saver, High Demand, and Electric modes
-- **Real-time Status**: Current temperature, target temperature, and operation state
-- **Power Control**: Turn the water heater on/off
-
-### Comprehensive Sensor Coverage
-The integration provides over 40 sensors covering all device status fields:
-
-#### Temperature Sensors (Enabled by Default)
-- Outside Temperature
-- Tank Upper Temperature  
-- Tank Lower Temperature
-- DHW Temperature
-- Current Power
-
-#### Temperature Sensors (Disabled by Default)
-- Discharge Temperature
-- Suction Temperature
-- Evaporator Temperature
-- Ambient Temperature
-- DHW Temperature 2
-- Current Inlet Temperature
-- Freeze Protection Temperature
-- Target/Current Super Heat
-
-#### Power & Energy Sensors
-- Current Power (enabled)
-- Total Energy Capacity (disabled)
-- Available Energy Capacity (disabled)
-
-#### Status Sensors
-- DHW Charge Percentage (enabled)
-- WiFi RSSI (disabled)
-- Error Code (enabled)
-- Sub Error Code (disabled)
-- Operation Mode (enabled)
-- DHW Operation Setting (enabled)
-
-#### Flow Rate & Performance
-- Current DHW Flow Rate (disabled)
-- Cumulated DHW Flow Rate (disabled)
-- Target/Current Fan RPM (disabled)
-- Fan PWM (disabled)
-- Mixing Rate (disabled)
-
-### Binary Sensors
-Comprehensive boolean status indicators:
-
-#### Primary Status (Enabled by Default)
-- Operation Busy
-- DHW In Use
-- Compressor Running
-- Upper Electric Element On
-- Lower Electric Element On
-
-#### Safety & Diagnostics (Disabled by Default)
-- Freeze Protection Active
-- Scald Protection Active
-- Anti-Legionella Active
-- Air Filter Alarm
-- Error Buzzer Active
-
-#### System Components (Disabled by Default)
-- EEV Active
-- Evaporator Fan Running
-- Current Heat Use
-- Eco Mode Active
-- Program Reservation Active
+- Set target temperature and switch operation modes (Heat Pump, Energy Saver, High Demand, Electric)
+- Power control (on/off)
+- 40+ temperature, power, energy, and status sensors
+- 15+ binary sensors for system status and diagnostics
+- Real-time updates via MQTT
+- Automatic reconnection handling
 
 ## Installation
 
@@ -88,24 +24,23 @@ Comprehensive boolean status indicators:
 1. Copy the `custom_components/nwp500` folder to your Home Assistant `custom_components` directory
 2. Restart Home Assistant
 
-## Configuration
+## Setup
 
-### Setup via UI
 1. Go to Settings → Devices & Services
 2. Click "Add Integration"
 3. Search for "Navien NWP500"
 4. Enter your Navien cloud account credentials
 
-### Operation Mode Mapping
+## Operation Modes
 
-The integration maps nwp500-python library modes to Home Assistant water heater states:
+| Mode | Description |
+|------|-------------|
+| **Heat Pump** | Heat pump only - most efficient |
+| **Energy Saver** | Hybrid mode for balance |
+| **High Demand** | Hybrid mode for fast heating |
+| **Electric** | Electric elements only |
 
-| Library Mode | HA Water Heater State | Description |
-|--------------|----------------------|-------------|
-| ENERGY_SAVER (3) | eco | Energy efficient hybrid mode |
-| HEAT_PUMP (1) | heat_pump | Heat pump only mode |
-| HIGH_DEMAND (4) | high_demand | High performance hybrid mode |
-| ELECTRIC (2) | electric | Electric elements only |
+## Entity Management
 
 ## Library Version
 
@@ -122,7 +57,7 @@ Key library features leveraged by this integration:
 
 ## Entity Registry
 
-Most sensors are **disabled by default** to avoid cluttering your entity list. You can enable any sensor you need through:
+Most sensors are **disabled by default** to avoid cluttering your entity list. You can enable any sensor you need:
 
 1. Settings → Devices & Services → Navien NWP500
 2. Click on your device
@@ -130,25 +65,19 @@ Most sensors are **disabled by default** to avoid cluttering your entity list. Y
 
 **Enabled by Default:**
 - Water heater entity
-- Primary temperature sensors
+- Primary temperature sensors (tank, DHW)
 - Error codes
 - Power consumption
-- DHW charge percentage
-- Operation status sensors
+- Operation status
 
-## Advanced Features
+## Requirements
 
-### Token Persistence
-- Automatic token caching across Home Assistant restarts
-- Faster startup times by reusing valid authentication tokens
-- Reduced API load on Navien cloud servers
-- Automatic token refresh when expired
-- Seamless re-authentication when needed
+- Home Assistant 2024.10.0 or newer
+- Navien NWP500 Heat Pump Water Heater
+- Active NaviLink cloud account
+- Device registered in NaviLink mobile app
 
-### Real-time Updates
-- MQTT-based real-time status updates
-- Event-driven architecture for immediate state changes
-- Automatic reconnection handling
+## Support
 
 ### Diagnostics
 - Comprehensive diagnostic sensors for troubleshooting
@@ -216,17 +145,6 @@ logger:
     custom_components.nwp500: debug
     nwp500: debug
 ```
-
-## Version History
-
-### v1.1.1 Integration Update
-- Updated to nwp500-python v1.1.1
-- Added comprehensive sensor coverage (40+ sensors)
-- Added binary sensor platform
-- Implemented proper DHW mode control
-- Added event emitter integration
-- Improved operation mode mapping
-- Enhanced error handling and diagnostics
 
 ## Development
 
@@ -325,6 +243,10 @@ To create a release:
 2. Commit changes
 3. Create and push a tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z" && git push origin vX.Y.Z`
 4. GitHub Actions will automatically create the release and build artifacts
+=======
+- [GitHub Issues](https://github.com/eman/ha_nwp500/issues)
+- [Library Documentation](https://nwp500-python.readthedocs.io/)
+>>>>>>> main
 
 ## License
 
