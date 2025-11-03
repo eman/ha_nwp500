@@ -40,7 +40,7 @@ jobs:
           } >> $GITHUB_OUTPUT
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           body: ${{ steps.changelog.outputs.notes }}
           draft: false
@@ -54,7 +54,7 @@ jobs:
           zip -r ../nwp500-${{ steps.version.outputs.version }}.zip nwp500/
 
       - name: Upload integration archive
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: nwp500-${{ steps.version.outputs.version }}.zip
         env:
