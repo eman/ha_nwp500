@@ -33,21 +33,17 @@ class TestNWP500PowerSwitch:
                 "status": mock_device_status,
             }
         }
-        
+
         # Mock hass.data
-        hass.data = {
-            "nwp500": {
-                mock_config_entry.entry_id: mock_coordinator
-            }
-        }
-        
+        hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+
         entities_added = []
-        
+
         def mock_add_entities(entities, update_before_add):
             entities_added.extend(entities)
-        
+
         await async_setup_entry(hass, mock_config_entry, mock_add_entities)
-        
+
         # Should create power switch for the device
         assert len(entities_added) == 1
         assert isinstance(entities_added[0], NWP500PowerSwitch)
@@ -62,7 +58,7 @@ class TestNWP500PowerSwitch:
         """Test switch is_on property."""
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
-        
+
         # Device is on (dhwOperationSetting = 1, not 6)
         assert switch.is_on is True
         assert switch.unique_id == f"{mac_address}_power"
@@ -77,10 +73,10 @@ class TestNWP500PowerSwitch:
         """Test switch is_on when powered off."""
         # Set device to power off mode (6)
         mock_device_status.dhwOperationSetting.value = 6
-        
+
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
-        
+
         assert switch.is_on is False
 
     def test_switch_fallback_to_operation_mode(
@@ -93,10 +89,10 @@ class TestNWP500PowerSwitch:
         """Test switch falls back to operationMode."""
         # Remove dhwOperationSetting
         delattr(mock_device_status, "dhwOperationSetting")
-        
+
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
-        
+
         # Should fall back to operationMode and return True
         assert switch.is_on is True
 
@@ -112,10 +108,10 @@ class TestNWP500PowerSwitch:
                 "device": mock_device,
             }
         }
-        
+
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
-        
+
         assert switch.is_on is None
 
     @pytest.mark.asyncio
@@ -129,12 +125,12 @@ class TestNWP500PowerSwitch:
         """Test turning switch on."""
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
-        
+
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
-        
+
         await switch.async_turn_on()
-        
+
         mock_coordinator.async_control_device.assert_called_once_with(
             mac_address, "set_power", power_on=True
         )
@@ -151,12 +147,12 @@ class TestNWP500PowerSwitch:
         """Test turning switch off."""
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
-        
+
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
-        
+
         await switch.async_turn_off()
-        
+
         mock_coordinator.async_control_device.assert_called_once_with(
             mac_address, "set_power", power_on=False
         )
@@ -173,11 +169,11 @@ class TestNWP500PowerSwitch:
         """Test turning switch on fails."""
         mock_coordinator.async_control_device = AsyncMock(return_value=False)
         mock_coordinator.async_request_refresh = AsyncMock()
-        
+
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
-        
+
         await switch.async_turn_on()
-        
+
         # Should not request refresh if control failed
         mock_coordinator.async_request_refresh.assert_not_called()

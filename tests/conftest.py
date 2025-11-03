@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
 
-from custom_components.nwp500.const import DOMAIN, CONF_EMAIL, CONF_PASSWORD
+from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
 
 
 @pytest.fixture
@@ -37,7 +38,7 @@ def mock_config_entry() -> ConfigEntry:
 def mock_device() -> MagicMock:
     """Create a mock NWP500 device."""
     device = MagicMock()
-    
+
     # Mock device_info with proper attributes
     device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
     device.device_info.model = "NWP500"
@@ -45,13 +46,13 @@ def mock_device() -> MagicMock:
     device.device_info.serial_number = "TEST123456"
     device.device_info.device_type = 52  # NWP500 type
     device.device_info.connected = True
-    
+
     # Mock location with proper attributes (return None for optional fields)
     location = MagicMock()
     location.city = "Test City"
     location.state = "CA"
     device.location = location
-    
+
     return device
 
 
@@ -65,34 +66,34 @@ def mock_device_status() -> MagicMock:
     status.tankLowerTemperature = 115.0
     status.dhwTargetTemperatureSetting = 130.0
     status.outsideTemperature = 72.0
-    
+
     # Operation modes
     status.operationMode = MagicMock()
     status.operationMode.value = 32  # HEAT_PUMP_MODE
     status.dhwOperationSetting = MagicMock()
     status.dhwOperationSetting.value = 1  # HEAT_PUMP
-    
+
     # Status flags
     status.operationBusy = True
     status.dhwUse = False
     status.freezeProtectionUse = False
-    
+
     # Power and energy
     status.currentInstPower = 1200
     status.dhwChargePer = 85
-    
+
     # Error codes
     status.errorCode = 0
     status.subErrorCode = 0
-    
+
     # Component status
     status.compUse = True
     status.heatUpperUse = False
     status.heatLowerUse = False
-    
+
     # WiFi
     status.wifiRssi = -45
-    
+
     return status
 
 
@@ -156,7 +157,7 @@ async def mock_coordinator(
     from custom_components.nwp500.coordinator import (
         NWP500DataUpdateCoordinator,
     )
-    
+
     coordinator = NWP500DataUpdateCoordinator(hass, mock_config_entry)
     coordinator.devices = [mock_device]
     coordinator.data = {

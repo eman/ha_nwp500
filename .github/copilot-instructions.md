@@ -56,17 +56,40 @@ This is a Home Assistant custom component that provides integration for Navien N
 
 ### Testing & Linting
 
-**Type Checking with mypy**:
+✅ **Linting with ruff**:
+- **Configuration**: `pyproject.toml` with 80 character line limit, PEP 8 & PEP 257
+- **Run Command**: `tox -e ruff` (from project root with virtual environment)
+- **Checks**: Code style, docstrings, imports, and common issues
+- **Always run ruff**: Before completing any task that modifies Python code
+- **Format Check**: `ruff format --check` ensures consistent formatting
+- **Standard**: Must pass all checks before committing changes
+
+✅ **Type Checking with mypy**:
 - **Configuration**: `mypy.ini` and `tox.ini`
 - **Run Command**: `tox -e mypy` (from project root with virtual environment)
 - **Setup**: Virtual environment in `.venv/` with tox and mypy installed
 - **Always run mypy**: Before completing any task that modifies Python code
 - **Standard**: Must pass with zero errors before committing changes
 
-**Future Testing**:
-- Expect future implementation of pytest for unit tests
-- Code should be testable and follow best practices
-- Write defensive code with proper error handling
+✅ **Unit Testing with pytest**:
+- **Configuration**: `pytest.ini` and `tox.ini`
+- **Run Command**: `tox` (runs all tests) or `tox -e coverage` for coverage report
+- **Coverage Requirement**: Minimum 80% code coverage
+- **Always run tests**: After modifying any component code
+- **Standard**: All tests must pass before committing changes
+
+### Pre-Commit Checklist for Python Code Changes
+
+Before committing ANY Python code changes, run these checks in order:
+
+```bash
+# From project root with virtual environment activated
+tox -e ruff        # Check and fix style/docstring issues
+tox -e mypy        # Type check
+tox -e coverage    # Run tests with coverage
+```
+
+**All three must pass with zero errors before committing.**
 
 ## Device Integration Details
 

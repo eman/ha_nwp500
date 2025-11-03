@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Callable, Any
+from datetime import UTC, datetime
+from typing import Any
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
-    SensorDeviceClass,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    UnitOfTemperature,
-    UnitOfPower,
-    UnitOfEnergy,
     PERCENTAGE,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SENSOR_CONFIGS
 from .coordinator import NWP500DataUpdateCoordinator
@@ -67,7 +68,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
 
     for key, config in SENSOR_CONFIGS.items():
         attr_name: str = config["attr"]  # type: ignore[assignment]
-        
+
         # Check if this is a text/enum sensor (no numeric value)
         is_enum_sensor = config.get("special") == "enum_name"
 
@@ -83,7 +84,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
                         return str(val)
                     return None
 
-                return value_fn
+                return value_fn  # noqa: B023
 
             value_fn = _make_enum_value_fn(attr_name)
         else:
@@ -92,10 +93,10 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
                 def value_fn(status: Any) -> Any:
                     return getattr(status, attr, None)
 
-                return value_fn
+                return value_fn  # noqa: B023
 
             value_fn = _make_standard_value_fn(attr_name)
-        
+
         # Get unit - None for enum sensors to prevent numeric interpretation
         unit = config.get("unit")
         if is_enum_sensor or not unit:
@@ -139,7 +140,7 @@ async def async_setup_entry(
     ]
 
     entities: list[SensorEntity] = []
-    
+
     # Add device-specific sensors
     for mac_address, device_data in coordinator.data.items():
         device = device_data["device"]
@@ -147,19 +148,27 @@ async def async_setup_entry(
             entities.append(
                 NWP500Sensor(coordinator, mac_address, device, description)
             )
-    
+
     # Add diagnostic telemetry sensors (one per integration, not per device)
     if coordinator.data:
         # Use first device's mac_address for device association
         first_mac = next(iter(coordinator.data.keys()))
         first_device = coordinator.data[first_mac]["device"]
-        
-        entities.extend([
-            NWP500LastResponseTimeSensor(coordinator, first_mac, first_device),
-            NWP500MQTTRequestCountSensor(coordinator, first_mac, first_device),
-            NWP500MQTTResponseCountSensor(coordinator, first_mac, first_device),
-            NWP500MQTTConnectedSensor(coordinator, first_mac, first_device),
-        ])
+
+        entities.extend(
+            [
+                NWP500LastResponseTimeSensor(
+                    coordinator, first_mac, first_device
+                ),
+                NWP500MQTTRequestCountSensor(
+                    coordinator, first_mac, first_device
+                ),
+                NWP500MQTTResponseCountSensor(
+                    coordinator, first_mac, first_device
+                ),
+                NWP500MQTTConnectedSensor(coordinator, first_mac, first_device),
+            ]
+        )
 
     async_add_entities(entities, True)
 
@@ -229,7 +238,11 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
-            coordinator, mac_address, device, "last_response", "Last MQTT Response"
+            coordinator,
+            mac_address,
+            device,
+            "last_response",
+            "Last MQTT Response",
         )
 
     @property
@@ -237,7 +250,9 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
         """Return the timestamp of the last response."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         if telemetry["last_response_time"]:
-            return datetime.fromtimestamp(telemetry["last_response_time"], tz=timezone.utc)
+            return datetime.fromtimestamp(
+                telemetry["last_response_time"], tz=UTC
+            )
         return None
 
     @property
@@ -268,7 +283,11 @@ class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
-            coordinator, mac_address, device, "request_count", "MQTT Requests Sent"
+            coordinator,
+            mac_address,
+            device,
+            "request_count",
+            "MQTT Requests Sent",
         )
 
     @property
@@ -316,7 +335,11 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
-            coordinator, mac_address, device, "mqtt_status", "MQTT Connection Status"
+            coordinator,
+            mac_address,
+            device,
+            "mqtt_status",
+            "MQTT Connection Status",
         )
 
     @property
@@ -332,7 +355,7 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
         attrs = {}
         if telemetry["mqtt_connected_since"]:
             attrs["connected_since"] = datetime.fromtimestamp(
-                telemetry["mqtt_connected_since"], tz=timezone.utc
+                telemetry["mqtt_connected_since"], tz=UTC
             )
             attrs["connected_duration_seconds"] = (
                 datetime.now().timestamp() - telemetry["mqtt_connected_since"]
