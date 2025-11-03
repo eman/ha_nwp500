@@ -16,7 +16,6 @@ from custom_components.nwp500.switch import (
 class TestNWP500PowerSwitch:
     """Tests for NWP500PowerSwitch."""
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant integration mocking")
     @pytest.mark.asyncio
     async def test_async_setup_entry(
         self,

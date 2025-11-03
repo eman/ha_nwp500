@@ -16,7 +16,6 @@ from custom_components.nwp500.binary_sensor import (
 class TestNWP500BinarySensor:
     """Tests for NWP500BinarySensor."""
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant integration mocking")
     @pytest.mark.asyncio
     async def test_async_setup_entry(
         self,

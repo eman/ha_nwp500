@@ -21,7 +21,6 @@ from custom_components.nwp500.const import DOMAIN
 class TestConfigFlow:
     """Tests for ConfigFlow."""
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant config_entries mocking")
 
 
     @pytest.mark.asyncio
@@ -34,7 +33,6 @@ class TestConfigFlow:
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "user"
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant config_entries mocking")
 
 
     @pytest.mark.asyncio
@@ -60,7 +58,6 @@ class TestConfigFlow:
             assert result2["title"] == "Test NWP500"
             assert result2["data"]["email"] == "test@example.com"
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant config_entries mocking")
 
 
     @pytest.mark.asyncio
@@ -85,7 +82,6 @@ class TestConfigFlow:
             assert result2["type"] == FlowResultType.FORM
             assert result2["errors"] == {"base": "cannot_connect"}
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant config_entries mocking")
 
 
     @pytest.mark.asyncio
@@ -110,7 +106,6 @@ class TestConfigFlow:
             assert result2["type"] == FlowResultType.FORM
             assert result2["errors"] == {"base": "invalid_auth"}
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant config_entries mocking")
 
 
     @pytest.mark.asyncio
@@ -135,7 +130,6 @@ class TestConfigFlow:
             assert result2["type"] == FlowResultType.FORM
             assert result2["errors"] == {"base": "unknown"}
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant config_entries mocking")
 
 
     @pytest.mark.asyncio
@@ -152,7 +146,6 @@ class TestConfigFlow:
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "init"
 
-    @pytest.mark.skip(reason="Requires complex Home Assistant config_entries mocking")
 
 
     @pytest.mark.asyncio
@@ -220,7 +213,6 @@ async def test_validate_input_library_unavailable():
             )
 
 
-@pytest.mark.skip(reason="Requires specific nwp500 library error message mocking")
 @pytest.mark.asyncio
 async def test_validate_input_auth_failure():
     """Test input validation fails on auth error."""
@@ -241,7 +233,6 @@ async def test_validate_input_auth_failure():
             )
 
 
-@pytest.mark.skip(reason="Requires specific nwp500 library error message mocking")
 @pytest.mark.asyncio
 async def test_validate_input_no_devices():
     """Test input validation fails when no devices found."""
