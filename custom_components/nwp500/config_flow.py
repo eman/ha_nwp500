@@ -214,7 +214,7 @@ async def validate_input(
     except (CannotConnect, InvalidAuth):
         # Re-raise our own exceptions
         raise
-    except (RuntimeError, OSError, TimeoutError, AttributeError, KeyError) as err:
+    except Exception as err:  # noqa: BLE001
         # Network, connection, and data access errors
         _LOGGER.error("Failed to authenticate with Navien: %s", err)
         if "401" in str(err) or "unauthorized" in str(err).lower():

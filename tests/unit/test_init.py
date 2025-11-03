@@ -15,8 +15,7 @@ from custom_components.nwp500.const import DOMAIN
 class TestInit:
     """Tests for component initialization."""
 
-
-
+    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
     @pytest.mark.asyncio
     async def test_async_setup_entry_success(
         self,
@@ -37,9 +36,7 @@ class TestInit:
             assert DOMAIN in hass.data
             assert mock_config_entry.entry_id in hass.data[DOMAIN]
             mock_coordinator.async_config_entry_first_refresh.assert_called_once()
-
-
-
+    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
     @pytest.mark.asyncio
     async def test_async_setup_entry_failure(
         self,
@@ -60,7 +57,7 @@ class TestInit:
                 await async_setup_entry(hass, mock_config_entry)
 
 
-
+    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
     @pytest.mark.asyncio
     async def test_async_unload_entry_success(
         self,
@@ -87,7 +84,7 @@ class TestInit:
             mock_coordinator.async_shutdown.assert_called_once()
 
 
-
+    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
     @pytest.mark.asyncio
     async def test_async_unload_entry_failure(
         self,

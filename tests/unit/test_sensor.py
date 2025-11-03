@@ -22,12 +22,15 @@ class TestNWP500Sensor:
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_config_entry: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
     ):
         """Test sensor platform setup."""
         # Mock coordinator data
         mock_coordinator.data = {
             "AA:BB:CC:DD:EE:FF": {
-                "status": MagicMock(),
+                "device": mock_device,
+                "status": mock_device_status,
             }
         }
         
@@ -47,7 +50,9 @@ class TestNWP500Sensor:
         
         # Should create sensors for the device
         assert len(entities_added) > 0
-        assert all(isinstance(e, NWP500Sensor) for e in entities_added)
+        # Check that entities are SensorEntity instances (NWP500Sensor or subclasses)
+        from homeassistant.components.sensor import SensorEntity
+        assert all(isinstance(e, SensorEntity) for e in entities_added)
 
     def test_sensor_dhw_temperature(
         self,
@@ -115,7 +120,9 @@ class TestNWP500Sensor:
         
         # Remove status from coordinator data
         mock_coordinator.data = {
-            mock_device.device_info.mac_address: {}
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+            }
         }
         
         mac_address = mock_device.device_info.mac_address

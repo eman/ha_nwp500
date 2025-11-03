@@ -323,7 +323,9 @@ class TestNWP500WaterHeater:
     ):
         """Test extra_state_attributes when status unavailable."""
         mock_coordinator.data = {
-            mock_device.device_info.mac_address: {}
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+            }
         }
         
         mac_address = mock_device.device_info.mac_address

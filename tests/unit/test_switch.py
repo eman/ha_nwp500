@@ -22,12 +22,15 @@ class TestNWP500PowerSwitch:
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_config_entry: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
     ):
         """Test switch platform setup."""
         # Mock coordinator data
         mock_coordinator.data = {
             "AA:BB:CC:DD:EE:FF": {
-                "status": MagicMock(),
+                "device": mock_device,
+                "status": mock_device_status,
             }
         }
         
@@ -105,7 +108,9 @@ class TestNWP500PowerSwitch:
     ):
         """Test switch when status is unavailable."""
         mock_coordinator.data = {
-            mock_device.device_info.mac_address: {}
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+            }
         }
         
         mac_address = mock_device.device_info.mac_address
