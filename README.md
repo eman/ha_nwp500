@@ -2,29 +2,16 @@
 
 [![CI](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml/badge.svg)](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml)
 
-Comprehensive monitoring and control of Navien NWP500 Heat Pump Water Heaters through Home Assistant.
+Home Assistant integration for Navien NWP500 Heat Pump Water Heaters.
 
 ## Features
 
-✨ **Water Heater Control**
-- Set target temperature
-- Switch between Heat Pump, Energy Saver, High Demand, and Electric modes
+- Set target temperature and switch operation modes (Heat Pump, Energy Saver, High Demand, Electric)
 - Power control (on/off)
-
-📊 **40+ Sensors**
-- Temperature monitoring (tank, DHW, ambient, etc.)
-- Power consumption and energy tracking
-- System status and diagnostics
-- Performance metrics
-
-🔄 **Real-time Updates**
-- MQTT-based instant status updates
+- 40+ temperature, power, energy, and status sensors
+- 15+ binary sensors for system status and diagnostics
+- Real-time updates via MQTT
 - Automatic reconnection handling
-
-🔧 **15+ Binary Sensors**
-- System status indicators
-- Safety features (freeze protection, scald protection, anti-legionella)
-- Component status tracking (compressor, heating elements, fans)
 
 ## Installation
 

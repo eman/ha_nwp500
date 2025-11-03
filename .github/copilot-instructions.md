@@ -49,14 +49,15 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **Async/Await**: Use async/await patterns for I/O operations
 
 ### Testing & Linting
-✅ **Type Checking with mypy**:
+
+**Type Checking with mypy**:
 - **Configuration**: `mypy.ini` and `tox.ini`
 - **Run Command**: `tox -e mypy` (from project root with virtual environment)
 - **Setup**: Virtual environment in `.venv/` with tox and mypy installed
 - **Always run mypy**: Before completing any task that modifies Python code
 - **Standard**: Must pass with zero errors before committing changes
 
-⚠️ **Future Testing**:
+**Future Testing**:
 - Expect future implementation of pytest for unit tests
 - Code should be testable and follow best practices
 - Write defensive code with proper error handling
@@ -163,7 +164,7 @@ docker compose up -d
 - [ ] Run `tox -e mypy --recreate` - must pass with zero errors
 - [ ] Test in development environment (optional but recommended)
 
-**⚠️ Common Mistake**: Forgetting to update `tox.ini` causes CI failures because type checkers cannot resolve the new library APIs. Always search for ALL occurrences of `nwp500-python==` in the project.
+**Common Mistake**: Forgetting to update `tox.ini` causes CI failures because type checkers cannot resolve the new library APIs. Always search for ALL occurrences of `nwp500-python==` in the project.
 
 ### Unit Corrections
 - Energy values from device are in **Wh** (watt-hours), not kWh
@@ -239,7 +240,7 @@ custom_components/nwp500/
 
 ## Task Completion Requirements
 
-### ⚠️ MANDATORY: Type Checking
+### MANDATORY: Type Checking
 
 **Before completing ANY task that modifies Python code:**
 
@@ -268,7 +269,7 @@ For every task involving Python code changes:
 ## Future Considerations
 
 ### Planned Improvements
-- ~~Linting setup (black, flake8, mypy)~~ ✅ mypy completed
+- Linting setup (black, flake8, mypy) - mypy completed
 - Testing framework (pytest)
 - CI/CD pipeline with automated type checking
 - Enhanced error handling and diagnostics
