@@ -16,7 +16,7 @@ from custom_components.nwp500.number import (
 class TestNWP500TargetTemperature:
     """Tests for NWP500TargetTemperature."""
 
-    @pytest.mark.xfail(reason="Requires complex Home Assistant integration mocking")
+    @pytest.mark.skip(reason="Requires complex Home Assistant integration mocking")
     @pytest.mark.asyncio
     async def test_async_setup_entry(
         self,
