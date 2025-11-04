@@ -18,7 +18,11 @@ pytest_plugins = ["pytest_homeassistant_custom_component"]
 
 @pytest.fixture
 def mock_config_entry() -> ConfigEntry:
-    """Create a mock config entry."""
+    """Create a mock config entry.
+    
+    Uses introspection to support multiple Home Assistant versions.
+    The 'subentries_data' parameter was added in Home Assistant 2024.1+.
+    """
     import inspect
 
     sig = inspect.signature(ConfigEntry.__init__)
@@ -38,6 +42,7 @@ def mock_config_entry() -> ConfigEntry:
         "discovery_keys": {},
     }
 
+    # Home Assistant 2024.1+ includes subentries_data parameter
     if "subentries_data" in sig.parameters:
         kwargs["subentries_data"] = None
 
