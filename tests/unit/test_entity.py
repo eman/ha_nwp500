@@ -12,7 +12,7 @@ from custom_components.nwp500.entity import NWP500Entity
 class TestNWP500Entity:
     """Tests for NWP500Entity base class."""
 
-    def test_entity_initialization(
+    async def test_entity_initialization(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -26,7 +26,7 @@ class TestNWP500Entity:
         assert entity.mac_address == mac_address
         assert entity.device == mock_device
 
-    def test_device_info(
+    async def test_device_info(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -45,7 +45,7 @@ class TestNWP500Entity:
         assert device_info["model"] == "NWP500"
         assert device_info["manufacturer"] == "Navien"
 
-    def test_status_property(
+    async def test_status_property(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -60,7 +60,7 @@ class TestNWP500Entity:
 
         assert status == mock_device_status
 
-    def test_status_property_missing_device(
+    async def test_status_property_missing_device(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -74,7 +74,7 @@ class TestNWP500Entity:
 
         assert status is None
 
-    def test_get_status_attrs(
+    async def test_get_status_attrs(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -95,7 +95,7 @@ class TestNWP500Entity:
         assert attrs["currentInstPower"] == 1200
         assert attrs["errorCode"] == 0
 
-    def test_get_status_attrs_missing_attribute(
+    async def test_get_status_attrs_missing_attribute(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,

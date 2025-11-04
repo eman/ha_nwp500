@@ -48,7 +48,7 @@ class TestNWP500PowerSwitch:
         assert len(entities_added) == 1
         assert isinstance(entities_added[0], NWP500PowerSwitch)
 
-    def test_switch_is_on(
+    async def test_switch_is_on(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -63,7 +63,7 @@ class TestNWP500PowerSwitch:
         assert switch.is_on is True
         assert switch.unique_id == f"{mac_address}_power"
 
-    def test_switch_is_off(
+    async def test_switch_is_off(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -79,7 +79,7 @@ class TestNWP500PowerSwitch:
 
         assert switch.is_on is False
 
-    def test_switch_fallback_to_operation_mode(
+    async def test_switch_fallback_to_operation_mode(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -96,7 +96,7 @@ class TestNWP500PowerSwitch:
         # Should fall back to operationMode and return True
         assert switch.is_on is True
 
-    def test_switch_no_status(
+    async def test_switch_no_status(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,

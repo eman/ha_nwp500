@@ -9,8 +9,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
 
 from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
+
+
+pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+@pytest.fixture
+async def hass(hass: HomeAssistant) -> HomeAssistant:
+    """Return Home Assistant instance."""
+    return hass
 
 
 @pytest.fixture

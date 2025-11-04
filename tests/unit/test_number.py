@@ -48,7 +48,7 @@ class TestNWP500TargetTemperature:
         assert len(entities_added) == 1
         assert isinstance(entities_added[0], NWP500TargetTemperature)
 
-    def test_native_value(
+    async def test_native_value(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -64,7 +64,7 @@ class TestNWP500TargetTemperature:
         assert number.native_value == 130.0
         assert number.unique_id == f"{mac_address}_target_temperature"
 
-    def test_native_value_fallback(
+    async def test_native_value_fallback(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -83,7 +83,7 @@ class TestNWP500TargetTemperature:
 
         assert number.native_value == 125.0
 
-    def test_native_value_missing(
+    async def test_native_value_missing(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -104,7 +104,7 @@ class TestNWP500TargetTemperature:
 
         assert number.native_value is None
 
-    def test_native_value_no_status(
+    async def test_native_value_no_status(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,

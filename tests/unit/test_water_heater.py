@@ -21,7 +21,7 @@ from custom_components.nwp500.water_heater import NWP500WaterHeater
 class TestNWP500WaterHeater:
     """Tests for NWP500WaterHeater entity."""
 
-    def test_initialization(
+    async def test_initialization(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -36,7 +36,7 @@ class TestNWP500WaterHeater:
         assert heater.min_temp == MIN_TEMPERATURE
         assert heater.max_temp == MAX_TEMPERATURE
 
-    def test_current_temperature(
+    async def test_current_temperature(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -49,7 +49,7 @@ class TestNWP500WaterHeater:
 
         assert heater.current_temperature == 120.0
 
-    def test_current_temperature_missing(
+    async def test_current_temperature_missing(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -65,7 +65,7 @@ class TestNWP500WaterHeater:
 
         assert heater.current_temperature is None
 
-    def test_target_temperature(
+    async def test_target_temperature(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -78,7 +78,7 @@ class TestNWP500WaterHeater:
 
         assert heater.target_temperature == 130.0
 
-    def test_current_operation_heat_pump(
+    async def test_current_operation_heat_pump(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -93,7 +93,7 @@ class TestNWP500WaterHeater:
 
         assert heater.current_operation == STATE_HEAT_PUMP
 
-    def test_current_operation_eco(
+    async def test_current_operation_eco(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -108,7 +108,7 @@ class TestNWP500WaterHeater:
 
         assert heater.current_operation == STATE_ECO
 
-    def test_current_operation_vacation_returns_eco(
+    async def test_current_operation_vacation_returns_eco(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -123,7 +123,7 @@ class TestNWP500WaterHeater:
 
         assert heater.current_operation == STATE_ECO
 
-    def test_current_operation_power_off(
+    async def test_current_operation_power_off(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -138,7 +138,7 @@ class TestNWP500WaterHeater:
 
         assert heater.current_operation == STATE_OFF
 
-    def test_operation_list(
+    async def test_operation_list(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -159,7 +159,7 @@ class TestNWP500WaterHeater:
         assert "vacation" not in operations
         assert STATE_OFF not in operations
 
-    def test_is_on_when_powered_on(
+    async def test_is_on_when_powered_on(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -174,7 +174,7 @@ class TestNWP500WaterHeater:
 
         assert heater.is_on is True
 
-    def test_is_on_when_powered_off(
+    async def test_is_on_when_powered_off(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -189,7 +189,7 @@ class TestNWP500WaterHeater:
 
         assert heater.is_on is False
 
-    def test_is_away_mode_on_when_vacation(
+    async def test_is_away_mode_on_when_vacation(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -204,7 +204,7 @@ class TestNWP500WaterHeater:
 
         assert heater.is_away_mode_on is True
 
-    def test_is_away_mode_on_when_not_vacation(
+    async def test_is_away_mode_on_when_not_vacation(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -263,7 +263,7 @@ class TestNWP500WaterHeater:
         )
         mock_coordinator.async_request_refresh.assert_called_once()
 
-    def test_extra_state_attributes(
+    async def test_extra_state_attributes(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -281,7 +281,7 @@ class TestNWP500WaterHeater:
         assert "current_operation_state" in attrs
         assert "outside_temperature" in attrs
 
-    def test_extra_state_attributes_no_status(
+    async def test_extra_state_attributes_no_status(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -434,7 +434,7 @@ class TestNWP500WaterHeater:
         )
         mock_coordinator.async_request_refresh.assert_called_once()
 
-    def test_current_operation_unknown(
+    async def test_current_operation_unknown(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -450,7 +450,7 @@ class TestNWP500WaterHeater:
 
         assert heater.current_operation == "unknown"
 
-    def test_is_on_fallback_to_component_status(
+    async def test_is_on_fallback_to_component_status(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -469,7 +469,7 @@ class TestNWP500WaterHeater:
 
         assert heater.is_on is True
 
-    def test_is_on_fallback_to_operation_mode(
+    async def test_is_on_fallback_to_operation_mode(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,

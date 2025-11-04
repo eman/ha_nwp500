@@ -62,10 +62,13 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **Always run mypy**: Before completing any task that modifies Python code
 - **Standard**: Must pass with zero errors before committing changes
 
-**Future Testing**:
-- Expect future implementation of pytest for unit tests
-- Code should be testable and follow best practices
-- Write defensive code with proper error handling
+**Test Coverage**:
+- **Minimum**: 80% coverage enforced by CI
+- **Target**: 90%+ coverage
+- **Run Command**: `tox -e coverage`
+- **Check Locally**: Always run coverage tests before pushing: `tox -e coverage`
+- **Critical**: All new code must have corresponding tests
+- **Report**: HTML coverage report at `htmlcov/index.html` for detailed analysis
 
 ## Device Integration Details
 

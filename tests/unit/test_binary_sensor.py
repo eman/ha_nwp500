@@ -48,7 +48,7 @@ class TestNWP500BinarySensor:
         assert len(entities_added) > 0
         assert all(isinstance(e, NWP500BinarySensor) for e in entities_added)
 
-    def test_binary_sensor_operation_busy(
+    async def test_binary_sensor_operation_busy(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -73,7 +73,7 @@ class TestNWP500BinarySensor:
         assert sensor.is_on is True
         assert sensor.unique_id == f"{mac_address}_operation_busy"
 
-    def test_binary_sensor_false(
+    async def test_binary_sensor_false(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -97,7 +97,7 @@ class TestNWP500BinarySensor:
 
         assert sensor.is_on is False
 
-    def test_binary_sensor_missing_value(
+    async def test_binary_sensor_missing_value(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
@@ -124,7 +124,7 @@ class TestNWP500BinarySensor:
 
         assert sensor.is_on is None
 
-    def test_binary_sensor_no_status(
+    async def test_binary_sensor_no_status(
         self,
         hass: HomeAssistant,
         mock_coordinator: MagicMock,
