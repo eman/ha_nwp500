@@ -19,6 +19,7 @@ class TestNWP500TargetTemperature:
     @pytest.mark.asyncio
     async def test_async_setup_entry(
         self,
+        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_config_entry: MagicMock,
         mock_device: MagicMock,
