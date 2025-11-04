@@ -1,11 +1,12 @@
 """Constants for the Navien NWP500 integration."""
 
-from typing import Final, Any
+from typing import Any, Final
+
 from homeassistant.components.water_heater import (
     STATE_ECO,
+    STATE_ELECTRIC,
     STATE_HEAT_PUMP,
     STATE_HIGH_DEMAND,
-    STATE_ELECTRIC,
 )
 
 DOMAIN: Final = "nwp500"

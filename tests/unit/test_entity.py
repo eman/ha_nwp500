@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.nwp500.entity import NWP500Entity
@@ -22,7 +21,7 @@ class TestNWP500Entity:
         """Test entity initialization."""
         mac_address = mock_device.device_info.mac_address
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        
+
         assert entity.coordinator == mock_coordinator
         assert entity.mac_address == mac_address
         assert entity.device == mock_device
@@ -36,9 +35,9 @@ class TestNWP500Entity:
         """Test device_info property."""
         mac_address = mock_device.device_info.mac_address
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        
+
         device_info = entity.device_info
-        
+
         assert device_info is not None
         assert device_info["identifiers"] == {("nwp500", mac_address)}
         # Name includes location info: "Test Water Heater (Test City, CA)"
@@ -56,9 +55,9 @@ class TestNWP500Entity:
         """Test _status property returns device status."""
         mac_address = mock_device.device_info.mac_address
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        
+
         status = entity._status
-        
+
         assert status == mock_device_status
 
     def test_status_property_missing_device(
@@ -70,9 +69,9 @@ class TestNWP500Entity:
         """Test _status property returns None for missing device."""
         mac_address = "FF:FF:FF:FF:FF:FF"  # Non-existent device
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        
+
         status = entity._status
-        
+
         assert status is None
 
     def test_get_status_attrs(
@@ -85,13 +84,13 @@ class TestNWP500Entity:
         """Test _get_status_attrs batch fetches attributes."""
         mac_address = mock_device.device_info.mac_address
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        
+
         attrs = entity._get_status_attrs(
             "dhwTemperature",
             "currentInstPower",
             "errorCode",
         )
-        
+
         assert attrs["dhwTemperature"] == 120.0
         assert attrs["currentInstPower"] == 1200
         assert attrs["errorCode"] == 0
@@ -106,11 +105,11 @@ class TestNWP500Entity:
         """Test _get_status_attrs returns None for missing attrs."""
         mac_address = mock_device.device_info.mac_address
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        
+
         # Remove an attribute to test missing case
         delattr(mock_device_status, "dhwTemperature")
-        
+
         attrs = entity._get_status_attrs("dhwTemperature", "errorCode")
-        
+
         assert attrs["dhwTemperature"] is None
         assert attrs["errorCode"] == 0

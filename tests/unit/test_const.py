@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-
 from custom_components.nwp500.const import (
-    DOMAIN,
-    get_enum_value,
     CURRENT_OPERATION_MODE_TO_HA,
     DHW_OPERATION_SETTING_TO_HA,
+    DOMAIN,
     HA_TO_DHW_MODE,
-    MIN_TEMPERATURE,
     MAX_TEMPERATURE,
+    MIN_TEMPERATURE,
+    get_enum_value,
 )
 
 
@@ -29,9 +27,10 @@ def test_temperature_limits():
 
 def test_get_enum_value_with_value_attribute():
     """Test get_enum_value with object that has .value."""
+
     class MockEnum:
         value = 42
-    
+
     assert get_enum_value(MockEnum()) == 42
 
 

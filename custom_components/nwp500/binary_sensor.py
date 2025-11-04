@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Any
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
-    BinarySensorDeviceClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -26,9 +27,9 @@ class NWP500BinarySensorEntityDescription(BinarySensorEntityDescription):
     value_fn: Callable[[Any], bool | None] | None = None
 
 
-def create_binary_sensor_descriptions() -> (
-    tuple[NWP500BinarySensorEntityDescription, ...]
-):
+def create_binary_sensor_descriptions() -> tuple[
+    NWP500BinarySensorEntityDescription, ...
+]:
     """Create binary sensor descriptions from constants."""
     descriptions = []
 
