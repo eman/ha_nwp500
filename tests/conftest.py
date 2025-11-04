@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
 
 
-pytest_plugins = "pytest_homeassistant_custom_component"
+pytest_plugins = ["pytest_homeassistant_custom_component"]
 
 
 @pytest.fixture
