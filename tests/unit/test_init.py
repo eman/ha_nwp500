@@ -19,7 +19,6 @@ class TestInit:
     @pytest.mark.asyncio
     async def test_async_setup_entry_success(
         self,
-        hass: HomeAssistant,
         mock_config_entry: MagicMock,
     ):
         """Test successful setup of config entry."""
@@ -41,7 +40,6 @@ class TestInit:
     @pytest.mark.asyncio
     async def test_async_setup_entry_failure(
         self,
-        hass: HomeAssistant,
         mock_config_entry: MagicMock,
     ):
         """Test setup fails when coordinator refresh fails."""
@@ -61,7 +59,6 @@ class TestInit:
     @pytest.mark.asyncio
     async def test_async_unload_entry_success(
         self,
-        hass: HomeAssistant,
         mock_config_entry: MagicMock,
         mock_coordinator: MagicMock,
     ):
@@ -85,7 +82,6 @@ class TestInit:
     @pytest.mark.asyncio
     async def test_async_unload_entry_failure(
         self,
-        hass: HomeAssistant,
         mock_config_entry: MagicMock,
         mock_coordinator: MagicMock,
     ):

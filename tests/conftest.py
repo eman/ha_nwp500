@@ -9,18 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.setup import async_setup_component
 
 from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
 
 
 pytest_plugins = "pytest_homeassistant_custom_component"
-
-
-@pytest.fixture
-async def hass(hass: HomeAssistant) -> HomeAssistant:
-    """Return Home Assistant instance."""
-    return hass
 
 
 @pytest.fixture
@@ -157,18 +150,13 @@ def mock_nwp500_mqtt_client() -> Generator[AsyncMock, None, None]:
 
 
 @pytest.fixture
-async def mock_coordinator(
-    hass: HomeAssistant,
+def mock_coordinator(
     mock_config_entry: ConfigEntry,
     mock_device: MagicMock,
     mock_device_status: MagicMock,
-) -> Any:
+) -> MagicMock:
     """Create a mock coordinator with test data."""
-    from custom_components.nwp500.coordinator import (
-        NWP500DataUpdateCoordinator,
-    )
-
-    coordinator = NWP500DataUpdateCoordinator(hass, mock_config_entry)
+    coordinator = MagicMock()
     coordinator.devices = [mock_device]
     coordinator.data = {
         mock_device.device_info.mac_address: {

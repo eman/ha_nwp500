@@ -19,7 +19,6 @@ class TestNWP500PowerSwitch:
     @pytest.mark.asyncio
     async def test_async_setup_entry(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_config_entry: MagicMock,
         mock_device: MagicMock,
@@ -48,9 +47,8 @@ class TestNWP500PowerSwitch:
         assert len(entities_added) == 1
         assert isinstance(entities_added[0], NWP500PowerSwitch)
 
-    async def test_switch_is_on(
+    def test_switch_is_on(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -63,9 +61,8 @@ class TestNWP500PowerSwitch:
         assert switch.is_on is True
         assert switch.unique_id == f"{mac_address}_power"
 
-    async def test_switch_is_off(
+    def test_switch_is_off(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -79,9 +76,8 @@ class TestNWP500PowerSwitch:
 
         assert switch.is_on is False
 
-    async def test_switch_fallback_to_operation_mode(
+    def test_switch_fallback_to_operation_mode(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -96,9 +92,8 @@ class TestNWP500PowerSwitch:
         # Should fall back to operationMode and return True
         assert switch.is_on is True
 
-    async def test_switch_no_status(
+    def test_switch_no_status(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
     ):
@@ -117,7 +112,6 @@ class TestNWP500PowerSwitch:
     @pytest.mark.asyncio
     async def test_async_turn_on(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -139,7 +133,6 @@ class TestNWP500PowerSwitch:
     @pytest.mark.asyncio
     async def test_async_turn_off(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -161,7 +154,6 @@ class TestNWP500PowerSwitch:
     @pytest.mark.asyncio
     async def test_async_turn_on_failure(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,

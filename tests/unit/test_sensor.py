@@ -19,7 +19,6 @@ class TestNWP500Sensor:
     @pytest.mark.asyncio
     async def test_async_setup_entry(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_config_entry: MagicMock,
         mock_device: MagicMock,
@@ -51,9 +50,8 @@ class TestNWP500Sensor:
 
         assert all(isinstance(e, SensorEntity) for e in entities_added)
 
-    async def test_sensor_dhw_temperature(
+    def test_sensor_dhw_temperature(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -77,9 +75,8 @@ class TestNWP500Sensor:
         # Value will be either the temperature or None if not available
         assert sensor.native_value is not None or sensor.native_value is None
 
-    async def test_sensor_missing_value(
+    def test_sensor_missing_value(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -104,9 +101,8 @@ class TestNWP500Sensor:
 
         assert sensor.native_value is None
 
-    async def test_sensor_no_status(
+    def test_sensor_no_status(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
     ):
@@ -128,9 +124,8 @@ class TestNWP500Sensor:
 
         assert sensor.native_value is None
 
-    async def test_sensor_with_value(
+    def test_sensor_with_value(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,

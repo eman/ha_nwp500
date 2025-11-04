@@ -12,9 +12,8 @@ from custom_components.nwp500.entity import NWP500Entity
 class TestNWP500Entity:
     """Tests for NWP500Entity base class."""
 
-    async def test_entity_initialization(
+    def test_entity_initialization(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
     ):
@@ -26,9 +25,8 @@ class TestNWP500Entity:
         assert entity.mac_address == mac_address
         assert entity.device == mock_device
 
-    async def test_device_info(
+    def test_device_info(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
     ):
@@ -45,9 +43,8 @@ class TestNWP500Entity:
         assert device_info["model"] == "NWP500"
         assert device_info["manufacturer"] == "Navien"
 
-    async def test_status_property(
+    def test_status_property(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -60,9 +57,8 @@ class TestNWP500Entity:
 
         assert status == mock_device_status
 
-    async def test_status_property_missing_device(
+    def test_status_property_missing_device(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
     ):
@@ -74,9 +70,8 @@ class TestNWP500Entity:
 
         assert status is None
 
-    async def test_get_status_attrs(
+    def test_get_status_attrs(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -95,9 +90,8 @@ class TestNWP500Entity:
         assert attrs["currentInstPower"] == 1200
         assert attrs["errorCode"] == 0
 
-    async def test_get_status_attrs_missing_attribute(
+    def test_get_status_attrs_missing_attribute(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,

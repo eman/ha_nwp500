@@ -19,7 +19,6 @@ class TestNWP500TargetTemperature:
     @pytest.mark.asyncio
     async def test_async_setup_entry(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_config_entry: MagicMock,
         mock_device: MagicMock,
@@ -48,9 +47,8 @@ class TestNWP500TargetTemperature:
         assert len(entities_added) == 1
         assert isinstance(entities_added[0], NWP500TargetTemperature)
 
-    async def test_native_value(
+    def test_native_value(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -64,9 +62,8 @@ class TestNWP500TargetTemperature:
         assert number.native_value == 130.0
         assert number.unique_id == f"{mac_address}_target_temperature"
 
-    async def test_native_value_fallback(
+    def test_native_value_fallback(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -83,9 +80,8 @@ class TestNWP500TargetTemperature:
 
         assert number.native_value == 125.0
 
-    async def test_native_value_missing(
+    def test_native_value_missing(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -104,9 +100,8 @@ class TestNWP500TargetTemperature:
 
         assert number.native_value is None
 
-    async def test_native_value_no_status(
+    def test_native_value_no_status(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
     ):
@@ -127,7 +122,6 @@ class TestNWP500TargetTemperature:
     @pytest.mark.asyncio
     async def test_async_set_native_value(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
@@ -151,7 +145,6 @@ class TestNWP500TargetTemperature:
     @pytest.mark.asyncio
     async def test_async_set_native_value_failure(
         self,
-        hass: HomeAssistant,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
