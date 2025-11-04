@@ -5,9 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
-from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 
 from custom_components.nwp500.config_flow import (
@@ -21,144 +19,7 @@ from custom_components.nwp500.const import DOMAIN
 class TestConfigFlow:
     """Tests for ConfigFlow."""
 
-    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
-    @pytest.mark.asyncio
-    async def test_form_user(self, hass: HomeAssistant):
-        """Test we get the user form."""
-        result = await hass.config_entries.flow.async_init(
-            DOMAIN, context={"source": config_entries.SOURCE_USER}
-        )
-
-        assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "user"
-
-    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
-    @pytest.mark.asyncio
-    async def test_form_user_success(self, hass: HomeAssistant):
-        """Test successful user form submission."""
-        with patch(
-            "custom_components.nwp500.config_flow.validate_input",
-            return_value={"title": "Test NWP500"},
-        ):
-            result = await hass.config_entries.flow.async_init(
-                DOMAIN, context={"source": config_entries.SOURCE_USER}
-            )
-
-            result2 = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                {
-                    "email": "test@example.com",
-                    "password": "test_password",
-                },
-            )
-
-            assert result2["type"] == FlowResultType.CREATE_ENTRY
-            assert result2["title"] == "Test NWP500"
-            assert result2["data"]["email"] == "test@example.com"
-
-    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
-    @pytest.mark.asyncio
-    async def test_form_cannot_connect(self, hass: HomeAssistant):
-        """Test we handle cannot connect error."""
-        with patch(
-            "custom_components.nwp500.config_flow.validate_input",
-            side_effect=CannotConnect("Connection failed"),
-        ):
-            result = await hass.config_entries.flow.async_init(
-                DOMAIN, context={"source": config_entries.SOURCE_USER}
-            )
-
-            result2 = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                {
-                    "email": "test@example.com",
-                    "password": "test_password",
-                },
-            )
-
-            assert result2["type"] == FlowResultType.FORM
-            assert result2["errors"] == {"base": "cannot_connect"}
-
-    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
-    @pytest.mark.asyncio
-    async def test_form_invalid_auth(self, hass: HomeAssistant):
-        """Test we handle invalid auth error."""
-        with patch(
-            "custom_components.nwp500.config_flow.validate_input",
-            side_effect=InvalidAuth("Invalid credentials"),
-        ):
-            result = await hass.config_entries.flow.async_init(
-                DOMAIN, context={"source": config_entries.SOURCE_USER}
-            )
-
-            result2 = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                {
-                    "email": "test@example.com",
-                    "password": "wrong_password",
-                },
-            )
-
-            assert result2["type"] == FlowResultType.FORM
-            assert result2["errors"] == {"base": "invalid_auth"}
-
-    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
-    @pytest.mark.asyncio
-    async def test_form_unexpected_exception(self, hass: HomeAssistant):
-        """Test we handle unexpected exceptions."""
-        with patch(
-            "custom_components.nwp500.config_flow.validate_input",
-            side_effect=Exception("Unexpected error"),
-        ):
-            result = await hass.config_entries.flow.async_init(
-                DOMAIN, context={"source": config_entries.SOURCE_USER}
-            )
-
-            result2 = await hass.config_entries.flow.async_configure(
-                result["flow_id"],
-                {
-                    "email": "test@example.com",
-                    "password": "test_password",
-                },
-            )
-
-            assert result2["type"] == FlowResultType.FORM
-            assert result2["errors"] == {"base": "unknown"}
-
-    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
-    @pytest.mark.asyncio
-    async def test_options_flow(
-        self, hass: HomeAssistant, mock_config_entry: MagicMock
-    ):
-        """Test options flow."""
-        mock_config_entry.add_to_hass(hass)
-
-        result = await hass.config_entries.options.async_init(
-            mock_config_entry.entry_id
-        )
-
-        assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "init"
-
-    @pytest.mark.skip(reason="Requires full Home Assistant integration setup")
-    @pytest.mark.asyncio
-    async def test_options_flow_save(
-        self, hass: HomeAssistant, mock_config_entry: MagicMock
-    ):
-        """Test options flow saves data."""
-        mock_config_entry.add_to_hass(hass)
-
-        result = await hass.config_entries.options.async_init(
-            mock_config_entry.entry_id
-        )
-
-        result2 = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            user_input={"scan_interval": 45},
-        )
-
-        assert result2["type"] == FlowResultType.CREATE_ENTRY
-        assert result2["data"]["scan_interval"] == 45
+    pass
 
 
 @pytest.mark.asyncio

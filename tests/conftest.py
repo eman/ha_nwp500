@@ -19,22 +19,29 @@ pytest_plugins = ["pytest_homeassistant_custom_component"]
 @pytest.fixture
 def mock_config_entry() -> ConfigEntry:
     """Create a mock config entry."""
-    return ConfigEntry(
-        version=1,
-        minor_version=1,
-        domain=DOMAIN,
-        title="Test NWP500",
-        data={
+    import inspect
+
+    sig = inspect.signature(ConfigEntry.__init__)
+    kwargs = {
+        "version": 1,
+        "minor_version": 1,
+        "domain": DOMAIN,
+        "title": "Test NWP500",
+        "data": {
             CONF_EMAIL: "test@example.com",
             CONF_PASSWORD: "test_password",
         },
-        options={},
-        source="user",
-        entry_id="test_entry_id",
-        unique_id="AA:BB:CC:DD:EE:FF",
-        discovery_keys={},
-        subentries_data={},
-    )
+        "options": {},
+        "source": "user",
+        "entry_id": "test_entry_id",
+        "unique_id": "AA:BB:CC:DD:EE:FF",
+        "discovery_keys": {},
+    }
+
+    if "subentries_data" in sig.parameters:
+        kwargs["subentries_data"] = None
+
+    return ConfigEntry(**kwargs)
 
 
 @pytest.fixture
