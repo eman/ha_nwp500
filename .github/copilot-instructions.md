@@ -41,7 +41,7 @@ This is a Home Assistant custom component that provides integration for Navien N
 
 ### General Best Practices
 - **Always Get Current Date**: Never assume or hardcode dates. Always use `date +%Y-%m-%d` command to get the correct date for changelogs, releases, or any date-dependent content.
-- **No Summary Documents**: Do not create summary documents (e.g., `SUMMARY.md`, `CHANGES.md`) after completing tasks or fixes unless explicitly requested. Code changes and git commit messages are sufficient documentation.
+- **No Summary Documents**: Do not create any summary documents (e.g., `SUMMARY.md`, `CHANGES.md`, `ANALYSIS.md`, quick summaries, etc.) after completing tasks or fixes unless explicitly requested by the user. Code changes, git commits, and documentation updates are sufficient. Do not provide summary responses in the chat—be concise and direct instead.
 - **Changelog Management**: 
   - **DO NOT** add library version history or detailed changelogs to `README.md`
   - All library dependency changes belong in `CHANGELOG.md` under "Library Dependency: nwp500-python" section
@@ -55,14 +55,14 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **Async/Await**: Use async/await patterns for I/O operations
 
 ### Testing & Linting
-✅ **Type Checking with mypy**:
+**Type Checking with mypy**:
 - **Configuration**: `mypy.ini` and `tox.ini`
 - **Run Command**: `tox -e mypy` (from project root with virtual environment)
 - **Setup**: Virtual environment in `.venv/` with tox and mypy installed
 - **Always run mypy**: Before completing any task that modifies Python code
 - **Standard**: Must pass with zero errors before committing changes
 
-⚠️ **Future Testing**:
+**Future Testing**:
 - Expect future implementation of pytest for unit tests
 - Code should be testable and follow best practices
 - Write defensive code with proper error handling
@@ -177,7 +177,7 @@ docker compose up -d
 - [ ] Run `tox -e mypy --recreate` - must pass with zero errors
 - [ ] Test in development environment (optional but recommended)
 
-**⚠️ Common Mistakes**: 
+**Common Mistakes**: 
 - Forgetting to update `tox.ini` causes CI failures because type checkers cannot resolve the new library APIs
 - Adding detailed changelog to `README.md` instead of `CHANGELOG.md` - keep README clean and focused
 - Always search for ALL occurrences of `nwp500-python==` in the project
@@ -256,7 +256,7 @@ custom_components/nwp500/
 
 ## Task Completion Requirements
 
-### ⚠️ MANDATORY: Type Checking
+### MANDATORY: Type Checking
 
 **Before completing ANY task that modifies Python code:**
 
@@ -285,7 +285,7 @@ For every task involving Python code changes:
 ## Future Considerations
 
 ### Planned Improvements
-- ~~Linting setup (black, flake8, mypy)~~ ✅ mypy completed
+- Linting setup (black, flake8, mypy)~~ mypy completed
 - Testing framework (pytest)
 - CI/CD pipeline with automated type checking
 - Enhanced error handling and diagnostics

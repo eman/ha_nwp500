@@ -25,10 +25,10 @@ This section tracks changes in the nwp500-python library that this integration d
   - Migration: Import exceptions from `nwp500.exceptions` or package root
 
 #### Migration Status for this Integration
-- ✅ Already using event emitter pattern (not constructor callbacks)
-- ✅ All exception imports use correct module (`nwp500.exceptions`)
-- ✅ No code changes required for v6.0.0 compatibility
-- ✅ Full compatibility with new architecture
+- Already using event emitter pattern (not constructor callbacks)
+- All exception imports use correct module (`nwp500.exceptions`)
+- No code changes required for v6.0.0 compatibility
+- Full compatibility with new architecture
 
 #### Benefits
 - Multiple event listeners per event (not limited to one callback)
@@ -59,11 +59,11 @@ This section tracks changes in the nwp500-python library that this integration d
 - **Type Hints**: Migrated to native type hints (PEP 585): `dict[str, Any]` instead of `Dict[str, Any]`
 
 #### Migration Status for this Integration
-- ✅ All exception handling updated to use new specific exception types
-- ✅ Integration already uses Python 3.9+ minimum (via Home Assistant requirements)
-- ✅ Type hints already use PEP 585 native syntax
-- ✅ All imports and error handling patterns updated
-- ✅ Full compatibility with new exception architecture
+- All exception handling updated to use new specific exception types
+- Integration already uses Python 3.9+ minimum (via Home Assistant requirements)
+- Type hints already use PEP 585 native syntax
+- All imports and error handling patterns updated
+- Full compatibility with new exception architecture
 
 #### Improvements
 - **Enterprise Exception Architecture**: Complete exception hierarchy for better error handling

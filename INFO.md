@@ -6,23 +6,24 @@ Comprehensive monitoring and control of Navien NWP500 Heat Pump Water Heaters th
 
 ## Features
 
-✨ **Water Heater Control**
-- Set target temperature
-- Switch between Heat Pump, Energy Saver, High Demand, and Electric modes
-- Power control (on/off)
+**Water Heater Control**
+- Set target DHW (Domestic Hot Water) temperature
+- Operation Mode Control: Switch between Heat Pump, Energy Saver, High Demand, and Electric modes
+- Real-time Status: Current temperature, target temperature, and operation state
+- Power Control: Turn the water heater on/off
 
-📊 **40+ Sensors**
+**40+ Sensors**
 - Temperature monitoring (tank, DHW, ambient, etc.)
 - Power consumption and energy tracking
 - System status and diagnostics
 - Performance metrics
 
-🔄 **Real-time Updates**
+**Real-time Updates**
 - MQTT-based instant status updates
 - Event-driven architecture
 - Automatic reconnection handling
 
-🔧 **Comprehensive Status**
+**Comprehensive Status**
 - 15+ binary sensors for boolean indicators
 - Error code monitoring
 - Component status tracking (compressor, heating elements, fans)

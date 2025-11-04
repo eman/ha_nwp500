@@ -154,11 +154,11 @@ git config --global --add safe.directory /workspaces/ha_nwp500
 
 ## Benefits
 
-✅ **Consistent Environment**: Everyone uses the same development setup  
-✅ **No Local Setup**: No need to install Python, dependencies, or tools locally  
-✅ **Isolated**: Doesn't interfere with other Python projects  
-✅ **Pre-configured**: All extensions and settings ready to go  
-✅ **Fast Onboarding**: New contributors can start coding immediately  
+- **Consistent Environment**: Everyone uses the same development setup  
+- **No Local Setup**: No need to install Python, dependencies, or tools locally  
+- **Isolated**: Doesn't interfere with other Python projects  
+- **Pre-configured**: All extensions and settings ready to go  
+- **Fast Onboarding**: New contributors can start coding immediately  
 
 ## Alternative: GitHub Codespaces
 
