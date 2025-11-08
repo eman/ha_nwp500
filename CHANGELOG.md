@@ -8,11 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Updated nwp500-python dependency to 6.0.0
+- Updated nwp500-python dependency to 6.0.1
 
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v6.0.1 (2025-11-08)
+
+#### Bug Fixes
+- Fixed `DatetimeFormatError` when parsing device timestamps with fractional seconds
+- Improved datetime parsing robustness
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v6.0.1
 
 ### v6.0.0 (2025-11-02)
 
