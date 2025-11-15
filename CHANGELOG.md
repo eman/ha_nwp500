@@ -8,11 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Updated nwp500-python dependency to 6.0.1
+- Updated nwp500-python dependency to 6.0.2
 
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v6.0.2 (2025-11-15)
+
+#### Bug Fixes
+- Fixed issue with MQTT connection stability
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v6.0.2
 
 ### v6.0.1 (2025-11-08)
 

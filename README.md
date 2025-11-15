@@ -114,7 +114,7 @@ The integration supports these DHW operation modes:
 
 ## Library Version
 
-This integration currently uses **nwp500-python v6.0.1**.
+This integration currently uses **nwp500-python v6.0.2**.
 
 For version history and changelog, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
@@ -179,7 +179,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==6.0.1 is installed
+- Ensure nwp500-python==6.0.2 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
