@@ -179,7 +179,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==6.0.2 is installed
+- Ensure nwp500-python==6.0.3 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
