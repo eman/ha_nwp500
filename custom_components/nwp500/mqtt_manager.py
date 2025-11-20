@@ -85,7 +85,7 @@ class NWP500MqttManager:
                 _LOGGER.info("MQTT connected successfully at %.3f", self.connected_since)
             else:
                 _LOGGER.warning("MQTT connection failed")
-            return connected
+            return bool(connected)
         except Exception as err:
             _LOGGER.warning("MQTT connection failed: %s", err)
             return False
