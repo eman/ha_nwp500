@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
-from decimal import Decimal
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -24,7 +23,6 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import StateType
 
 from .const import DOMAIN, SENSOR_CONFIGS
 from .coordinator import NWP500DataUpdateCoordinator
@@ -251,7 +249,7 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
         )
 
     @property
-    def native_value(self) -> StateType | date | datetime | Decimal:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the timestamp of the last response."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         if telemetry["last_response_time"]:
