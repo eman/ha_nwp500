@@ -59,6 +59,10 @@ class NWP500MqttManager:
 
     async def setup(self) -> bool:
         """Set up the MQTT client."""
+        # Ensure any existing client is fully disconnected and reset
+        if self.mqtt_client:
+            await self.disconnect()
+
         try:
             from nwp500 import NavienMqttClient  # type: ignore[attr-defined]
             
