@@ -123,14 +123,14 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             _LOGGER.debug("Device feature available for %s", self.mac_address)
             # Get serial number
             serial_number = getattr(
-                device_feature, "controllerSerialNumber", None
+                device_feature, "controller_serial_number", None
             )
 
             # Use controller firmware version as primary sw_version
             # (HA convention) This provides a concise version
             # identifier for the main device firmware
             controller_version = getattr(
-                device_feature, "controllerSwVersion", None
+                device_feature, "controller_sw_version", None
             )
             sw_version = (
                 controller_version  # Simple, clean version for HA device info
@@ -210,10 +210,10 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             if device_feature:
                 # Individual firmware versions for technical analysis
                 controller_version = getattr(
-                    device_feature, "controllerSwVersion", None
+                    device_feature, "controller_sw_version", None
                 )
-                panel_version = getattr(device_feature, "panelSwVersion", None)
-                wifi_version = getattr(device_feature, "wifiSwVersion", None)
+                panel_version = getattr(device_feature, "panel_sw_version", None)
+                wifi_version = getattr(device_feature, "wifi_sw_version", None)
 
                 attrs.update(
                     {

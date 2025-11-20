@@ -32,12 +32,15 @@ from .const import (
     DOMAIN,
     SLOW_UPDATE_THRESHOLD,
 )
+from .mqtt_manager import NWP500MqttManager
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
         NavienAPIClient,
         NavienAuthClient,
-        NavienMqttClient,
+        Device,
+        DeviceStatus,
+        DeviceFeature,
     )
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,9 +54,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.auth_client: NavienAuthClient | None = None
         self.api_client: NavienAPIClient | None = None
-        self.mqtt_client: NavienMqttClient | None = None
-        self.devices: list[Any] = []
-        self.device_features: dict[str, Any] = {}
+        self.mqtt_manager: NWP500MqttManager | None = None
+        self.devices: list[Device] = []
+        self.device_features: dict[str, DeviceFeature] = {}
         self._periodic_task: asyncio.Task[Any] | None = None
         self._device_info_request_counter: dict[
             str, int
@@ -188,19 +191,23 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         }
 
     def get_mqtt_telemetry(self) -> dict[str, Any]:
-        """Get MQTT communication telemetry.
+        """Get MQTT telemetry data for diagnostic sensors.
 
         Returns:
-            Dictionary with MQTT telemetry including:
-            - last_request_id: ID of last request sent
-            - last_request_time: Timestamp of last request
-            - last_response_id: ID of last response received
-            - last_response_time: Timestamp of last response
+            Dictionary containing:
+            - last_request_id: ID of last status request
+            - last_request_time: Timestamp of last status request
+            - last_response_id: ID of last status response
+            - last_response_time: Timestamp of last status response
             - total_requests_sent: Total requests sent
             - total_responses_received: Total responses received
             - mqtt_connected: Whether MQTT is currently connected
             - mqtt_connected_since: Timestamp when MQTT connected
         """
+        mqtt_connected = False
+        if self.mqtt_manager:
+            mqtt_connected = self.mqtt_manager.is_connected
+
         return {
             "last_request_id": self._last_request_id,
             "last_request_time": self._last_request_time,
@@ -208,76 +215,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             "last_response_time": self._last_response_time,
             "total_requests_sent": self._total_requests_sent,
             "total_responses_received": self._total_responses_received,
-            "mqtt_connected": (
-                self.mqtt_client.is_connected if self.mqtt_client else False
+            "mqtt_connected": mqtt_connected,
+            "mqtt_connected_since": (
+                self.mqtt_manager.connected_since if self.mqtt_manager else None
             ),
-            "mqtt_connected_since": self._mqtt_connected_since,
+            "consecutive_timeouts": self._consecutive_timeouts,
         }
-
-    async def _force_mqtt_reconnect(self) -> bool:
-        """Force MQTT client to reconnect.
-
-        This is called when we detect MQTT is stuck (multiple timeouts).
-        Returns True if reconnection succeeded, False otherwise.
-        """
-        if not self.mqtt_client or self._reconnection_in_progress:
-            return False
-
-        self._reconnection_in_progress = True
-
-        try:
-            _LOGGER.warning(
-                "Forcing MQTT reconnection due to repeated timeouts "
-                "(consecutive: %d)",
-                self._consecutive_timeouts,
-            )
-
-            # Disconnect and reconnect
-            try:
-                await self.mqtt_client.disconnect()
-            except Exception as disconnect_err:  # noqa: BLE001
-                _LOGGER.debug("Error during disconnect: %s", disconnect_err)
-
-            # Wait a moment before reconnecting
-            await asyncio.sleep(2.0)
-
-            # Attempt reconnection
-            connected = await self.mqtt_client.connect()
-
-            if connected:
-                self._mqtt_connected_since = time.time()
-                self._consecutive_timeouts = 0
-                _LOGGER.info(
-                    "MQTT reconnection successful at %.3f",
-                    self._mqtt_connected_since,
-                )
-
-                # Re-subscribe to all devices
-                for device in self.devices:
-                    try:
-                        await self.mqtt_client.subscribe_device_status(
-                            device, self._on_device_status_update
-                        )
-                        await self.mqtt_client.subscribe_device_feature(
-                            device, self._on_device_feature_update
-                        )
-                    except Exception as subscribe_err:  # noqa: BLE001
-                        _LOGGER.warning(
-                            "Failed to re-subscribe to device %s: %s",
-                            device.device_info.mac_address,
-                            subscribe_err,
-                        )
-
-                return True
-            else:
-                _LOGGER.error("MQTT reconnection failed")
-                return False
-
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.error("Error during forced MQTT reconnect: %s", err)
-            return False
-        finally:
-            self._reconnection_in_progress = False
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from API endpoint.
@@ -298,11 +241,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             await self._setup_clients()
 
         # Check MQTT connection state before attempting requests
-        if self.mqtt_client and not self.mqtt_client.is_connected:
-            _LOGGER.error(
-                "MQTT client is not connected. Device status requests will fail. "
-                "Connection may have been lost or failed to reconnect."
-            )
+        if self.mqtt_manager:
+            if not self.mqtt_manager.is_connected:
+                _LOGGER.error(
+                    "MQTT client is not connected. Device status requests "
+                    "will fail. Connection may have been lost or failed "
+                    "to reconnect."
+                )
 
         try:
             # Reuse existing data structure to reduce memory allocations
@@ -324,10 +269,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     device_data[mac_address]["device"] = device
 
                 # Request fresh status via MQTT (async, will update)
-                if (
-                    self.mqtt_client is not None
-                    and self.mqtt_client.is_connected
-                ):
+                if self.mqtt_manager:
                     try:
                         # Generate request ID for tracking
                         request_id = f"{mac_address}_{int(time.time() * 1000)}"
@@ -346,11 +288,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
                         # Add timeout to prevent hanging on MQTT issues
                         await asyncio.wait_for(
-                            self.mqtt_client.request_device_status(device),
+                            self.mqtt_manager.request_status(device),
                             timeout=10.0,
                         )
 
-                        # Request succeeded, reset timeout counter
+                        # Request succeeded (didn't hang), reset timeout counter
                         self._consecutive_timeouts = 0
 
                         _LOGGER.debug(
@@ -373,7 +315,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                             # Every 10th update (~5 minutes)
                             try:
                                 await asyncio.wait_for(
-                                    self.mqtt_client.request_device_info(
+                                    self.mqtt_manager.request_device_info(
                                         device
                                     ),
                                     timeout=10.0,
@@ -384,33 +326,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 )
                             except TimeoutError:
                                 _LOGGER.warning(
-                                    "Timeout on fallback device info request for %s",
+                                    "Timeout on fallback device info request "
+                                    "for %s",
                                     mac_address,
-                                )
-                            except AwsCrtError as info_err:
-                                # Handle clean session cancellation gracefully
-                                if (
-                                    info_err.name
-                                    == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-                                ):
-                                    _LOGGER.debug(
-                                        "Device info request queued due to "
-                                        "MQTT reconnection for %s",
-                                        mac_address,
-                                    )
-                                else:
-                                    _LOGGER.debug(
-                                        "Fallback device info request failed "
-                                        "for %s: %s",
-                                        mac_address,
-                                        info_err,
-                                    )
-                            except (RuntimeError, OSError) as info_err:
-                                _LOGGER.debug(
-                                    "Fallback device info request failed "
-                                    "for %s: %s",
-                                    mac_address,
-                                    info_err,
                                 )
 
                     except TimeoutError:
@@ -431,8 +349,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 self._consecutive_timeouts,
                             )
                             # Schedule reconnection asynchronously
-                            # (don't block current update)
-                            asyncio.create_task(self._force_mqtt_reconnect())
+                            asyncio.create_task(
+                                self.mqtt_manager.force_reconnect(self.devices)
+                            )
                     except AwsCrtError as err:
                         # Handle clean session cancellation gracefully
                         # This occurs during MQTT reconnection and is expected
@@ -485,24 +404,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 _LOGGER.warning(
                     "Slow coordinator update detected: %.2fs "
                     "(threshold: %.1fs). This may indicate network "
-                    "latency or connectivity issues. "
-                    "Consider increasing scan interval in integration "
-                    "options if this persists.",
+                    "latency or connectivity issues.",
                     duration,
                     SLOW_UPDATE_THRESHOLD,
                 )
 
             return device_data
 
-        except (
-            AwsCrtError,
-            RuntimeError,
-            OSError,
-            TimeoutError,
-            AttributeError,
-            KeyError,
-            MqttError,
-        ) as err:
+        except Exception as err:
             # Track failed update time as well
             duration = time.monotonic() - start_time
             _LOGGER.error(
@@ -518,7 +427,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             from nwp500 import (  # type: ignore[attr-defined]
                 NavienAPIClient,
                 NavienAuthClient,
-                NavienMqttClient,
             )
         except ImportError as err:
             _LOGGER.error(
@@ -570,7 +478,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             await self.auth_client.__aenter__()  # Authenticate or restore
 
             # Save tokens after successful authentication
-            # This updates tokens if they were refreshed or saves new ones
             await self._save_tokens()
 
             # Setup API client
@@ -594,32 +501,16 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             _LOGGER.info("Found %d devices", len(self.devices))
 
-            # Setup MQTT client for real-time updates with event emitter
-            self.mqtt_client = NavienMqttClient(self.auth_client)
-
-            # Set up event listeners using the event emitter functionality
-            self.mqtt_client.on(
-                "device_status_update", self._on_device_status_event
-            )
-            self.mqtt_client.on(
-                "device_feature_update", self._on_device_feature_event
-            )
-            self.mqtt_client.on("connection_lost", self._on_connection_lost)
-            self.mqtt_client.on(
-                "connection_restored", self._on_connection_restored
-            )
-            self.mqtt_client.on(
-                "reconnection_failed", self._on_reconnection_failed
+            # Setup MQTT Manager
+            self.mqtt_manager = NWP500MqttManager(
+                self.hass.loop,
+                self.auth_client,
+                self._on_device_status_update,
+                self._on_device_feature_update,
             )
 
-            # Connect to MQTT - this may generate blocking I/O warnings
-            # from AWS IoT SDK but it's unavoidable since the underlying
-            # library does blocking operations
-            try:
-                connected = await self.mqtt_client.connect()
-            except (AwsCrtError, RuntimeError, OSError, TimeoutError) as err:
-                _LOGGER.warning("MQTT connection failed: %s", err)
-                connected = False
+            # Connect to MQTT
+            connected = await self.mqtt_manager.setup()
 
             if not connected:
                 _LOGGER.warning(
@@ -627,82 +518,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     "API-only mode"
                 )
             else:
-                # Track connection timestamp
-                self._mqtt_connected_since = time.time()
-                _LOGGER.info(
-                    "MQTT connected successfully at %.3f",
-                    self._mqtt_connected_since,
-                )
-
-                # Subscribe to device status updates
+                # Subscribe and start periodic requests
                 for device in self.devices:
-                    try:
-                        await self.mqtt_client.subscribe_device_status(
-                            device, self._on_device_status_update
-                        )
-                        # Also subscribe to device feature updates for
-                        # firmware/serial info
-                        await self.mqtt_client.subscribe_device_feature(
-                            device, self._on_device_feature_update
-                        )
-                    except (
-                        AwsCrtError,
-                        RuntimeError,
-                        OSError,
-                        TimeoutError,
-                    ) as err:
-                        _LOGGER.warning(
-                            "Failed to subscribe to device %s: %s",
-                            device.device_info.mac_address,
-                            err,
-                        )
-
-                # Start periodic status requests via MQTT
-                # (every 5 minutes)
-                for device in self.devices:
-                    try:
-                        await self.mqtt_client.start_periodic_device_status_requests(
-                            device, 300.0
-                        )
-                        # Also request device info periodically
-                        # (every 30 minutes for firmware info)
-                        await self.mqtt_client.start_periodic_device_info_requests(
-                            device, 1800.0
-                        )
-
-                        # Make an immediate device info request to get
-                        # firmware/serial data right away
-                        try:
-                            await self.mqtt_client.request_device_info(device)
-                            _LOGGER.info(
-                                "Sent immediate device info request for %s",
-                                device.device_info.mac_address,
-                            )
-                        except (
-                            AwsCrtError,
-                            RuntimeError,
-                            OSError,
-                            TimeoutError,
-                        ) as info_err:
-                            _LOGGER.warning(
-                                "Failed to send immediate device info "
-                                "request for %s: %s",
-                                device.device_info.mac_address,
-                                info_err,
-                            )
-
-                    except (
-                        AwsCrtError,
-                        RuntimeError,
-                        OSError,
-                        TimeoutError,
-                    ) as err:
-                        _LOGGER.warning(
-                            "Failed to start periodic requests for "
-                            "device %s: %s",
-                            device.device_info.mac_address,
-                            err,
-                        )
+                    await self.mqtt_manager.subscribe_device(device)
+                    await self.mqtt_manager.start_periodic_requests(device)
 
             _LOGGER.info(
                 "Successfully connected to Navien cloud service with "
@@ -741,151 +560,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 f"Failed to connect to Navien service: {err}"
             ) from err
 
-    def _on_device_status_event(self, event_data: dict[str, Any]) -> None:
-        """Handle device status event from event emitter.
-
-        Uses catch-all exception handling to ensure event handler resilience
-        as per EventEmitter pattern - must not allow callback errors to
-        propagate to the event emitter.
-        """
-        _LOGGER.debug("Received device status event: %s", event_data)
-
+    def _on_device_status_update(self, mac_address: str, status: DeviceStatus) -> None:
+        """Handle device status update from MQTT Manager."""
         try:
-            # Extract status from event data
-            status = event_data.get("status")
-            device = event_data.get("device")
+            _LOGGER.debug("Received device status update for %s", mac_address)
 
-            if status and device:
-                mac_address = device.device_info.mac_address
-
-                # Track response telemetry
-                response_time = time.time()
-                response_id = f"{mac_address}_{int(response_time * 1000)}"
-                self._last_response_id = response_id
-                self._last_response_time = response_time
-                self._total_responses_received += 1
-
-                # Reset timeout counter on successful response
-                self._consecutive_timeouts = 0
-
-                # Calculate time since last request
-                time_since_request = (
-                    response_time - self._last_request_time
-                    if self._last_request_time
-                    else 0
-                )
-
-                _LOGGER.debug(
-                    "MQTT Status Response [%s] - Device: %s, "
-                    "Response #%d, Time: %.3f, Latency: %.3fs, "
-                    "Last Request: %s",
-                    response_id,
-                    mac_address,
-                    self._total_responses_received,
-                    response_time,
-                    time_since_request,
-                    self._last_request_id or "N/A",
-                )
-
-                if self.data and mac_address in self.data:
-                    self.data[mac_address]["status"] = status
-                    self.data[mac_address]["last_update"] = time.time()
-
-                    # Schedule update for all listeners using thread-safe method
-                    self.hass.loop.call_soon_threadsafe(
-                        self.async_update_listeners
-                    )
-        except Exception as err:  # noqa: BLE001 - EventEmitter callback must catch all
-            _LOGGER.error("Error handling device status event: %s", err)
-
-    def _on_device_feature_event(self, event_data: dict[str, Any]) -> None:
-        """Handle device feature event from event emitter.
-
-        Uses catch-all exception handling to ensure event handler resilience
-        as per EventEmitter pattern - must not allow callback errors to
-        propagate to the event emitter.
-        """
-        _LOGGER.debug("Received device feature event: %s", event_data)
-
-        try:
-            feature = event_data.get("feature")
-            device = event_data.get("device")
-
-            if feature and device:
-                mac_address = device.device_info.mac_address
-                self.device_features[mac_address] = feature
-        except Exception as err:  # noqa: BLE001 - EventEmitter callback must catch all
-            _LOGGER.error("Error handling device feature event: %s", err)
-
-    def _on_connection_lost(self, event_data: dict[str, Any]) -> None:
-        """Handle MQTT connection lost event."""
-        self._mqtt_connected_since = None
-        _LOGGER.error(
-            "MQTT connection lost: %s. Updates will fail until connection is restored.",
-            event_data,
-        )
-
-    def _on_connection_restored(self, event_data: dict[str, Any]) -> None:
-        """Handle MQTT connection restored event.
-
-        Connection restoration may involve token refresh, so save updated tokens.
-        """
-        self._mqtt_connected_since = time.time()
-        _LOGGER.info(
-            "MQTT connection restored: %s. Connected at: %.3f",
-            event_data,
-            self._mqtt_connected_since,
-        )
-
-        # Schedule token save on the main event loop (thread-safe)
-        # Connection restoration may have refreshed tokens
-        asyncio.run_coroutine_threadsafe(self._save_tokens(), self.hass.loop)
-
-    def _on_reconnection_failed(self, event_data: dict[str, Any] | int) -> None:
-        """Handle MQTT reconnection failed event.
-
-        When reconnection fails after max attempts, automatically reset
-        the reconnection state and trigger a new reconnection cycle.
-
-        Args:
-            event_data: Either a dict with event data or an int (attempt_count)
-                       depending on library version.
-        """
-        # Handle both dict and int forms for compatibility
-        if isinstance(event_data, dict):
-            attempt_count = event_data.get("attempt_count", 0)
-        else:
-            # event_data is int
-            attempt_count = event_data
-
-        _LOGGER.error(
-            "MQTT reconnection failed after %d attempts. "
-            "Resetting reconnection state and retrying...",
-            attempt_count,
-        )
-
-        if self.mqtt_client:
-            # Schedule reset_reconnect on the main event loop
-            asyncio.run_coroutine_threadsafe(
-                self.mqtt_client.reset_reconnect(), self.hass.loop
-            )
-
-    def _on_device_status_update(self, status: Any) -> None:
-        """Handle device status update from MQTT.
-
-        Uses catch-all exception handling to ensure callback resilience - must not
-        allow callback errors to propagate to the MQTT client.
-        """
-        try:
-            # Find the device by checking the status data
-            # Status should contain mac_address or match by other means
-            _LOGGER.debug("Received device status update: %s", status)
-
-            # Track response telemetry first
+            # Track response telemetry
             response_time = time.time()
             self._total_responses_received += 1
-
-            # Reset timeout counter on successful response
             self._consecutive_timeouts = 0
 
             # Calculate time since last request
@@ -895,98 +577,44 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 else 0
             )
 
-            # Log response immediately (before device matching logic)
+            response_id = f"{mac_address}_{int(response_time * 1000)}"
+            self._last_response_id = response_id
+            self._last_response_time = response_time
+
             _LOGGER.debug(
-                "MQTT Status Response received - Response #%d, Time: %.3f, Latency: %.3fs",
-                self._total_responses_received,
-                response_time,
+                "MQTT Status Response [%s] - Device: %s, Last Request: %s, Latency: %.3fs",
+                response_id,
+                mac_address,
+                self._last_request_id or "N/A",
                 time_since_request,
             )
 
-            # Use thread-safe method to schedule update on the main
-            # event loop
-            if hasattr(status, "device") and hasattr(
-                status.device, "device_info"
-            ):
-                mac_address = status.device.device_info.mac_address
+            if self.data and mac_address in self.data:
+                self.data[mac_address]["status"] = status
+                self.data[mac_address]["last_update"] = time.time()
 
-                # Log the response with device details
-                response_id = f"{mac_address}_{int(response_time * 1000)}"
-                self._last_response_id = response_id
-                self._last_response_time = response_time
-
-                _LOGGER.debug(
-                    "MQTT Status Response [%s] - Device: %s, Last Request: %s",
-                    response_id,
-                    mac_address,
-                    self._last_request_id or "N/A",
+                # Schedule update for all listeners using thread-safe method
+                self.hass.loop.call_soon_threadsafe(
+                    self.async_update_listeners
                 )
 
-                if self.data and mac_address in self.data:
-                    self.data[mac_address]["status"] = status
-                    self.data[mac_address]["last_update"] = time.time()
-
-                    # Schedule update for all listeners using thread-safe method
-                    self.hass.loop.call_soon_threadsafe(
-                        self.async_update_listeners
-                    )
-            else:
-                # If we can't identify the device, update all devices
-                # This might need refinement based on actual structure
-                for device in self.devices:
-                    mac_address = device.device_info.mac_address
-                    if self.data and mac_address in self.data:
-                        response_id = (
-                            f"{mac_address}_{int(response_time * 1000)}"
-                        )
-                        self._last_response_id = response_id
-                        self._last_response_time = response_time
-
-                        _LOGGER.debug(
-                            "MQTT Status Response [%s] - Device: %s, Last Request: %s",
-                            response_id,
-                            mac_address,
-                            self._last_request_id or "N/A",
-                        )
-
-                        self.data[mac_address]["status"] = status
-                        # Use time.time() instead of loop.time() since
-                        # we're in different thread
-                        self.data[mac_address]["last_update"] = time.time()
-
-                # Schedule update for all listeners using thread-safe
-                # method
-                self.hass.loop.call_soon_threadsafe(self.async_update_listeners)
-
-        except Exception as err:  # noqa: BLE001 - MQTT callback must catch all
+        except Exception as err:
             _LOGGER.error("Error handling device status update: %s", err)
 
-    def _on_device_feature_update(self, feature: Any) -> None:
-        """Handle device feature update from MQTT.
-
-        Uses catch-all exception handling to ensure callback resilience - must not
-        allow callback errors to propagate to the MQTT client.
-        """
+    def _on_device_feature_update(self, mac_address: str, feature: DeviceFeature) -> None:
+        """Handle device feature update from MQTT Manager."""
         try:
-            _LOGGER.debug("Received device feature update: %s", feature)
-
-            # Store the device feature data for use in device info
-            # Match it to devices by checking against our devices
-            for device in self.devices:
-                mac_address = device.device_info.mac_address
-                # Store feature data - used by entities for device info
-                self.device_features[mac_address] = feature
-                break  # Assume single device for now
-
-        except Exception as err:  # noqa: BLE001 - MQTT callback must catch all
+            _LOGGER.debug("Received device feature update for %s", mac_address)
+            self.device_features[mac_address] = feature
+        except Exception as err:
             _LOGGER.error("Error handling device feature update: %s", err)
 
     async def async_control_device(
         self, mac_address: str, command: str, **kwargs: Any
     ) -> bool:
         """Send control command to device."""
-        if not self.mqtt_client:
-            _LOGGER.error("MQTT client not available")
+        if not self.mqtt_manager:
+            _LOGGER.error("MQTT manager not available")
             return False
 
         device = None
@@ -999,78 +627,16 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Device %s not found", mac_address)
             return False
 
-        try:
-            if command == "set_power":
-                power_on = kwargs.get("power_on", True)
-                await self.mqtt_client.set_power(device, power_on)
-            elif command == "set_temperature":
-                temperature = kwargs.get("temperature")
-                if temperature:
-                    # Use set_dhw_temperature_display which takes
-                    # the display temperature directly. This is more
-                    # intuitive as it matches what users see on the
-                    # device/app
-                    await self.mqtt_client.set_dhw_temperature_display(
-                        device, int(temperature)
-                    )
-            elif command == "set_dhw_mode":
-                mode = kwargs.get("mode")
-                if mode:
-                    await self.mqtt_client.set_dhw_mode(device, int(mode))
-            else:
-                _LOGGER.error("Unknown command: %s", command)
-                return False
-
-            # Request status update after command
-            try:
-                await self.mqtt_client.request_device_status(device)
-            except AwsCrtError as status_err:
-                # Handle clean session cancellation gracefully
-                if (
-                    status_err.name
-                    == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-                ):
-                    _LOGGER.debug(
-                        "Status request after command queued due to "
-                        "MQTT reconnection for device %s",
-                        mac_address,
-                    )
-                else:
-                    _LOGGER.warning(
-                        "Failed to request status after command for %s: %s",
-                        mac_address,
-                        status_err,
-                    )
-            return True
-
-        except AwsCrtError as err:
-            # Handle clean session cancellation gracefully
-            if err.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
-                _LOGGER.info(
-                    "Command %s queued due to MQTT reconnection for device %s",
-                    command,
-                    mac_address,
-                )
-                return True  # Command is queued, will be sent on reconnect
-            _LOGGER.error("Failed to send command %s: %s", command, err)
-            return False
-        except (
-            RuntimeError,
-            OSError,
-            TimeoutError,
-            ValueError,
-            TypeError,
-            MqttError,
-        ) as err:
-            _LOGGER.error("Failed to send command %s: %s", command, err)
-            return False
+        return await self.mqtt_manager.send_command(
+            device, command, **kwargs
+        )
 
     async def async_request_device_info(
         self, mac_address: str | None = None
     ) -> bool:
         """Manually request device info for a specific device or all devices."""
-        if not self.mqtt_client:
-            _LOGGER.error("MQTT client not available")
+        if not self.mqtt_manager:
+            _LOGGER.error("MQTT manager not available")
             return False
 
         devices_to_update = []
@@ -1091,28 +657,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         success_count = 0
         for device in devices_to_update:
             try:
-                await self.mqtt_client.request_device_info(device)
+                await self.mqtt_manager.request_device_info(device)
                 _LOGGER.info(
                     "Sent manual device info request for %s",
                     device.device_info.mac_address,
                 )
                 success_count += 1
-            except AwsCrtError as err:
-                # Handle clean session cancellation gracefully
-                if err.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
-                    _LOGGER.debug(
-                        "Device info request queued due to MQTT "
-                        "reconnection for %s",
-                        device.device_info.mac_address,
-                    )
-                    # Do not count as success since it's only queued, not completed
-                else:
-                    _LOGGER.error(
-                        "Failed to send manual device info request for %s: %s",
-                        device.device_info.mac_address,
-                        err,
-                    )
-            except (RuntimeError, OSError, TimeoutError, MqttError) as err:
+            except Exception as err:
                 _LOGGER.error(
                     "Failed to send manual device info request for %s: %s",
                     device.device_info.mac_address,
@@ -1123,30 +674,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
-        if self.mqtt_client:
-            try:
-                # Remove event listeners
-                self.mqtt_client.off(
-                    "device_status_update", self._on_device_status_event
-                )
-                self.mqtt_client.off(
-                    "device_feature_update", self._on_device_feature_event
-                )
-                self.mqtt_client.off(
-                    "connection_lost", self._on_connection_lost
-                )
-                self.mqtt_client.off(
-                    "connection_restored", self._on_connection_restored
-                )
-                self.mqtt_client.off(
-                    "reconnection_failed", self._on_reconnection_failed
-                )
-
-                await self.mqtt_client.stop_all_periodic_tasks()
-                await self.mqtt_client.disconnect()
-            except (AwsCrtError, RuntimeError, OSError) as err:
-                _LOGGER.debug("Error disconnecting MQTT client: %s", err)
-            self.mqtt_client = None
+        if self.mqtt_manager:
+            await self.mqtt_manager.disconnect()
+            self.mqtt_manager = None
 
         if self.auth_client:
             try:

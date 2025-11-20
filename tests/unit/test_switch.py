@@ -70,7 +70,7 @@ class TestNWP500PowerSwitch:
     ):
         """Test switch is_on when powered off."""
         # Set device to power off mode (6)
-        mock_device_status.dhwOperationSetting.value = 6
+        mock_device_status.dhw_operation_setting.value = 6
 
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
@@ -84,8 +84,8 @@ class TestNWP500PowerSwitch:
         mock_device_status: MagicMock,
     ):
         """Test switch falls back to operationMode."""
-        # Remove dhwOperationSetting
-        delattr(mock_device_status, "dhwOperationSetting")
+        # Remove dhw_operation_setting
+        delattr(mock_device_status, "dhw_operation_setting")
 
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)

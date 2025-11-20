@@ -112,7 +112,7 @@ class TestNWP500BinarySensor:
         )
 
         # Remove the attribute
-        delattr(mock_device_status, "operationBusy")
+        delattr(mock_device_status, "operation_busy")
 
         mac_address = mock_device.device_info.mac_address
         sensor = NWP500BinarySensor(

@@ -167,6 +167,9 @@ async def async_setup_entry(
                     coordinator, first_mac, first_device
                 ),
                 NWP500MQTTConnectedSensor(coordinator, first_mac, first_device),
+                NWP500ConsecutiveTimeoutsSensor(
+                    coordinator, first_mac, first_device
+                ),
             ]
         )
 
@@ -361,3 +364,30 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
                 datetime.now().timestamp() - telemetry["mqtt_connected_since"]
             )
         return attrs
+
+
+class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
+    """Sensor showing consecutive MQTT timeouts."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Any,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(
+            coordinator,
+            mac_address,
+            device,
+            "consecutive_timeouts",
+            "Consecutive Timeouts",
+        )
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of consecutive timeouts."""
+        telemetry = self.coordinator.get_mqtt_telemetry()
+        return int(telemetry.get("consecutive_timeouts", 0))

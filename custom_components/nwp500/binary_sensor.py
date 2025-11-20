@@ -39,7 +39,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Operation Busy",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=True,
-            value_fn=lambda status: getattr(status, "operationBusy", None),
+            value_fn=lambda status: getattr(status, "operation_busy", None),
         )
     )
 
@@ -49,7 +49,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Freeze Protection Active",
             entity_registry_enabled_default=True,
             value_fn=lambda status: getattr(
-                status, "freezeProtectionUse", None
+                status, "freeze_protection_use", None
             ),
         )
     )
@@ -60,7 +60,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="DHW In Use",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=True,
-            value_fn=lambda status: getattr(status, "dhwUse", None),
+            value_fn=lambda status: getattr(status, "dhw_use", None),
         )
     )
 
@@ -70,7 +70,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="DHW Use Sustained",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "dhwUseSustained", None),
+            value_fn=lambda status: getattr(status, "dhw_use_sustained", None),
         )
     )
 
@@ -80,7 +80,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Compressor Running",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=True,
-            value_fn=lambda status: getattr(status, "compUse", None),
+            value_fn=lambda status: getattr(status, "comp_use", None),
         )
     )
 
@@ -90,7 +90,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="EEV Active",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "eevUse", None),
+            value_fn=lambda status: getattr(status, "eev_use", None),
         )
     )
 
@@ -100,7 +100,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Evaporator Fan Running",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "evaFanUse", None),
+            value_fn=lambda status: getattr(status, "eva_fan_use", None),
         )
     )
 
@@ -110,7 +110,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Upper Electric Heating Element",
             device_class=BinarySensorDeviceClass.HEAT,
             entity_registry_enabled_default=True,
-            value_fn=lambda status: getattr(status, "heatUpperUse", None),
+            value_fn=lambda status: getattr(status, "heat_upper_use", None),
         )
     )
 
@@ -120,7 +120,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Lower Electric Heating Element",
             device_class=BinarySensorDeviceClass.HEAT,
             entity_registry_enabled_default=True,
-            value_fn=lambda status: getattr(status, "heatLowerUse", None),
+            value_fn=lambda status: getattr(status, "heat_lower_use", None),
         )
     )
 
@@ -130,7 +130,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Current Heat Use",
             device_class=BinarySensorDeviceClass.HEAT,
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "currentHeatUse", None),
+            value_fn=lambda status: getattr(status, "current_heat_use", None),
         )
     )
 
@@ -140,7 +140,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Scald Protection Warning",
             device_class=BinarySensorDeviceClass.SAFETY,
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "scaldUse", None),
+            value_fn=lambda status: getattr(status, "scald_use", None),
         )
     )
 
@@ -149,7 +149,7 @@ def create_binary_sensor_descriptions() -> tuple[
             key="anti_legionella_use",
             name="Anti-Legionella Enabled",
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "antiLegionellaUse", None),
+            value_fn=lambda status: getattr(status, "anti_legionella_use", None),
         )
     )
 
@@ -160,7 +160,7 @@ def create_binary_sensor_descriptions() -> tuple[
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
-                status, "antiLegionellaOperationBusy", None
+                status, "anti_legionella_operation_busy", None
             ),
         )
     )
@@ -171,7 +171,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Air Filter Alarm Enabled",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
-                status, "airFilterAlarmUse", None
+                status, "air_filter_alarm_use", None
             ),
         )
     )
@@ -181,7 +181,7 @@ def create_binary_sensor_descriptions() -> tuple[
             key="error_buzzer_use",
             name="Error Buzzer Enabled",
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "errorBuzzerUse", None),
+            value_fn=lambda status: getattr(status, "error_buzzer_use", None),
         )
     )
 
@@ -190,7 +190,7 @@ def create_binary_sensor_descriptions() -> tuple[
             key="eco_use",
             name="ECO Safety Limit Triggered",
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "ecoUse", None),
+            value_fn=lambda status: getattr(status, "eco_use", None),
         )
     )
 
@@ -200,7 +200,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Program Reservation Active",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
-                status, "programReservationUse", None
+                status, "program_reservation_use", None
             ),
         )
     )
@@ -210,7 +210,7 @@ def create_binary_sensor_descriptions() -> tuple[
             key="shut_off_valve_use",
             name="Shut-Off Valve Status",
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "shutOffValveUse", None),
+            value_fn=lambda status: getattr(status, "shut_off_valve_use", None),
         )
     )
 
@@ -219,7 +219,7 @@ def create_binary_sensor_descriptions() -> tuple[
             key="con_ovr_sensor_use",
             name="Condensate Overflow Sensor Active",
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "conOvrSensorUse", None),
+            value_fn=lambda status: getattr(status, "con_ovr_sensor_use", None),
         )
     )
 
@@ -229,7 +229,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Water Leak Detected",
             device_class=BinarySensorDeviceClass.SAFETY,
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "wtrOvrSensorUse", None),
+            value_fn=lambda status: getattr(status, "wtr_ovr_sensor_use", None),
         )
     )
 
@@ -238,7 +238,7 @@ def create_binary_sensor_descriptions() -> tuple[
             key="did_reload",
             name="Device Recently Reloaded",
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "didReload", None),
+            value_fn=lambda status: getattr(status, "did_reload", None),
         )
     )
 
@@ -248,7 +248,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Recirculation Active",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "recircUse", None),
+            value_fn=lambda status: getattr(status, "recirc_use", None),
         )
     )
 
@@ -259,7 +259,7 @@ def create_binary_sensor_descriptions() -> tuple[
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
-                status, "recircPumpOperationStatus", None
+                status, "recirc_pump_operation_status", None
             ),
         )
     )
@@ -271,7 +271,7 @@ def create_binary_sensor_descriptions() -> tuple[
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
-                status, "recircOperationBusy", None
+                status, "recirc_operation_busy", None
             ),
         )
     )
@@ -282,7 +282,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Recirculation Hot Button Ready",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
-                status, "recircHotBtnReady", None
+                status, "recirc_hot_btn_ready", None
             ),
         )
     )
@@ -293,7 +293,7 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Recirculation Reservation Active",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
-                status, "recircReservationUse", None
+                status, "recirc_reservation_use", None
             ),
         )
     )

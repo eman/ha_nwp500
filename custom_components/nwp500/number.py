@@ -65,9 +65,9 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):
         if not (status := self._status):
             return None
         try:
-            target_temp = getattr(status, "dhwTargetTemperatureSetting", None)
+            target_temp = getattr(status, "dhw_target_temperature_setting", None)
             if target_temp is None:
-                target_temp = getattr(status, "dhwTemperatureSetting", None)
+                target_temp = getattr(status, "dhw_temperature_setting", None)
             return float(target_temp) if target_temp is not None else None
         except (AttributeError, TypeError):
             return None

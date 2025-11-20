@@ -76,38 +76,38 @@ def mock_device_status() -> MagicMock:
     """Create a mock device status."""
     status = MagicMock()
     # Temperature values
-    status.dhwTemperature = 120.0
-    status.tankUpperTemperature = 125.0
-    status.tankLowerTemperature = 115.0
-    status.dhwTargetTemperatureSetting = 130.0
-    status.outsideTemperature = 72.0
+    status.dhw_temperature = 120.0
+    status.tank_upper_temperature = 125.0
+    status.tank_lower_temperature = 115.0
+    status.dhw_target_temperature_setting = 130.0
+    status.outside_temperature = 72.0
 
     # Operation modes
-    status.operationMode = MagicMock()
-    status.operationMode.value = 32  # HEAT_PUMP_MODE
-    status.dhwOperationSetting = MagicMock()
-    status.dhwOperationSetting.value = 1  # HEAT_PUMP
+    status.operation_mode = MagicMock()
+    status.operation_mode.value = 32  # HEAT_PUMP_MODE
+    status.dhw_operation_setting = MagicMock()
+    status.dhw_operation_setting.value = 1  # HEAT_PUMP
 
     # Status flags
-    status.operationBusy = True
-    status.dhwUse = False
-    status.freezeProtectionUse = False
+    status.operation_busy = True
+    status.dhw_use = False
+    status.freeze_protection_use = False
 
     # Power and energy
-    status.currentInstPower = 1200
-    status.dhwChargePer = 85
+    status.current_inst_power = 1200
+    status.dhw_charge_per = 85
 
     # Error codes
-    status.errorCode = 0
-    status.subErrorCode = 0
+    status.error_code = 0
+    status.sub_error_code = 0
 
     # Component status
-    status.compUse = True
-    status.heatUpperUse = False
-    status.heatLowerUse = False
+    status.comp_use = True
+    status.heat_upper_use = False
+    status.heat_lower_use = False
 
     # WiFi
-    status.wifiRssi = -45
+    status.wifi_rssi = -45
 
     return status
 
@@ -143,7 +143,7 @@ def mock_nwp500_api_client(
 def mock_nwp500_mqtt_client() -> Generator[AsyncMock, None, None]:
     """Mock the NavienMqttClient."""
     with patch(
-        "custom_components.nwp500.coordinator.NavienMqttClient"
+        "nwp500.NavienMqttClient"
     ) as mock_mqtt:
         client = AsyncMock()
         client.connect = AsyncMock(return_value=True)

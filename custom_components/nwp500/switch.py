@@ -58,11 +58,11 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
         if not (status := self._status):
             return None
         try:
-            dhw_operation_setting = getattr(status, "dhwOperationSetting", None)
+            dhw_operation_setting = getattr(status, "dhw_operation_setting", None)
             if dhw_operation_setting is not None:
                 dhw_value = get_enum_value(dhw_operation_setting)
                 return bool(dhw_value != 6)
-            operation_mode = getattr(status, "operationMode", None)
+            operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return True
         except (AttributeError, TypeError):
