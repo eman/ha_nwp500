@@ -302,6 +302,8 @@ class NWP500MqttManager:
             if hasattr(status, "device") and hasattr(status.device, "device_info"):  # type: ignore[attr-defined,unused-ignore]
                 mac = status.device.device_info.mac_address  # type: ignore[attr-defined,unused-ignore]
                 self._on_status_update_callback(mac, status)
+            else:
+                _LOGGER.warning("Received status update without device info: %s", status)
         except Exception as err:
             _LOGGER.error("Error handling direct status update: %s", err)
 
