@@ -288,8 +288,8 @@ class NWP500MqttManager:
         # We need to find the device mac from the status object if possible
         # or rely on the fact that we subscribed with a specific device context
         try:
-            if hasattr(status, "device") and hasattr(status.device, "device_info"):
-                mac = status.device.device_info.mac_address
+            if hasattr(status, "device") and hasattr(status.device, "device_info"):  # type: ignore[attr-defined,unused-ignore]
+                mac = status.device.device_info.mac_address  # type: ignore[attr-defined,unused-ignore]
                 self._on_status_update_callback(mac, status)
         except Exception as err:
             _LOGGER.error("Error handling direct status update: %s", err)

@@ -56,7 +56,7 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
 
-class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
+class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 water heater entity."""
 
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
@@ -87,7 +87,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         ]
 
     @property
-    def current_temperature(self) -> float | None:
+    def current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the current DHW output temperature."""
         if not (status := self._status):
             return None
@@ -98,7 +98,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             return None
 
     @property
-    def target_temperature(self) -> float | None:
+    def target_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the temperature we try to reach."""
         if not (status := self._status):
             return None
@@ -111,7 +111,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             return None
 
     @property
-    def current_operation(self) -> str | None:
+    def current_operation(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return current operation mode based on dhwOperationSetting."""
         if not (status := self._status):
             return None
@@ -155,7 +155,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         return None
 
     @property
-    def is_away_mode_on(self) -> bool | None:
+    def is_away_mode_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return true if away mode (vacation mode) is on."""
         if not (status := self._status):
             return None

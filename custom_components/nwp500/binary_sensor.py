@@ -327,7 +327,7 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
 
-class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
+class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 binary sensor entity."""
 
     entity_description: NWP500BinarySensorEntityDescription  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -346,7 +346,7 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):
         self._attr_name = f"{self.device_name} {description.name}"
 
     @property
-    def is_on(self) -> bool | None:
+    def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return true if the binary sensor is on."""
         if not (status := self._status):
             return None
