@@ -8,11 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Updated nwp500-python dependency to 6.0.2
+- Updated nwp500-python dependency to 6.0.3
 
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v6.0.3 (2025-11-20)
+
+**BREAKING CHANGES**: Migration from custom dataclass-based models to Pydantic BaseModel implementations.
+
+#### Removed
+- Removed legacy dataclass implementations for models. All models now inherit from `NavienBaseModel` (Pydantic).
+- Removed manual `from_dict` constructors.
+- Removed field metadata conversion system.
+
+#### Changed
+- Models now use snake_case attribute names consistently; camelCase keys from API/MQTT are mapped automatically via Pydantic.
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v6.0.3
 
 ### v6.0.2 (2025-11-15)
 
