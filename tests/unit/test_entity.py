@@ -81,14 +81,14 @@ class TestNWP500Entity:
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
 
         attrs = entity._get_status_attrs(
-            "dhwTemperature",
-            "currentInstPower",
-            "errorCode",
+            "dhw_temperature",
+            "current_inst_power",
+            "error_code",
         )
 
-        assert attrs["dhwTemperature"] == 120.0
-        assert attrs["currentInstPower"] == 1200
-        assert attrs["errorCode"] == 0
+        assert attrs["dhw_temperature"] == 120.0
+        assert attrs["current_inst_power"] == 1200
+        assert attrs["error_code"] == 0
 
     def test_get_status_attrs_missing_attribute(
         self,
@@ -101,9 +101,9 @@ class TestNWP500Entity:
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
 
         # Remove an attribute to test missing case
-        delattr(mock_device_status, "dhwTemperature")
+        delattr(mock_device_status, "dhw_temperature")
 
-        attrs = entity._get_status_attrs("dhwTemperature", "errorCode")
+        attrs = entity._get_status_attrs("dhw_temperature", "error_code")
 
-        assert attrs["dhwTemperature"] is None
-        assert attrs["errorCode"] == 0
+        assert attrs["dhw_temperature"] is None
+        assert attrs["error_code"] == 0

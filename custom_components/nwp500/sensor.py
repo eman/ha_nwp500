@@ -167,13 +167,16 @@ async def async_setup_entry(
                     coordinator, first_mac, first_device
                 ),
                 NWP500MQTTConnectedSensor(coordinator, first_mac, first_device),
+                NWP500ConsecutiveTimeoutsSensor(
+                    coordinator, first_mac, first_device
+                ),
             ]
         )
 
     async_add_entities(entities, True)
 
 
-class NWP500Sensor(NWP500Entity, SensorEntity):
+class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 sensor entity."""
 
     def __init__(
@@ -190,7 +193,7 @@ class NWP500Sensor(NWP500Entity, SensorEntity):
         self._attr_name = f"{self.device_name} {description.name}"
 
     @property
-    def native_value(self) -> Any:
+    def native_value(self) -> Any:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the state of the sensor."""
         if not (status := self._status):
             return None
@@ -206,7 +209,7 @@ class NWP500Sensor(NWP500Entity, SensorEntity):
         return None
 
 
-class NWP500DiagnosticSensor(NWP500Entity, SensorEntity):
+class NWP500DiagnosticSensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Base class for diagnostic sensors that report coordinator telemetry."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -246,7 +249,7 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
         )
 
     @property
-    def native_value(self) -> datetime | None:
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the timestamp of the last response."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         if telemetry["last_response_time"]:
@@ -291,7 +294,7 @@ class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
         )
 
     @property
-    def native_value(self) -> int:
+    def native_value(self) -> int:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the total number of requests sent."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         return int(telemetry["total_requests_sent"])
@@ -318,7 +321,7 @@ class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
         )
 
     @property
-    def native_value(self) -> int:
+    def native_value(self) -> int:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the total number of responses received."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         return int(telemetry["total_responses_received"])
@@ -343,13 +346,13 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
         )
 
     @property
-    def native_value(self) -> str:
+    def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the connection status."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         return "connected" if telemetry["mqtt_connected"] else "disconnected"
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return additional attributes."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         attrs = {}
@@ -361,3 +364,30 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
                 datetime.now().timestamp() - telemetry["mqtt_connected_since"]
             )
         return attrs
+
+
+class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
+    """Sensor showing consecutive MQTT timeouts."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Any,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(
+            coordinator,
+            mac_address,
+            device,
+            "consecutive_timeouts",
+            "Consecutive Timeouts",
+        )
+
+    @property
+    def native_value(self) -> int:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return the number of consecutive timeouts."""
+        telemetry = self.coordinator.get_mqtt_telemetry()
+        return int(telemetry.get("consecutive_timeouts", 0))

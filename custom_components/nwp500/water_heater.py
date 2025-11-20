@@ -56,7 +56,7 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
 
-class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
+class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 water heater entity."""
 
     _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
@@ -87,36 +87,36 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         ]
 
     @property
-    def current_temperature(self) -> float | None:
+    def current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the current DHW output temperature."""
         if not (status := self._status):
             return None
         try:
-            dhw_temp = getattr(status, "dhwTemperature", None)
+            dhw_temp = getattr(status, "dhw_temperature", None)
             return float(dhw_temp) if dhw_temp is not None else None
         except (AttributeError, TypeError):
             return None
 
     @property
-    def target_temperature(self) -> float | None:
+    def target_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the temperature we try to reach."""
         if not (status := self._status):
             return None
         try:
-            target_temp = getattr(status, "dhwTargetTemperatureSetting", None)
+            target_temp = getattr(status, "dhw_target_temperature_setting", None)
             if target_temp is None:
-                target_temp = getattr(status, "dhwTemperatureSetting", None)
+                target_temp = getattr(status, "dhw_temperature_setting", None)
             return target_temp
         except (AttributeError, TypeError):
             return None
 
     @property
-    def current_operation(self) -> str | None:
+    def current_operation(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return current operation mode based on dhwOperationSetting."""
         if not (status := self._status):
             return None
         try:
-            operation_setting = getattr(status, "dhwOperationSetting", None)
+            operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
                 if mode_value == 5:
@@ -137,17 +137,17 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         if not (status := self._status):
             return None
         try:
-            operation_setting = getattr(status, "dhwOperationSetting", None)
+            operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
                 return mode_value not in [0, 6]
-            dhw_use = getattr(status, "dhwUse", None)
-            comp_use = getattr(status, "compUse", None)
-            heat_upper = getattr(status, "heatUpperUse", None)
-            heat_lower = getattr(status, "heatLowerUse", None)
+            dhw_use = getattr(status, "dhw_use", None)
+            comp_use = getattr(status, "comp_use", None)
+            heat_upper = getattr(status, "heat_upper_use", None)
+            heat_lower = getattr(status, "heat_lower_use", None)
             if any([dhw_use, comp_use, heat_upper, heat_lower]):
                 return True
-            operation_mode = getattr(status, "operationMode", None)
+            operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return get_enum_value(operation_mode) not in [0, 6]
         except (AttributeError, TypeError):
@@ -155,12 +155,12 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         return None
 
     @property
-    def is_away_mode_on(self) -> bool | None:
+    def is_away_mode_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return true if away mode (vacation mode) is on."""
         if not (status := self._status):
             return None
         try:
-            operation_setting = getattr(status, "dhwOperationSetting", None)
+            operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 return bool(get_enum_value(operation_setting) == 5)
         except (AttributeError, TypeError):
@@ -177,8 +177,8 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         # Add useful status information
         try:
             # Get the operation modes for display
-            operation_mode = getattr(status, "operationMode", None)
-            dhw_operation_setting = getattr(status, "dhwOperationSetting", None)
+            operation_mode = getattr(status, "operation_mode", None)
+            dhw_operation_setting = getattr(status, "dhw_operation_setting", None)
 
             # Convert enum operation modes to friendly names using
             # get_enum_value
@@ -206,19 +206,19 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
             # dict vs 13 individual getattr() calls. Reduces attribute
             # access overhead and improves extra_state_attributes perf
             status_attrs = self._get_status_attrs(
-                "outsideTemperature",
-                "operationBusy",
-                "errorCode",
-                "subErrorCode",
-                "dischargeTemperature",
-                "suctionTemperature",
-                "freezeProtectionUse",
-                "currentInstPower",
-                "dhwChargePer",
-                "wifiRssi",
-                "compUse",
-                "heatUpperUse",
-                "heatLowerUse",
+                "outside_temperature",
+                "operation_busy",
+                "error_code",
+                "sub_error_code",
+                "discharge_temperature",
+                "suction_temperature",
+                "freeze_protection_use",
+                "current_inst_power",
+                "dhw_charge_per",
+                "wifi_rssi",
+                "comp_use",
+                "heat_upper_use",
+                "heat_lower_use",
             )
 
             attrs.update(
@@ -234,24 +234,24 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                         f"{current_operation_name.replace('_', ' ').title()}"
                     ),
                     # Temperature and status info
-                    "outside_temperature": status_attrs["outsideTemperature"],
-                    "operation_busy": status_attrs["operationBusy"],
-                    "error_code": status_attrs["errorCode"],
-                    "sub_error_code": status_attrs["subErrorCode"],
+                    "outside_temperature": status_attrs["outside_temperature"],
+                    "operation_busy": status_attrs["operation_busy"],
+                    "error_code": status_attrs["error_code"],
+                    "sub_error_code": status_attrs["sub_error_code"],
                     "discharge_temperature": status_attrs[
-                        "dischargeTemperature"
+                        "discharge_temperature"
                     ],
-                    "suction_temperature": status_attrs["suctionTemperature"],
+                    "suction_temperature": status_attrs["suction_temperature"],
                     "freeze_protection_active": status_attrs[
-                        "freezeProtectionUse"
+                        "freeze_protection_use"
                     ],
-                    "current_power": status_attrs["currentInstPower"],
-                    "dhw_charge_percentage": status_attrs["dhwChargePer"],
-                    "wifi_rssi": status_attrs["wifiRssi"],
+                    "current_power": status_attrs["current_inst_power"],
+                    "dhw_charge_percentage": status_attrs["dhw_charge_per"],
+                    "wifi_rssi": status_attrs["wifi_rssi"],
                     # Component status (from efficient batch get)
-                    "compressor_running": status_attrs["compUse"],
-                    "upper_element_on": status_attrs["heatUpperUse"],
-                    "lower_element_on": status_attrs["heatLowerUse"],
+                    "compressor_running": status_attrs["comp_use"],
+                    "upper_element_on": status_attrs["heat_upper_use"],
+                    "lower_element_on": status_attrs["heat_lower_use"],
                     # Raw values for diagnostics
                     "operation_mode_raw": operation_mode,
                     "dhw_operation_setting_raw": dhw_operation_setting,

@@ -37,7 +37,7 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
 
-class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
+class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 power switch."""
 
     def __init__(
@@ -53,16 +53,16 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):
         self._attr_icon = "mdi:power"
 
     @property
-    def is_on(self) -> bool | None:
+    def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return True if switch is on."""
         if not (status := self._status):
             return None
         try:
-            dhw_operation_setting = getattr(status, "dhwOperationSetting", None)
+            dhw_operation_setting = getattr(status, "dhw_operation_setting", None)
             if dhw_operation_setting is not None:
                 dhw_value = get_enum_value(dhw_operation_setting)
                 return bool(dhw_value != 6)
-            operation_mode = getattr(status, "operationMode", None)
+            operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return True
         except (AttributeError, TypeError):

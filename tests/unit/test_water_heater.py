@@ -57,8 +57,8 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        # Remove dhwTemperature to simulate unavailable sensor
-        delattr(mock_device_status, "dhwTemperature")
+        # Remove dhw_temperature to simulate unavailable sensor
+        delattr(mock_device_status, "dhw_temperature")
 
         assert heater.current_temperature is None
 
@@ -84,7 +84,7 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        mock_device_status.dhwOperationSetting.value = 1  # HEAT_PUMP
+        mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
 
         assert heater.current_operation == STATE_HEAT_PUMP
 
@@ -98,7 +98,7 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        mock_device_status.dhwOperationSetting.value = 3  # ENERGY_SAVER
+        mock_device_status.dhw_operation_setting.value = 3  # ENERGY_SAVER
 
         assert heater.current_operation == STATE_ECO
 
@@ -112,7 +112,7 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        mock_device_status.dhwOperationSetting.value = 5  # VACATION
+        mock_device_status.dhw_operation_setting.value = 5  # VACATION
 
         assert heater.current_operation == STATE_ECO
 
@@ -126,7 +126,7 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        mock_device_status.dhwOperationSetting.value = 6  # POWER_OFF
+        mock_device_status.dhw_operation_setting.value = 6  # POWER_OFF
 
         assert heater.current_operation == STATE_OFF
 
@@ -160,7 +160,7 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        mock_device_status.dhwOperationSetting.value = 1  # HEAT_PUMP
+        mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
 
         assert heater.is_on is True
 
@@ -174,7 +174,7 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        mock_device_status.dhwOperationSetting.value = 6  # POWER_OFF
+        mock_device_status.dhw_operation_setting.value = 6  # POWER_OFF
 
         assert heater.is_on is False
 
@@ -188,7 +188,7 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        mock_device_status.dhwOperationSetting.value = 5  # VACATION
+        mock_device_status.dhw_operation_setting.value = 5  # VACATION
 
         assert heater.is_away_mode_on is True
 
@@ -202,7 +202,7 @@ class TestNWP500WaterHeater:
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
 
-        mock_device_status.dhwOperationSetting.value = 1  # HEAT_PUMP
+        mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
 
         assert heater.is_away_mode_on is False
 
@@ -419,7 +419,7 @@ class TestNWP500WaterHeater:
     ):
         """Test current_operation returns unknown for unmapped value."""
         # Set to unmapped operation setting value
-        mock_device_status.dhwOperationSetting.value = 99
+        mock_device_status.dhw_operation_setting.value = 99
 
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
@@ -433,11 +433,11 @@ class TestNWP500WaterHeater:
         mock_device_status: MagicMock,
     ):
         """Test is_on falls back to checking component status."""
-        # Remove dhwOperationSetting to trigger fallback
-        delattr(mock_device_status, "dhwOperationSetting")
+        # Remove dhw_operation_setting to trigger fallback
+        delattr(mock_device_status, "dhw_operation_setting")
 
         # Set component statuses
-        mock_device_status.dhwUse = True
+        mock_device_status.dhw_use = True
 
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
@@ -451,17 +451,17 @@ class TestNWP500WaterHeater:
         mock_device_status: MagicMock,
     ):
         """Test is_on falls back to operationMode."""
-        # Remove dhwOperationSetting to trigger fallback
-        delattr(mock_device_status, "dhwOperationSetting")
+        # Remove dhw_operation_setting to trigger fallback
+        delattr(mock_device_status, "dhw_operation_setting")
 
         # Set all component statuses to False
-        mock_device_status.dhwUse = False
-        mock_device_status.compUse = False
-        mock_device_status.heatUpperUse = False
-        mock_device_status.heatLowerUse = False
+        mock_device_status.dhw_use = False
+        mock_device_status.comp_use = False
+        mock_device_status.heat_upper_use = False
+        mock_device_status.heat_lower_use = False
 
-        # Keep operationMode
-        mock_device_status.operationMode.value = 32
+        # Keep operation_mode
+        mock_device_status.operation_mode.value = 32
 
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)

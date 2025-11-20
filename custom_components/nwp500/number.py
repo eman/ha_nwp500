@@ -38,7 +38,7 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
 
-class NWP500TargetTemperature(NWP500Entity, NumberEntity):
+class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 target temperature number entity."""
 
     _attr_mode = NumberMode.BOX
@@ -60,14 +60,14 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):
         self._attr_icon = "mdi:thermometer"
 
     @property
-    def native_value(self) -> float | None:
+    def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the current target temperature."""
         if not (status := self._status):
             return None
         try:
-            target_temp = getattr(status, "dhwTargetTemperatureSetting", None)
+            target_temp = getattr(status, "dhw_target_temperature_setting", None)
             if target_temp is None:
-                target_temp = getattr(status, "dhwTemperatureSetting", None)
+                target_temp = getattr(status, "dhw_temperature_setting", None)
             return float(target_temp) if target_temp is not None else None
         except (AttributeError, TypeError):
             return None

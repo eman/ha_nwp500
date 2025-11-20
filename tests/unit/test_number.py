@@ -70,9 +70,9 @@ class TestNWP500TargetTemperature:
         mock_device_status: MagicMock,
     ):
         """Test native_value falls back to dhwTemperatureSetting."""
-        # Remove dhwTargetTemperatureSetting
-        delattr(mock_device_status, "dhwTargetTemperatureSetting")
-        mock_device_status.dhwTemperatureSetting = 125.0
+        # Remove dhw_target_temperature_setting
+        delattr(mock_device_status, "dhw_target_temperature_setting")
+        mock_device_status.dhw_temperature_setting = 125.0
 
         mac_address = mock_device.device_info.mac_address
         number = NWP500TargetTemperature(
@@ -89,10 +89,10 @@ class TestNWP500TargetTemperature:
     ):
         """Test native_value when temperature is missing."""
         # Remove both temperature attributes
-        if hasattr(mock_device_status, "dhwTargetTemperatureSetting"):
-            delattr(mock_device_status, "dhwTargetTemperatureSetting")
-        if hasattr(mock_device_status, "dhwTemperatureSetting"):
-            delattr(mock_device_status, "dhwTemperatureSetting")
+        if hasattr(mock_device_status, "dhw_target_temperature_setting"):
+            delattr(mock_device_status, "dhw_target_temperature_setting")
+        if hasattr(mock_device_status, "dhw_temperature_setting"):
+            delattr(mock_device_status, "dhw_temperature_setting")
 
         mac_address = mock_device.device_info.mac_address
         number = NWP500TargetTemperature(

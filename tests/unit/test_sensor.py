@@ -152,3 +152,43 @@ class TestNWP500Sensor:
 
         # Just verify the sensor can be created and accessed
         _ = sensor.native_value  # May be None or a value
+
+    def test_diagnostic_sensors(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Test diagnostic sensors."""
+        from custom_components.nwp500.sensor import (
+            NWP500ConsecutiveTimeoutsSensor,
+            NWP500MQTTConnectedSensor,
+        )
+
+        # Mock telemetry data
+        mock_coordinator.get_mqtt_telemetry.return_value = {
+            "last_request_id": "123",
+            "last_request_time": 1000.0,
+            "last_response_id": "123",
+            "last_response_time": 1001.0,
+            "total_requests_sent": 10,
+            "total_responses_received": 10,
+            "mqtt_connected": True,
+            "mqtt_connected_since": 900.0,
+            "consecutive_timeouts": 5,
+        }
+
+        mac_address = mock_device.device_info.mac_address
+
+        # Test Consecutive Timeouts Sensor
+        timeout_sensor = NWP500ConsecutiveTimeoutsSensor(
+            mock_coordinator, mac_address, mock_device
+        )
+        assert timeout_sensor.native_value == 5
+        assert timeout_sensor.unique_id == f"{mac_address}_diagnostic_consecutive_timeouts"
+
+        # Test MQTT Connected Sensor
+        connected_sensor = NWP500MQTTConnectedSensor(
+            mock_coordinator, mac_address, mock_device
+        )
+        assert connected_sensor.native_value == "connected"
+
