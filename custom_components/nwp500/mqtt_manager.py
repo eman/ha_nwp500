@@ -58,11 +58,12 @@ class NWP500MqttManager:
             self.mqtt_client = NavienMqttClient(self.auth_client)
             
             # Set up event listeners
-            self.mqtt_client.on("device_status_update", self._on_device_status_event)
-            self.mqtt_client.on("device_feature_update", self._on_device_feature_event)
-            self.mqtt_client.on("connection_lost", self._on_connection_lost)
-            self.mqtt_client.on("connection_restored", self._on_connection_restored)
-            self.mqtt_client.on("reconnection_failed", self._on_reconnection_failed)
+            if self.mqtt_client:
+                self.mqtt_client.on("device_status_update", self._on_device_status_event)
+                self.mqtt_client.on("device_feature_update", self._on_device_feature_event)
+                self.mqtt_client.on("connection_lost", self._on_connection_lost)
+                self.mqtt_client.on("connection_restored", self._on_connection_restored)
+                self.mqtt_client.on("reconnection_failed", self._on_reconnection_failed)
             
             return await self.connect()
             
@@ -249,7 +250,8 @@ class NWP500MqttManager:
             bool: True if error was handled gracefully (e.g. queued), False otherwise.
         """
         if isinstance(err, AwsCrtError):
-            if err.name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
+            error_name = getattr(err, "name", "")
+            if error_name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
                 _LOGGER.debug("Operation '%s' queued due to reconnection", context)
                 return True
         _LOGGER.error("Error during %s: %s", context, err)

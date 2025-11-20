@@ -117,8 +117,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             # Suppress AWS CRT clean session errors - these are benign
             if isinstance(exception, AwsCrtError):
+                error_name = getattr(exception, "name", "")
                 if (
-                    exception.name
+                    error_name
                     == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
                 ):
                     _LOGGER.debug(
@@ -475,6 +476,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             self.auth_client = NavienAuthClient(
                 email, password, stored_tokens=stored_tokens
             )
+            assert self.auth_client is not None
             await self.auth_client.__aenter__()  # Authenticate or restore
 
             # Save tokens after successful authentication
@@ -482,6 +484,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             # Setup API client
             self.api_client = NavienAPIClient(auth_client=self.auth_client)
+            assert self.api_client is not None
 
             # Get devices
             self.devices = await self.api_client.list_devices()
