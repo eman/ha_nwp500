@@ -10,15 +10,13 @@ from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.update_coordinator import UpdateFailed
-from homeassistant.data_entry_flow import AbortFlow
 
 from .const import (
-    DOMAIN,
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
-    MIN_SCAN_INTERVAL,
+    DOMAIN,
     MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -26,8 +24,8 @@ _LOGGER = logging.getLogger(__name__)
 # Import at module level to avoid blocking calls in event loop
 try:
     from nwp500 import (  # type: ignore[attr-defined]
-        NavienAuthClient,
         NavienAPIClient,
+        NavienAuthClient,
     )
 
     nwp500_available = True
@@ -120,7 +118,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         self._reauth_entry.entry_id
                     )
                     return self.async_abort(reason="reauth_successful")
-                
+
                 # This should not happen, but handle gracefully
                 return self.async_abort(reason="reauth_failed")
 
@@ -172,7 +170,7 @@ async def validate_input(
     hass: HomeAssistant, data: dict[str, Any]
 ) -> dict[str, Any]:
     """Validate the user input allows us to connect.
-    
+
     Raises:
         CannotConnect: If connection to Navien service fails
         InvalidAuth: If credentials are invalid (401/unauthorized)
@@ -180,7 +178,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            "pip install nwp500-python==5.0.2 awsiotsdk>=1.25.0"
+            "pip install nwp500-python==6.0.2 awsiotsdk>=1.25.0"
         )
         raise CannotConnect("nwp500-python library not available")
 
@@ -214,7 +212,7 @@ async def validate_input(
     except (CannotConnect, InvalidAuth):
         # Re-raise our own exceptions
         raise
-    except (RuntimeError, OSError, TimeoutError, AttributeError, KeyError) as err:
+    except Exception as err:  # noqa: BLE001
         # Network, connection, and data access errors
         _LOGGER.error("Failed to authenticate with Navien: %s", err)
         if "401" in str(err) or "unauthorized" in str(err).lower():
@@ -224,9 +222,9 @@ async def validate_input(
     return {"title": f"Navien {device_name}"}
 
 
-class CannotConnect(HomeAssistantError):
+class CannotConnect(HomeAssistantError):  # noqa: N818
     """Error to indicate we cannot connect."""
 
 
-class InvalidAuth(HomeAssistantError):
+class InvalidAuth(HomeAssistantError):  # noqa: N818
     """Error to indicate there is invalid auth."""

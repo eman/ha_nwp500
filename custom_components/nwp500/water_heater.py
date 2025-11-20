@@ -6,29 +6,29 @@ import logging
 from typing import Any
 
 from homeassistant.components.water_heater import (
-    WaterHeaterEntity,
-    WaterHeaterEntityFeature,
     STATE_ECO,
+    STATE_ELECTRIC,
     STATE_HEAT_PUMP,
     STATE_HIGH_DEMAND,
-    STATE_ELECTRIC,
+    WaterHeaterEntity,
+    WaterHeaterEntityFeature,
 )
-from homeassistant.const import STATE_OFF
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
+    STATE_OFF,
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
+    CURRENT_OPERATION_MODE_TO_HA,
+    DHW_OPERATION_SETTING_TO_HA,
     DOMAIN,
+    HA_TO_DHW_MODE,
     MAX_TEMPERATURE,
     MIN_TEMPERATURE,
-    DHW_OPERATION_SETTING_TO_HA,
-    HA_TO_DHW_MODE,
-    CURRENT_OPERATION_MODE_TO_HA,
     get_enum_value,
 )
 from .coordinator import NWP500DataUpdateCoordinator
@@ -124,7 +124,9 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
                 elif mode_value == 6:
                     return STATE_OFF
                 else:
-                    return DHW_OPERATION_SETTING_TO_HA.get(mode_value, "unknown")
+                    return DHW_OPERATION_SETTING_TO_HA.get(
+                        mode_value, "unknown"
+                    )
         except (AttributeError, TypeError):
             pass
         return "unknown"
@@ -176,9 +178,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         try:
             # Get the operation modes for display
             operation_mode = getattr(status, "operationMode", None)
-            dhw_operation_setting = getattr(
-                status, "dhwOperationSetting", None
-            )
+            dhw_operation_setting = getattr(status, "dhwOperationSetting", None)
 
             # Convert enum operation modes to friendly names using
             # get_enum_value
@@ -323,7 +323,9 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         # since it's not in operation_list. This follows HA design
         # where away_mode is a dedicated feature, not an op mode
         success = await self.coordinator.async_control_device(
-            self.mac_address, "set_dhw_mode", mode=5  # VACATION mode
+            self.mac_address,
+            "set_dhw_mode",
+            mode=5,  # VACATION mode
         )
 
         if success:
@@ -340,7 +342,9 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):
         # Use DHW mode 6 (POWER_OFF) instead of the uncertain set_power method
         # This maps to the "off" operation mode in our DHW_MODE_TO_HA mapping
         success = await self.coordinator.async_control_device(
-            self.mac_address, "set_dhw_mode", mode=6  # POWER_OFF mode
+            self.mac_address,
+            "set_dhw_mode",
+            mode=6,  # POWER_OFF mode
         )
 
         if success:

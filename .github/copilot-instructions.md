@@ -11,7 +11,7 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **GitHub Repository**: https://github.com/eman/nwp500-python
   - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
   - **PyPI Package**: https://pypi.org/project/nwp500-python/
-  - **Current Version**: 5.0.2 (see `custom_components/nwp500/manifest.json`)
+  - **Current Version**: 6.0.2 (see `custom_components/nwp500/manifest.json`)
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
@@ -41,6 +41,12 @@ This is a Home Assistant custom component that provides integration for Navien N
 
 ### General Best Practices
 - **Always Get Current Date**: Never assume or hardcode dates. Always use `date +%Y-%m-%d` command to get the correct date for changelogs, releases, or any date-dependent content.
+- **No Summary Documents**: Do not create any summary documents (e.g., `SUMMARY.md`, `CHANGES.md`, `ANALYSIS.md`, quick summaries, etc.) after completing tasks or fixes unless explicitly requested by the user. Code changes, git commits, and documentation updates are sufficient. Do not provide summary responses in the chat—be concise and direct instead.
+- **Changelog Management**: 
+  - **DO NOT** add library version history or detailed changelogs to `README.md`
+  - All library dependency changes belong in `CHANGELOG.md` under "Library Dependency: nwp500-python" section
+  - `README.md` should only reference the current version and link to CHANGELOG.md
+  - Keep README focused on features, installation, and usage - not version history
 
 ### Style Guidelines
 - **PEP 8 Compliance**: All code must conform to PEP 8 standards
@@ -49,7 +55,6 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **Async/Await**: Use async/await patterns for I/O operations
 
 ### Testing & Linting
-
 **Type Checking with mypy**:
 - **Configuration**: `mypy.ini` and `tox.ini`
 - **Run Command**: `tox -e mypy` (from project root with virtual environment)
@@ -57,10 +62,13 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **Always run mypy**: Before completing any task that modifies Python code
 - **Standard**: Must pass with zero errors before committing changes
 
-**Future Testing**:
-- Expect future implementation of pytest for unit tests
-- Code should be testable and follow best practices
-- Write defensive code with proper error handling
+**Test Coverage**:
+- **Minimum**: 80% coverage enforced by CI
+- **Target**: 90%+ coverage
+- **Run Command**: `tox -e coverage`
+- **Check Locally**: Always run coverage tests before pushing: `tox -e coverage`
+- **Critical**: All new code must have corresponding tests
+- **Report**: HTML coverage report at `htmlcov/index.html` for detailed analysis
 
 ## Device Integration Details
 
@@ -111,20 +119,27 @@ When adopting a new version of the nwp500-python library (the primary dependency
    - Search for: `"pip install nwp500-python=="`
    - Update to new version
 
-#### 5. **`README.md`** (REQUIRED)
-   - Update the "Library Version X.Y.Z" section header
-   - Add new section documenting improvements/changes in the new version
-   - Update troubleshooting section version reference
-   - Check GitHub release notes: https://github.com/eman/nwp500-python/releases
+#### 5. **`CHANGELOG.md`** (REQUIRED)
+   - Add new entry in "Library Dependency: nwp500-python" section
+   - Document version number with date: `### vX.Y.Z (YYYY-MM-DD)`
+   - Include breaking changes, improvements, and migration notes
+   - Add link to GitHub release notes
+   - Check release notes: https://github.com/eman/nwp500-python/releases
 
-#### 6. **`.devcontainer/README.md`** (RECOMMENDED)
+#### 6. **`README.md`** (REQUIRED)
+   - Update only the version number in "Library Version" section
+   - DO NOT add detailed changelog information to README
+   - README should only show current version and link to CHANGELOG.md
+   - Update troubleshooting section version reference if present
+
+#### 7. **`.devcontainer/README.md`** (RECOMMENDED)
    - Update version reference in the "Python Packages" section
    - Search for: `nwp500-python==`
 
-#### 7. **`.github/copilot-instructions.md`** (THIS FILE)
+#### 8. **`.github/copilot-instructions.md`** (THIS FILE)
    - Update "Current Version" in the "Primary Library" section
 
-#### 8. **`tox.ini`** (CRITICAL - OFTEN MISSED!)
+#### 9. **`tox.ini`** (CRITICAL - OFTEN MISSED!)
    - Update version in `[testenv]` deps section
    - Update version in `[testenv:pyright]` deps section
    - **Important**: Ensure `[testenv:mypy]` includes the library for type resolution
@@ -157,14 +172,18 @@ docker compose up -d
 - [ ] Update `requirements.txt`
 - [ ] Update error messages in `coordinator.py`
 - [ ] Update error messages in `config_flow.py`
-- [ ] Update `README.md` with version and improvements
+- [ ] **Add entry to `CHANGELOG.md` under "Library Dependency: nwp500-python"**
+- [ ] Update `README.md` version number only (no detailed changelog)
 - [ ] Update `.devcontainer/README.md`
 - [ ] Update this file's "Current Version"
 - [ ] **Update `tox.ini` - ALL occurrences (CRITICAL for CI)**
 - [ ] Run `tox -e mypy --recreate` - must pass with zero errors
 - [ ] Test in development environment (optional but recommended)
 
-**Common Mistake**: Forgetting to update `tox.ini` causes CI failures because type checkers cannot resolve the new library APIs. Always search for ALL occurrences of `nwp500-python==` in the project.
+**Common Mistakes**: 
+- Forgetting to update `tox.ini` causes CI failures because type checkers cannot resolve the new library APIs
+- Adding detailed changelog to `README.md` instead of `CHANGELOG.md` - keep README clean and focused
+- Always search for ALL occurrences of `nwp500-python==` in the project
 
 ### Unit Corrections
 - Energy values from device are in **Wh** (watt-hours), not kWh
@@ -269,7 +288,7 @@ For every task involving Python code changes:
 ## Future Considerations
 
 ### Planned Improvements
-- Linting setup (black, flake8, mypy) - mypy completed
+- Linting setup (black, flake8, mypy)~~ mypy completed
 - Testing framework (pytest)
 - CI/CD pipeline with automated type checking
 - Enhanced error handling and diagnostics

@@ -5,9 +5,11 @@
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/eman/ha_nwp500",
+  "homeassistant": "2024.10.0",
   "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
   "integration_type": "device",
   "iot_class": "cloud_polling",
-  "requirements": ["nwp500-python==5.0.2", "awsiotsdk>=1.25.0"],
+  "quality_scale": "silver",
+  "requirements": ["nwp500-python==6.0.2", "awsiotsdk>=1.25.0"],
   "version": "0.1.1"
 }

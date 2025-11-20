@@ -31,7 +31,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
         # Build device info with available information
         self._attr_device_info = self._build_device_info()
-        
+
         # Set initial attribute states
         self._update_attrs()
 
@@ -39,19 +39,19 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         """Update dynamic attributes based on current data."""
         # Update extra state attributes
         self._attr_extra_state_attributes = self._build_extra_state_attributes()
-        
+
         # Update device info if features changed
         self._update_device_info()
 
     def _update_device_info(self) -> None:
         """Update device info if feature data has changed."""
         current_feature = self.coordinator.device_features.get(self.mac_address)
-        
+
         feature_changed = (
             current_feature != self._last_feature_update
             or self._attr_device_info is None
         )
-        
+
         if feature_changed:
             self._attr_device_info = self._build_device_info()
             self._last_feature_update = current_feature
@@ -88,7 +88,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             Dictionary mapping attribute names to their values (or None)
         """
         if not (status := self._status):
-            return {attr: None for attr in attrs}
+            return dict.fromkeys(attrs)
         return {attr: getattr(status, attr, None) for attr in attrs}
 
     def _build_device_info(self) -> DeviceInfo:

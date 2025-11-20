@@ -114,9 +114,9 @@ This is configured in `.coveragerc`.
 ## Pull Request Checks
 
 All PRs must pass CI checks before merging:
-- ✅ mypy type checking
-- ✅ pyright type checking
-- ✅ Unit tests (Python 3.13)
-- ✅ Coverage ≥80%
+- mypy type checking
+- pyright type checking
+- Unit tests (Python 3.13)
+- Coverage ≥80%
 
 The "All Checks Passed" job provides a single status check that must be green.
