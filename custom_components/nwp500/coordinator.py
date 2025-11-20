@@ -32,7 +32,7 @@ from .const import (
     DOMAIN,
     SLOW_UPDATE_THRESHOLD,
 )
-from .mqtt_manager import NWP500MqttManager
+from .mqtt_manager import NWP500MqttManager, get_aws_error_name
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -117,7 +117,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             # Suppress AWS CRT clean session errors - these are benign
             if isinstance(exception, AwsCrtError):
-                error_name = getattr(exception, "name", "")
+                error_name = get_aws_error_name(exception)
                 if (
                     error_name
                     == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"

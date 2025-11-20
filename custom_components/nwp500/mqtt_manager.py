@@ -23,6 +23,13 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def get_aws_error_name(exception: Any) -> str:
+    """Extract the name from an AwsCrtError safely."""
+    if isinstance(exception, AwsCrtError):
+        return str(getattr(exception, "name", ""))
+    return ""
+
+
 class NWP500MqttManager:
     """Class to manage MQTT connection and events."""
 
@@ -250,7 +257,7 @@ class NWP500MqttManager:
             bool: True if error was handled gracefully (e.g. queued), False otherwise.
         """
         if isinstance(err, AwsCrtError):
-            error_name = getattr(err, "name", "")
+            error_name = get_aws_error_name(err)
             if error_name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
                 _LOGGER.debug("Operation '%s' queued due to reconnection", context)
                 return True
