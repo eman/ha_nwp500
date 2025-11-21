@@ -12,7 +12,6 @@ from homeassistant.components.water_heater import (
     STATE_HIGH_DEMAND,
 )
 from homeassistant.const import STATE_OFF
-from homeassistant.core import HomeAssistant
 
 from custom_components.nwp500.const import MAX_TEMPERATURE, MIN_TEMPERATURE
 from custom_components.nwp500.water_heater import NWP500WaterHeater

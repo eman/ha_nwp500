@@ -13,7 +13,6 @@ from custom_components.nwp500.config_flow import (
     ConfigFlow,
     InvalidAuth,
 )
-from custom_components.nwp500.const import DOMAIN
 
 
 class TestConfigFlow:

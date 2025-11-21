@@ -58,7 +58,9 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
         if not (status := self._status):
             return None
         try:
-            dhw_operation_setting = getattr(status, "dhw_operation_setting", None)
+            dhw_operation_setting = getattr(
+                status, "dhw_operation_setting", None
+            )
             if dhw_operation_setting is not None:
                 dhw_value = get_enum_value(dhw_operation_setting)
                 return bool(dhw_value != 6)

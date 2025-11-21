@@ -36,11 +36,11 @@ from .mqtt_manager import NWP500MqttManager, get_aws_error_name
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
+        Device,
+        DeviceFeature,
+        DeviceStatus,
         NavienAPIClient,
         NavienAuthClient,
-        Device,
-        DeviceStatus,
-        DeviceFeature,
     )
 
 _LOGGER = logging.getLogger(__name__)
@@ -118,10 +118,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             # Suppress AWS CRT clean session errors - these are benign
             if isinstance(exception, AwsCrtError):
                 error_name = get_aws_error_name(exception)
-                if (
-                    error_name
-                    == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-                ):
+                if error_name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
                     _LOGGER.debug(
                         "Suppressed benign AWS CRT error during MQTT reconnection: %s",
                         exception,
@@ -563,7 +560,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 f"Failed to connect to Navien service: {err}"
             ) from err
 
-    def _on_device_status_update(self, mac_address: str, status: DeviceStatus) -> None:
+    def _on_device_status_update(
+        self, mac_address: str, status: DeviceStatus
+    ) -> None:
         """Handle device status update from MQTT Manager."""
         try:
             _LOGGER.debug("Received device status update for %s", mac_address)
@@ -597,14 +596,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.data[mac_address]["last_update"] = time.time()
 
                 # Schedule update for all listeners using thread-safe method
-                self.hass.loop.call_soon_threadsafe(
-                    self.async_update_listeners
-                )
+                self.hass.loop.call_soon_threadsafe(self.async_update_listeners)
 
         except Exception as err:
             _LOGGER.error("Error handling device status update: %s", err)
 
-    def _on_device_feature_update(self, mac_address: str, feature: DeviceFeature) -> None:
+    def _on_device_feature_update(
+        self, mac_address: str, feature: DeviceFeature
+    ) -> None:
         """Handle device feature update from MQTT Manager."""
         try:
             _LOGGER.debug("Received device feature update for %s", mac_address)
@@ -630,9 +629,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Device %s not found", mac_address)
             return False
 
-        return await self.mqtt_manager.send_command(
-            device, command, **kwargs
-        )
+        return await self.mqtt_manager.send_command(device, command, **kwargs)
 
     async def async_request_device_info(
         self, mac_address: str | None = None

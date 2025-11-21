@@ -149,7 +149,9 @@ def create_binary_sensor_descriptions() -> tuple[
             key="anti_legionella_use",
             name="Anti-Legionella Enabled",
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "anti_legionella_use", None),
+            value_fn=lambda status: getattr(
+                status, "anti_legionella_use", None
+            ),
         )
     )
 

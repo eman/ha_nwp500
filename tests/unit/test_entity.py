@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from homeassistant.core import HomeAssistant
-
 from custom_components.nwp500.entity import NWP500Entity
 
 

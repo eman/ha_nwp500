@@ -212,7 +212,9 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 controller_version = getattr(
                     device_feature, "controller_sw_version", None
                 )
-                panel_version = getattr(device_feature, "panel_sw_version", None)
+                panel_version = getattr(
+                    device_feature, "panel_sw_version", None
+                )
                 wifi_version = getattr(device_feature, "wifi_sw_version", None)
 
                 attrs.update(

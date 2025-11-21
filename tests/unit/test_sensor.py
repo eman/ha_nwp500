@@ -184,11 +184,13 @@ class TestNWP500Sensor:
             mock_coordinator, mac_address, mock_device
         )
         assert timeout_sensor.native_value == 5
-        assert timeout_sensor.unique_id == f"{mac_address}_diagnostic_consecutive_timeouts"
+        assert (
+            timeout_sensor.unique_id
+            == f"{mac_address}_diagnostic_consecutive_timeouts"
+        )
 
         # Test MQTT Connected Sensor
         connected_sensor = NWP500MQTTConnectedSensor(
             mock_coordinator, mac_address, mock_device
         )
         assert connected_sensor.native_value == "connected"
-

@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
 
 from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
-
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
 
@@ -19,7 +16,7 @@ pytest_plugins = ["pytest_homeassistant_custom_component"]
 @pytest.fixture
 def mock_config_entry() -> ConfigEntry:
     """Create a mock config entry.
-    
+
     Uses introspection to support multiple Home Assistant versions.
     The 'subentries_data' parameter was added in Home Assistant 2024.1+.
     """
@@ -142,9 +139,7 @@ def mock_nwp500_api_client(
 @pytest.fixture
 def mock_nwp500_mqtt_client() -> Generator[AsyncMock, None, None]:
     """Mock the NavienMqttClient."""
-    with patch(
-        "nwp500.NavienMqttClient"
-    ) as mock_mqtt:
+    with patch("nwp500.NavienMqttClient") as mock_mqtt:
         client = AsyncMock()
         client.connect = AsyncMock(return_value=True)
         client.subscribe_device_status = AsyncMock()

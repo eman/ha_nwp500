@@ -103,7 +103,9 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         if not (status := self._status):
             return None
         try:
-            target_temp = getattr(status, "dhw_target_temperature_setting", None)
+            target_temp = getattr(
+                status, "dhw_target_temperature_setting", None
+            )
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
             return target_temp
@@ -178,7 +180,9 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         try:
             # Get the operation modes for display
             operation_mode = getattr(status, "operation_mode", None)
-            dhw_operation_setting = getattr(status, "dhw_operation_setting", None)
+            dhw_operation_setting = getattr(
+                status, "dhw_operation_setting", None
+            )
 
             # Convert enum operation modes to friendly names using
             # get_enum_value

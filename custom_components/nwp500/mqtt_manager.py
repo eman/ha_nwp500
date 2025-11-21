@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from awscrt.exceptions import AwsCrtError
 
@@ -13,11 +14,11 @@ from .const import DeviceFeatureEvent, DeviceStatusEvent
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
+        Device,
+        DeviceFeature,
+        DeviceStatus,
         NavienAuthClient,
         NavienMqttClient,
-        Device,
-        DeviceStatus,
-        DeviceFeature,
     )
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ class NWP500MqttManager:
         self.mqtt_client: NavienMqttClient | None = None
         self._on_status_update_callback = on_status_update
         self._on_feature_update_callback = on_feature_update
-        
+
         # Connection tracking
         self.connected_since: float | None = None
         self.reconnection_in_progress: bool = False
@@ -65,19 +66,27 @@ class NWP500MqttManager:
 
         try:
             from nwp500 import NavienMqttClient  # type: ignore[attr-defined]
-            
+
             self.mqtt_client = NavienMqttClient(self.auth_client)
-            
+
             # Set up event listeners
             if self.mqtt_client:
-                self.mqtt_client.on("device_status_update", self._on_device_status_event)
-                self.mqtt_client.on("device_feature_update", self._on_device_feature_event)
+                self.mqtt_client.on(
+                    "device_status_update", self._on_device_status_event
+                )
+                self.mqtt_client.on(
+                    "device_feature_update", self._on_device_feature_event
+                )
                 self.mqtt_client.on("connection_lost", self._on_connection_lost)
-                self.mqtt_client.on("connection_restored", self._on_connection_restored)
-                self.mqtt_client.on("reconnection_failed", self._on_reconnection_failed)
-            
+                self.mqtt_client.on(
+                    "connection_restored", self._on_connection_restored
+                )
+                self.mqtt_client.on(
+                    "reconnection_failed", self._on_reconnection_failed
+                )
+
             return await self.connect()
-            
+
         except ImportError:
             _LOGGER.error("nwp500-python library not found")
             return False
@@ -89,12 +98,14 @@ class NWP500MqttManager:
         """Connect to MQTT broker."""
         if not self.mqtt_client:
             return False
-            
+
         try:
             connected = await self.mqtt_client.connect()
             if connected:
                 self.connected_since = time.time()
-                _LOGGER.info("MQTT connected successfully at %.3f", self.connected_since)
+                _LOGGER.info(
+                    "MQTT connected successfully at %.3f", self.connected_since
+                )
             else:
                 _LOGGER.warning("MQTT connection failed")
             return bool(connected)
@@ -107,12 +118,22 @@ class NWP500MqttManager:
         if self.mqtt_client:
             try:
                 # Remove listeners
-                self.mqtt_client.off("device_status_update", self._on_device_status_event)
-                self.mqtt_client.off("device_feature_update", self._on_device_feature_event)
-                self.mqtt_client.off("connection_lost", self._on_connection_lost)
-                self.mqtt_client.off("connection_restored", self._on_connection_restored)
-                self.mqtt_client.off("reconnection_failed", self._on_reconnection_failed)
-                
+                self.mqtt_client.off(
+                    "device_status_update", self._on_device_status_event
+                )
+                self.mqtt_client.off(
+                    "device_feature_update", self._on_device_feature_event
+                )
+                self.mqtt_client.off(
+                    "connection_lost", self._on_connection_lost
+                )
+                self.mqtt_client.off(
+                    "connection_restored", self._on_connection_restored
+                )
+                self.mqtt_client.off(
+                    "reconnection_failed", self._on_reconnection_failed
+                )
+
                 await self.mqtt_client.stop_all_periodic_tasks()
                 await self.mqtt_client.disconnect()
             except Exception as err:
@@ -128,10 +149,16 @@ class NWP500MqttManager:
 
         try:
             await self.mqtt_client.subscribe_device_status(
-                device, self._on_device_status_update_direct
+                device,
+                lambda status: self._on_device_status_update_direct(
+                    device, status
+                ),
             )
             await self.mqtt_client.subscribe_device_feature(
-                device, self._on_device_feature_update_direct
+                device,
+                lambda feature: self._on_device_feature_update_direct(
+                    device, feature
+                ),
             )
         except Exception as err:
             _LOGGER.warning(
@@ -154,13 +181,13 @@ class NWP500MqttManager:
             await self.mqtt_client.start_periodic_device_info_requests(
                 device, 1800.0
             )
-            
+
             # Immediate info request
             try:
                 await self.mqtt_client.request_device_info(device)
             except Exception as err:
                 _LOGGER.warning("Failed immediate info request: %s", err)
-                
+
         except Exception as err:
             _LOGGER.warning(
                 "Failed to start periodic requests for %s: %s",
@@ -190,18 +217,24 @@ class NWP500MqttManager:
         except Exception as err:
             self._handle_aws_error(err, "device info request")
 
-    async def send_command(self, device: Device, command: str, **kwargs: Any) -> bool:
+    async def send_command(
+        self, device: Device, command: str, **kwargs: Any
+    ) -> bool:
         """Send a control command."""
         if not self.mqtt_client:
             return False
 
         try:
             if command == "set_power":
-                await self.mqtt_client.set_power(device, kwargs.get("power_on", True))
+                await self.mqtt_client.set_power(
+                    device, kwargs.get("power_on", True)
+                )
             elif command == "set_temperature":
                 temp = kwargs.get("temperature")
                 if temp:
-                    await self.mqtt_client.set_dhw_temperature_display(device, int(temp))
+                    await self.mqtt_client.set_dhw_temperature_display(
+                        device, int(temp)
+                    )
             elif command == "set_dhw_mode":
                 mode = kwargs.get("mode")
                 if mode:
@@ -215,9 +248,9 @@ class NWP500MqttManager:
                 await self.mqtt_client.request_device_status(device)
             except Exception as err:
                 self._handle_aws_error(err, "post-command status request")
-                
+
             return True
-            
+
         except Exception as err:
             return self._handle_aws_error(err, f"command {command}")
 
@@ -229,25 +262,25 @@ class NWP500MqttManager:
         self.reconnection_in_progress = True
         try:
             _LOGGER.warning("Forcing MQTT reconnection...")
-            
+
             # Full teardown
             await self.disconnect()
-            
+
             # Wait a moment before reconnecting
             await asyncio.sleep(2.0)
-            
+
             # Re-initialize and connect
             if await self.setup():
                 _LOGGER.info("Reconnection successful")
                 self.consecutive_timeouts = 0
-                
+
                 # Re-subscribe to all devices
                 for device in devices:
                     await self.subscribe_device(device)
                 return True
-                
+
             return False
-            
+
         except Exception as err:
             _LOGGER.error("Error during forced reconnect: %s", err)
             return False
@@ -256,14 +289,16 @@ class NWP500MqttManager:
 
     def _handle_aws_error(self, err: Exception, context: str) -> bool:
         """Handle AWS CRT errors gracefully.
-        
+
         Returns:
             bool: True if error was handled gracefully (e.g. queued), False otherwise.
         """
         if isinstance(err, AwsCrtError):
             error_name = get_aws_error_name(err)
             if error_name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
-                _LOGGER.debug("Operation '%s' queued due to reconnection", context)
+                _LOGGER.debug(
+                    "Operation '%s' queued due to reconnection", context
+                )
                 return True
         _LOGGER.error("Error during %s: %s", context, err)
         return False
@@ -274,7 +309,7 @@ class NWP500MqttManager:
         try:
             status = event_data.get("status")
             device = event_data.get("device")
-            
+
             if status and device:
                 mac = device.device_info.mac_address
                 self._on_status_update_callback(mac, status)
@@ -286,32 +321,32 @@ class NWP500MqttManager:
         try:
             feature = event_data.get("feature")
             device = event_data.get("device")
-            
+
             if feature and device:
                 mac = device.device_info.mac_address
                 self._on_feature_update_callback(mac, feature)
         except Exception as err:
             _LOGGER.error("Error handling feature event: %s", err)
 
-    def _on_device_status_update_direct(self, status: DeviceStatus) -> None:
+    def _on_device_status_update_direct(
+        self, device: Device, status: DeviceStatus
+    ) -> None:
         """Handle direct MQTT status update."""
-        # This is called by the library directly for subscribed topics
-        # We need to find the device mac from the status object if possible
-        # or rely on the fact that we subscribed with a specific device context
         try:
-            if hasattr(status, "device") and hasattr(status.device, "device_info"):  # type: ignore[attr-defined,unused-ignore]
-                mac = status.device.device_info.mac_address  # type: ignore[attr-defined,unused-ignore]
-                self._on_status_update_callback(mac, status)
-            else:
-                _LOGGER.warning("Received status update without device info: %s", status)
+            mac = device.device_info.mac_address
+            self._on_status_update_callback(mac, status)
         except Exception as err:
             _LOGGER.error("Error handling direct status update: %s", err)
 
-    def _on_device_feature_update_direct(self, feature: DeviceFeature) -> None:
+    def _on_device_feature_update_direct(
+        self, device: Device, feature: DeviceFeature
+    ) -> None:
         """Handle direct MQTT feature update."""
-        # Similar to status update, need to route this back
-        # For now, we might need to rely on the event emitter path mostly
-        pass
+        try:
+            mac = device.device_info.mac_address
+            self._on_feature_update_callback(mac, feature)
+        except Exception as err:
+            _LOGGER.error("Error handling direct feature update: %s", err)
 
     def _on_connection_lost(self, event_data: dict[str, Any]) -> None:
         self.connected_since = None
@@ -322,8 +357,14 @@ class NWP500MqttManager:
         _LOGGER.info("MQTT connection restored: %s", event_data)
 
     def _on_reconnection_failed(self, event_data: dict[str, Any] | int) -> None:
-        attempt = event_data.get("attempt_count", 0) if isinstance(event_data, dict) else event_data
-        _LOGGER.error("MQTT reconnection failed (attempt %d). Resetting...", attempt)
+        attempt = (
+            event_data.get("attempt_count", 0)
+            if isinstance(event_data, dict)
+            else event_data
+        )
+        _LOGGER.error(
+            "MQTT reconnection failed (attempt %d). Resetting...", attempt
+        )
         if self.mqtt_client:
             asyncio.run_coroutine_threadsafe(
                 self.mqtt_client.reset_reconnect(), self.loop

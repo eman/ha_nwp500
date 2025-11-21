@@ -12,20 +12,29 @@ from homeassistant.components.water_heater import (
 )
 
 if TYPE_CHECKING:
-    from nwp500 import Device, DeviceFeature, DeviceStatus  # type: ignore[attr-defined]
+    from nwp500 import (  # type: ignore[attr-defined]
+        Device,
+        DeviceFeature,
+        DeviceStatus,
+    )
 
 DOMAIN: Final = "nwp500"
+
 
 # Type definitions
 class DeviceStatusEvent(TypedDict):
     """Type definition for device status event data."""
+
     device: Device
     status: DeviceStatus
 
+
 class DeviceFeatureEvent(TypedDict):
     """Type definition for device feature event data."""
+
     device: Device
     feature: DeviceFeature
+
 
 # Configuration
 CONF_EMAIL: Final = "email"
