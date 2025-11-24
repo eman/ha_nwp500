@@ -114,7 +114,7 @@ The integration supports these DHW operation modes:
 
 ## Library Version
 
-This integration currently uses **nwp500-python v6.0.2**.
+This integration currently uses **nwp500-python v6.0.5**.
 
 For version history and changelog, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
