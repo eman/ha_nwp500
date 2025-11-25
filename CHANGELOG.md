@@ -8,11 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Updated nwp500-python dependency to 6.0.5
+- Updated nwp500-python dependency to 6.0.6
 
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v6.0.6 (2025-11-24)
+
+#### Bug Fixes
+- Updated nwp500-python dependency to 6.0.6
+- Minor bug fixes and improvements
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v6.0.6
 
 ### v6.0.5 (2025-11-21)
 
