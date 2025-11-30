@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 
 from custom_components.nwp500.switch import (
     NWP500PowerSwitch,
+    NWP500TOUOverrideSwitch,
     async_setup_entry,
 )
 
@@ -44,9 +45,10 @@ class TestNWP500PowerSwitch:
 
         await async_setup_entry(hass, mock_config_entry, mock_add_entities)
 
-        # Should create power switch for the device
-        assert len(entities_added) == 1
+        # Should create power switch and TOU override switch for the device
+        assert len(entities_added) == 2
         assert isinstance(entities_added[0], NWP500PowerSwitch)
+        assert isinstance(entities_added[1], NWP500TOUOverrideSwitch)
 
     def test_switch_is_on(
         self,

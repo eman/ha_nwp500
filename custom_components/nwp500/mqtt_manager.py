@@ -239,6 +239,9 @@ class NWP500MqttManager:
                 mode = kwargs.get("mode")
                 if mode:
                     await self.mqtt_client.set_dhw_mode(device, int(mode))
+            elif command == "set_tou_enabled":
+                enabled = kwargs.get("enabled", False)
+                await self.mqtt_client.set_tou_enabled(device, enabled)
             else:
                 _LOGGER.error("Unknown command: %s", command)
                 return False
