@@ -247,6 +247,8 @@ class NWP500MqttManager:
                 await self.mqtt_client.enable_anti_legionella(device, period_days)
             elif command == "disable_anti_legionella":
                 await self.mqtt_client.disable_anti_legionella(device)
+                enabled = kwargs.get("enabled", False)
+                await self.mqtt_client.set_tou_enabled(device, enabled)
             else:
                 _LOGGER.error("Unknown command: %s", command)
                 return False

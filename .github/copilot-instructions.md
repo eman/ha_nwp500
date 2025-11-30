@@ -1,5 +1,23 @@
 # GitHub Copilot Instructions for ha_nwp500
 
+## Quick Commands
+
+Run these commands from the project root to validate code changes:
+
+```bash
+# Type checking (REQUIRED before every commit)
+tox -e mypy
+
+# Run all tests with coverage
+tox -e coverage
+
+# Run tests on specific Python version (py312 or py313)
+tox -e py313 -- tests/unit/test_sensor.py -v
+
+# Full validation (type check + tests + coverage)
+tox
+```
+
 ## Project Overview
 
 This is a Home Assistant custom component that provides integration for Navien NWP500 Heat Pump Water Heaters. The integration is built around the `nwp500-python` library and provides comprehensive monitoring and control capabilities through Home Assistant.
@@ -11,7 +29,7 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **GitHub Repository**: https://github.com/eman/nwp500-python
   - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
   - **PyPI Package**: https://pypi.org/project/nwp500-python/
-  - **Current Version**: 6.0.5 (see `custom_components/nwp500/manifest.json`)
+  - **Current Version**: 6.0.7 (see `custom_components/nwp500/manifest.json`)
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
@@ -69,6 +87,21 @@ This is a Home Assistant custom component that provides integration for Navien N
 - **Check Locally**: Always run coverage tests before pushing: `tox -e coverage`
 - **Critical**: All new code must have corresponding tests
 - **Report**: HTML coverage report at `htmlcov/index.html` for detailed analysis
+
+### Boundaries
+
+**DO NOT:**
+- Commit secrets, API keys, or credentials to the repository
+- Modify `.github/workflows/` files without explicit user request
+- Remove or disable existing tests unless explicitly asked
+- Downgrade library versions without justification
+- Add new external dependencies without checking for security vulnerabilities
+
+**ALWAYS:**
+- Run `tox -e mypy` before completing any Python code changes
+- Add tests for new functionality
+- Update documentation when adding features
+- Follow existing code patterns and conventions
 
 ## Device Integration Details
 

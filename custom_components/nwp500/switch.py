@@ -42,6 +42,9 @@ async def async_setup_entry(
             NWP500AntiLegionellaSwitch(coordinator, mac_address, device)
         )
 
+        # Add TOU override switch
+        entities.append(NWP500TOUOverrideSwitch(coordinator, mac_address, device))
+
     async_add_entities(entities, True)
 
 
@@ -115,19 +118,16 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
 
     @property
     def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Return True if TOU is enabled."""
+        """Return True if TOU override is enabled."""
         if not (status := self._status):
             return None
         try:
-            tou_status = getattr(status, "tou_status", None)
-            if tou_status is not None:
-                return bool(tou_status)
+            return getattr(status, "tou_override_status", None)
         except (AttributeError, TypeError):
-            pass
-        return None
+            return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Enable TOU."""
+        """Enable TOU override."""
         success = await self.coordinator.async_control_device(
             self.mac_address, "set_tou_enabled", enabled=True
         )

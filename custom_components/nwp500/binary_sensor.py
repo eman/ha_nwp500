@@ -300,6 +300,17 @@ def create_binary_sensor_descriptions() -> tuple[
         )
     )
 
+    descriptions.append(
+        NWP500BinarySensorEntityDescription(
+            key="tou_override_status",
+            name="TOU Override Status",
+            entity_registry_enabled_default=True,
+            value_fn=lambda status: getattr(
+                status, "tou_override_status", None
+            ),
+        )
+    )
+
     return tuple(descriptions)
 
 
