@@ -16,8 +16,15 @@ This section tracks changes in the nwp500-python library that this integration d
 
 ### v6.0.7 (2025-11-30)
 
-#### Bug Fixes
+#### Features
+- Added TOU (Time-of-Use) override support:
+  - New binary sensor entity for TOU override status
+  - New switch entity to control TOU override
+
+#### Changed
 - Updated nwp500-python dependency to 6.0.7
+
+#### Fixed
 - Minor bug fixes and improvements
 
 **Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v6.0.7
