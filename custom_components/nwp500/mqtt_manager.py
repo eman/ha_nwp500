@@ -239,6 +239,14 @@ class NWP500MqttManager:
                 mode = kwargs.get("mode")
                 if mode:
                     await self.mqtt_client.set_dhw_mode(device, int(mode))
+            elif command == "set_tou_enabled":
+                enabled = kwargs.get("enabled", True)
+                await self.mqtt_client.set_tou_enabled(device, enabled)
+            elif command == "enable_anti_legionella":
+                period_days = kwargs.get("period_days", 14)
+                await self.mqtt_client.enable_anti_legionella(device, period_days)
+            elif command == "disable_anti_legionella":
+                await self.mqtt_client.disable_anti_legionella(device)
             else:
                 _LOGGER.error("Unknown command: %s", command)
                 return False
