@@ -105,7 +105,7 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_tou_override"
-        self._attr_name = f"{self.device_name} TOU Override"
+        self._attr_name = f"{self.device_name} TOU Override Enabled"
         self._attr_icon = "mdi:clock-time-four-outline"
 
     @property
