@@ -305,9 +305,7 @@ def create_binary_sensor_descriptions() -> tuple[
             key="tou_override_status",
             name="TOU Override Status",
             entity_registry_enabled_default=True,
-            value_fn=lambda status: getattr(
-                status, "tou_override_status", None
-            ),
+            value_fn=lambda status: getattr(status, "tou_override_status", None),
         )
     )
 
