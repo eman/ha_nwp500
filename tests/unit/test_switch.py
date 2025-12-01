@@ -186,7 +186,7 @@ class TestNWP500TOUOverrideSwitch:
         mock_device_status: MagicMock,
     ):
         """Test TOU override switch is_on property when TOU enabled."""
-        mock_device_status.tou_status = True
+        mock_device_status.tou_override_status = True
         mac_address = mock_device.device_info.mac_address
         switch = NWP500TOUOverrideSwitch(
             mock_coordinator, mac_address, mock_device
@@ -202,7 +202,7 @@ class TestNWP500TOUOverrideSwitch:
         mock_device_status: MagicMock,
     ):
         """Test TOU override switch is_on when TOU disabled."""
-        mock_device_status.tou_status = False
+        mock_device_status.tou_override_status = False
         mac_address = mock_device.device_info.mac_address
         switch = NWP500TOUOverrideSwitch(
             mock_coordinator, mac_address, mock_device
