@@ -34,8 +34,13 @@ async def async_setup_entry(
         # Add power switch
         entities.append(NWP500PowerSwitch(coordinator, mac_address, device))
 
-        # Add TOU override switch
+        # Add TOU Override switch
         entities.append(NWP500TOUOverrideSwitch(coordinator, mac_address, device))
+
+        # Add Anti-Legionella switch
+        entities.append(
+            NWP500AntiLegionellaSwitch(coordinator, mac_address, device)
+        )
 
     async_add_entities(entities, True)
 
@@ -94,7 +99,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
 
 
 class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """Navien NWP500 TOU override switch."""
+    """Navien NWP500 TOU Override switch."""
 
     def __init__(
         self,
@@ -105,7 +110,7 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_tou_override"
-        self._attr_name = f"{self.device_name} TOU Override Enabled"
+        self._attr_name = f"{self.device_name} TOU Override"
         self._attr_icon = "mdi:clock-time-four-outline"
 
     @property
@@ -128,9 +133,56 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
             await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Disable TOU override."""
+        """Disable TOU."""
         success = await self.coordinator.async_control_device(
             self.mac_address, "set_tou_enabled", enabled=False
+        )
+
+        if success:
+            await self.coordinator.async_request_refresh()
+
+
+class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """Navien NWP500 Anti-Legionella switch."""
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Any,
+    ) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator, mac_address, device)
+        self._attr_unique_id = f"{mac_address}_anti_legionella"
+        self._attr_name = f"{self.device_name} Anti-Legionella"
+        self._attr_icon = "mdi:bacteria-outline"
+
+    @property
+    def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return True if anti-legionella is enabled."""
+        if not (status := self._status):
+            return None
+        try:
+            anti_legionella_use = getattr(status, "anti_legionella_use", None)
+            if anti_legionella_use is not None:
+                return bool(anti_legionella_use)
+        except (AttributeError, TypeError):
+            pass
+        return None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable anti-legionella with default 14-day period."""
+        success = await self.coordinator.async_control_device(
+            self.mac_address, "enable_anti_legionella", period_days=14
+        )
+
+        if success:
+            await self.coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable anti-legionella."""
+        success = await self.coordinator.async_control_device(
+            self.mac_address, "disable_anti_legionella"
         )
 
         if success:
