@@ -149,7 +149,7 @@ def mock_nwp500_mqtt_client() -> Generator[AsyncMock, None, None]:
         client.request_device_info = AsyncMock()
         client.request_device_status = AsyncMock()
         client.set_power = AsyncMock()
-        client.set_dhw_temperature_display = AsyncMock()
+        client.set_dhw_temperature = AsyncMock()
         client.set_dhw_mode = AsyncMock()
         client.on = MagicMock()
         mock_mqtt.return_value = client
