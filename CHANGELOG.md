@@ -7,12 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Reservation Scheduling**: New services for managing programmed temperature/mode schedules
+  - `nwp500.set_reservation`: Create a single reservation entry with user-friendly parameters
+  - `nwp500.update_reservations`: Replace all reservations with a new set (advanced)
+  - `nwp500.clear_reservations`: Remove all reservation schedules
+  - `nwp500.request_reservations`: Request current reservation data from device
+- Reservations allow automatic mode and temperature changes at scheduled times
+- Supports up to 7 reservation entries per device
+
 ### Changed
-- Updated nwp500-python dependency to 6.0.7
+- Updated nwp500-python dependency to 6.1.0
 
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v6.1.0 (2025-12-03)
+
+**BREAKING CHANGES**: Temperature API simplified with Fahrenheit input
+
+#### Changed
+- `build_reservation_entry()` now accepts `temperature_f` (Fahrenheit) instead of raw `param` value
+- `set_dhw_temperature()` now accepts Fahrenheit directly instead of raw integer
+- Temperature conversion to half-degrees Celsius handled automatically by the library
+
+#### Removed
+- `set_dhw_temperature_display()` removed (was using incorrect conversion formula)
+
+#### Added
+- `fahrenheit_to_half_celsius()` utility function for advanced use cases
+
+#### Fixed
+- Temperature encoding bug in `set_dhw_temperature()` - was using incorrect "subtract 20" formula
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v6.1.0
+
+### v6.0.8 (2025-12-02)
+
+#### Changed
+- Maintenance release, version bump for PyPI
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v6.0.8
 
 ### v6.0.7 (2025-11-30)
 

@@ -232,8 +232,8 @@ class NWP500MqttManager:
             elif command == "set_temperature":
                 temp = kwargs.get("temperature")
                 if temp:
-                    await self.mqtt_client.set_dhw_temperature_display(
-                        device, int(temp)
+                    await self.mqtt_client.set_dhw_temperature(
+                        device, float(temp)
                     )
             elif command == "set_dhw_mode":
                 mode = kwargs.get("mode")
@@ -249,6 +249,14 @@ class NWP500MqttManager:
                 await self.mqtt_client.disable_anti_legionella(device)
                 enabled = kwargs.get("enabled", False)
                 await self.mqtt_client.set_tou_enabled(device, enabled)
+            elif command == "update_reservations":
+                reservations = kwargs.get("reservations", [])
+                enabled = kwargs.get("enabled", True)
+                await self.mqtt_client.update_reservations(
+                    device, reservations, enabled=enabled
+                )
+            elif command == "request_reservations":
+                await self.mqtt_client.request_reservations(device)
             else:
                 _LOGGER.error("Unknown command: %s", command)
                 return False

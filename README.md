@@ -112,9 +112,44 @@ The integration supports these DHW operation modes:
 - **Energy Saver**: Hybrid mode for balance
 - **High Demand**: Hybrid mode for fast heating
 
+### Reservation Scheduling
+
+The integration provides services for programming automatic mode and temperature changes:
+
+#### Services
+
+| Service | Description |
+|---------|-------------|
+| `nwp500.set_reservation` | Create a single reservation with user-friendly parameters |
+| `nwp500.update_reservations` | Replace all reservations (advanced) |
+| `nwp500.clear_reservations` | Remove all reservation schedules |
+| `nwp500.request_reservations` | Request current reservation data from device |
+
+#### Example: Set a Weekday Morning Reservation
+
+```yaml
+service: nwp500.set_reservation
+target:
+  device_id: your_device_id
+data:
+  enabled: true
+  days:
+    - Monday
+    - Tuesday
+    - Wednesday
+    - Thursday
+    - Friday
+  hour: 6
+  minute: 30
+  mode: high_demand
+  temperature: 140
+```
+
+This creates a reservation that activates High Demand mode at 6:30 AM on weekdays with a target temperature of 140°F.
+
 ## Library Version
 
-This integration currently uses **nwp500-python v6.0.7**.
+This integration currently uses **nwp500-python v6.1.0**.
 
 For version history and changelog, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
@@ -179,7 +214,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==6.0.7 is installed
+- Ensure nwp500-python==6.1.0 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**

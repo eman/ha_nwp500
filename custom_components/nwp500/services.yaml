@@ -1,0 +1,155 @@
+# Service definitions for Navien NWP500 integration
+
+set_reservation:
+  name: Set Reservation
+  description: >-
+    Create or update a single reservation schedule entry. Reservations allow
+    automatic mode and temperature changes at scheduled times. The device
+    supports up to 7 reservation entries.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+    enabled:
+      name: Enabled
+      description: Whether this reservation entry is active
+      required: true
+      default: true
+      selector:
+        boolean:
+    days:
+      name: Days
+      description: >-
+        Days of the week for this reservation. Select one or more days.
+      required: true
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Sunday
+              value: Sunday
+            - label: Monday
+              value: Monday
+            - label: Tuesday
+              value: Tuesday
+            - label: Wednesday
+              value: Wednesday
+            - label: Thursday
+              value: Thursday
+            - label: Friday
+              value: Friday
+            - label: Saturday
+              value: Saturday
+    hour:
+      name: Hour
+      description: Hour of day (0-23) when reservation activates
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 23
+          mode: box
+    minute:
+      name: Minute
+      description: Minute of hour (0-59) when reservation activates
+      required: true
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 59
+          mode: box
+    mode:
+      name: Operation Mode
+      description: DHW operation mode to set when reservation activates
+      required: true
+      selector:
+        select:
+          options:
+            - label: Heat Pump Only
+              value: heat_pump
+            - label: Electric Only
+              value: electric
+            - label: Energy Saver (Hybrid)
+              value: energy_saver
+            - label: High Demand (Hybrid)
+              value: high_demand
+            - label: Vacation
+              value: vacation
+            - label: Power Off
+              value: power_off
+    temperature:
+      name: Temperature
+      description: >-
+        Target temperature in Fahrenheit (80-150°F). Required for heating modes,
+        ignored for vacation and power off modes.
+      required: false
+      selector:
+        number:
+          min: 80
+          max: 150
+          unit_of_measurement: °F
+          mode: slider
+
+update_reservations:
+  name: Update All Reservations
+  description: >-
+    Replace all reservation schedules with a new set. This is an advanced service
+    that allows setting multiple reservations at once. Use set_reservation for
+    simpler single-entry updates.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+    reservations:
+      name: Reservations
+      description: >-
+        List of reservation entries. Each entry should be a dictionary with keys:
+        enable (1=enabled, 2=disabled), week (day bitfield), hour (0-23),
+        min (0-59), mode (1-6), param (temperature in half-degrees Celsius).
+        Use the set_reservation service for a simpler interface.
+      required: true
+      selector:
+        object:
+    enabled:
+      name: System Enabled
+      description: Whether the reservation system is enabled overall
+      required: false
+      default: true
+      selector:
+        boolean:
+
+clear_reservations:
+  name: Clear All Reservations
+  description: Remove all reservation schedules from the device
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+
+request_reservations:
+  name: Request Reservations
+  description: >-
+    Request the current reservation schedules from the device. The response
+    will be logged and can be viewed in Home Assistant logs with debug logging
+    enabled for this integration.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500

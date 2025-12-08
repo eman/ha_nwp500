@@ -429,7 +429,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==6.0.7 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==6.1.0 awsiotsdk>=1.25.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -671,6 +671,68 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 )
 
         return success_count > 0
+
+    async def async_update_reservations(
+        self,
+        mac_address: str,
+        reservations: list[dict[str, int]],
+        enabled: bool = True,
+    ) -> bool:
+        """Update reservation schedules for a device.
+
+        Args:
+            mac_address: Device MAC address
+            reservations: List of reservation entries (built with build_reservation_entry)
+            enabled: Whether the reservation system is enabled
+
+        Returns:
+            True if command was sent successfully
+        """
+        if not self.mqtt_manager:
+            _LOGGER.error("MQTT manager not available")
+            return False
+
+        device = None
+        for dev in self.devices:
+            if dev.device_info.mac_address == mac_address:
+                device = dev
+                break
+
+        if not device:
+            _LOGGER.error("Device %s not found", mac_address)
+            return False
+
+        return await self.mqtt_manager.send_command(
+            device,
+            "update_reservations",
+            reservations=reservations,
+            enabled=enabled,
+        )
+
+    async def async_request_reservations(self, mac_address: str) -> bool:
+        """Request current reservation schedules from a device.
+
+        Args:
+            mac_address: Device MAC address
+
+        Returns:
+            True if request was sent successfully
+        """
+        if not self.mqtt_manager:
+            _LOGGER.error("MQTT manager not available")
+            return False
+
+        device = None
+        for dev in self.devices:
+            if dev.device_info.mac_address == mac_address:
+                device = dev
+                break
+
+        if not device:
+            _LOGGER.error("Device %s not found", mac_address)
+            return False
+
+        return await self.mqtt_manager.send_command(device, "request_reservations")
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
