@@ -518,7 +518,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": True,
     },
     "dhw_temperature_2": {
-        "attr": "dhw_temperature_2",
+        "attr": "dhw_temperature2",
         "name": "DHW Secondary Sensor Temperature",
         "device_class": "temperature",
         "unit": "°F",
@@ -673,7 +673,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "current_state_num": {
-        "attr": "current_state_num",
+        "attr": "current_statenum",
         "name": "Current State Number",
         "enabled": False,
     },
@@ -688,12 +688,12 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "fault_status_1": {
-        "attr": "fault_status_1",
+        "attr": "fault_status1",
         "name": "Fault Status 1",
         "enabled": False,
     },
     "fault_status_2": {
-        "attr": "fault_status_2",
+        "attr": "fault_status2",
         "name": "Fault Status 2",
         "enabled": False,
     },
@@ -810,7 +810,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "he_upper_off_temp_setting": {
-        "attr": "heUpperOffTempSetting",
+        "attr": "he_upper_off_temp_setting",
         "name": "HE Upper Off Temperature Setting",
         "device_class": "temperature",
         "unit": "°F",
@@ -818,7 +818,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "he_lower_off_temp_setting": {
-        "attr": "heLowerOffTempSetting",
+        "attr": "he_lower_off_temp_setting",
         "name": "HE Lower Off Temperature Setting",
         "device_class": "temperature",
         "unit": "°F",
@@ -826,7 +826,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "he_upper_on_diff_temp_setting": {
-        "attr": "heUpperOnDiffTempSetting",
+        "attr": "he_upper_on_diff_temp_setting",
         "name": "HE Upper On Diff Temperature Setting",
         "device_class": "temperature",
         "unit": "°F",
@@ -834,7 +834,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "he_lower_on_diff_temp_setting": {
-        "attr": "heLowerOnDiffTempSetting",
+        "attr": "he_lower_on_diff_temp_setting",
         "name": "HE Lower On Diff Temperature Setting",
         "device_class": "temperature",
         "unit": "°F",
@@ -842,7 +842,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "he_upper_off_diff_temp_setting": {
-        "attr": "heUpperOffDiffTempSetting",
+        "attr": "he_upper_off_diff_temp_setting",
         "name": "HE Upper Off Diff Temperature Setting",
         "device_class": "temperature",
         "unit": "°F",
@@ -850,7 +850,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "he_lower_off_diff_temp_setting": {
-        "attr": "heLowerOffDiffTempSetting",
+        "attr": "he_lower_off_diff_temp_setting",
         "name": "HE Lower Off Diff Temperature Setting",
         "device_class": "temperature",
         "unit": "°F",
@@ -859,7 +859,7 @@ SENSOR_CONFIGS: Final = {
     },
     # Other temperature settings
     "heat_min_op_temperature": {
-        "attr": "heatMinOpTemperature",
+        "attr": "heat_min_op_temperature",
         "name": "Heat Min Operating Temperature",
         "device_class": "temperature",
         "unit": "°F",
@@ -867,7 +867,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "freeze_protection_temp_min": {
-        "attr": "freezeProtectionTempMin",
+        "attr": "freeze_protection_temp_min",
         "name": "Freeze Protection Min Temperature",
         "device_class": "temperature",
         "unit": "°F",
@@ -875,7 +875,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "freeze_protection_temp_max": {
-        "attr": "freezeProtectionTempMax",
+        "attr": "freeze_protection_temp_max",
         "name": "Freeze Protection Max Temperature",
         "device_class": "temperature",
         "unit": "°F",
@@ -883,7 +883,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "recirculation_temp_setting": {
-        "attr": "recircTempSetting",
+        "attr": "recirc_temp_setting",
         "name": "Recirculation Temperature Setting",
         "device_class": "temperature",
         "unit": "°F",
@@ -891,7 +891,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "recirculation_temperature": {
-        "attr": "recircTemperature",
+        "attr": "recirc_temperature",
         "name": "Recirculation Temperature",
         "device_class": "temperature",
         "unit": "°F",
@@ -899,7 +899,7 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
     "recirculation_faucet_temperature": {
-        "attr": "recircFaucetTemperature",
+        "attr": "recirc_faucet_temperature",
         "name": "Recirculation Faucet Temperature",
         "device_class": "temperature",
         "unit": "°F",
@@ -908,7 +908,7 @@ SENSOR_CONFIGS: Final = {
     },
     # Flow rate sensors
     "recirculation_dhw_flow_rate": {
-        "attr": "recircDhwFlowRate",
+        "attr": "recirc_dhw_flow_rate",
         "name": "Recirculation DHW Flow Rate",
         "unit": "GPM",
         "state_class": "measurement",
@@ -916,7 +916,7 @@ SENSOR_CONFIGS: Final = {
     },
     # Operation time sensors
     "cumulated_evaporator_fan_op_time": {
-        "attr": "cumulatedOpTimeEvaFan",
+        "attr": "cumulated_op_time_eva_fan",
         "name": "Cumulated Evaporator Fan Operation Time",
         "unit": "h",
         "state_class": "total_increasing",
@@ -924,21 +924,21 @@ SENSOR_CONFIGS: Final = {
     },
     # Anti-legionella and alarm settings
     "anti_legionella_period": {
-        "attr": "antiLegionellaPeriod",
+        "attr": "anti_legionella_period",
         "name": "Anti-Legionella Period",
         "unit": "days",
         "state_class": "measurement",
         "enabled": False,
     },
     "air_filter_alarm_period": {
-        "attr": "airFilterAlarmPeriod",
+        "attr": "air_filter_alarm_period",
         "name": "Air Filter Alarm Period",
         "unit": "h",
         "state_class": "measurement",
         "enabled": False,
     },
     "air_filter_alarm_elapsed": {
-        "attr": "airFilterAlarmElapsed",
+        "attr": "air_filter_alarm_elapsed",
         "name": "Air Filter Alarm Elapsed",
         "unit": "h",
         "state_class": "measurement",
@@ -946,53 +946,54 @@ SENSOR_CONFIGS: Final = {
     },
     # Diagnostic and status sensors
     "temperature_type": {
-        "attr": "temperatureType",
+        "attr": "temperature_type",
         "name": "Temperature Type",
+        "special": "enum_name",
         "enabled": False,
     },
     "temp_formula_type": {
-        "attr": "tempFormulaType",
+        "attr": "temp_formula_type",
         "name": "Temperature Formula Type",
         "enabled": False,
     },
     "tou_status": {
-        "attr": "touStatus",
+        "attr": "tou_status",
         "name": "TOU Status",
         "enabled": False,
     },
     "tou_override_status": {
-        "attr": "touOverrideStatus",
+        "attr": "tou_override_status",
         "name": "TOU Override Status",
         "enabled": False,
     },
     "dr_event_status": {
-        "attr": "drEventStatus",
+        "attr": "dr_event_status",
         "name": "DR Event Status",
         "enabled": False,
     },
     "dr_override_status": {
-        "attr": "drOverrideStatus",
+        "attr": "dr_override_status",
         "name": "DR Override Status",
         "enabled": False,
     },
     "recirculation_error_status": {
-        "attr": "recircErrorStatus",
+        "attr": "recirc_error_status",
         "name": "Recirculation Error Status",
         "enabled": False,
     },
     "recirculation_operation_reason": {
-        "attr": "recircOperationReason",
+        "attr": "recirc_operation_reason",
         "name": "Recirculation Operation Reason",
         "enabled": False,
     },
     "recirculation_operation_mode": {
-        "attr": "recircOperationMode",
+        "attr": "recirc_operation_mode",
         "name": "Recirculation Operation Mode",
         "special": "enum_name",
         "enabled": False,
     },
     "program_reservation_type": {
-        "attr": "programReservationType",
+        "attr": "program_reservation_type",
         "name": "Program Reservation Type",
         "enabled": False,
     },
