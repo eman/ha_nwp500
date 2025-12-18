@@ -149,7 +149,7 @@ This creates a reservation that activates High Demand mode at 6:30 AM on weekday
 
 ## Library Version
 
-This integration currently uses **nwp500-python v6.1.0**.
+This integration currently uses **nwp500-python v6.1.1**.
 
 For version history and changelog, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
@@ -173,8 +173,9 @@ Most sensors are **disabled by default** to avoid cluttering your entity list. Y
 
 ### Diagnostics
 - Comprehensive diagnostic sensors for troubleshooting
-- Error code mapping and monitoring
-- System performance metrics
+- MQTT diagnostics collection and export
+- Connection tracking and event recording
+- See [Diagnostics section](#diagnostics) for detailed information
 
 ### Energy Monitoring
 - Real-time power consumption
@@ -214,7 +215,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==6.1.0 is installed
+- Ensure nwp500-python==6.1.1 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
@@ -238,11 +239,190 @@ logger:
     nwp500: debug
 ```
 
-## Contributing
+## Diagnostics
 
-This integration is actively maintained. Contributions are welcome!
+The integration provides comprehensive MQTT diagnostics to help troubleshoot connection issues.
 
-For development setup, testing, releases, and detailed contribution guidelines, see [DEVELOPMENT.md](DEVELOPMENT.md).
+### Enabling Diagnostics
+
+Diagnostics are automatically enabled and exported when the integration is set up. There are two ways to access them:
+
+#### 1. Home Assistant Native Diagnostics (Recommended)
+
+Access diagnostics directly in Home Assistant UI:
+
+1. Go to **Settings → System → System Health**
+2. Scroll to "Integrations" section
+3. Find "Navien NWP500" integration
+4. Click the three-dot menu (⋮)
+5. Select "Download Diagnostics"
+
+This downloads a JSON file with:
+- MQTT connection state and events
+- Coordinator performance statistics
+- Message request/response tracking
+- Connection drop events with error details
+
+#### 2. Manual File Access
+
+Diagnostics are automatically exported to Home Assistant config directory every 5 minutes:
+
+```
+.homeassistant/nwp500_diagnostics_<entry_id>.json
+```
+
+**Location by OS:**
+- **Linux/Docker**: `/config/nwp500_diagnostics_<entry_id>.json`
+- **Windows**: `C:\Users\<user>\AppData\Roaming\.homeassistant\nwp500_diagnostics_<entry_id>.json`
+- **macOS**: `~/.homeassistant/nwp500_diagnostics_<entry_id>.json`
+
+### Reading Diagnostics Data
+
+The diagnostics JSON contains three main sections:
+
+#### MQTT Diagnostics
+
+Tracks connection events over time:
+
+```json
+{
+  "mqtt_diagnostics": {
+    "connection_drops": [
+      {
+        "timestamp": "2025-12-09T03:15:22.123Z",
+        "error": "Connection timeout",
+        "event_type": "interrupted"
+      }
+    ],
+    "connection_success_events": [
+      {
+        "timestamp": "2025-12-09T03:15:25.456Z",
+        "event_type": "resumed",
+        "session_present": true,
+        "return_code": 0
+      }
+    ],
+    "summary": {
+      "total_drops": 2,
+      "total_recoveries": 2,
+      "first_event": "2025-12-09T03:10:00.000Z",
+      "last_event": "2025-12-09T03:15:25.456Z"
+    }
+  }
+}
+```
+
+#### Coordinator Telemetry
+
+Real-time MQTT communication metrics:
+
+```json
+{
+  "coordinator_telemetry": {
+    "last_request_id": "AA:BB:CC:DD:EE:FF_1733703322123",
+    "last_request_time": 1733703322.123,
+    "last_response_id": "AA:BB:CC:DD:EE:FF_1733703325456",
+    "last_response_time": 1733703325.456,
+    "total_requests_sent": 42,
+    "total_responses_received": 41,
+    "mqtt_connected": true,
+    "mqtt_connected_since": 1733703300.000,
+    "consecutive_timeouts": 0
+  }
+}
+```
+
+**Key fields:**
+- `last_request_id`: Unique ID of most recent status request
+- `total_requests_sent`: Count of all status requests
+- `total_responses_received`: Count of successful responses
+- `consecutive_timeouts`: Number of timeouts in a row (resets to 0 on success)
+- `mqtt_connected_since`: Unix timestamp when MQTT reconnected
+
+#### Performance Statistics
+
+Integration update cycle performance:
+
+```json
+{
+  "performance_stats": {
+    "update_count": 125,
+    "average_time": 0.342,
+    "slowest_time": 1.234,
+    "total_time": 42.75
+  }
+}
+```
+
+**Interpretation:**
+- All times in seconds
+- `average_time > 1.0`: Slow updates, may indicate network issues
+- `slowest_time > 2.0`: Check device connectivity to Navien cloud
+- `update_count`: Number of coordinator cycles completed
+
+### Troubleshooting with Diagnostics
+
+**Problem: Frequent Connection Drops**
+
+1. Check `mqtt_diagnostics.connection_drops` for error patterns
+2. Look for regular intervals (indicates NAT timeout or keep-alive issue)
+3. Check `total_drops` vs `total_recoveries` ratio
+4. Compare `consecutive_timeouts` - if > 0, MQTT may be stuck
+
+**Example:** If drops occur exactly every 5 minutes, likely a network/NAT timeout. Try:
+```yaml
+# In Home Assistant configuration (if exposed by library)
+# Usually requires library configuration in coordinator
+```
+
+**Problem: No Status Updates**
+
+1. Verify `mqtt_connected: true`
+2. Check `total_responses_received` - should match `total_requests_sent`
+3. If `consecutive_timeouts > 3`, integration will attempt forced reconnection
+4. Look for error messages in `mqtt_diagnostics.connection_drops`
+
+**Problem: Slow Updates**
+
+1. Check `performance_stats.average_time` and `slowest_time`
+2. If average > 1.0 second, network is slow
+3. Check `mqtt_connected_since` - recent reconnect may indicate instability
+4. Review coordinator logs: `logger.logs.custom_components.nwp500: debug`
+
+### Exporting Diagnostics for Support
+
+To share diagnostics with integration developers:
+
+1. Download diagnostics from Home Assistant UI (Settings → System → System Health → Download Diagnostics)
+2. Or copy the JSON file from `.homeassistant/nwp500_diagnostics_<entry_id>.json`
+3. Include when creating GitHub issues
+4. **Optional:** Edit to remove timestamps if desired for privacy
+
+### Understanding Connection Drop Recovery
+
+Normal MQTT operation includes brief disconnections:
+
+```
+✓ Connection established
+  ↓
+  ✗ Connection interrupted (brief drop, network blip)
+  ↓
+  ✓ Connection resumed (auto-recovery)
+  ↓
+  ✓ Status updates resume
+```
+
+**This is normal** if:
+- `total_drops ≈ total_recoveries` (balanced recovery)
+- Drops are brief (< 30 seconds)
+- No consecutive_timeouts (recovered before next request)
+
+**This needs attention** if:
+- `total_drops >> total_recoveries` (not recovering)
+- Long periods without updates (check logs)
+- `consecutive_timeouts` increasing (3+ triggers forced reconnect)
+
+
 
 **Quick start for contributors:**
 1. Clone the repo

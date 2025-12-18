@@ -77,6 +77,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self._mqtt_connected_since: float | None = None
         self._consecutive_timeouts: int = 0
         self._reconnection_in_progress: bool = False
+        self._timeout_history: list[dict[str, Any]] = []
+        self._max_timeout_history: int = 20
 
         # Get scan interval from options, fall back to default
         scan_interval = entry.options.get(
@@ -201,6 +203,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             - total_responses_received: Total responses received
             - mqtt_connected: Whether MQTT is currently connected
             - mqtt_connected_since: Timestamp when MQTT connected
+            - consecutive_timeouts: Current consecutive timeout count
+            - timeout_history: Recent timeout events
         """
         mqtt_connected = False
         if self.mqtt_manager:
@@ -218,6 +222,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.mqtt_manager.connected_since if self.mqtt_manager else None
             ),
             "consecutive_timeouts": self._consecutive_timeouts,
+            "timeout_history": self._timeout_history,
         }
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -331,6 +336,18 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
                     except TimeoutError:
                         self._consecutive_timeouts += 1
+                        
+                        # Record timeout event in history
+                        timeout_event: dict[str, Any] = {
+                            "timestamp": time.time(),
+                            "device_mac": mac_address,
+                            "consecutive_count": self._consecutive_timeouts,
+                        }
+                        self._timeout_history.append(timeout_event)
+                        # Keep only last 20 timeout events
+                        if len(self._timeout_history) > self._max_timeout_history:
+                            self._timeout_history.pop(0)
+                        
                         _LOGGER.error(
                             "Timeout requesting status for device %s - "
                             "MQTT may be disconnected (consecutive timeouts: %d). "
@@ -429,7 +446,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==6.1.0 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==6.1.1 awsiotsdk>=1.25.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"

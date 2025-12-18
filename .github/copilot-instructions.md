@@ -29,7 +29,7 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **GitHub Repository**: https://github.com/eman/nwp500-python
   - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
   - **PyPI Package**: https://pypi.org/project/nwp500-python/
-  - **Current Version**: 6.1.0 (see `custom_components/nwp500/manifest.json`)
+  - **Current Version**: 6.1.1 (see `custom_components/nwp500/manifest.json`)
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
@@ -142,42 +142,43 @@ When adopting a new version of the nwp500-python library (the primary dependency
    - Update the version: `nwp500-python==X.Y.Z`
    - Used for development environment setup
 
-#### 3. **`custom_components/nwp500/coordinator.py`** (REQUIRED)
+#### 3. **`tox.ini`** (CRITICAL - MUST UPDATE ALL 3 SECTIONS)
+   - Update `[testenv]` deps section: `nwp500-python==X.Y.Z`
+   - Update `[testenv:mypy]` deps section: `nwp500-python==X.Y.Z`
+   - Update `[testenv:pyright]` deps section: `nwp500-python==X.Y.Z`
+   - Search for all occurrences: `nwp500-python==`
+   - **Important**: CI will fail if not all sections are updated!
+
+#### 4. **`custom_components/nwp500/coordinator.py`** (REQUIRED)
    - Update the error message in the ImportError handler
    - Search for: `"pip install nwp500-python=="`
-   - Update to new version
+   - Update to new version (line ~316)
 
-#### 4. **`custom_components/nwp500/config_flow.py`** (REQUIRED)
+#### 5. **`custom_components/nwp500/config_flow.py`** (REQUIRED)
    - Update the error message in the library availability check
    - Search for: `"pip install nwp500-python=="`
-   - Update to new version
+   - Update to new version (line ~181)
 
-#### 5. **`CHANGELOG.md`** (REQUIRED)
+#### 6. **`CHANGELOG.md`** (REQUIRED)
    - Add new entry in "Library Dependency: nwp500-python" section
    - Document version number with date: `### vX.Y.Z (YYYY-MM-DD)`
    - Include breaking changes, improvements, and migration notes
    - Add link to GitHub release notes
    - Check release notes: https://github.com/eman/nwp500-python/releases
 
-#### 6. **`README.md`** (REQUIRED)
-   - Update only the version number in "Library Version" section
+#### 7. **`README.md`** (REQUIRED)
+   - Update "Library Version" section: Change `nwp500-python vX.Y.Z`
+   - Update troubleshooting section if it mentions version
    - DO NOT add detailed changelog information to README
    - README should only show current version and link to CHANGELOG.md
-   - Update troubleshooting section version reference if present
 
-#### 7. **`.devcontainer/README.md`** (RECOMMENDED)
+#### 8. **`.devcontainer/README.md`** (RECOMMENDED)
    - Update version reference in the "Python Packages" section
    - Search for: `nwp500-python==`
 
-#### 8. **`.github/copilot-instructions.md`** (THIS FILE)
+#### 9. **`.github/copilot-instructions.md`** (THIS FILE)
    - Update "Current Version" in the "Primary Library" section
-
-#### 9. **`tox.ini`** (CRITICAL - OFTEN MISSED!)
-   - Update version in `[testenv]` deps section
-   - Update version in `[testenv:pyright]` deps section
-   - **Important**: Ensure `[testenv:mypy]` includes the library for type resolution
-   - Search for all occurrences: `nwp500-python==`
-   - CI will fail if this file is not updated!
+   - Update this version upgrade checklist if procedures have changed
 
 #### Workflow for Version Updates
 

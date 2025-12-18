@@ -55,7 +55,7 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
         config_entry: config_entries.ConfigEntry,
     ) -> OptionsFlowHandler:
         """Get the options flow for this handler."""
-        return OptionsFlowHandler(config_entry)
+        return OptionsFlowHandler()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -137,10 +137,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for NWP500 integration."""
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
-
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -178,7 +174,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            "pip install nwp500-python==6.0.7 awsiotsdk>=1.25.0"
+            "pip install nwp500-python==6.1.1 awsiotsdk>=1.25.0"
         )
         raise CannotConnect("nwp500-python library not available")
 

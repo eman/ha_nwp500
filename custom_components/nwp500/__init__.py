@@ -106,6 +106,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services (only once)
     await _async_setup_services(hass)
 
+    # Set up diagnostics export
+    from .diagnostics import async_setup_diagnostics_export
+
+    await async_setup_diagnostics_export(hass, entry)
+
     return True
 
 

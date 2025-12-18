@@ -2,10 +2,13 @@
 # These dependencies are also listed in custom_components/nwp500/manifest.json
 
 # Core integration library
-nwp500-python==6.1.0
+nwp500-python==6.1.1
 
 # AWS IoT SDK for MQTT communication
 awsiotsdk>=1.25.0
+
+# Async file I/O for diagnostics export
+aiofiles>=24.1.0
 
 # Development dependencies
 # These are used for testing and type checking but not required at runtime

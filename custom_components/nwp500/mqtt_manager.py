@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         Device,
         DeviceFeature,
         DeviceStatus,
+        MqttDiagnosticsCollector,
         NavienAuthClient,
         NavienMqttClient,
     )
@@ -45,6 +46,7 @@ class NWP500MqttManager:
         self.loop = hass_loop
         self.auth_client = auth_client
         self.mqtt_client: NavienMqttClient | None = None
+        self.diagnostics: MqttDiagnosticsCollector | None = None
         self._on_status_update_callback = on_status_update
         self._on_feature_update_callback = on_feature_update
 
@@ -52,11 +54,29 @@ class NWP500MqttManager:
         self.connected_since: float | None = None
         self.reconnection_in_progress: bool = False
         self.consecutive_timeouts: int = 0
+        
+        # Connection state tracking for diagnostics
+        self._connection_interruptions: list[dict[str, Any]] = []
+        self._max_interruption_history: int = 20
 
     @property
     def is_connected(self) -> bool:
         """Return True if MQTT is connected."""
         return self.mqtt_client is not None and self.mqtt_client.is_connected
+    
+    def get_connection_diagnostics(self) -> dict[str, Any]:
+        """Get connection state diagnostics.
+        
+        Returns:
+            Dictionary containing connection state and interruption history.
+        """
+        return {
+            "is_connected": self.is_connected,
+            "connected_since": self.connected_since,
+            "consecutive_timeouts": self.consecutive_timeouts,
+            "reconnection_in_progress": self.reconnection_in_progress,
+            "connection_interruptions": self._connection_interruptions,
+        }
 
     async def setup(self) -> bool:
         """Set up the MQTT client."""
@@ -65,7 +85,15 @@ class NWP500MqttManager:
             await self.disconnect()
 
         try:
-            from nwp500 import NavienMqttClient  # type: ignore[attr-defined]
+            from nwp500 import (  # type: ignore[attr-defined]
+                MqttDiagnosticsCollector,
+                NavienMqttClient,
+            )
+
+            # Initialize diagnostics collector
+            self.diagnostics = MqttDiagnosticsCollector(
+                enable_verbose_logging=False
+            )
 
             self.mqtt_client = NavienMqttClient(self.auth_client)
 
@@ -84,6 +112,14 @@ class NWP500MqttManager:
                 self.mqtt_client.on(
                     "reconnection_failed", self._on_reconnection_failed
                 )
+                self.mqtt_client.on(
+                    "connection_interrupted",
+                    self._on_connection_interrupted,
+                )
+                self.mqtt_client.on(
+                    "connection_resumed",
+                    self._on_connection_resumed,
+                )
 
             return await self.connect()
 
@@ -95,22 +131,46 @@ class NWP500MqttManager:
             return False
 
     async def connect(self) -> bool:
-        """Connect to MQTT broker."""
+        """Connect to MQTT broker, refreshing auth if needed."""
         if not self.mqtt_client:
             return False
 
         try:
+            # Ensure auth tokens are valid before connecting
+            # This handles cases where auth_client encountered network errors
+            try:
+                await self.auth_client.ensure_valid_token()
+                _LOGGER.debug("Auth tokens validated/refreshed")
+            except Exception as auth_err:
+                _LOGGER.error(
+                    "Failed to ensure valid auth tokens: %s", auth_err
+                )
+                return False
+
             connected = await self.mqtt_client.connect()
             if connected:
                 self.connected_since = time.time()
                 _LOGGER.info(
                     "MQTT connected successfully at %.3f", self.connected_since
                 )
+                # Record initial connection success in diagnostics
+                if self.diagnostics:
+                    await self.diagnostics.record_connection_success(
+                        event_type="initial", session_present=False, return_code=0
+                    )
             else:
                 _LOGGER.warning("MQTT connection failed")
+                # Record connection failure in diagnostics
+                if self.diagnostics:
+                    await self.diagnostics.record_connection_drop(
+                        error=Exception("Connection failed")
+                    )
             return bool(connected)
         except Exception as err:
             _LOGGER.warning("MQTT connection failed: %s", err)
+            # Record connection failure in diagnostics
+            if self.diagnostics:
+                await self.diagnostics.record_connection_drop(error=err)
             return False
 
     async def disconnect(self) -> None:
@@ -132,6 +192,14 @@ class NWP500MqttManager:
                 )
                 self.mqtt_client.off(
                     "reconnection_failed", self._on_reconnection_failed
+                )
+                self.mqtt_client.off(
+                    "connection_interrupted",
+                    self._on_connection_interrupted,
+                )
+                self.mqtt_client.off(
+                    "connection_resumed",
+                    self._on_connection_resumed,
                 )
 
                 await self.mqtt_client.stop_all_periodic_tasks()
@@ -273,7 +341,7 @@ class NWP500MqttManager:
             return self._handle_aws_error(err, f"command {command}")
 
     async def force_reconnect(self, devices: list[Device]) -> bool:
-        """Force reconnection logic."""
+        """Force reconnection and re-authenticate tokens if needed."""
         if self.reconnection_in_progress:
             return False
 
@@ -287,7 +355,7 @@ class NWP500MqttManager:
             # Wait a moment before reconnecting
             await asyncio.sleep(2.0)
 
-            # Re-initialize and connect
+            # Re-initialize and connect (connect() will refresh auth tokens)
             if await self.setup():
                 _LOGGER.info("Reconnection successful")
                 self.consecutive_timeouts = 0
@@ -386,4 +454,37 @@ class NWP500MqttManager:
         if self.mqtt_client:
             asyncio.run_coroutine_threadsafe(
                 self.mqtt_client.reset_reconnect(), self.loop
+            )
+
+    def _on_connection_interrupted(self, error: Exception) -> None:
+        """Handle connection interruption event for diagnostics."""
+        # Record interruption in local history for diagnostics
+        interruption_event: dict[str, Any] = {
+            "timestamp": time.time(),
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+        }
+        self._connection_interruptions.append(interruption_event)
+        # Keep only last 20 interruption events
+        if len(self._connection_interruptions) > self._max_interruption_history:
+            self._connection_interruptions.pop(0)
+        
+        if self.diagnostics:
+            asyncio.run_coroutine_threadsafe(
+                self.diagnostics.record_connection_drop(error=error),
+                self.loop,
+            )
+
+    def _on_connection_resumed(
+        self, return_code: int, session_present: bool
+    ) -> None:
+        """Handle connection resume event for diagnostics."""
+        if self.diagnostics:
+            asyncio.run_coroutine_threadsafe(
+                self.diagnostics.record_connection_success(
+                    event_type="resumed",
+                    session_present=session_present,
+                    return_code=return_code,
+                ),
+                self.loop,
             )

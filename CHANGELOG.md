@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **MQTT Diagnostics**: New diagnostics support for troubleshooting connection issues
+  - `MqttDiagnosticsCollector` integration for connection drop tracking
+  - Home Assistant native diagnostics protocol support via `diagnostics.py`
+  - Periodic diagnostic exports to Home Assistant config directory
+  - Connection state tracking and event recording
 - **Reservation Scheduling**: New services for managing programmed temperature/mode schedules
   - `nwp500.set_reservation`: Create a single reservation entry with user-friendly parameters
   - `nwp500.update_reservations`: Replace all reservations with a new set (advanced)
@@ -17,11 +22,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Supports up to 7 reservation entries per device
 
 ### Changed
-- Updated nwp500-python dependency to 6.1.0
+- Updated nwp500-python dependency to 6.1.1
 
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v6.1.1 (2025-12-08)
+
+#### Added
+- `MqttDiagnosticsCollector` class for detailed MQTT diagnostics
+  - Track connection drops with error information
+  - Record connection recovery events
+  - Export diagnostic data as JSON for analysis
+  - Helps diagnose and troubleshoot MQTT connection issues
+
+#### Features
+- Captures connection interruption events with error details
+- Records connection success events with return codes and session state
+- Provides JSON export functionality for offline analysis
+- Designed for Home Assistant integration diagnostics
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v6.1.1
 
 ### v6.1.0 (2025-12-03)
 
