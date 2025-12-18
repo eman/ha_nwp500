@@ -175,14 +175,16 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(f"Invalid mode: {mode}")
 
         # For vacation and power_off modes, temperature is optional
+        # Use match/case for cleaner logic (Python 3.10+)
         if temperature is None:
-            if mode in ("vacation", "power_off"):
-                # Use a default value for non-temperature modes
-                temperature = 120.0
-            else:
-                raise HomeAssistantError(
-                    f"Temperature is required for mode '{mode}'"
-                )
+            match mode:
+                case "vacation" | "power_off":
+                    # Use a default value for non-temperature modes
+                    temperature = 120.0
+                case _:
+                    raise HomeAssistantError(
+                        f"Temperature is required for mode '{mode}'"
+                    )
 
         # Build the reservation entry using library function
         # Library handles Fahrenheit to half-degrees Celsius conversion

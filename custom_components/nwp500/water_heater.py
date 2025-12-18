@@ -121,14 +121,16 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
-                if mode_value == 5:
-                    return STATE_ECO
-                elif mode_value == 6:
-                    return STATE_OFF
-                else:
-                    return DHW_OPERATION_SETTING_TO_HA.get(
-                        mode_value, "unknown"
-                    )
+                # Use match/case for cleaner mode mapping (Python 3.10+)
+                match mode_value:
+                    case 5:
+                        return STATE_ECO
+                    case 6:
+                        return STATE_OFF
+                    case _:
+                        return DHW_OPERATION_SETTING_TO_HA.get(
+                            mode_value, "unknown"
+                        )
         except (AttributeError, TypeError):
             pass
         return "unknown"

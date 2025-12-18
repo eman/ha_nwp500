@@ -113,6 +113,7 @@ HA_TO_DHW_MODE: Final = {
 
 # Complete mapping for all DHW operation settings (includes special)
 # Use this when handling vacation mode or displaying current DHW
+# Uses dict unpacking (**) - Python 3.5+ feature for clean dict merging
 HA_TO_DHW_OPERATION_SETTING: Final = {
     **HA_TO_DHW_MODE,  # Include all normal operation modes
     "vacation": 5,  # VACATION mode (handled via away_mode feature)
