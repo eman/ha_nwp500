@@ -39,23 +39,18 @@ jobs:
             echo EOF
           } >> $GITHUB_OUTPUT
 
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          body: ${{ steps.changelog.outputs.notes }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Create integration archive
         run: |
           cd custom_components
           zip -r ../nwp500-${{ steps.version.outputs.version }}.zip nwp500/
 
-      - name: Upload integration archive
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          body: ${{ steps.changelog.outputs.notes }}
           files: nwp500-${{ steps.version.outputs.version }}.zip
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

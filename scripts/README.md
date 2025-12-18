@@ -2,6 +2,50 @@
 
 This directory contains utility scripts for maintaining code quality and compatibility with Home Assistant.
 
+## release.sh
+
+Automated release script that handles version bumping, changelog updates, and git tagging.
+
+### Usage
+
+```bash
+# Patch release (0.1.2 → 0.1.3)
+./scripts/release.sh patch
+
+# Minor release (0.1.2 → 0.2.0)
+./scripts/release.sh minor
+
+# Major release (0.1.2 → 1.0.0)
+./scripts/release.sh major
+
+# Interactive mode (specify custom version)
+./scripts/release.sh
+```
+
+### What It Does
+
+1. Validates no uncommitted changes exist
+2. Checks you're on main branch (with warning if not)
+3. Bumps version in `manifest.json`
+4. Updates `CHANGELOG.md` with release date and version
+5. Runs type checking (`tox -e mypy`)
+6. Shows diff and asks for confirmation
+7. Creates commit and git tag
+8. Provides instructions for publishing
+
+### Publishing
+
+The script only creates the tag locally. To publish:
+
+```bash
+git push && git push --tags
+```
+
+GitHub Actions will automatically:
+- Create the GitHub release with changelog notes
+- Build and upload the integration ZIP archive
+- Prevent duplicate draft releases
+
 ## check_deprecated_apis.py
 
 Scans the custom component for deprecated Home Assistant APIs and patterns that should not be used in modern integrations.
