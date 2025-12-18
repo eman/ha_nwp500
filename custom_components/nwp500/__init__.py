@@ -108,7 +108,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _async_setup_services(hass)
 
     # Set up diagnostics export (skip in test environment)
-    if "pytest" not in sys.modules:
+    import os
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
         from .diagnostics import async_setup_diagnostics_export
 
         await async_setup_diagnostics_export(hass, entry)
