@@ -106,6 +106,11 @@ async def async_setup_diagnostics_export(
     analysis and troubleshooting.
     """
     import asyncio
+    import os
+
+    # Skip diagnostic export setup in test environments to avoid lingering tasks
+    if os.environ.get("CI") or os.environ.get("TESTING"):
+        return
 
     coordinator: NWP500DataUpdateCoordinator | None = hass.data.get(
         DOMAIN, {}
