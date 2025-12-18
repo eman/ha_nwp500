@@ -187,8 +187,8 @@ async def test_callbacks(manager, mock_mqtt_client):
     # Since we can't easily check 'on' calls without more mocking of the client's internal structure
     # or inspecting the mock calls to 'on'.
 
-    # Check that 'on' was called for various events
-    assert mock_mqtt_client.on.call_count >= 5
+    # Check that 'on' was called for various events (now 7 events including diagnostics)
+    assert mock_mqtt_client.on.call_count >= 7
 
     # Verify specific event registrations
     calls = [c[0][0] for c in mock_mqtt_client.on.call_args_list]
@@ -197,6 +197,8 @@ async def test_callbacks(manager, mock_mqtt_client):
     assert "connection_lost" in calls
     assert "connection_restored" in calls
     assert "reconnection_failed" in calls
+    assert "connection_interrupted" in calls
+    assert "connection_resumed" in calls
 
 
 @pytest.mark.asyncio

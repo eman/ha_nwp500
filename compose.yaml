@@ -4,9 +4,17 @@ services:
     image: "ghcr.io/home-assistant/home-assistant:stable"
     volumes:
       - ./custom_components:/config/custom_components
+      - ./diagnostics:/config
       - /etc/localtime:/etc/localtime:ro
       - /run/dbus:/run/dbus:ro
+      - /sys/kernel/debug:/sys/kernel/debug:ro
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0
+      - /dev/ttyACM0:/dev/ttyACM0
     ports:
       - "8123:8123"
     restart: unless-stopped
     privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
