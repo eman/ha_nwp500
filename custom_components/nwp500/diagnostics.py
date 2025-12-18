@@ -44,13 +44,9 @@ async def async_get_config_entry_diagnostics(
     # Add MQTT manager diagnostics if available
     if coordinator.mqtt_manager:
         # Add connection state diagnostics
-        conn_diags = coordinator.mqtt_manager.get_connection_diagnostics()
-        if isinstance(conn_diags, dict):
-            diagnostics_data["mqtt_connection_state"] = conn_diags
-        else:
-            diagnostics_data["mqtt_connection_state_error"] = (
-                f"Invalid connection diagnostics format: {type(conn_diags)}"
-            )
+        diagnostics_data["mqtt_connection_state"] = (
+            coordinator.mqtt_manager.get_connection_diagnostics()
+        )
         
         if coordinator.mqtt_manager.diagnostics:
             try:
@@ -76,22 +72,14 @@ async def async_get_config_entry_diagnostics(
         diagnostics_data["mqtt_manager_status"] = "MQTT manager not available"
 
     # Add coordinator telemetry
-    coordinator_telemetry = coordinator.get_mqtt_telemetry()
-    if isinstance(coordinator_telemetry, dict):
-        diagnostics_data["coordinator_telemetry"] = coordinator_telemetry
-    else:
-        diagnostics_data["coordinator_telemetry_error"] = (
-            f"Invalid telemetry format: {type(coordinator_telemetry)}"
-        )
+    diagnostics_data["coordinator_telemetry"] = (
+        coordinator.get_mqtt_telemetry()
+    )
 
     # Add performance statistics
-    perf_stats = coordinator.get_performance_stats()
-    if isinstance(perf_stats, dict):
-        diagnostics_data["performance_stats"] = perf_stats
-    else:
-        diagnostics_data["performance_stats_error"] = (
-            f"Invalid stats format: {type(perf_stats)}"
-        )
+    diagnostics_data["performance_stats"] = (
+        coordinator.get_performance_stats()
+    )
 
     return diagnostics_data
 
@@ -134,13 +122,9 @@ async def async_setup_diagnostics_export(
         # Add MQTT manager diagnostics if available
         if coordinator.mqtt_manager:
             # Add connection state diagnostics
-            conn_diags = coordinator.mqtt_manager.get_connection_diagnostics()
-            if isinstance(conn_diags, dict):
-                diagnostics_data["mqtt_connection_state"] = conn_diags
-            else:
-                diagnostics_data["mqtt_connection_state_error"] = (
-                    f"Invalid connection diagnostics format: {type(conn_diags)}"
-                )
+            diagnostics_data["mqtt_connection_state"] = (
+                coordinator.mqtt_manager.get_connection_diagnostics()
+            )
             
             if coordinator.mqtt_manager.diagnostics:
                 try:
@@ -170,22 +154,14 @@ async def async_setup_diagnostics_export(
             )
 
         # Add coordinator telemetry
-        coordinator_telemetry = coordinator.get_mqtt_telemetry()
-        if isinstance(coordinator_telemetry, dict):
-            diagnostics_data["coordinator_telemetry"] = coordinator_telemetry
-        else:
-            diagnostics_data["coordinator_telemetry_error"] = (
-                f"Invalid telemetry format: {type(coordinator_telemetry)}"
-            )
+        diagnostics_data["coordinator_telemetry"] = (
+            coordinator.get_mqtt_telemetry()
+        )
 
         # Add performance statistics
-        perf_stats = coordinator.get_performance_stats()
-        if isinstance(perf_stats, dict):
-            diagnostics_data["performance_stats"] = perf_stats
-        else:
-            diagnostics_data["performance_stats_error"] = (
-                f"Invalid stats format: {type(perf_stats)}"
-            )
+        diagnostics_data["performance_stats"] = (
+            coordinator.get_performance_stats()
+        )
 
         try:
             json_data = json.dumps(diagnostics_data, indent=2)
