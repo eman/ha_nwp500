@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2025-12-18
+
 ### Added
 - **MQTT Diagnostics**: New diagnostics support for troubleshooting connection issues
   - `MqttDiagnosticsCollector` integration for connection drop tracking
@@ -310,5 +312,7 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/eman/ha_nwp500/compare/v0.1.1...v0.1.2
+[0.1.1]: https://github.com/eman/ha_nwp500/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/eman/ha_nwp500/releases/tag/v0.1.0
