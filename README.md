@@ -82,7 +82,7 @@ Comprehensive boolean status indicators:
 ### Prerequisites
 - Navien NWP500 device installed and operational
 - [NaviLink Smart Control](https://www.navien.com/en/navilink) account with device registered
-- Home Assistant 2025.1+ (requires Python 3.12+)
+- Home Assistant 2025.1+ (requires Python 3.12 or 3.13)
 
 ### HACS (Recommended)
 1. Install [HACS](https://hacs.xyz/) if not already installed
