@@ -20,9 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `nwp500.request_reservations`: Request current reservation data from device
 - Reservations allow automatic mode and temperature changes at scheduled times
 - Supports up to 7 reservation entries per device
+- Comprehensive test coverage for diagnostics module (10 new tests)
 
 ### Changed
+- **BREAKING**: Minimum Home Assistant version now 2025.1.0 (Python 3.12+ required)
+- **BREAKING**: Dropped support for Python 3.10 and 3.11
 - Updated nwp500-python dependency to 6.1.1
+- Modernized codebase with Python 3.12 features (match/case statements)
+- CI now runs on Python 3.12 only (removed Python 3.13 due to dependency issues)
+- Test coverage increased to 82.44%
 
 ## Library Dependency: nwp500-python
 
