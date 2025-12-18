@@ -253,8 +253,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 )
 
         try:
-            # Reuse existing data structure to reduce memory allocations
-            # Only create new dict if this is the first update
+            # Reuse existing data structure to leverage Python 3.13's optimized
+            # dictionary operations. Only create new dict on first update.
             device_data = dict(self.data) if self.data else {}
 
             for device in self.devices:
@@ -336,7 +336,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
                     except TimeoutError:
                         self._consecutive_timeouts += 1
-                        
+
                         # Record timeout event in history
                         timeout_event: dict[str, Any] = {
                             "timestamp": time.time(),
@@ -345,9 +345,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         }
                         self._timeout_history.append(timeout_event)
                         # Keep only last 20 timeout events
-                        if len(self._timeout_history) > self._max_timeout_history:
+                        if (
+                            len(self._timeout_history)
+                            > self._max_timeout_history
+                        ):
                             self._timeout_history.pop(0)
-                        
+
                         _LOGGER.error(
                             "Timeout requesting status for device %s - "
                             "MQTT may be disconnected (consecutive timeouts: %d). "
@@ -749,7 +752,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Device %s not found", mac_address)
             return False
 
-        return await self.mqtt_manager.send_command(device, "request_reservations")
+        return await self.mqtt_manager.send_command(
+            device, "request_reservations"
+        )
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""

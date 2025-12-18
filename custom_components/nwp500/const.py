@@ -79,7 +79,7 @@ def get_enum_value(obj: Any) -> Any:
 
 
 # CurrentOperationMode mapping for Home Assistant water heater entity
-# Maps nwp500-python CurrentOperationMode enum values to HA water heater states
+# Maps nwp500.enums.CurrentOperationMode enum values to HA water heater states
 CURRENT_OPERATION_MODE_TO_HA: Final = {
     0: "standby",  # STANDBY
     32: STATE_HEAT_PUMP,  # HEAT_PUMP_MODE (operational state)
@@ -88,7 +88,7 @@ CURRENT_OPERATION_MODE_TO_HA: Final = {
 }
 
 # DhwOperationSetting mapping for Home Assistant water heater entity
-# Maps nwp500-python DhwOperationSetting enum values to HA water heater states
+# Maps nwp500.enums.DhwOperationSetting enum values to HA water heater states
 DHW_OPERATION_SETTING_TO_HA: Final = {
     1: STATE_HEAT_PUMP,  # HEAT_PUMP -> "heat_pump"
     2: STATE_ELECTRIC,  # ELECTRIC -> "electric"
@@ -120,7 +120,7 @@ HA_TO_DHW_OPERATION_SETTING: Final = {
     # Note: power_off (6) handled via on_off feature, not stored here
 }
 
-# Legacy alias for backward compatibility within this component
+# Alias for consistency
 DHW_MODE_TO_HA: Final = DHW_OPERATION_SETTING_TO_HA
 
 # Temperature ranges (from nwp500-python documentation)

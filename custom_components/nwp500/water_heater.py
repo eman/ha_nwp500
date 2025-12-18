@@ -207,10 +207,8 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                     dhw_value, f"mode_{dhw_value}"
                 )
 
-            # Performance optimization: Batch fetch multiple status
-            # attributes at once. Single pass through device status
-            # dict vs 13 individual getattr() calls. Reduces attribute
-            # access overhead and improves extra_state_attributes perf
+            # Performance optimization: Batch fetch multiple status attributes.
+            # Python 3.13's improved dict performance makes this even more efficient.
             status_attrs = self._get_status_attrs(
                 "outside_temperature",
                 "operation_busy",

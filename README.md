@@ -82,7 +82,7 @@ Comprehensive boolean status indicators:
 ### Prerequisites
 - Navien NWP500 device installed and operational
 - [NaviLink Smart Control](https://www.navien.com/en/navilink) account with device registered
-- Home Assistant 2025.1+ (requires Python 3.12 or 3.13)
+- Home Assistant 2025.1+ (requires Python 3.13-3.14)
 
 ### HACS (Recommended)
 1. Install [HACS](https://hacs.xyz/) if not already installed
@@ -215,7 +215,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==6.1.1 is installed
+- Ensure nwp500-python==7.0.0 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**

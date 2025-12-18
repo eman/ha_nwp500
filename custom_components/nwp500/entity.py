@@ -78,8 +78,8 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
     def _get_status_attrs(self, *attrs: str) -> dict[str, Any]:
         """Efficiently get multiple status attributes at once.
 
-        This helper method reduces repetitive getattr() calls by fetching
-        multiple attributes in a single operation.
+        This method leverages Python 3.13's optimized dictionary operations
+        to reduce overhead from repetitive getattr() calls.
 
         Args:
             *attrs: Variable number of attribute names to fetch

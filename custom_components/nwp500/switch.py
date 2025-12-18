@@ -35,7 +35,9 @@ async def async_setup_entry(
         entities.append(NWP500PowerSwitch(coordinator, mac_address, device))
 
         # Add TOU Override switch
-        entities.append(NWP500TOUOverrideSwitch(coordinator, mac_address, device))
+        entities.append(
+            NWP500TOUOverrideSwitch(coordinator, mac_address, device)
+        )
 
         # Add Anti-Legionella switch
         entities.append(
