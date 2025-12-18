@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +12,14 @@ from homeassistant.config_entries import ConfigEntry
 from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
+
+
+@pytest.fixture(autouse=True)
+def set_testing_env() -> Generator[None, None, None]:
+    """Set TESTING environment variable for all tests."""
+    os.environ["TESTING"] = "1"
+    yield
+    os.environ.pop("TESTING", None)
 
 
 @pytest.fixture
