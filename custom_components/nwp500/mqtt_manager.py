@@ -54,7 +54,7 @@ class NWP500MqttManager:
         self.connected_since: float | None = None
         self.reconnection_in_progress: bool = False
         self.consecutive_timeouts: int = 0
-        
+
         # Connection state tracking for diagnostics
         self._connection_interruptions: list[dict[str, Any]] = []
         self._max_interruption_history: int = 20
@@ -63,10 +63,10 @@ class NWP500MqttManager:
     def is_connected(self) -> bool:
         """Return True if MQTT is connected."""
         return self.mqtt_client is not None and self.mqtt_client.is_connected
-    
+
     def get_connection_diagnostics(self) -> dict[str, Any]:
         """Get connection state diagnostics.
-        
+
         Returns:
             Dictionary containing connection state and interruption history.
         """
@@ -156,7 +156,9 @@ class NWP500MqttManager:
                 # Record initial connection success in diagnostics
                 if self.diagnostics:
                     await self.diagnostics.record_connection_success(
-                        event_type="initial", session_present=False, return_code=0
+                        event_type="initial",
+                        session_present=False,
+                        return_code=0,
                     )
             else:
                 _LOGGER.warning("MQTT connection failed")
@@ -312,7 +314,9 @@ class NWP500MqttManager:
                 await self.mqtt_client.set_tou_enabled(device, enabled)
             elif command == "enable_anti_legionella":
                 period_days = kwargs.get("period_days", 14)
-                await self.mqtt_client.enable_anti_legionella(device, period_days)
+                await self.mqtt_client.enable_anti_legionella(
+                    device, period_days
+                )
             elif command == "disable_anti_legionella":
                 await self.mqtt_client.disable_anti_legionella(device)
                 enabled = kwargs.get("enabled", False)
@@ -468,7 +472,7 @@ class NWP500MqttManager:
         # Keep only last 20 interruption events
         if len(self._connection_interruptions) > self._max_interruption_history:
             self._connection_interruptions.pop(0)
-        
+
         if self.diagnostics:
             asyncio.run_coroutine_threadsafe(
                 self.diagnostics.record_connection_drop(error=error),

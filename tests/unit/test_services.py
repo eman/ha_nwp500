@@ -36,9 +36,7 @@ def mock_hass():
 @pytest.fixture
 def mock_device_registry():
     """Create a mock device registry."""
-    with patch(
-        "custom_components.nwp500.dr.async_get"
-    ) as mock_dr:
+    with patch("custom_components.nwp500.dr.async_get") as mock_dr:
         registry = MagicMock()
         mock_dr.return_value = registry
         yield registry
@@ -79,7 +77,9 @@ class TestReservationServices:
         # Setup mock coordinator
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator.async_update_reservations = AsyncMock(return_value=True)
+        mock_coordinator.async_update_reservations = AsyncMock(
+            return_value=True
+        )
         mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
 
         # Setup device registry
@@ -113,7 +113,14 @@ class TestReservationServices:
         # Mock build_reservation_entry in the encoding module
         with patch(
             "nwp500.encoding.build_reservation_entry",
-            return_value={"enable": 1, "week": 42, "hour": 6, "min": 30, "mode": 3, "param": 120},
+            return_value={
+                "enable": 1,
+                "week": 42,
+                "hour": 6,
+                "min": 30,
+                "mode": 3,
+                "param": 120,
+            },
         ) as mock_build:
             await set_reservation_handler(call)
 
@@ -208,7 +215,9 @@ class TestReservationServices:
         """Test clear_reservations sends empty reservation list."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator.async_update_reservations = AsyncMock(return_value=True)
+        mock_coordinator.async_update_reservations = AsyncMock(
+            return_value=True
+        )
         mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
 
         device_entry = MagicMock()
@@ -239,7 +248,9 @@ class TestReservationServices:
         """Test request_reservations calls coordinator method."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator.async_request_reservations = AsyncMock(return_value=True)
+        mock_coordinator.async_request_reservations = AsyncMock(
+            return_value=True
+        )
         mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
 
         device_entry = MagicMock()
@@ -270,7 +281,9 @@ class TestReservationServices:
         """Test update_reservations passes reservation list."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator.async_update_reservations = AsyncMock(return_value=True)
+        mock_coordinator.async_update_reservations = AsyncMock(
+            return_value=True
+        )
         mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
 
         device_entry = MagicMock()
@@ -286,7 +299,14 @@ class TestReservationServices:
                 break
 
         reservations = [
-            {"enable": 1, "week": 42, "hour": 6, "min": 30, "mode": 3, "param": 120}
+            {
+                "enable": 1,
+                "week": 42,
+                "hour": 6,
+                "min": 30,
+                "mode": 3,
+                "param": 120,
+            }
         ]
 
         call = MagicMock(spec=ServiceCall)

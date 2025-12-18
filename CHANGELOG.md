@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Python 3.13-3.14 optimizations**: Updated to leverage latest Python performance improvements
+  - Dictionary operations benefit from 10-15% faster lookups and comprehensions
+  - Improved function call performance reduces coordinator overhead
+  - Native type hints (`X | Y`) instead of `Union[X, Y]`
+  - `datetime.UTC` instead of `timezone.utc`
+- **Updated Python target**: Ruff target-version set to `py313`
+- **Dropped Python 3.12**: Removed py312 from test matrix, focusing on Python 3.13+
+- **Added Python 3.14**: Added py314 to test matrix for forward compatibility
+
 ## [0.1.2] - 2025-12-18
 
 ### Added
@@ -36,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v7.0.0 (2025-12-18)
+
+#### Key Changes
+- **Python 3.13 minimum**: Library now requires Python 3.13+
+- **Comprehensive enumerations module**: New type-safe enums for device control and status
+  - `DhwOperationSetting`, `CurrentOperationMode`, `TemperatureType`, `CommandCode`, `ErrorCode`, etc.
+  - Enums automatically serialize to human-readable names
+- **Python 3.13 features**: PEP 695 type syntax, native `datetime.UTC`, native union syntax
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.0.0
 
 ### v6.1.1 (2025-12-08)
 

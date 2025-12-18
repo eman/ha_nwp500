@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -37,11 +37,7 @@ async def test_async_get_config_entry_diagnostics_no_mqtt_manager(
     """Test diagnostics when MQTT manager not available."""
     mock_coordinator.mqtt_manager = None
 
-    hass.data = {
-        "nwp500": {
-            mock_config_entry.entry_id: mock_coordinator
-        }
-    }
+    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -60,7 +56,7 @@ async def test_async_get_config_entry_diagnostics_with_mqtt_diagnostics(
     mock_mqtt_manager = MagicMock()
     mock_mqtt_manager.get_connection_diagnostics.return_value = {
         "connected": True,
-        "last_connect_time": "2024-01-01T00:00:00Z"
+        "last_connect_time": "2024-01-01T00:00:00Z",
     }
 
     mock_diagnostics = MagicMock()
@@ -70,18 +66,14 @@ async def test_async_get_config_entry_diagnostics_with_mqtt_diagnostics(
     mock_coordinator.mqtt_manager = mock_mqtt_manager
     mock_coordinator.get_mqtt_telemetry.return_value = {
         "messages_sent": 10,
-        "messages_received": 5
+        "messages_received": 5,
     }
     mock_coordinator.get_performance_stats.return_value = {
         "update_count": 100,
-        "error_count": 2
+        "error_count": 2,
     }
 
-    hass.data = {
-        "nwp500": {
-            mock_config_entry.entry_id: mock_coordinator
-        }
-    }
+    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -113,11 +105,7 @@ async def test_async_get_config_entry_diagnostics_invalid_json(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    hass.data = {
-        "nwp500": {
-            mock_config_entry.entry_id: mock_coordinator
-        }
-    }
+    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -143,11 +131,7 @@ async def test_async_get_config_entry_diagnostics_export_exception(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    hass.data = {
-        "nwp500": {
-            mock_config_entry.entry_id: mock_coordinator
-        }
-    }
+    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -170,16 +154,15 @@ async def test_async_get_config_entry_diagnostics_no_diagnostics_collector(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    hass.data = {
-        "nwp500": {
-            mock_config_entry.entry_id: mock_coordinator
-        }
-    }
+    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
     assert "mqtt_diagnostics_status" in result
-    assert result["mqtt_diagnostics_status"] == "Diagnostics collector not initialized"
+    assert (
+        result["mqtt_diagnostics_status"]
+        == "Diagnostics collector not initialized"
+    )
 
 
 @pytest.mark.asyncio
@@ -223,11 +206,7 @@ async def test_async_setup_diagnostics_export_no_mqtt_manager(
     """Test diagnostics export setup when MQTT manager not available."""
     mock_coordinator.mqtt_manager = None
 
-    hass.data = {
-        "nwp500": {
-            mock_config_entry.entry_id: mock_coordinator
-        }
-    }
+    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
 
     # Should return early without errors
     await async_setup_diagnostics_export(hass, mock_config_entry)

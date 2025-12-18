@@ -5,16 +5,16 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from custom_components.nwp500 import (
-    async_setup_entry,
-    async_unload_entry,
     MODE_TO_DHW_ID,
-    SERVICE_SET_RESERVATION,
-    SERVICE_UPDATE_RESERVATIONS,
     SERVICE_CLEAR_RESERVATIONS,
     SERVICE_REQUEST_RESERVATIONS,
+    SERVICE_SET_RESERVATION,
+    SERVICE_UPDATE_RESERVATIONS,
+    async_setup_entry,
+    async_unload_entry,
 )
 from custom_components.nwp500.const import DOMAIN
 
@@ -132,7 +132,8 @@ async def test_async_setup_entry_registers_services():
 
         # Get all service names that were registered
         registered_services = [
-            call[0][1] for call in mock_hass.services.async_register.call_args_list
+            call[0][1]
+            for call in mock_hass.services.async_register.call_args_list
         ]
         assert SERVICE_SET_RESERVATION in registered_services
         assert SERVICE_UPDATE_RESERVATIONS in registered_services

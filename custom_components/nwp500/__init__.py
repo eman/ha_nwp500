@@ -1,12 +1,11 @@
 """The Navien NWP500 Heat Pump Water Heater integration.
 
-Requires Home Assistant 2025.1+ (Python 3.12 or 3.13).
+Requires Home Assistant 2025.1+ (Python 3.13-3.14).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
@@ -46,10 +45,25 @@ ATTR_TEMPERATURE = "temperature"
 ATTR_RESERVATIONS = "reservations"
 
 # Valid days of the week
-VALID_DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+VALID_DAYS = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+]
 
 # Valid operation modes for reservations
-VALID_MODES = ["heat_pump", "electric", "energy_saver", "high_demand", "vacation", "power_off"]
+VALID_MODES = [
+    "heat_pump",
+    "electric",
+    "energy_saver",
+    "high_demand",
+    "vacation",
+    "power_off",
+]
 
 # Mode mapping for reservations (friendly name -> DHW mode ID)
 MODE_TO_DHW_ID: dict[str, int] = {
@@ -67,10 +81,16 @@ SERVICE_SET_RESERVATION_SCHEMA = vol.Schema(
         vol.Required(ATTR_DEVICE_ID): cv.string,
         vol.Required(ATTR_ENABLED): cv.boolean,
         vol.Required(ATTR_DAYS): vol.All(cv.ensure_list, [vol.In(VALID_DAYS)]),
-        vol.Required(ATTR_HOUR): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
-        vol.Optional(ATTR_MINUTE, default=0): vol.All(vol.Coerce(int), vol.Range(min=0, max=59)),
+        vol.Required(ATTR_HOUR): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=23)
+        ),
+        vol.Optional(ATTR_MINUTE, default=0): vol.All(
+            vol.Coerce(int), vol.Range(min=0, max=59)
+        ),
         vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
-        vol.Optional(ATTR_TEMPERATURE): vol.All(vol.Coerce(float), vol.Range(min=80, max=150)),
+        vol.Optional(ATTR_TEMPERATURE): vol.All(
+            vol.Coerce(float), vol.Range(min=80, max=150)
+        ),
     }
 )
 
@@ -141,7 +161,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(f"Device {device_id} not found")
 
         # Find the coordinator for this device
-        for entry_id, coordinator in hass.data[DOMAIN].items():
+        for _entry_id, coordinator in hass.data[DOMAIN].items():
             if not isinstance(coordinator, NWP500DataUpdateCoordinator):
                 continue
             for mac_address in coordinator.data.keys():
@@ -178,7 +198,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(f"Invalid mode: {mode}")
 
         # For vacation and power_off modes, temperature is optional
-        # Use match/case for cleaner logic (Python 3.10+)
+        # Use match/case for cleaner logic
         if temperature is None:
             match mode:
                 case "vacation" | "power_off":

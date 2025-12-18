@@ -47,21 +47,22 @@ async def async_get_config_entry_diagnostics(
         diagnostics_data["mqtt_connection_state"] = (
             coordinator.mqtt_manager.get_connection_diagnostics()
         )
-        
+
         if coordinator.mqtt_manager.diagnostics:
             try:
                 mqtt_diags = coordinator.mqtt_manager.diagnostics
                 diags_json = mqtt_diags.export_json()
                 if isinstance(diags_json, str):
-                    diagnostics_data["mqtt_diagnostics"] = json.loads(diags_json)
+                    diagnostics_data["mqtt_diagnostics"] = json.loads(
+                        diags_json
+                    )
                 else:
                     diagnostics_data["mqtt_diagnostics_error"] = (
                         f"Invalid diagnostics format: {type(diags_json)}"
                     )
             except Exception as err:
                 _LOGGER.warning(
-                    "Failed to export MQTT diagnostics: %s", err,
-                    exc_info=True
+                    "Failed to export MQTT diagnostics: %s", err, exc_info=True
                 )
                 diagnostics_data["mqtt_diagnostics_error"] = str(err)
         else:
@@ -72,14 +73,10 @@ async def async_get_config_entry_diagnostics(
         diagnostics_data["mqtt_manager_status"] = "MQTT manager not available"
 
     # Add coordinator telemetry
-    diagnostics_data["coordinator_telemetry"] = (
-        coordinator.get_mqtt_telemetry()
-    )
+    diagnostics_data["coordinator_telemetry"] = coordinator.get_mqtt_telemetry()
 
     # Add performance statistics
-    diagnostics_data["performance_stats"] = (
-        coordinator.get_performance_stats()
-    )
+    diagnostics_data["performance_stats"] = coordinator.get_performance_stats()
 
     return diagnostics_data
 
@@ -125,7 +122,7 @@ async def async_setup_diagnostics_export(
             diagnostics_data["mqtt_connection_state"] = (
                 coordinator.mqtt_manager.get_connection_diagnostics()
             )
-            
+
             if coordinator.mqtt_manager.diagnostics:
                 try:
                     mqtt_diags = coordinator.mqtt_manager.diagnostics
@@ -140,8 +137,9 @@ async def async_setup_diagnostics_export(
                         )
                 except Exception as err:
                     _LOGGER.warning(
-                        "Failed to export MQTT diagnostics: %s", err,
-                        exc_info=True
+                        "Failed to export MQTT diagnostics: %s",
+                        err,
+                        exc_info=True,
                     )
                     diagnostics_data["mqtt_diagnostics_error"] = str(err)
             else:
@@ -167,14 +165,11 @@ async def async_setup_diagnostics_export(
             json_data = json.dumps(diagnostics_data, indent=2)
         except TypeError as err:
             _LOGGER.error(
-                "Failed to serialize diagnostics data: %s", err,
-                exc_info=True
+                "Failed to serialize diagnostics data: %s", err, exc_info=True
             )
             return
 
-        async with aiofiles.open(
-            diagnostics_path, "w", encoding="utf-8"
-        ) as f:
+        async with aiofiles.open(diagnostics_path, "w", encoding="utf-8") as f:
             await f.write(json_data)
 
         _LOGGER.debug(
