@@ -6,7 +6,6 @@ Requires Home Assistant 2025.1+ (Python 3.12 or 3.13).
 from __future__ import annotations
 
 import logging
-import sys
 from typing import Any
 
 import voluptuous as vol
@@ -110,15 +109,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services (only once)
     await _async_setup_services(hass)
 
-    # Set up diagnostics export (skip in test environment)
-    # Don't setup diagnostics if we're not in production
-    if entry.entry_id != "test_entry":
-        try:
-            from .diagnostics import async_setup_diagnostics_export
-            await async_setup_diagnostics_export(hass, entry)
-        except Exception:
-            # Silently fail if diagnostics setup fails
-            pass
+    # Set up diagnostics export (periodic JSON exports)
+    # The diagnostics module handles test environment detection internally
+    try:
+        from .diagnostics import async_setup_diagnostics_export
+
+        await async_setup_diagnostics_export(hass, entry)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning(
+            "Failed to setup diagnostics export: %s", err, exc_info=True
+        )
 
     return True
 
