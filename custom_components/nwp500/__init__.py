@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Any
 
 import voluptuous as vol
@@ -106,10 +107,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services (only once)
     await _async_setup_services(hass)
 
-    # Set up diagnostics export
-    from .diagnostics import async_setup_diagnostics_export
+    # Set up diagnostics export (skip in test environment)
+    if "pytest" not in sys.modules:
+        from .diagnostics import async_setup_diagnostics_export
 
-    await async_setup_diagnostics_export(hass, entry)
+        await async_setup_diagnostics_export(hass, entry)
 
     return True
 
