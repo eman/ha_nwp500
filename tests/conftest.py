@@ -173,13 +173,3 @@ def mock_coordinator(
         }
     }
     return coordinator
-
-
-@pytest.fixture(autouse=True)
-def mock_diagnostics_setup() -> Generator[None, None, None]:
-    """Mock diagnostics setup to prevent lingering async tasks in tests."""
-    with patch(
-        "custom_components.nwp500.async_setup_diagnostics_export"
-    ) as mock_setup:
-        mock_setup.return_value = AsyncMock()
-        yield
