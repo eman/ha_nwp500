@@ -14,7 +14,7 @@
   "quality_scale": "silver",
   "requirements": [
     "nwp500-python==6.1.1",
-    "awsiotsdk>=1.25.0",
+    "awsiotsdk>=1.27.0",
     "aiofiles>=24.1.0"
   ],
   "version": "0.1.1"

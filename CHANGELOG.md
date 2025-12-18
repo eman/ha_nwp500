@@ -26,9 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: Minimum Home Assistant version now 2025.1.0 (Python 3.12+ required)
 - **BREAKING**: Dropped support for Python 3.10 and 3.11
 - Updated nwp500-python dependency to 6.1.1
+- Updated awsiotsdk minimum version to 1.27.0
 - Modernized codebase with Python 3.12 features (match/case statements)
 - CI now runs on Python 3.12 and 3.13
-- Test coverage increased to 82.44%
+- Test coverage increased to 82.71%
 
 ## Library Dependency: nwp500-python
 
