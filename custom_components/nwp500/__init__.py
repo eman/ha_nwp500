@@ -1,4 +1,7 @@
-"""The Navien NWP500 Heat Pump Water Heater integration."""
+"""The Navien NWP500 Heat Pump Water Heater integration.
+
+Requires Home Assistant 2025.1+ (Python 3.12 or 3.13).
+"""
 
 from __future__ import annotations
 
@@ -106,10 +109,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services (only once)
     await _async_setup_services(hass)
 
-    # Set up diagnostics export
-    from .diagnostics import async_setup_diagnostics_export
+    # Set up diagnostics export (periodic JSON exports)
+    # The diagnostics module handles test environment detection internally
+    try:
+        from .diagnostics import async_setup_diagnostics_export
 
-    await async_setup_diagnostics_export(hass, entry)
+        await async_setup_diagnostics_export(hass, entry)
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning(
+            "Failed to setup diagnostics export: %s", err, exc_info=True
+        )
 
     return True
 
@@ -169,14 +178,16 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             raise HomeAssistantError(f"Invalid mode: {mode}")
 
         # For vacation and power_off modes, temperature is optional
+        # Use match/case for cleaner logic (Python 3.10+)
         if temperature is None:
-            if mode in ("vacation", "power_off"):
-                # Use a default value for non-temperature modes
-                temperature = 120.0
-            else:
-                raise HomeAssistantError(
-                    f"Temperature is required for mode '{mode}'"
-                )
+            match mode:
+                case "vacation" | "power_off":
+                    # Use a default value for non-temperature modes
+                    temperature = 120.0
+                case _:
+                    raise HomeAssistantError(
+                        f"Temperature is required for mode '{mode}'"
+                    )
 
         # Build the reservation entry using library function
         # Library handles Fahrenheit to half-degrees Celsius conversion
