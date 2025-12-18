@@ -52,7 +52,12 @@ async def async_get_config_entry_diagnostics(
             try:
                 mqtt_diags = coordinator.mqtt_manager.diagnostics
                 diags_json = mqtt_diags.export_json()
-                diagnostics_data["mqtt_diagnostics"] = json.loads(diags_json)
+                if isinstance(diags_json, str):
+                    diagnostics_data["mqtt_diagnostics"] = json.loads(diags_json)
+                else:
+                    diagnostics_data["mqtt_diagnostics_error"] = (
+                        f"Invalid diagnostics format: {type(diags_json)}"
+                    )
             except Exception as err:
                 _LOGGER.warning(
                     "Failed to export MQTT diagnostics: %s", err,
@@ -120,9 +125,14 @@ async def async_setup_diagnostics_export(
                 try:
                     mqtt_diags = coordinator.mqtt_manager.diagnostics
                     diags_json = mqtt_diags.export_json()
-                    diagnostics_data["mqtt_diagnostics"] = json.loads(
-                        diags_json
-                    )
+                    if isinstance(diags_json, str):
+                        diagnostics_data["mqtt_diagnostics"] = json.loads(
+                            diags_json
+                        )
+                    else:
+                        diagnostics_data["mqtt_diagnostics_error"] = (
+                            f"Invalid diagnostics format: {type(diags_json)}"
+                        )
                 except Exception as err:
                     _LOGGER.warning(
                         "Failed to export MQTT diagnostics: %s", err,
