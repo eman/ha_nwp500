@@ -47,6 +47,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This section tracks changes in the nwp500-python library that this integration depends on.
 
+### v7.1.0 (2025-12-22)
+
+#### Added
+- **Device Capability System**: New device capability detection and validation framework
+  - `DeviceCapabilityChecker`: Validates device feature support based on device models
+  - `DeviceInfoCache`: Efficient caching of device information with configurable update intervals
+  - `@requires_capability` decorator: Automatic capability validation for MQTT commands
+  - `DeviceCapabilityError`: New exception for unsupported device features
+- **Advanced Control Commands**: New MQTT commands for advanced device features
+  - Demand response participation control
+  - Air filter maintenance tracking reset
+  - Vacation mode duration configuration
+  - Water program reservation management
+  - Recirculation pump control and scheduling
+- **CLI Documentation Updates**: Comprehensive documentation updates for subcommand-based CLI
+- **Model Field Factory Pattern**: New field factory to reduce boilerplate in model definitions
+
+#### Changed
+- **CLI Output**: Numeric values in status output now rounded to one decimal place for better readability
+- `MqttDeviceController` now integrates device capability checking with auto-caching of device info
+- **MQTT Control Refactoring**: Centralized device control via `.control` namespace
+- **Logging Security**: Enhanced sensitive data redaction (MAC addresses consistently redacted)
+
+#### Fixed
+- Type annotation consistency: Optional parameters now properly annotated
+- Multiple type annotation issues for CI compatibility
+- Mixing valve field: Corrected alias field name
+- Vacation days validation: Enforced maximum value validation
+- CI linting: Fixed line length violations and import sorting issues
+- Parser regressions: Fixed data parsing issues introduced in MQTT refactoring
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.1.0
+
 ### v7.0.1 (2025-12-18)
 
 #### Fixed
