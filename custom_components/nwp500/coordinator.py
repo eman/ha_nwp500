@@ -756,6 +756,35 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             device, "request_reservations"
         )
 
+    async def async_send_command(
+        self, mac_address: str, command: str, **kwargs: Any
+    ) -> bool:
+        """Send a control command to a device.
+
+        Args:
+            mac_address: Device MAC address
+            command: Command name
+            **kwargs: Command arguments
+
+        Returns:
+            True if command was sent successfully
+        """
+        if not self.mqtt_manager:
+            _LOGGER.error("MQTT manager not available")
+            return False
+
+        device = None
+        for dev in self.devices:
+            if dev.device_info.mac_address == mac_address:
+                device = dev
+                break
+
+        if not device:
+            _LOGGER.error("Device %s not found", mac_address)
+            return False
+
+        return await self.mqtt_manager.send_command(device, command, **kwargs)
+
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
         if self.mqtt_manager:

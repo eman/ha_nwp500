@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- **BREAKING: nwp500-python v7.1.0 API changes**: Updated MQTT control method calls to use `.control` property
+  - All device control methods now accessed via `mqtt_client.control.method_name()`
+  - Updated `request_device_status()`, `request_device_info()`, and all control commands
+  - Required to support new capability checking system in library v7.1.0
 - **Python 3.13-3.14 optimizations**: Updated to leverage latest Python performance improvements
   - Dictionary operations benefit from 10-15% faster lookups and comprehensions
   - Improved function call performance reduces coordinator overhead

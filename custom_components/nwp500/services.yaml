@@ -153,3 +153,105 @@ request_reservations:
       selector:
         device:
           integration: nwp500
+
+enable_demand_response:
+  name: Enable Demand Response
+  description: >-
+    Enable participation in utility demand response programs. When enabled,
+    the device can respond to utility signals to reduce power consumption
+    during peak demand periods.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+
+disable_demand_response:
+  name: Disable Demand Response
+  description: Disable utility demand response participation
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+
+reset_air_filter:
+  name: Reset Air Filter Timer
+  description: >-
+    Reset the air filter maintenance timer. Use this after cleaning or
+    replacing the air filter to restart the maintenance tracking.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+
+set_vacation_days:
+  name: Set Vacation Days
+  description: >-
+    Configure vacation mode duration. Sets the device to vacation mode for
+    the specified number of days (1-365). Vacation mode reduces energy
+    consumption during extended absences.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+    days:
+      name: Days
+      description: Number of days for vacation mode (1-365)
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 365
+          mode: box
+
+set_recirculation_mode:
+  name: Set Recirculation Mode
+  description: >-
+    Set the recirculation pump operation mode. Controls how the hot water
+    recirculation system operates.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+    mode:
+      name: Mode
+      description: Recirculation mode (1-4)
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 4
+          mode: box
+
+trigger_recirculation:
+  name: Trigger Recirculation
+  description: >-
+    Manually trigger the recirculation pump hot button. Immediately starts
+    the recirculation pump to deliver hot water to fixtures.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500

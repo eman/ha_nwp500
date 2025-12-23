@@ -34,6 +34,12 @@ SERVICE_SET_RESERVATION = "set_reservation"
 SERVICE_UPDATE_RESERVATIONS = "update_reservations"
 SERVICE_CLEAR_RESERVATIONS = "clear_reservations"
 SERVICE_REQUEST_RESERVATIONS = "request_reservations"
+SERVICE_ENABLE_DEMAND_RESPONSE = "enable_demand_response"
+SERVICE_DISABLE_DEMAND_RESPONSE = "disable_demand_response"
+SERVICE_RESET_AIR_FILTER = "reset_air_filter"
+SERVICE_SET_VACATION_DAYS = "set_vacation_days"
+SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
+SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -43,6 +49,7 @@ ATTR_MINUTE = "minute"
 ATTR_OP_MODE = "mode"  # Renamed to avoid conflict with HA's ATTR_MODE
 ATTR_TEMPERATURE = "temperature"
 ATTR_RESERVATIONS = "reservations"
+ATTR_RECIRCULATION_MODE = "mode"
 
 # Valid days of the week
 VALID_DAYS = [
@@ -105,6 +112,24 @@ SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.Schema(
 SERVICE_DEVICE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
+    }
+)
+
+SERVICE_SET_VACATION_DAYS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required(ATTR_DAYS): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=365)
+        ),
+    }
+)
+
+SERVICE_SET_RECIRCULATION_MODE_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required(ATTR_RECIRCULATION_MODE): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=4)
+        ),
     }
 )
 
@@ -313,6 +338,112 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN,
         SERVICE_REQUEST_RESERVATIONS,
         async_request_reservations,
+        schema=SERVICE_DEVICE_SCHEMA,
+    )
+
+    async def async_enable_demand_response(call: ServiceCall) -> None:
+        """Handle enable_demand_response service call."""
+        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        _LOGGER.info("Enabling demand response for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "enable_demand_response"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to enable demand response")
+
+    async def async_disable_demand_response(call: ServiceCall) -> None:
+        """Handle disable_demand_response service call."""
+        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        _LOGGER.info("Disabling demand response for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "disable_demand_response"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to disable demand response")
+
+    async def async_reset_air_filter(call: ServiceCall) -> None:
+        """Handle reset_air_filter service call."""
+        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        _LOGGER.info("Resetting air filter timer for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "reset_air_filter"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to reset air filter timer")
+
+    async def async_set_vacation_days(call: ServiceCall) -> None:
+        """Handle set_vacation_days service call."""
+        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        days = call.data[ATTR_DAYS]
+        _LOGGER.info("Setting vacation mode for %s days on %s", days, mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "set_vacation_days", days=days
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set vacation days")
+
+    async def async_set_recirculation_mode(call: ServiceCall) -> None:
+        """Handle set_recirculation_mode service call."""
+        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        mode = call.data[ATTR_RECIRCULATION_MODE]
+        _LOGGER.info(
+            "Setting recirculation mode to %d for %s", mode, mac_address
+        )
+        success = await coordinator.async_send_command(
+            mac_address, "set_recirculation_mode", mode=mode
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set recirculation mode")
+
+    async def async_trigger_recirculation(call: ServiceCall) -> None:
+        """Handle trigger_recirculation service call."""
+        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        _LOGGER.info("Triggering recirculation pump for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "trigger_recirculation"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to trigger recirculation")
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ENABLE_DEMAND_RESPONSE,
+        async_enable_demand_response,
+        schema=SERVICE_DEVICE_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DISABLE_DEMAND_RESPONSE,
+        async_disable_demand_response,
+        schema=SERVICE_DEVICE_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESET_AIR_FILTER,
+        async_reset_air_filter,
+        schema=SERVICE_DEVICE_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_VACATION_DAYS,
+        async_set_vacation_days,
+        schema=SERVICE_SET_VACATION_DAYS_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_RECIRCULATION_MODE,
+        async_set_recirculation_mode,
+        schema=SERVICE_SET_RECIRCULATION_MODE_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_TRIGGER_RECIRCULATION,
+        async_trigger_recirculation,
         schema=SERVICE_DEVICE_SCHEMA,
     )
 

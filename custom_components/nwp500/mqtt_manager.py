@@ -329,6 +329,28 @@ class NWP500MqttManager:
                 )
             elif command == "request_reservations":
                 await self.mqtt_client.control.request_reservations(device)
+            elif command == "enable_demand_response":
+                await self.mqtt_client.control.enable_demand_response(device)
+            elif command == "disable_demand_response":
+                await self.mqtt_client.control.disable_demand_response(device)
+            elif command == "reset_air_filter":
+                await self.mqtt_client.control.reset_air_filter(device)
+            elif command == "set_vacation_days":
+                days = kwargs.get("days")
+                if days:
+                    await self.mqtt_client.control.set_vacation_days(
+                        device, int(days)
+                    )
+            elif command == "set_recirculation_mode":
+                mode = kwargs.get("mode")
+                if mode:
+                    await self.mqtt_client.control.set_recirculation_mode(
+                        device, int(mode)
+                    )
+            elif command == "trigger_recirculation":
+                await self.mqtt_client.control.trigger_recirculation_hot_button(
+                    device
+                )
             else:
                 _LOGGER.error("Unknown command: %s", command)
                 return False
