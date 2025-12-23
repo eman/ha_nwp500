@@ -102,6 +102,13 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         model_name = "NWP500"
         
         device_feature = self.coordinator.device_features.get(self.mac_address)
+        
+        _LOGGER.info(
+            "Building device info for %s - feature_available=%s",
+            self.mac_address,
+            device_feature is not None,
+        )
+        
         if device_feature:
             # Serial number
             serial_number = getattr(
@@ -114,6 +121,14 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             )
             panel_fw = getattr(device_feature, "panel_sw_version", None)
             wifi_fw = getattr(device_feature, "wifi_sw_version", None)
+            
+            _LOGGER.info(
+                "Device feature data: controller_fw=%s panel_fw=%s wifi_fw=%s serial=%s",
+                controller_fw,
+                panel_fw,
+                wifi_fw,
+                serial_number,
+            )
             
             # Build comprehensive firmware version string
             version_parts = []
@@ -129,6 +144,10 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             # Hardware version - tank capacity and model details
             volume = getattr(device_feature, "volume_code", None)
             model_type = getattr(device_feature, "model_type_code", None)
+            
+            _LOGGER.info(
+                "Device capacity/type: volume=%s model_type=%s", volume, model_type
+            )
             
             hw_parts = []
             if volume:
@@ -149,6 +168,14 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             # Enhance model name with capacity
             if volume:
                 model_name = f"NWP500-{volume}"
+            
+            _LOGGER.info(
+                "Final device info: model=%s sw_version=%s hw_version=%s serial=%s",
+                model_name,
+                sw_version,
+                hw_version,
+                serial_number,
+            )
 
         # Create DeviceInfo
         return DeviceInfo(
