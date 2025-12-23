@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING: nwp500-python v7.1.0 API changes**: Updated MQTT control method calls to use `.control` property
   - All device control methods now accessed via `mqtt_client.control.method_name()`
   - Updated `request_device_status()`, `request_device_info()`, and all control commands
+  - Periodic request methods consolidated to `start_periodic_requests()` with `PeriodicRequestType` enum
   - Required to support new capability checking system in library v7.1.0
 - **Python 3.13+ match/case statements**: Refactored command dispatcher to use modern pattern matching
   - Replaced long if/elif chains with match/case for cleaner code

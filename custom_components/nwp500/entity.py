@@ -93,80 +93,75 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
     def _build_device_info(self) -> DeviceInfo:
         """Build device info with all available information."""
-        # Start with base device info
-        device_info = DeviceInfo(
-            identifiers={(DOMAIN, self.mac_address)},
-            name=self.device.device_info.device_name or "Navien NWP500",
-            manufacturer="Navien",
-            model="NWP500",
-            connections={("mac", self.mac_address.lower())},
-        )
+        device_name = self.device.device_info.device_name or "Navien NWP500"
 
-        # Update name with location information if available
-        device_name = device_info["name"]
-        if hasattr(self.device, "location") and self.device.location:
-            location = self.device.location
-            location_parts = []
-            if location.city:
-                location_parts.append(location.city)
-            if location.state:
-                location_parts.append(location.state)
-            if location_parts:
-                # Create new DeviceInfo with updated name
-                device_name = f"{device_name} ({', '.join(location_parts)})"
-
-        # Get device feature info for additional details
+        # Get device feature info for detailed information
         serial_number = None
         sw_version = None
+        hw_version = None
+        model_name = "NWP500"
+        
         device_feature = self.coordinator.device_features.get(self.mac_address)
         if device_feature:
-            _LOGGER.debug("Device feature available for %s", self.mac_address)
-            # Get serial number
+            # Serial number
             serial_number = getattr(
                 device_feature, "controller_serial_number", None
             )
-
-            # Use controller firmware version as primary sw_version
-            # (HA convention) This provides a concise version
-            # identifier for the main device firmware
-            controller_version = getattr(
+            
+            # Firmware versions - use composite version for sw_version
+            controller_fw = getattr(
                 device_feature, "controller_sw_version", None
             )
-            sw_version = (
-                controller_version  # Simple, clean version for HA device info
-            )
+            panel_fw = getattr(device_feature, "panel_sw_version", None)
+            wifi_fw = getattr(device_feature, "wifi_sw_version", None)
+            
+            # Build comprehensive firmware version string
+            version_parts = []
+            if controller_fw:
+                version_parts.append(f"C:{controller_fw}")
+            if panel_fw:
+                version_parts.append(f"P:{panel_fw}")
+            if wifi_fw:
+                version_parts.append(f"W:{wifi_fw}")
+            
+            sw_version = " | ".join(version_parts) if version_parts else None
+            
+            # Hardware version - tank capacity and model details
+            volume = getattr(device_feature, "volume_code", None)
+            model_type = getattr(device_feature, "model_type_code", None)
+            
+            hw_parts = []
+            if volume:
+                hw_parts.append(f"{volume} gal")
+            if model_type:
+                hw_parts.append(f"Type {model_type}")
+            
+            # Add connection status
+            if (
+                hasattr(self.device.device_info, "connected")
+                and self.device.device_info.connected is not None
+            ):
+                status = "Online" if self.device.device_info.connected else "Offline"
+                hw_parts.append(status)
+            
+            hw_version = " | ".join(hw_parts) if hw_parts else None
+            
+            # Enhance model name with capacity
+            if volume:
+                model_name = f"NWP500-{volume}"
 
-        # Build hardware version based on device type and connection status
-        hw_version_parts = [f"Type {self.device.device_info.device_type}"]
-
-        # Check connection status
-        if (
-            hasattr(self.device.device_info, "connected")
-            and self.device.device_info.connected is not None
-        ):
-            connection_status = (
-                "Connected"
-                if self.device.device_info.connected
-                else "Disconnected"
-            )
-            hw_version_parts.append(connection_status)
-
-        hw_version = " | ".join(hw_version_parts)
-
-        # Create final DeviceInfo with all attributes
-        final_device_info = DeviceInfo(
+        # Create DeviceInfo
+        return DeviceInfo(
             identifiers={(DOMAIN, self.mac_address)},
             name=device_name,
             manufacturer="Navien",
-            model="NWP500",
+            model=model_name,
             connections={("mac", self.mac_address.lower())},
             serial_number=serial_number,
             sw_version=sw_version,
             hw_version=hw_version,
             suggested_area="Utility Room",
         )
-
-        return final_device_info
 
     @property
     def device_data(self) -> dict[str, Any] | None:
