@@ -222,14 +222,14 @@ DEVICE_STATUS_SENSORS: Final = {
         "entity_registry_enabled_default": False,
     },
     "error_code": {
-        "name": "Primary Error Code",
+        "name": "Error Code",
         "device_class": None,
         "unit": None,
         "state_class": None,
         "entity_registry_enabled_default": True,
     },
     "sub_error_code": {
-        "name": "Secondary Error Code",
+        "name": "Sub Error Code",
         "device_class": None,
         "unit": None,
         "state_class": None,
@@ -372,11 +372,6 @@ DEVICE_STATUS_BINARY_SENSORS: Final = {
         "device_class": "heat",
         "entity_registry_enabled_default": True,
     },
-    "current_heat_use": {
-        "name": "Current Heat Use",
-        "device_class": "heat",
-        "entity_registry_enabled_default": False,
-    },
     "scald_use": {
         "name": "Scald Protection Warning",
         "device_class": "safety",
@@ -400,7 +395,7 @@ DEVICE_STATUS_BINARY_SENSORS: Final = {
         "entity_registry_enabled_default": False,
     },
     "eco_use": {
-        "name": "ECO Safety Limit Triggered",
+        "name": "Overheat Protection Enabled",
         "entity_registry_enabled_default": False,
     },
     "program_reservation_use": {
@@ -614,12 +609,13 @@ SENSOR_CONFIGS: Final = {
     # Status and error codes
     "error_code": {
         "attr": "error_code",
-        "name": "Primary Error Code",
+        "name": "Error Code",
+        "special": "enum_name",
         "enabled": True,
     },
     "sub_error_code": {
         "attr": "sub_error_code",
-        "name": "Secondary Error Code",
+        "name": "Sub Error Code",
         "enabled": False,
     },
     # Flow rate sensors
@@ -656,15 +652,24 @@ SENSOR_CONFIGS: Final = {
     "vacation_day_setting": {
         "attr": "vacation_day_setting",
         "name": "Vacation Day Setting",
-        "unit": "days",
+        "unit": "d",
+        "device_class": "duration",
         "enabled": False,
     },
     "vacation_day_elapsed": {
         "attr": "vacation_day_elapsed",
         "name": "Vacation Day Elapsed",
-        "unit": "days",
+        "unit": "d",
+        "device_class": "duration",
         "state_class": "measurement",
         "enabled": False,
+    },
+    # Heat source sensor
+    "current_heat_use": {
+        "attr": "current_heat_use",
+        "name": "Current Heat Source",
+        "special": "enum_name",
+        "enabled": True,
     },
     # Diagnostic sensors
     "eev_step": {
@@ -920,6 +925,7 @@ SENSOR_CONFIGS: Final = {
         "attr": "cumulated_op_time_eva_fan",
         "name": "Cumulated Evaporator Fan Operation Time",
         "unit": "h",
+        "device_class": "duration",
         "state_class": "total_increasing",
         "enabled": False,
     },
@@ -927,7 +933,8 @@ SENSOR_CONFIGS: Final = {
     "anti_legionella_period": {
         "attr": "anti_legionella_period",
         "name": "Anti-Legionella Period",
-        "unit": "days",
+        "unit": "d",
+        "device_class": "duration",
         "state_class": "measurement",
         "enabled": False,
     },
@@ -935,6 +942,7 @@ SENSOR_CONFIGS: Final = {
         "attr": "air_filter_alarm_period",
         "name": "Air Filter Alarm Period",
         "unit": "h",
+        "device_class": "duration",
         "state_class": "measurement",
         "enabled": False,
     },
@@ -942,6 +950,7 @@ SENSOR_CONFIGS: Final = {
         "attr": "air_filter_alarm_elapsed",
         "name": "Air Filter Alarm Elapsed",
         "unit": "h",
+        "device_class": "duration",
         "state_class": "measurement",
         "enabled": False,
     },
@@ -955,6 +964,7 @@ SENSOR_CONFIGS: Final = {
     "temp_formula_type": {
         "attr": "temp_formula_type",
         "name": "Temperature Formula Type",
+        "special": "enum_name",
         "enabled": False,
     },
     "tou_status": {
@@ -962,19 +972,18 @@ SENSOR_CONFIGS: Final = {
         "name": "TOU Status",
         "enabled": False,
     },
-    "tou_override_status": {
-        "attr": "tou_override_status",
-        "name": "TOU Override Status",
-        "enabled": False,
-    },
     "dr_event_status": {
         "attr": "dr_event_status",
         "name": "DR Event Status",
+        "special": "enum_name",
         "enabled": False,
     },
     "dr_override_status": {
         "attr": "dr_override_status",
-        "name": "DR Override Status",
+        "name": "DR Override Hours Remaining",
+        "unit": "h",
+        "device_class": "duration",
+        "state_class": "measurement",
         "enabled": False,
     },
     "recirculation_error_status": {

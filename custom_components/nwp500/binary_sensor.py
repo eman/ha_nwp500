@@ -126,16 +126,6 @@ def create_binary_sensor_descriptions() -> tuple[
 
     descriptions.append(
         NWP500BinarySensorEntityDescription(
-            key="current_heat_use",
-            name="Current Heat Use",
-            device_class=BinarySensorDeviceClass.HEAT,
-            entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "current_heat_use", None),
-        )
-    )
-
-    descriptions.append(
-        NWP500BinarySensorEntityDescription(
             key="scald_use",
             name="Scald Protection Warning",
             device_class=BinarySensorDeviceClass.SAFETY,
@@ -190,7 +180,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="eco_use",
-            name="ECO Safety Limit Triggered",
+            name="Overheat Protection Enabled",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(status, "eco_use", None),
         )

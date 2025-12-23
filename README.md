@@ -74,7 +74,7 @@ Comprehensive boolean status indicators:
 - EEV Active
 - Evaporator Fan Running
 - Current Heat Use
-- Eco Mode Active
+- Overheat Protection Enabled
 - Program Reservation Active
 
 ## Installation
@@ -149,7 +149,7 @@ This creates a reservation that activates High Demand mode at 6:30 AM on weekday
 
 ## Library Version
 
-This integration currently uses **nwp500-python v6.1.1**.
+This integration currently uses **nwp500-python v7.0.1**.
 
 For version history and changelog, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
@@ -215,7 +215,7 @@ This error means authentication succeeded, but the Navien cloud API returned an 
    - Contact the device owner if you're using a shared device
 
 **Integration won't load:**
-- Ensure nwp500-python==7.0.0 is installed
+- Ensure nwp500-python==7.0.1 is installed
 - Check Home Assistant logs for specific errors
 
 **No device status updates:**
