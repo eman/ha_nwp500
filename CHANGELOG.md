@@ -47,6 +47,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This section tracks changes in the nwp500-python library that this integration depends on.
 
+### v7.0.1 (2025-12-18)
+
+#### Fixed
+- Minor bug fixes and improvements
+- Fixed DREvent enum integration for DR Event Status sensor
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.0.1
+
 ### v7.0.0 (2025-12-18)
 
 #### Key Changes
