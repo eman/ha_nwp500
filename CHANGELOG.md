@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **New v7.1.0 Control Services**: Exposed new device control commands from nwp500-python v7.1.0
+  - `nwp500.enable_demand_response` / `nwp500.disable_demand_response` - Utility demand response participation
+  - `nwp500.reset_air_filter` - Reset air filter maintenance timer
+  - `nwp500.set_vacation_days` - Configure vacation mode duration (1-365 days)
+  - `nwp500.set_recirculation_mode` - Control recirculation pump mode (1-4)
+  - `nwp500.trigger_recirculation` - Manual recirculation pump hot button trigger
+  - All services support device selector for easy automation
+
 ### Changed
 - **BREAKING: nwp500-python v7.1.0 API changes**: Updated MQTT control method calls to use `.control` property
   - All device control methods now accessed via `mqtt_client.control.method_name()`

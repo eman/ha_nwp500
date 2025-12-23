@@ -295,65 +295,78 @@ class NWP500MqttManager:
             return False
 
         try:
-            if command == "set_power":
-                await self.mqtt_client.control.set_power(
-                    device, kwargs.get("power_on", True)
-                )
-            elif command == "set_temperature":
-                temp = kwargs.get("temperature")
-                if temp:
-                    await self.mqtt_client.control.set_dhw_temperature(
-                        device, float(temp)
+            match command:
+                case "set_power":
+                    await self.mqtt_client.control.set_power(
+                        device, kwargs.get("power_on", True)
                     )
-            elif command == "set_dhw_mode":
-                mode = kwargs.get("mode")
-                if mode:
-                    await self.mqtt_client.control.set_dhw_mode(device, int(mode))
-            elif command == "set_tou_enabled":
-                enabled = kwargs.get("enabled", True)
-                await self.mqtt_client.control.set_tou_enabled(device, enabled)
-            elif command == "enable_anti_legionella":
-                period_days = kwargs.get("period_days", 14)
-                await self.mqtt_client.control.enable_anti_legionella(
-                    device, period_days
-                )
-            elif command == "disable_anti_legionella":
-                await self.mqtt_client.control.disable_anti_legionella(device)
-                enabled = kwargs.get("enabled", False)
-                await self.mqtt_client.control.set_tou_enabled(device, enabled)
-            elif command == "update_reservations":
-                reservations = kwargs.get("reservations", [])
-                enabled = kwargs.get("enabled", True)
-                await self.mqtt_client.control.update_reservations(
-                    device, reservations, enabled=enabled
-                )
-            elif command == "request_reservations":
-                await self.mqtt_client.control.request_reservations(device)
-            elif command == "enable_demand_response":
-                await self.mqtt_client.control.enable_demand_response(device)
-            elif command == "disable_demand_response":
-                await self.mqtt_client.control.disable_demand_response(device)
-            elif command == "reset_air_filter":
-                await self.mqtt_client.control.reset_air_filter(device)
-            elif command == "set_vacation_days":
-                days = kwargs.get("days")
-                if days:
-                    await self.mqtt_client.control.set_vacation_days(
-                        device, int(days)
+                case "set_temperature":
+                    temp = kwargs.get("temperature")
+                    if temp:
+                        await self.mqtt_client.control.set_dhw_temperature(
+                            device, float(temp)
+                        )
+                case "set_dhw_mode":
+                    mode = kwargs.get("mode")
+                    if mode:
+                        await self.mqtt_client.control.set_dhw_mode(
+                            device, int(mode)
+                        )
+                case "set_tou_enabled":
+                    enabled = kwargs.get("enabled", True)
+                    await self.mqtt_client.control.set_tou_enabled(
+                        device, enabled
                     )
-            elif command == "set_recirculation_mode":
-                mode = kwargs.get("mode")
-                if mode:
-                    await self.mqtt_client.control.set_recirculation_mode(
-                        device, int(mode)
+                case "enable_anti_legionella":
+                    period_days = kwargs.get("period_days", 14)
+                    await self.mqtt_client.control.enable_anti_legionella(
+                        device, period_days
                     )
-            elif command == "trigger_recirculation":
-                await self.mqtt_client.control.trigger_recirculation_hot_button(
-                    device
-                )
-            else:
-                _LOGGER.error("Unknown command: %s", command)
-                return False
+                case "disable_anti_legionella":
+                    await self.mqtt_client.control.disable_anti_legionella(
+                        device
+                    )
+                    enabled = kwargs.get("enabled", False)
+                    await self.mqtt_client.control.set_tou_enabled(
+                        device, enabled
+                    )
+                case "update_reservations":
+                    reservations = kwargs.get("reservations", [])
+                    enabled = kwargs.get("enabled", True)
+                    await self.mqtt_client.control.update_reservations(
+                        device, reservations, enabled=enabled
+                    )
+                case "request_reservations":
+                    await self.mqtt_client.control.request_reservations(device)
+                case "enable_demand_response":
+                    await self.mqtt_client.control.enable_demand_response(
+                        device
+                    )
+                case "disable_demand_response":
+                    await self.mqtt_client.control.disable_demand_response(
+                        device
+                    )
+                case "reset_air_filter":
+                    await self.mqtt_client.control.reset_air_filter(device)
+                case "set_vacation_days":
+                    days = kwargs.get("days")
+                    if days:
+                        await self.mqtt_client.control.set_vacation_days(
+                            device, int(days)
+                        )
+                case "set_recirculation_mode":
+                    mode = kwargs.get("mode")
+                    if mode:
+                        await self.mqtt_client.control.set_recirculation_mode(
+                            device, int(mode)
+                        )
+                case "trigger_recirculation":
+                    await self.mqtt_client.control.trigger_recirculation_hot_button(
+                        device
+                    )
+                case _:
+                    _LOGGER.error("Unknown command: %s", command)
+                    return False
 
             # Request update after command
             try:
