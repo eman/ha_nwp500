@@ -243,13 +243,15 @@ class NWP500MqttManager:
             return
 
         try:
+            from nwp500 import PeriodicRequestType  # type: ignore[attr-defined]
+
             # Status every 5 mins
-            await self.mqtt_client.start_periodic_device_status_requests(
-                device, 300.0
+            await self.mqtt_client.start_periodic_requests(
+                device, PeriodicRequestType.DEVICE_STATUS, 300.0
             )
             # Info every 30 mins
-            await self.mqtt_client.start_periodic_device_info_requests(
-                device, 1800.0
+            await self.mqtt_client.start_periodic_requests(
+                device, PeriodicRequestType.DEVICE_INFO, 1800.0
             )
 
             # Immediate info request
