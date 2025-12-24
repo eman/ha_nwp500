@@ -1,4 +1,4 @@
-"""The Navien NWP500 Heat Pump Water Heater integration.
+"""The Navien NWP500 integration.
 
 Requires Home Assistant 2025.1+ (Python 3.13-3.14).
 """

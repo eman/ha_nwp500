@@ -254,11 +254,10 @@ class NWP500MqttManager:
                 device, PeriodicRequestType.DEVICE_INFO, 1800.0
             )
 
-            # Immediate info request
-            try:
-                await self.mqtt_client.control.request_device_info(device)
-            except Exception as err:
-                _LOGGER.warning("Failed immediate info request: %s", err)
+            _LOGGER.debug(
+                "Started periodic requests for %s",
+                device.device_info.mac_address,
+            )
 
         except Exception as err:
             _LOGGER.warning(
@@ -273,7 +272,8 @@ class NWP500MqttManager:
             return
 
         try:
-            await self.mqtt_client.control.request_device_status(device)
+            # Use ensure_device_info_cached which triggers status update
+            await self.mqtt_client.ensure_device_info_cached(device)
             self.consecutive_timeouts = 0
         except Exception as err:
             self.consecutive_timeouts += 1
@@ -285,7 +285,7 @@ class NWP500MqttManager:
             return
 
         try:
-            await self.mqtt_client.control.request_device_info(device)
+            await self.mqtt_client.ensure_device_info_cached(device)
         except Exception as err:
             self._handle_aws_error(err, "device info request")
 
