@@ -194,3 +194,7 @@ class TestNWP500Sensor:
             mock_coordinator, mac_address, mock_device
         )
         assert connected_sensor.native_value == "connected"
+        assert (
+            connected_sensor.unique_id
+            == f"{mac_address}_diagnostic_mqtt_connected"
+        )

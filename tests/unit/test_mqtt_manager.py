@@ -340,6 +340,7 @@ def test_connected_since_property(manager):
     assert manager.is_connected is False
     assert manager.consecutive_timeouts == 0
     assert manager.diagnostics is None
+    assert manager.reconnection_in_progress is False
     
     # Set a value
     manager.connected_since = 1234567890.0

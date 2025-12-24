@@ -163,3 +163,21 @@ class TestNWP500TargetTemperature:
 
         # Should not request refresh if control failed
         mock_coordinator.async_request_refresh.assert_not_called()
+
+    def test_native_value_with_type_error(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test native_value returns None on TypeError."""
+        # Make the status return non-numeric value
+        mock_device_status.dhw_target_temperature_setting = "invalid"
+        
+        mac_address = mock_device.device_info.mac_address
+        number = NWP500TargetTemperature(
+            mock_coordinator, mac_address, mock_device
+        )
+        
+        # Should return None when conversion fails
+        assert number.native_value is None
