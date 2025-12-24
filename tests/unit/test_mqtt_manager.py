@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from awscrt.exceptions import AwsCrtError
 
-from custom_components.nwp500.mqtt_manager import NWP500MqttManager
+from custom_components.nwp500.mqtt_manager import (
+    NWP500MqttManager,
+    get_aws_error_name,
+)
 
 
 @pytest.fixture
@@ -270,3 +273,74 @@ async def test_send_command_request_reservations(
 
     assert result is True
     mock_mqtt_client.control.request_reservations.assert_called_once_with(mock_device)
+
+
+def test_get_aws_error_name_with_awscrterror():
+    """Test get_aws_error_name extracts name from AwsCrtError."""
+    error = AwsCrtError(
+        code=0,
+        name="AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION",
+        message="Test error",
+    )
+    error.name = "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
+    
+    result = get_aws_error_name(error)
+    
+    assert result == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
+
+
+def test_get_aws_error_name_with_regular_exception():
+    """Test get_aws_error_name returns empty string for non-AWS errors."""
+    error = RuntimeError("Regular error")
+    
+    result = get_aws_error_name(error)
+    
+    assert result == ""
+
+
+@pytest.mark.asyncio
+async def test_is_connected_property(manager):
+    """Test is_connected property."""
+    # Not connected initially
+    assert manager.is_connected is False
+    
+    # After setup, should be connected
+    with patch("nwp500.NavienMqttClient"):
+        await manager.setup()
+        assert manager.mqtt_client is not None
+
+
+@pytest.mark.asyncio
+async def test_request_device_info(manager, mock_mqtt_client, mock_device):
+    """Test request_device_info sends device info request."""
+    await manager.setup()
+    
+    await manager.request_device_info(mock_device)
+    
+    mock_mqtt_client.ensure_device_info_cached.assert_called_once_with(mock_device)
+
+
+@pytest.mark.asyncio  
+async def test_disconnect(manager, mock_mqtt_client):
+    """Test disconnect stops MQTT client."""
+    await manager.setup()
+    
+    await manager.disconnect()
+    
+    mock_mqtt_client.stop_all_periodic_tasks.assert_called_once()
+    mock_mqtt_client.disconnect.assert_called_once()
+
+
+
+
+def test_connected_since_property(manager):
+    """Test connected_since and manager properties."""
+    # Initially None
+    assert manager.connected_since is None
+    assert manager.is_connected is False
+    assert manager.consecutive_timeouts == 0
+    assert manager.diagnostics is None
+    
+    # Set a value
+    manager.connected_since = 1234567890.0
+    assert manager.connected_since == 1234567890.0

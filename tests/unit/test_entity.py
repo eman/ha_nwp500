@@ -154,6 +154,21 @@ class TestNWP500Entity:
         assert attrs["dhw_temperature"] is None
         assert attrs["error_code"] == 0
 
+    def test_get_status_attrs_no_status(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Test _get_status_attrs returns empty dict when no status."""
+        mac_address = "FF:FF:FF:FF:FF:FF"  # Non-existent device  
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+
+        attrs = entity._get_status_attrs("dhw_temperature", "error_code")
+
+        # Should return dict with None values when status is None
+        assert attrs["dhw_temperature"] is None
+        assert attrs["error_code"] is None
+
     def test_extra_state_attributes_with_features(
         self,
         mock_coordinator: MagicMock,
@@ -221,3 +236,32 @@ class TestNWP500Entity:
         assert attrs["address"] == "123 Main St"
         assert attrs["latitude"] == 37.7749
         assert attrs["longitude"] == -122.4194
+
+    def test_device_data_none_coordinator(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Test device_data returns None when coordinator has no data."""
+        mac_address = mock_device.device_info.mac_address
+        mock_coordinator.data = None
+        
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+        
+        assert entity.device_data is None
+
+    def test_device_name_property(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Test device_name property returns correct name."""
+        mac_address = mock_device.device_info.mac_address
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+        
+        # Should return the device name from mock
+        assert entity.device_name == "Test Water Heater"
+        
+        # Test fallback when device_name is None
+        mock_device.device_info.device_name = None
+        assert entity.device_name == "NWP500"
