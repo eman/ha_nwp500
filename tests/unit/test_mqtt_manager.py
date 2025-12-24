@@ -29,11 +29,18 @@ def mock_mqtt_client():
         client.start_periodic_device_info_requests = AsyncMock()
         client.request_device_info = AsyncMock()
         client.request_device_status = AsyncMock()
-        client.set_power = AsyncMock()
-        client.set_dhw_temperature = AsyncMock()
-        client.set_dhw_mode = AsyncMock()
+        client.ensure_device_info_cached = AsyncMock()
         client.stop_all_periodic_tasks = AsyncMock()
         client.reset_reconnect = AsyncMock()
+        
+        # Mock control commands
+        client.control = MagicMock()
+        client.control.set_power = AsyncMock()
+        client.control.set_dhw_temperature = AsyncMock()
+        client.control.set_dhw_mode = AsyncMock()
+        client.control.update_reservations = AsyncMock()
+        client.control.request_reservations = AsyncMock()
+        client.control.request_device_status = AsyncMock()
 
         mock.return_value = client
         yield client
@@ -98,8 +105,8 @@ async def test_send_command_success(manager, mock_mqtt_client, mock_device):
     result = await manager.send_command(mock_device, "set_power", power_on=True)
 
     assert result is True
-    mock_mqtt_client.set_power.assert_called_with(mock_device, True)
-    mock_mqtt_client.request_device_status.assert_called_with(mock_device)
+    mock_mqtt_client.control.set_power.assert_called_with(mock_device, True)
+    mock_mqtt_client.control.request_device_status.assert_called_with(mock_device)
 
 
 @pytest.mark.asyncio
@@ -117,12 +124,12 @@ async def test_send_command_queued(manager, mock_mqtt_client, mock_device):
     # If name is not set by constructor (depends on version), force it
     error.name = "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
 
-    mock_mqtt_client.set_power.side_effect = error
+    mock_mqtt_client.control.set_power.side_effect = error
 
     result = await manager.send_command(mock_device, "set_power", power_on=True)
 
     assert result is True  # Should return True as it's queued
-    mock_mqtt_client.set_power.assert_called_with(mock_device, True)
+    mock_mqtt_client.control.set_power.assert_called_with(mock_device, True)
 
 
 @pytest.mark.asyncio
@@ -130,12 +137,12 @@ async def test_send_command_failure(manager, mock_mqtt_client, mock_device):
     """Test sending a command that fails."""
     await manager.setup()
 
-    mock_mqtt_client.set_power.side_effect = RuntimeError("Some error")
+    mock_mqtt_client.control.set_power.side_effect = RuntimeError("Some error")
 
     result = await manager.send_command(mock_device, "set_power", power_on=True)
 
     assert result is False
-    mock_mqtt_client.set_power.assert_called_with(mock_device, True)
+    mock_mqtt_client.control.set_power.assert_called_with(mock_device, True)
 
 
 @pytest.mark.asyncio
@@ -214,7 +221,7 @@ async def test_request_status_consecutive_timeouts(
     assert manager.consecutive_timeouts == 0
 
     # 2. Failure should increment counter
-    mock_mqtt_client.request_device_status.side_effect = RuntimeError("Timeout")
+    mock_mqtt_client.ensure_device_info_cached.side_effect = RuntimeError("Timeout")
     await manager.request_status(mock_device)
     assert manager.consecutive_timeouts == 1
 
@@ -223,7 +230,7 @@ async def test_request_status_consecutive_timeouts(
     assert manager.consecutive_timeouts == 2
 
     # 4. Success should reset again
-    mock_mqtt_client.request_device_status.side_effect = None
+    mock_mqtt_client.ensure_device_info_cached.side_effect = None
     await manager.request_status(mock_device)
     assert manager.consecutive_timeouts == 0
 
@@ -234,9 +241,6 @@ async def test_send_command_update_reservations(
 ):
     """Test sending update_reservations command."""
     await manager.setup()
-
-    # Mock the update_reservations method
-    mock_mqtt_client.update_reservations = AsyncMock()
 
     reservations = [
         {"enable": 1, "week": 42, "hour": 6, "min": 30, "mode": 3, "param": 120}
@@ -250,7 +254,7 @@ async def test_send_command_update_reservations(
     )
 
     assert result is True
-    mock_mqtt_client.update_reservations.assert_called_once_with(
+    mock_mqtt_client.control.update_reservations.assert_called_once_with(
         mock_device, reservations, enabled=True
     )
 
@@ -262,10 +266,7 @@ async def test_send_command_request_reservations(
     """Test sending request_reservations command."""
     await manager.setup()
 
-    # Mock the request_reservations method
-    mock_mqtt_client.request_reservations = AsyncMock()
-
     result = await manager.send_command(mock_device, "request_reservations")
 
     assert result is True
-    mock_mqtt_client.request_reservations.assert_called_once_with(mock_device)
+    mock_mqtt_client.control.request_reservations.assert_called_once_with(mock_device)

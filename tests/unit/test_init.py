@@ -127,8 +127,8 @@ async def test_async_setup_entry_registers_services():
 
         await async_setup_entry(mock_hass, mock_entry)
 
-        # Verify all 4 services were registered
-        assert mock_hass.services.async_register.call_count == 4
+        # Verify all 10 services were registered
+        assert mock_hass.services.async_register.call_count == 10
 
         # Get all service names that were registered
         registered_services = [

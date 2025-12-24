@@ -148,6 +148,8 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             
             if volume:
                 model_name = f"NWP500-{volume}"
+            else:
+                model_name = "NWP500"
             
             _LOGGER.info(
                 "Final device info: model=%s sw_version=%s hw_version=%s serial=%s",
