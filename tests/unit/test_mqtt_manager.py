@@ -345,3 +345,20 @@ def test_connected_since_property(manager):
     # Set a value
     manager.connected_since = 1234567890.0
     assert manager.connected_since == 1234567890.0
+
+
+@pytest.mark.asyncio
+async def test_request_device_info_no_client(mock_auth_client, mock_device):
+    """Test request_device_info does nothing when no MQTT client."""
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+    )
+    
+    # Should return early when mqtt_client is None
+    await manager.request_device_info(mock_device)
+    
+    # No error should be raised
+    assert manager.mqtt_client is None
