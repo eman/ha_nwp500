@@ -196,5 +196,5 @@ class TestNWP500Sensor:
         assert connected_sensor.native_value == "connected"
         assert (
             connected_sensor.unique_id
-            == f"{mac_address}_diagnostic_mqtt_connected"
+            == f"{mac_address}_diagnostic_mqtt_status"
         )
