@@ -93,80 +93,93 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
     def _build_device_info(self) -> DeviceInfo:
         """Build device info with all available information."""
-        # Start with base device info
-        device_info = DeviceInfo(
-            identifiers={(DOMAIN, self.mac_address)},
-            name=self.device.device_info.device_name or "Navien NWP500",
-            manufacturer="Navien",
-            model="NWP500",
-            connections={("mac", self.mac_address.lower())},
-        )
+        device_name = self.device.device_info.device_name or "Navien NWP500"
 
-        # Update name with location information if available
-        device_name = device_info["name"]
-        if hasattr(self.device, "location") and self.device.location:
-            location = self.device.location
-            location_parts = []
-            if location.city:
-                location_parts.append(location.city)
-            if location.state:
-                location_parts.append(location.state)
-            if location_parts:
-                # Create new DeviceInfo with updated name
-                device_name = f"{device_name} ({', '.join(location_parts)})"
-
-        # Get device feature info for additional details
+        # Get device feature info for detailed information
         serial_number = None
         sw_version = None
+        hw_version = None
+        model_name = "NWP500"
+        configuration_url = None
+        suggested_area = "Utility Room"
+        
         device_feature = self.coordinator.device_features.get(self.mac_address)
+        
+        _LOGGER.info(
+            "Building device info for %s - feature_available=%s",
+            self.mac_address,
+            device_feature is not None,
+        )
+        
         if device_feature:
-            _LOGGER.debug("Device feature available for %s", self.mac_address)
-            # Get serial number
+            # Serial number from controller
             serial_number = getattr(
                 device_feature, "controller_serial_number", None
             )
-
-            # Use controller firmware version as primary sw_version
-            # (HA convention) This provides a concise version
-            # identifier for the main device firmware
-            controller_version = getattr(
+            
+            # Firmware versions
+            controller_fw = getattr(
                 device_feature, "controller_sw_version", None
             )
-            sw_version = (
-                controller_version  # Simple, clean version for HA device info
+            wifi_fw = getattr(device_feature, "wifi_sw_version", None)
+            
+            _LOGGER.info(
+                "Device feature data: controller_fw=%s wifi_fw=%s serial=%s",
+                controller_fw,
+                wifi_fw,
+                serial_number,
+            )
+            
+            # Build software version: "Controller.WiFi" format
+            if controller_fw and wifi_fw:
+                sw_version = f"{controller_fw}.{wifi_fw}"
+            elif controller_fw:
+                sw_version = controller_fw
+            
+            # Hardware version: controller serial number
+            hw_version = serial_number
+            
+            # Model name with capacity
+            volume = getattr(device_feature, "volume_code", None)
+            
+            _LOGGER.info(
+                "Device capacity: volume=%s", volume
+            )
+            
+            if volume:
+                model_name = f"NWP500-{volume}"
+            else:
+                model_name = "NWP500"
+            
+            _LOGGER.info(
+                "Final device info: model=%s sw_version=%s hw_version=%s serial=%s",
+                model_name,
+                sw_version,
+                hw_version,
+                serial_number,
             )
 
-        # Build hardware version based on device type and connection status
-        hw_version_parts = [f"Type {self.device.device_info.device_type}"]
+        # Configuration URL for Navien Smart Control app
+        configuration_url = f"https://app.naviensmartcontrol.com/device/{self.mac_address}"
+        
+        # Suggested area from location if available
+        if hasattr(self.device, "location") and self.device.location:
+            location = self.device.location
+            if location.city:
+                suggested_area = location.city
 
-        # Check connection status
-        if (
-            hasattr(self.device.device_info, "connected")
-            and self.device.device_info.connected is not None
-        ):
-            connection_status = (
-                "Connected"
-                if self.device.device_info.connected
-                else "Disconnected"
-            )
-            hw_version_parts.append(connection_status)
-
-        hw_version = " | ".join(hw_version_parts)
-
-        # Create final DeviceInfo with all attributes
-        final_device_info = DeviceInfo(
+        # Create DeviceInfo
+        return DeviceInfo(
             identifiers={(DOMAIN, self.mac_address)},
             name=device_name,
             manufacturer="Navien",
-            model="NWP500",
-            connections={("mac", self.mac_address.lower())},
+            model=model_name,
             serial_number=serial_number,
-            sw_version=sw_version,
             hw_version=hw_version,
-            suggested_area="Utility Room",
+            sw_version=sw_version,
+            configuration_url=configuration_url,
+            suggested_area=suggested_area,
         )
-
-        return final_device_info
 
     @property
     def device_data(self) -> dict[str, Any] | None:
@@ -197,10 +210,16 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             # Add location info if available
             if hasattr(self.device, "location") and self.device.location:
                 location = self.device.location
+                if location.address:
+                    attrs["address"] = location.address
                 if location.city:
                     attrs["city"] = location.city
                 if location.state:
                     attrs["state"] = location.state
+                if location.latitude:
+                    attrs["latitude"] = location.latitude
+                if location.longitude:
+                    attrs["longitude"] = location.longitude
 
             # Add device feature info if available (technical details
             # not in device info)
@@ -212,29 +231,61 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 controller_version = getattr(
                     device_feature, "controller_sw_version", None
                 )
+                controller_code = getattr(
+                    device_feature, "controller_sw_code", None
+                )
                 panel_version = getattr(
                     device_feature, "panel_sw_version", None
                 )
+                panel_code = getattr(
+                    device_feature, "panel_sw_code", None
+                )
                 wifi_version = getattr(device_feature, "wifi_sw_version", None)
+                wifi_code = getattr(device_feature, "wifi_sw_code", None)
+                recirc_version = getattr(device_feature, "recirc_sw_version", None)
 
                 attrs.update(
                     {
                         "controller_sw_version": controller_version,
+                        "controller_sw_code": controller_code,
                         "panel_sw_version": panel_version,
+                        "panel_sw_code": panel_code,
                         "wifi_sw_version": wifi_version,
+                        "wifi_sw_code": wifi_code,
                     }
                 )
 
-                # Add composite firmware version string for comprehensive view
-                version_parts = []
-                if controller_version:
-                    version_parts.append(f"Controller: {controller_version}")
-                if panel_version:
-                    version_parts.append(f"Panel: {panel_version}")
-                if wifi_version:
-                    version_parts.append(f"WiFi: {wifi_version}")
+                if recirc_version:
+                    attrs["recirc_sw_version"] = recirc_version
 
-                if version_parts:
-                    attrs["firmware_versions"] = " | ".join(version_parts)
+                # Capabilities
+                attrs.update(
+                    {
+                        "hpwh_use": getattr(device_feature, "hpwh_use", None),
+                        "recirculation_use": getattr(device_feature, "recirculation_use", None),
+                        "dr_setting_use": getattr(device_feature, "dr_setting_use", None),
+                        "anti_legionella_setting_use": getattr(device_feature, "anti_legionella_setting_use", None),
+                        "freeze_protection_use": getattr(device_feature, "freeze_protection_use", None),
+                        "smart_diagnostic_use": getattr(device_feature, "smart_diagnostic_use", None),
+                    }
+                )
+
+                # Operating limits
+                attrs.update(
+                    {
+                        "dhw_temperature_min": getattr(device_feature, "dhw_temperature_min", None),
+                        "dhw_temperature_max": getattr(device_feature, "dhw_temperature_max", None),
+                        "temperature_type": getattr(device_feature, "temperature_type", None),
+                        "dhw_temperature_setting_use": getattr(device_feature, "dhw_temperature_setting_use", None),
+                    }
+                )
+
+                # Installation info
+                attrs.update(
+                    {
+                        "install_type": getattr(device_feature, "install_type", None),
+                        "country_code": getattr(device_feature, "country_code", None),
+                    }
+                )
 
         return attrs

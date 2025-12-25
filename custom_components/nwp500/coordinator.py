@@ -449,7 +449,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==6.1.1 awsiotsdk>=1.25.0"
+                "pip install nwp500-python==7.1.0 awsiotsdk>=1.27.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -542,6 +542,18 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 for device in self.devices:
                     await self.mqtt_manager.subscribe_device(device)
                     await self.mqtt_manager.start_periodic_requests(device)
+                    
+                    # Immediately request device info to populate device features
+                    try:
+                        _LOGGER.info(
+                            "Requesting initial device info for %s",
+                            device.device_info.mac_address
+                        )
+                        await self.mqtt_manager.request_device_info(device)
+                    except Exception as err:
+                        _LOGGER.warning(
+                            "Failed to request initial device info: %s", err
+                        )
 
             _LOGGER.info(
                 "Successfully connected to Navien cloud service with "
@@ -626,7 +638,23 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
     ) -> None:
         """Handle device feature update from MQTT Manager."""
         try:
-            _LOGGER.debug("Received device feature update for %s", mac_address)
+            _LOGGER.info("Received device feature update for %s", mac_address)
+            
+            # Debug: log feature data structure
+            if hasattr(feature, 'model_dump'):
+                feature_dict = feature.model_dump()
+                _LOGGER.info(
+                    "Device feature keys: %s",
+                    sorted(feature_dict.keys())
+                )
+                # Log specific fields we're interested in
+                _LOGGER.info(
+                    "Serial: %s, Volume: %s, Controller FW: %s",
+                    feature_dict.get('controller_serial_number'),
+                    feature_dict.get('volume_code'),
+                    feature_dict.get('controller_sw_version')
+                )
+            
             self.device_features[mac_address] = feature
         except Exception as err:
             _LOGGER.error("Error handling device feature update: %s", err)
@@ -755,6 +783,35 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         return await self.mqtt_manager.send_command(
             device, "request_reservations"
         )
+
+    async def async_send_command(
+        self, mac_address: str, command: str, **kwargs: Any
+    ) -> bool:
+        """Send a control command to a device.
+
+        Args:
+            mac_address: Device MAC address
+            command: Command name
+            **kwargs: Command arguments
+
+        Returns:
+            True if command was sent successfully
+        """
+        if not self.mqtt_manager:
+            _LOGGER.error("MQTT manager not available")
+            return False
+
+        device = None
+        for dev in self.devices:
+            if dev.device_info.mac_address == mac_address:
+                device = dev
+                break
+
+        if not device:
+            _LOGGER.error("Device %s not found", mac_address)
+            return False
+
+        return await self.mqtt_manager.send_command(device, command, **kwargs)
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""

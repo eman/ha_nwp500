@@ -72,7 +72,13 @@ def mock_device() -> MagicMock:
     location = MagicMock()
     location.city = "Test City"
     location.state = "CA"
+    location.address = None
+    location.latitude = None
+    location.longitude = None
     device.location = location
+    
+    # Mock device_features - return None to indicate not available
+    device.device_features.get.return_value = None
 
     return device
 
@@ -181,4 +187,7 @@ def mock_coordinator(
             "last_update": 1234567890.0,
         }
     }
+    # Mock device_features to return None (no features available)
+    coordinator.device_features = MagicMock()
+    coordinator.device_features.get.return_value = None
     return coordinator

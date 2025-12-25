@@ -7,7 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **New v7.1.0 Control Services**: Exposed new device control commands from nwp500-python v7.1.0
+  - `nwp500.enable_demand_response` / `nwp500.disable_demand_response` - Utility demand response participation
+  - `nwp500.reset_air_filter` - Reset air filter maintenance timer
+  - `nwp500.set_vacation_days` - Configure vacation mode duration (1-365 days)
+  - `nwp500.set_recirculation_mode` - Control recirculation pump mode (1-4)
+  - `nwp500.trigger_recirculation` - Manual recirculation pump hot button trigger
+  - All services support device selector for easy automation
+
 ### Changed
+- **BREAKING: nwp500-python v7.1.0 API changes**: Updated MQTT control method calls to use `.control` property
+  - All device control methods now accessed via `mqtt_client.control.method_name()`
+  - Updated `request_device_status()`, `request_device_info()`, and all control commands
+  - Periodic request methods consolidated to `start_periodic_requests()` with `PeriodicRequestType` enum
+  - Required to support new capability checking system in library v7.1.0
+- **Python 3.13+ match/case statements**: Refactored command dispatcher to use modern pattern matching
+  - Replaced long if/elif chains with match/case for cleaner code
+  - Leverages Python 3.13 structural pattern matching (PEP 634)
 - **Python 3.13-3.14 optimizations**: Updated to leverage latest Python performance improvements
   - Dictionary operations benefit from 10-15% faster lookups and comprehensions
   - Improved function call performance reduces coordinator overhead
@@ -46,6 +63,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v7.1.0 (2025-12-22)
+
+#### Added
+- **Device Capability System**: New device capability detection and validation framework
+  - `DeviceCapabilityChecker`: Validates device feature support based on device models
+  - `DeviceInfoCache`: Efficient caching of device information with configurable update intervals
+  - `@requires_capability` decorator: Automatic capability validation for MQTT commands
+  - `DeviceCapabilityError`: New exception for unsupported device features
+- **Advanced Control Commands**: New MQTT commands for advanced device features
+  - Demand response participation control
+  - Air filter maintenance tracking reset
+  - Vacation mode duration configuration
+  - Water program reservation management
+  - Recirculation pump control and scheduling
+- **CLI Documentation Updates**: Comprehensive documentation updates for subcommand-based CLI
+- **Model Field Factory Pattern**: New field factory to reduce boilerplate in model definitions
+
+#### Changed
+- **CLI Output**: Numeric values in status output now rounded to one decimal place for better readability
+- `MqttDeviceController` now integrates device capability checking with auto-caching of device info
+- **MQTT Control Refactoring**: Centralized device control via `.control` namespace
+- **Logging Security**: Enhanced sensitive data redaction (MAC addresses consistently redacted)
+
+#### Fixed
+- Type annotation consistency: Optional parameters now properly annotated
+- Multiple type annotation issues for CI compatibility
+- Mixing valve field: Corrected alias field name
+- Vacation days validation: Enforced maximum value validation
+- CI linting: Fixed line length violations and import sorting issues
+- Parser regressions: Fixed data parsing issues introduced in MQTT refactoring
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.1.0
 
 ### v7.0.1 (2025-12-18)
 
