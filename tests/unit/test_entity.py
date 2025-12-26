@@ -75,7 +75,7 @@ class TestNWP500Entity:
             device_info = entity.device_info
 
             assert device_info is not None
-            assert device_info["model"] == "NWP500-80G"
+            assert device_info["model"] == "NWP500"
             assert device_info["manufacturer"] == "Navien"
             assert device_info["serial_number"] == "SN123456"
             assert device_info["hw_version"] == "80 gallons"
