@@ -19,9 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Recirculation Minimum Temperature - lower temperature limit for recirculation loop
   - Recirculation Maximum Temperature - upper temperature limit for recirculation loop
   - All recirculation sensors are disabled by default
-- **Enhanced Device Information**: Tank volume now displayed in device model name
-  - Models display as "NWP500-50G", "NWP500-65G", or "NWP500-80G" based on tank capacity
-  - Uses VolumeCode enum from nwp500-python v7.2.0 for accurate capacity identification
 
 ### Changed
 - **Updated to nwp500-python v7.2.0**: Adopted latest library version
