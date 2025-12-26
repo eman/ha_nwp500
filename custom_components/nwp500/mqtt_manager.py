@@ -328,10 +328,6 @@ class NWP500MqttManager:
                     await self.mqtt_client.control.disable_anti_legionella(
                         device
                     )
-                    enabled = kwargs.get("enabled", False)
-                    await self.mqtt_client.control.set_tou_enabled(
-                        device, enabled
-                    )
                 case "update_reservations":
                     reservations = kwargs.get("reservations", [])
                     enabled = kwargs.get("enabled", True)

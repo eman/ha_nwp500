@@ -93,6 +93,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
     def _build_device_info(self) -> DeviceInfo:
         """Build device info with all available information."""
+        # Use device name from library
         device_name = self.device.device_info.device_name or "Navien NWP500"
 
         # Get device feature info for detailed information
@@ -136,20 +137,21 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             elif controller_fw:
                 sw_version = controller_fw
             
-            # Hardware version: controller serial number
-            hw_version = serial_number
+            # Get volume code
+            volume_code = getattr(device_feature, "volume_code", None)
             
-            # Model name with capacity
-            volume = getattr(device_feature, "volume_code", None)
+            # Hardware version: tank volume from library
+            hw_version = None
+            if volume_code is not None:
+                try:
+                    from nwp500.enums import VOLUME_CODE_TEXT
+                    hw_version = VOLUME_CODE_TEXT.get(volume_code)
+                except (ImportError, AttributeError, KeyError):
+                    pass
             
             _LOGGER.info(
-                "Device capacity: volume=%s", volume
+                "Device capacity: volume_code=%s", volume_code
             )
-            
-            if volume:
-                model_name = f"NWP500-{volume}"
-            else:
-                model_name = "NWP500"
             
             _LOGGER.info(
                 "Final device info: model=%s sw_version=%s hw_version=%s serial=%s",
@@ -281,11 +283,22 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 )
 
                 # Installation info
+                volume_code_value = getattr(device_feature, "volume_code", None)
                 attrs.update(
                     {
                         "install_type": getattr(device_feature, "install_type", None),
                         "country_code": getattr(device_feature, "country_code", None),
                     }
                 )
+                
+                # Add volume_code text from library
+                if volume_code_value is not None:
+                    try:
+                        from nwp500.enums import VOLUME_CODE_TEXT
+                        volume_code_text = VOLUME_CODE_TEXT.get(volume_code_value)
+                        if volume_code_text:
+                            attrs["volume_code"] = volume_code_text
+                    except (ImportError, AttributeError, KeyError):
+                        pass
 
         return attrs

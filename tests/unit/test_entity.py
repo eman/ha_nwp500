@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from custom_components.nwp500.entity import NWP500Entity
 
@@ -54,18 +54,33 @@ class TestNWP500Entity:
         mock_feature.controller_serial_number = "SN123456"
         mock_feature.controller_sw_version = "1.2.3"
         mock_feature.wifi_sw_version = "4.5.6"
-        mock_feature.volume_code = 80
-        mock_coordinator.device_features.get.return_value = mock_feature
         
-        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        device_info = entity.device_info
+        # Mock VolumeCode enum (80 gallon tank = code 67)
+        mock_volume_code = MagicMock()
+        mock_volume_code.value = 67
+        mock_feature.volume_code = mock_volume_code
+        
+        mock_coordinator.device_features.get.return_value = mock_feature
 
-        assert device_info is not None
-        assert device_info["model"] == "NWP500-80"
-        assert device_info["sw_version"] == "1.2.3.4.5.6"
-        assert device_info["hw_version"] == "SN123456"
-        assert device_info["serial_number"] == "SN123456"
-        assert device_info["configuration_url"] == f"https://app.naviensmartcontrol.com/device/{mac_address}"
+        # Mock VOLUME_CODE_TEXT
+        with patch.dict(
+            "sys.modules",
+            {
+                "nwp500": MagicMock(
+                    VOLUME_CODE_TEXT={mock_volume_code: "80 gallons"}
+                )
+            },
+        ):
+            entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+            device_info = entity.device_info
+
+            assert device_info is not None
+            assert device_info["model"] == "NWP500-80G"
+            assert device_info["manufacturer"] == "Navien"
+            assert device_info["serial_number"] == "SN123456"
+            assert device_info["hw_version"] == "SN123456"
+            assert device_info["sw_version"] == "1.2.3.4.5.6"
+            assert device_info["configuration_url"] == f"https://app.naviensmartcontrol.com/device/{mac_address}"
 
     def test_device_info_partial_firmware(
         self,
