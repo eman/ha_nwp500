@@ -146,6 +146,15 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 try:
                     from nwp500.enums import VOLUME_CODE_TEXT
                     hw_version = VOLUME_CODE_TEXT.get(volume_code)
+
+                    # Update model name with capacity if available
+                    if hw_version:
+                        if "50" in hw_version:
+                            model_name = "NWP500-50G"
+                        elif "65" in hw_version:
+                            model_name = "NWP500-65G"
+                        elif "80" in hw_version:
+                            model_name = "NWP500-80G"
                 except (ImportError, AttributeError, KeyError):
                     pass
             

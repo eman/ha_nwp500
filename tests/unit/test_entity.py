@@ -66,7 +66,7 @@ class TestNWP500Entity:
         with patch.dict(
             "sys.modules",
             {
-                "nwp500": MagicMock(
+                "nwp500.enums": MagicMock(
                     VOLUME_CODE_TEXT={mock_volume_code: "80 gallons"}
                 )
             },
@@ -78,7 +78,7 @@ class TestNWP500Entity:
             assert device_info["model"] == "NWP500-80G"
             assert device_info["manufacturer"] == "Navien"
             assert device_info["serial_number"] == "SN123456"
-            assert device_info["hw_version"] == "SN123456"
+            assert device_info["hw_version"] == "80 gallons"
             assert device_info["sw_version"] == "1.2.3.4.5.6"
             assert device_info["configuration_url"] == f"https://app.naviensmartcontrol.com/device/{mac_address}"
 
