@@ -13,7 +13,7 @@
   "iot_class": "cloud_polling",
   "quality_scale": "silver",
   "requirements": [
-    "nwp500-python==7.1.0",
+    "nwp500-python==7.2.2",
     "awsiotsdk>=1.27.0",
     "aiofiles>=24.1.0"
   ],

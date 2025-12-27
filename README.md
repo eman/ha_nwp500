@@ -149,7 +149,7 @@ This creates a reservation that activates High Demand mode at 6:30 AM on weekday
 
 ## Library Version
 
-This integration currently uses **nwp500-python v7.1.0**.
+This integration currently uses **nwp500-python v7.2.2**.
 
 For version history and changelog, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 

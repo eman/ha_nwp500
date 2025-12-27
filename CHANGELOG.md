@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Tank Volume Sensor**: New sensor displays tank capacity in gallons
+  - Shows 50, 65, or 80 gallons based on device model
+  - Enabled by default for easy visibility
+  - No entity category (static device characteristic, not config/diagnostic)
+  - Uses VolumeCode enum from nwp500-python v7.2.0
+- **New Recirculation Sensors**: Added missing recirculation system sensors from nwp500-python v7.2.0
+  - Recirculation Model Type Code - identifies installed recirculation hardware
+  - Recirculation Software Version - recirculation controller firmware version
+  - Recirculation Minimum Temperature - lower temperature limit for recirculation loop
+  - Recirculation Maximum Temperature - upper temperature limit for recirculation loop
+  - All recirculation sensors are disabled by default
+
+### Changed
+- **Updated to nwp500-python v7.2.0**: Adopted latest library version
+  - No breaking changes affecting this integration (class renames were internal to library)
+  - Enhanced VolumeCode enum provides better tank capacity identification
+  - New temperature conversion classes improve type safety (internal to library)
+  - See [nwp500-python v7.2.0 release notes](https://github.com/eman/nwp500-python/releases/tag/v7.2.0)
+
+## Previous Releases
+
+### Added (from v7.1.0)
 - **New v7.1.0 Control Services**: Exposed new device control commands from nwp500-python v7.1.0
   - `nwp500.enable_demand_response` / `nwp500.disable_demand_response` - Utility demand response participation
   - `nwp500.reset_air_filter` - Reset air filter maintenance timer
@@ -63,6 +85,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v7.2.2 (2025-12-26)
+ 
++#### Fixed
++- **TOU Status Always Showing False**: Fixed `touStatus` field always reporting `False` regardless of actual device state
++  - Root cause: Version 7.2.1 incorrectly changed `touStatus` to use device-specific 1/2 encoding, but the device uses standard 0/1 encoding
++  - Solution: Use Python's built-in `bool()` for `touStatus` field (handles 0=False, 1=True naturally)
++  - Device encoding: 0=OFF/disabled, 1=ON/enabled (standard Python truthiness)
++
++**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.2.2
++
++### v7.2.0 (2025-12-23)
+
+#### Breaking Changes
+- **Class Renames**: `DeviceCapabilityChecker` → `MqttDeviceCapabilityChecker`, `DeviceInfoCache` → `MqttDeviceInfoCache`
+  - These classes are MQTT-specific implementations
+  - **No impact on this integration** - we don't use these classes directly
+
+#### Added
+- **VolumeCode Enum**: Tank capacity identification with human-readable text
+  - `VOLUME_50GAL = 65`, `VOLUME_65GAL = 66`, `VOLUME_80GAL = 67`
+  - `VOLUME_CODE_TEXT` dict provides display text (e.g., "50 gallons")
+  - Used in `DeviceFeature.volume_code` field
+- **Temperature Conversion Classes**: Type-safe temperature handling (`HalfCelsius`, `DeciCelsius`)
+- **Protocol Converters Module**: Centralized device protocol conversion logic
+- **Recirculation Fields**: Additional recirculation system sensors
+  - `recirc_model_type_code`: Identifies installed recirculation hardware
+  - `recirc_sw_version`: Recirculation controller firmware version
+  - `recirc_temperature_min` / `recirc_temperature_max`: Temperature limits
+- **Factory Function**: New `create_navien_clients()` for streamlined initialization
+
+#### Changed
+- **MQTT Module Reorganization**: Consolidated into cohesive `mqtt` package
+- **CLI Framework**: Migrated from argparse to Click framework
+- **Examples Reorganization**: Structured into beginner/intermediate/advanced categories
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.2.0
 
 ### v7.1.0 (2025-12-22)
 

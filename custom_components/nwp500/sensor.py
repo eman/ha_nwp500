@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,6 +28,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN, SENSOR_CONFIGS
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
 
         # Check if this is a text/enum sensor (no numeric value)
         is_enum_sensor = config.get("special") == "enum_name"
+        is_boolean_sensor = config.get("special") == "boolean"
 
         # Determine the value function based on special handling needs
         if is_enum_sensor:
@@ -87,6 +91,18 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
                 return value_fn  # noqa: B023
 
             value_fn = _make_enum_value_fn(attr_name)
+        elif is_boolean_sensor:
+            # Special handling for boolean sensors - return "On"/"Off"
+            def _make_boolean_value_fn(attr: str) -> Callable[[Any], str | None]:
+                def value_fn(status: Any) -> str | None:
+                    val = getattr(status, attr, None)
+                    if val is None:
+                        return None
+                    return "On" if val else "Off"
+
+                return value_fn  # noqa: B023
+
+            value_fn = _make_boolean_value_fn(attr_name)
         else:
             # Standard attribute getter
             def _make_standard_value_fn(attr: str) -> Callable[[Any], Any]:
@@ -97,9 +113,9 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
 
             value_fn = _make_standard_value_fn(attr_name)
 
-        # Get unit - None for enum sensors to prevent numeric interpretation
+        # Get unit - None for enum/boolean sensors to prevent numeric interpretation
         unit = config.get("unit")
-        if is_enum_sensor or not unit:
+        if is_enum_sensor or is_boolean_sensor or not unit:
             native_unit = None
         else:
             native_unit = unit_map.get(str(unit), str(unit))
@@ -391,3 +407,4 @@ class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
         """Return the number of consecutive timeouts."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         return int(telemetry.get("consecutive_timeouts", 0))
+

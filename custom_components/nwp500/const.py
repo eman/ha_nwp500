@@ -967,11 +967,6 @@ SENSOR_CONFIGS: Final = {
         "special": "enum_name",
         "enabled": False,
     },
-    "tou_status": {
-        "attr": "tou_status",
-        "name": "TOU Status",
-        "enabled": False,
-    },
     "dr_event_status": {
         "attr": "dr_event_status",
         "name": "DR Event Status",
@@ -1000,6 +995,32 @@ SENSOR_CONFIGS: Final = {
         "attr": "recirc_operation_mode",
         "name": "Recirculation Operation Mode",
         "special": "enum_name",
+        "enabled": False,
+    },
+    "recirculation_model_type_code": {
+        "attr": "recirc_model_type_code",
+        "name": "Recirculation Model Type Code",
+        "enabled": False,
+    },
+    "recirculation_sw_version": {
+        "attr": "recirc_sw_version",
+        "name": "Recirculation Software Version",
+        "enabled": False,
+    },
+    "recirculation_temperature_min": {
+        "attr": "recirc_temperature_min",
+        "name": "Recirculation Minimum Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
+        "enabled": False,
+    },
+    "recirculation_temperature_max": {
+        "attr": "recirc_temperature_max",
+        "name": "Recirculation Maximum Temperature",
+        "device_class": "temperature",
+        "unit": "°F",
+        "state_class": "measurement",
         "enabled": False,
     },
     "program_reservation_type": {
