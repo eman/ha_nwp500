@@ -296,10 +296,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         )
 
                         if not success:
-                            raise MqttError("Request failed internally")
-
-                        # Request succeeded (didn't hang), reset timeout counter
-                        self._consecutive_timeouts = 0
+                            raise MqttError(
+                                f"MQTT status request failed for device "
+                                f"{mac_address}: internal client error"
+                            )
 
                         _LOGGER.debug(
                             "Requested status update for device %s", mac_address
