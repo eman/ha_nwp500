@@ -266,18 +266,20 @@ class NWP500MqttManager:
                 err,
             )
 
-    async def request_status(self, device: Device) -> None:
+    async def request_status(self, device: Device) -> bool:
         """Request immediate status update."""
         if not self.mqtt_client:
-            return
+            return False
 
         try:
             # Use ensure_device_info_cached which triggers status update
             await self.mqtt_client.ensure_device_info_cached(device)
             self.consecutive_timeouts = 0
+            return True
         except Exception as err:
             self.consecutive_timeouts += 1
             self._handle_aws_error(err, "status request")
+            return False
 
     async def request_device_info(self, device: Device) -> None:
         """Request device info."""

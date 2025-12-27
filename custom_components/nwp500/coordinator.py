@@ -290,13 +290,16 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         )
 
                         # Add timeout to prevent hanging on MQTT issues
-                        await asyncio.wait_for(
+                        success = await asyncio.wait_for(
                             self.mqtt_manager.request_status(device),
                             timeout=10.0,
                         )
 
-                        # Request succeeded (didn't hang), reset timeout counter
-                        self._consecutive_timeouts = 0
+                        if not success:
+                            raise MqttError(
+                                f"MQTT status request failed for device "
+                                f"{mac_address}: internal client error"
+                            )
 
                         _LOGGER.debug(
                             "Requested status update for device %s", mac_address
@@ -334,7 +337,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                     mac_address,
                                 )
 
-                    except TimeoutError:
+                    except (TimeoutError, MqttError):
                         self._consecutive_timeouts += 1
 
                         # Record timeout event in history
