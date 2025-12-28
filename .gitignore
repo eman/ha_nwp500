@@ -39,3 +39,4 @@ coverage.xml
 *.cover
 .hypothesis/
 diagnostics
+resources/
