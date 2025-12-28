@@ -1,4 +1,4 @@
-# Navien NWP500 Heat Pump Water Heater - Home Assistant Integration
+# Navien NWP500 Water Heater - Home Assistant Integration
 
 [![CI](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml/badge.svg)](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
