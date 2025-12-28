@@ -74,12 +74,13 @@ async def test_setup_and_connect(manager, mock_mqtt_client):
 
 @pytest.mark.asyncio
 async def test_disconnect(manager, mock_mqtt_client):
-    """Test disconnect."""
+    """Test disconnect properly closes MQTT connection."""
     await manager.setup()
 
     await manager.disconnect()
     mock_mqtt_client.disconnect.assert_called_once()
     assert manager.connected_since is None
+    assert manager.mqtt_client is None
 
 
 @pytest.mark.asyncio
