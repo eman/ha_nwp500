@@ -6,24 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
- 
-+## [0.1.5] - 2025-12-28
-+
-+### Added
-+- **Full HACS Validation**: Enabled strict `hacsjson` and `integration_manifest` checks in CI pipeline
-+- **Enhanced Metadata**: Added `loggers` to `manifest.json` and improved `hacs.json` for better store visibility
-+
-+### Changed
-+- **Updated to Python 3.13+**: Minimum Python version is now 3.13 (supports 3.13 and 3.14)
-+- **Updated to Home Assistant 2025.1.0+**: Aligned with latest Home Assistant requirements
-+- **Repository Visibility**: Switched to Public repository to support HACS validation and publication
-+- **Cleaned up Metadata**: Standardized `manifest.json` key order and removed unsupported fields to pass Hassfest validation
-+
-+### Removed
-+- **Legacy Diagnostics**: Removed periodic background file writing to config directory
-+  - Background I/O removed to reduce disk wear and follow modern integration standards
-+  - Diagnostic data remains fully accessible via Home Assistant's native "Download Diagnostics" feature
-+
+
+## [0.1.5] - 2025-12-28
+
+### Added
+- **Full HACS Validation**: Enabled strict `hacsjson` and `integration_manifest` checks in CI pipeline
+- **Enhanced Metadata**: Added `loggers` to `manifest.json` and improved `hacs.json` for better store visibility
+
+### Changed
+- **Updated to Python 3.13+**: Minimum Python version is now 3.13 (supports 3.13 and 3.14)
+- **Updated to Home Assistant 2025.1.0+**: Aligned with latest Home Assistant requirements
+- **Repository Visibility**: Switched to Public repository to support HACS validation and publication
+- **Cleaned up Metadata**: Standardized `manifest.json` key order and removed unsupported fields to pass Hassfest validation
+
+### Removed
+- **Legacy Diagnostics**: Removed periodic background file writing to config directory
+  - Background I/O removed to reduce disk wear and follow modern integration standards
+  - Diagnostic data remains fully accessible via Home Assistant's native "Download Diagnostics" feature
 
 ## [0.1.4] - 2025-12-27
 
@@ -109,16 +108,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This section tracks changes in the nwp500-python library that this integration depends on.
 
 ### v7.2.2 (2025-12-26)
- 
-+#### Fixed
-+- **TOU Status Always Showing False**: Fixed `touStatus` field always reporting `False` regardless of actual device state
-+  - Root cause: Version 7.2.1 incorrectly changed `touStatus` to use device-specific 1/2 encoding, but the device uses standard 0/1 encoding
-+  - Solution: Use Python's built-in `bool()` for `touStatus` field (handles 0=False, 1=True naturally)
-+  - Device encoding: 0=OFF/disabled, 1=ON/enabled (standard Python truthiness)
-+
-+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.2.2
-+
-+### v7.2.0 (2025-12-23)
+
+#### Fixed
+- **TOU Status Always Showing False**: Fixed `touStatus` field always reporting `False` regardless of actual device state
+  - Root cause: Version 7.2.1 incorrectly changed `touStatus` to use device-specific 1/2 encoding, but the device uses standard 0/1 encoding
+  - Solution: Use Python's built-in `bool()` for `touStatus` field (handles 0=False, 1=True naturally)
+  - Device encoding: 0=OFF/disabled, 1=ON/enabled (standard Python truthiness)
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.2.2
+
+### v7.2.0 (2025-12-23)
 
 #### Breaking Changes
 - **Class Renames**: `DeviceCapabilityChecker` → `MqttDeviceCapabilityChecker`, `DeviceInfoCache` → `MqttDeviceInfoCache`
