@@ -10,11 +10,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v3
-      - name: Debug
-        run: |
-          ls -R
-          cat custom_components/nwp500/manifest.json
-          python3 -c "import json; print(json.load(open('custom_components/nwp500/manifest.json')))"
       - name: HACS Action
         uses: hacs/action@main
         with:
