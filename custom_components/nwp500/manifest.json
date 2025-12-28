@@ -17,5 +17,5 @@
     "awsiotsdk>=1.27.0",
     "aiofiles>=24.1.0"
   ],
-  "version": "0.1.2"
+  "version": "0.1.3"
 }
