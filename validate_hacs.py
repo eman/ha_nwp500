@@ -43,7 +43,6 @@ def validate_hacs() -> bool:
     required_files = {
         "README.md": "README.md not found",
         "LICENSE": "LICENSE not found",
-        "INFO.md": "INFO.md not found",
         "custom_components/nwp500/__init__.py": "__init__.py not found",
     }
     
