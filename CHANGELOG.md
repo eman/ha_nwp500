@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+ 
++## [0.1.5] - 2025-12-28
++
++### Added
++- **Full HACS Validation**: Enabled strict `hacsjson` and `integration_manifest` checks in CI pipeline
++- **Enhanced Metadata**: Added `loggers` to `manifest.json` and improved `hacs.json` for better store visibility
++
++### Changed
++- **Updated to Python 3.13+**: Minimum Python version is now 3.13 (supports 3.13 and 3.14)
++- **Updated to Home Assistant 2025.1.0+**: Aligned with latest Home Assistant requirements
++- **Repository Visibility**: Switched to Public repository to support HACS validation and publication
++- **Cleaned up Metadata**: Standardized `manifest.json` key order and removed unsupported fields to pass Hassfest validation
++
++### Removed
++- **Legacy Diagnostics**: Removed periodic background file writing to config directory
++  - Background I/O removed to reduce disk wear and follow modern integration standards
++  - Diagnostic data remains fully accessible via Home Assistant's native "Download Diagnostics" feature
++
 
 ## [0.1.4] - 2025-12-27
 
@@ -454,7 +472,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/eman/ha_nwp500/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/eman/ha_nwp500/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/eman/ha_nwp500/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/eman/ha_nwp500/compare/v0.1.1...v0.1.2
