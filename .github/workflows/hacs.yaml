@@ -13,8 +13,8 @@ jobs:
       - name: Debug
         run: |
           ls -R
-          cat custom_components/nwp500/manifest.json
-          python3 -c "import json; print(json.load(open('custom_components/nwp500/manifest.json')))"
+          cat nwp500/manifest.json
+          python3 -c "import json; print(json.load(open('nwp500/manifest.json')))"
       - name: HACS Action
         uses: hacs/action@main
         with:
