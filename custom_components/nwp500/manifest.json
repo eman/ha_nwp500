@@ -7,7 +7,6 @@
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/eman/ha_nwp500",
-  "homeassistant": "2025.1.0",
   "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
   "integration_type": "device",
   "iot_class": "cloud_push",
