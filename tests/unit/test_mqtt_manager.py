@@ -44,6 +44,7 @@ def mock_mqtt_client():
         client.control.update_reservations = AsyncMock()
         client.control.request_reservations = AsyncMock()
         client.control.request_device_status = AsyncMock()
+        client.control.request_device_info = AsyncMock()
 
         mock.return_value = client
         yield client
@@ -224,7 +225,7 @@ async def test_request_status_consecutive_timeouts(
     assert manager.consecutive_timeouts == 0
 
     # 2. Failure should increment counter
-    mock_mqtt_client.ensure_device_info_cached.side_effect = RuntimeError("Timeout")
+    mock_mqtt_client.control.request_device_status.side_effect = RuntimeError("Timeout")
     await manager.request_status(mock_device)
     assert manager.consecutive_timeouts == 1
 
@@ -233,7 +234,7 @@ async def test_request_status_consecutive_timeouts(
     assert manager.consecutive_timeouts == 2
 
     # 4. Success should reset again
-    mock_mqtt_client.ensure_device_info_cached.side_effect = None
+    mock_mqtt_client.control.request_device_status.side_effect = None
     await manager.request_status(mock_device)
     assert manager.consecutive_timeouts == 0
 

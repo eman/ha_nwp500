@@ -272,8 +272,10 @@ class NWP500MqttManager:
             return False
 
         try:
-            # Use ensure_device_info_cached which triggers status update
-            await self.mqtt_client.ensure_device_info_cached(device)
+            # Request fresh status from device
+            # We use request_device_status to get a lightweight status update
+            # This avoids the caching behavior of ensure_device_info_cached
+            await self.mqtt_client.control.request_device_status(device)
             self.consecutive_timeouts = 0
             return True
         except Exception as err:
