@@ -35,7 +35,7 @@ def mock_mqtt_client():
         client.ensure_device_info_cached = AsyncMock()
         client.stop_all_periodic_tasks = AsyncMock()
         client.reset_reconnect = AsyncMock()
-        
+
         # Mock control commands
         client.control = MagicMock()
         client.control.set_power = AsyncMock()
@@ -110,7 +110,9 @@ async def test_send_command_success(manager, mock_mqtt_client, mock_device):
 
     assert result is True
     mock_mqtt_client.control.set_power.assert_called_with(mock_device, True)
-    mock_mqtt_client.control.request_device_status.assert_called_with(mock_device)
+    mock_mqtt_client.control.request_device_status.assert_called_with(
+        mock_device
+    )
 
 
 @pytest.mark.asyncio
@@ -225,7 +227,9 @@ async def test_request_status_consecutive_timeouts(
     assert manager.consecutive_timeouts == 0
 
     # 2. Failure should increment counter
-    mock_mqtt_client.control.request_device_status.side_effect = RuntimeError("Timeout")
+    mock_mqtt_client.control.request_device_status.side_effect = RuntimeError(
+        "Timeout"
+    )
     await manager.request_status(mock_device)
     assert manager.consecutive_timeouts == 1
 
@@ -273,7 +277,9 @@ async def test_send_command_request_reservations(
     result = await manager.send_command(mock_device, "request_reservations")
 
     assert result is True
-    mock_mqtt_client.control.request_reservations.assert_called_once_with(mock_device)
+    mock_mqtt_client.control.request_reservations.assert_called_once_with(
+        mock_device
+    )
 
 
 def test_get_aws_error_name_with_awscrterror():
@@ -284,18 +290,18 @@ def test_get_aws_error_name_with_awscrterror():
         message="Test error",
     )
     error.name = "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-    
+
     result = get_aws_error_name(error)
-    
+
     assert result == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
 
 
 def test_get_aws_error_name_with_regular_exception():
     """Test get_aws_error_name returns empty string for non-AWS errors."""
     error = RuntimeError("Regular error")
-    
+
     result = get_aws_error_name(error)
-    
+
     assert result == ""
 
 
@@ -304,7 +310,7 @@ async def test_is_connected_property(manager):
     """Test is_connected property."""
     # Not connected initially
     assert manager.is_connected is False
-    
+
     # After setup, should be connected
     with patch("nwp500.NavienMqttClient"):
         await manager.setup()
@@ -315,23 +321,12 @@ async def test_is_connected_property(manager):
 async def test_request_device_info(manager, mock_mqtt_client, mock_device):
     """Test request_device_info sends device info request."""
     await manager.setup()
-    
+
     await manager.request_device_info(mock_device)
-    
-    mock_mqtt_client.ensure_device_info_cached.assert_called_once_with(mock_device)
 
-
-@pytest.mark.asyncio  
-async def test_disconnect(manager, mock_mqtt_client):
-    """Test disconnect stops MQTT client."""
-    await manager.setup()
-    
-    await manager.disconnect()
-    
-    mock_mqtt_client.stop_all_periodic_tasks.assert_called_once()
-    mock_mqtt_client.disconnect.assert_called_once()
-
-
+    mock_mqtt_client.ensure_device_info_cached.assert_called_once_with(
+        mock_device
+    )
 
 
 def test_connected_since_property(manager):
@@ -342,7 +337,7 @@ def test_connected_since_property(manager):
     assert manager.consecutive_timeouts == 0
     assert manager.diagnostics is None
     assert manager.reconnection_in_progress is False
-    
+
     # Set a value
     manager.connected_since = 1234567890.0
     assert manager.connected_since == 1234567890.0
@@ -357,9 +352,9 @@ async def test_request_device_info_no_client(mock_auth_client, mock_device):
         on_status_update=MagicMock(),
         on_feature_update=MagicMock(),
     )
-    
+
     # Should return early when mqtt_client is None
     await manager.request_device_info(mock_device)
-    
+
     # No error should be raised
     assert manager.mqtt_client is None

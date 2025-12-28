@@ -103,56 +103,55 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         model_name = "NWP500"
         configuration_url = None
         suggested_area = "Utility Room"
-        
+
         device_feature = self.coordinator.device_features.get(self.mac_address)
-        
+
         _LOGGER.info(
             "Building device info for %s - feature_available=%s",
             self.mac_address,
             device_feature is not None,
         )
-        
+
         if device_feature:
             # Serial number from controller
             serial_number = getattr(
                 device_feature, "controller_serial_number", None
             )
-            
+
             # Firmware versions
             controller_fw = getattr(
                 device_feature, "controller_sw_version", None
             )
             wifi_fw = getattr(device_feature, "wifi_sw_version", None)
-            
+
             _LOGGER.info(
                 "Device feature data: controller_fw=%s wifi_fw=%s serial=%s",
                 controller_fw,
                 wifi_fw,
                 serial_number,
             )
-            
+
             # Build software version: "Controller.WiFi" format
             if controller_fw and wifi_fw:
                 sw_version = f"{controller_fw}.{wifi_fw}"
             elif controller_fw:
                 sw_version = controller_fw
-            
+
             # Get volume code
             volume_code = getattr(device_feature, "volume_code", None)
-            
+
             # Hardware version: tank volume from library
             hw_version = None
             if volume_code is not None:
                 try:
                     from nwp500.enums import VOLUME_CODE_TEXT
+
                     hw_version = VOLUME_CODE_TEXT.get(volume_code)
                 except (ImportError, AttributeError, KeyError):
                     pass
-            
-            _LOGGER.info(
-                "Device capacity: volume_code=%s", volume_code
-            )
-            
+
+            _LOGGER.info("Device capacity: volume_code=%s", volume_code)
+
             _LOGGER.info(
                 "Final device info: model=%s sw_version=%s hw_version=%s serial=%s",
                 model_name,
@@ -162,8 +161,10 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             )
 
         # Configuration URL for Navien Smart Control app
-        configuration_url = f"https://app.naviensmartcontrol.com/device/{self.mac_address}"
-        
+        configuration_url = (
+            f"https://app.naviensmartcontrol.com/device/{self.mac_address}"
+        )
+
         # Suggested area from location if available
         if hasattr(self.device, "location") and self.device.location:
             location = self.device.location
@@ -239,12 +240,12 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 panel_version = getattr(
                     device_feature, "panel_sw_version", None
                 )
-                panel_code = getattr(
-                    device_feature, "panel_sw_code", None
-                )
+                panel_code = getattr(device_feature, "panel_sw_code", None)
                 wifi_version = getattr(device_feature, "wifi_sw_version", None)
                 wifi_code = getattr(device_feature, "wifi_sw_code", None)
-                recirc_version = getattr(device_feature, "recirc_sw_version", None)
+                recirc_version = getattr(
+                    device_feature, "recirc_sw_version", None
+                )
 
                 attrs.update(
                     {
@@ -264,21 +265,39 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 attrs.update(
                     {
                         "hpwh_use": getattr(device_feature, "hpwh_use", None),
-                        "recirculation_use": getattr(device_feature, "recirculation_use", None),
-                        "dr_setting_use": getattr(device_feature, "dr_setting_use", None),
-                        "anti_legionella_setting_use": getattr(device_feature, "anti_legionella_setting_use", None),
-                        "freeze_protection_use": getattr(device_feature, "freeze_protection_use", None),
-                        "smart_diagnostic_use": getattr(device_feature, "smart_diagnostic_use", None),
+                        "recirculation_use": getattr(
+                            device_feature, "recirculation_use", None
+                        ),
+                        "dr_setting_use": getattr(
+                            device_feature, "dr_setting_use", None
+                        ),
+                        "anti_legionella_setting_use": getattr(
+                            device_feature, "anti_legionella_setting_use", None
+                        ),
+                        "freeze_protection_use": getattr(
+                            device_feature, "freeze_protection_use", None
+                        ),
+                        "smart_diagnostic_use": getattr(
+                            device_feature, "smart_diagnostic_use", None
+                        ),
                     }
                 )
 
                 # Operating limits
                 attrs.update(
                     {
-                        "dhw_temperature_min": getattr(device_feature, "dhw_temperature_min", None),
-                        "dhw_temperature_max": getattr(device_feature, "dhw_temperature_max", None),
-                        "temperature_type": getattr(device_feature, "temperature_type", None),
-                        "dhw_temperature_setting_use": getattr(device_feature, "dhw_temperature_setting_use", None),
+                        "dhw_temperature_min": getattr(
+                            device_feature, "dhw_temperature_min", None
+                        ),
+                        "dhw_temperature_max": getattr(
+                            device_feature, "dhw_temperature_max", None
+                        ),
+                        "temperature_type": getattr(
+                            device_feature, "temperature_type", None
+                        ),
+                        "dhw_temperature_setting_use": getattr(
+                            device_feature, "dhw_temperature_setting_use", None
+                        ),
                     }
                 )
 
@@ -286,16 +305,23 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 volume_code_value = getattr(device_feature, "volume_code", None)
                 attrs.update(
                     {
-                        "install_type": getattr(device_feature, "install_type", None),
-                        "country_code": getattr(device_feature, "country_code", None),
+                        "install_type": getattr(
+                            device_feature, "install_type", None
+                        ),
+                        "country_code": getattr(
+                            device_feature, "country_code", None
+                        ),
                     }
                 )
-                
+
                 # Add volume_code text from library
                 if volume_code_value is not None:
                     try:
                         from nwp500.enums import VOLUME_CODE_TEXT
-                        volume_code_text = VOLUME_CODE_TEXT.get(volume_code_value)
+
+                        volume_code_text = VOLUME_CODE_TEXT.get(
+                            volume_code_value
+                        )
                         if volume_code_text:
                             attrs["volume_code"] = volume_code_text
                     except (ImportError, AttributeError, KeyError):

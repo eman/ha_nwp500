@@ -14,12 +14,12 @@
   "stubPath": "typings",
   "reportMissingImports": "none",
   "reportMissingTypeStubs": false,
-  "pythonVersion": "3.12",
+  "pythonVersion": "3.13",
   "pythonPlatform": "Linux",
   "executionEnvironments": [
     {
       "root": "custom_components/nwp500",
-      "pythonVersion": "3.12",
+      "pythonVersion": "3.13",
       "pythonPlatform": "Linux",
       "extraPaths": []
     }
@@ -70,7 +70,6 @@
   "reportUnknownMemberType": false,
   "reportMissingTypeArgument": false,
   "reportInvalidTypeVarUse": true,
-  "reportCallInDefaultInitializer": false,
   "reportImplicitStringConcatenation": false,
   "reportUndefinedVariable": true,
   "reportUnusedCallResult": false,

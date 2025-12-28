@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from custom_components.nwp500.diagnostics import (
     async_get_config_entry_diagnostics,
-    async_setup_diagnostics_export,
 )
 
 if TYPE_CHECKING:
@@ -163,50 +162,3 @@ async def test_async_get_config_entry_diagnostics_no_diagnostics_collector(
         result["mqtt_diagnostics_status"]
         == "Diagnostics collector not initialized"
     )
-
-
-@pytest.mark.asyncio
-async def test_async_setup_diagnostics_export_in_ci(
-    hass: HomeAssistant,
-    mock_config_entry: ConfigEntry,
-) -> None:
-    """Test diagnostics export setup skips in CI environment."""
-    with patch.dict("os.environ", {"CI": "true"}):
-        # Should return early and not raise any errors
-        await async_setup_diagnostics_export(hass, mock_config_entry)
-
-
-@pytest.mark.asyncio
-async def test_async_setup_diagnostics_export_in_testing(
-    hass: HomeAssistant,
-    mock_config_entry: ConfigEntry,
-) -> None:
-    """Test diagnostics export setup skips in testing environment."""
-    with patch.dict("os.environ", {"TESTING": "true"}):
-        # Should return early and not raise any errors
-        await async_setup_diagnostics_export(hass, mock_config_entry)
-
-
-@pytest.mark.asyncio
-async def test_async_setup_diagnostics_export_no_coordinator(
-    hass: HomeAssistant,
-    mock_config_entry: ConfigEntry,
-) -> None:
-    """Test diagnostics export setup when coordinator not available."""
-    # Should return early without errors
-    await async_setup_diagnostics_export(hass, mock_config_entry)
-
-
-@pytest.mark.asyncio
-async def test_async_setup_diagnostics_export_no_mqtt_manager(
-    hass: HomeAssistant,
-    mock_config_entry: ConfigEntry,
-    mock_coordinator: MagicMock,
-) -> None:
-    """Test diagnostics export setup when MQTT manager not available."""
-    mock_coordinator.mqtt_manager = None
-
-    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
-
-    # Should return early without errors
-    await async_setup_diagnostics_export(hass, mock_config_entry)

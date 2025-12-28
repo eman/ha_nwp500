@@ -154,17 +154,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register services (only once)
     await _async_setup_services(hass)
 
-    # Set up diagnostics export (periodic JSON exports)
-    # The diagnostics module handles test environment detection internally
-    try:
-        from .diagnostics import async_setup_diagnostics_export
-
-        await async_setup_diagnostics_export(hass, entry)
-    except Exception as err:  # noqa: BLE001
-        _LOGGER.warning(
-            "Failed to setup diagnostics export: %s", err, exc_info=True
-        )
-
     return True
 
 
@@ -375,7 +364,9 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         """Handle set_vacation_days service call."""
         coordinator, mac_address = await _get_coordinator_and_mac(call)
         days = call.data[ATTR_DAYS]
-        _LOGGER.info("Setting vacation mode for %s days on %s", days, mac_address)
+        _LOGGER.info(
+            "Setting vacation mode for %s days on %s", days, mac_address
+        )
         success = await coordinator.async_send_command(
             mac_address, "set_vacation_days", days=days
         )

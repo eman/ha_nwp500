@@ -93,7 +93,9 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
             value_fn = _make_enum_value_fn(attr_name)
         elif is_boolean_sensor:
             # Special handling for boolean sensors - return "On"/"Off"
-            def _make_boolean_value_fn(attr: str) -> Callable[[Any], str | None]:
+            def _make_boolean_value_fn(
+                attr: str,
+            ) -> Callable[[Any], str | None]:
                 def value_fn(status: Any) -> str | None:
                     val = getattr(status, attr, None)
                     if val is None:
@@ -407,4 +409,3 @@ class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
         """Return the number of consecutive timeouts."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         return int(telemetry.get("consecutive_timeouts", 0))
-
