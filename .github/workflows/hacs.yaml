@@ -19,4 +19,4 @@ jobs:
         uses: hacs/action@main
         with:
           category: integration
-          ignore: brands hacsjson
+          ignore: brands hacsjson integration_manifest
