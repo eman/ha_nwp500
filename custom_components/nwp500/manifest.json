@@ -7,9 +7,9 @@
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/eman/ha_nwp500",
-  "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
   "integration_type": "device",
   "iot_class": "cloud_push",
+  "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
   "loggers": [
     "custom_components.nwp500"
   ],
