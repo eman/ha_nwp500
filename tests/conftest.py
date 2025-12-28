@@ -15,7 +15,7 @@ pytest_plugins = ["pytest_homeassistant_custom_component"]
 
 
 @pytest.fixture(autouse=True)
-def set_testing_env() -> Generator[None, None, None]:
+def set_testing_env() -> Generator[None]:
     """Set TESTING environment variable for all tests."""
     os.environ["TESTING"] = "1"
     yield
@@ -76,7 +76,7 @@ def mock_device() -> MagicMock:
     location.latitude = None
     location.longitude = None
     device.location = location
-    
+
     # Mock device_features - return None to indicate not available
     device.device_features.get.return_value = None
 
@@ -125,7 +125,7 @@ def mock_device_status() -> MagicMock:
 
 
 @pytest.fixture
-def mock_nwp500_auth_client() -> Generator[AsyncMock, None, None]:
+def mock_nwp500_auth_client() -> Generator[AsyncMock]:
     """Mock the NavienAuthClient."""
     with patch(
         "custom_components.nwp500.config_flow.NavienAuthClient"
@@ -140,7 +140,7 @@ def mock_nwp500_auth_client() -> Generator[AsyncMock, None, None]:
 @pytest.fixture
 def mock_nwp500_api_client(
     mock_device: MagicMock,
-) -> Generator[AsyncMock, None, None]:
+) -> Generator[AsyncMock]:
     """Mock the NavienAPIClient."""
     with patch(
         "custom_components.nwp500.config_flow.NavienAPIClient"
@@ -152,7 +152,7 @@ def mock_nwp500_api_client(
 
 
 @pytest.fixture
-def mock_nwp500_mqtt_client() -> Generator[AsyncMock, None, None]:
+def mock_nwp500_mqtt_client() -> Generator[AsyncMock]:
     """Mock the NavienMqttClient."""
     with patch("nwp500.NavienMqttClient") as mock_mqtt:
         client = AsyncMock()

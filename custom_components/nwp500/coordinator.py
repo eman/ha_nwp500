@@ -545,12 +545,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 for device in self.devices:
                     await self.mqtt_manager.subscribe_device(device)
                     await self.mqtt_manager.start_periodic_requests(device)
-                    
+
                     # Immediately request device info to populate device features
                     try:
                         _LOGGER.info(
                             "Requesting initial device info for %s",
-                            device.device_info.mac_address
+                            device.device_info.mac_address,
                         )
                         await self.mqtt_manager.request_device_info(device)
                     except Exception as err:
@@ -642,22 +642,21 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         """Handle device feature update from MQTT Manager."""
         try:
             _LOGGER.info("Received device feature update for %s", mac_address)
-            
+
             # Debug: log feature data structure
-            if hasattr(feature, 'model_dump'):
+            if hasattr(feature, "model_dump"):
                 feature_dict = feature.model_dump()
                 _LOGGER.info(
-                    "Device feature keys: %s",
-                    sorted(feature_dict.keys())
+                    "Device feature keys: %s", sorted(feature_dict.keys())
                 )
                 # Log specific fields we're interested in
                 _LOGGER.info(
                     "Serial: %s, Volume: %s, Controller FW: %s",
-                    feature_dict.get('controller_serial_number'),
-                    feature_dict.get('volume_code'),
-                    feature_dict.get('controller_sw_version')
+                    feature_dict.get("controller_serial_number"),
+                    feature_dict.get("volume_code"),
+                    feature_dict.get("controller_sw_version"),
                 )
-            
+
             self.device_features[mac_address] = feature
         except Exception as err:
             _LOGGER.error("Error handling device feature update: %s", err)

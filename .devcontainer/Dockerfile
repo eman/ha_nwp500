@@ -1,5 +1,5 @@
 # Development container for Navien NWP500 Home Assistant Integration
-FROM mcr.microsoft.com/devcontainers/python:3.12
+FROM mcr.microsoft.com/devcontainers/python:3.13
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -10,12 +10,12 @@ ENV PYTHONUNBUFFERED=1 \
 # Install system dependencies
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get -y install --no-install-recommends \
-        git \
-        curl \
-        ca-certificates \
-        build-essential \
-        libffi-dev \
-        libssl-dev \
+    git \
+    curl \
+    ca-certificates \
+    build-essential \
+    libffi-dev \
+    libssl-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
