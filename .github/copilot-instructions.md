@@ -60,7 +60,9 @@ This is a Home Assistant custom component that provides integration for Navien N
 ### General Best Practices
 - **Always Get Current Date**: Never assume or hardcode dates. Always use `date +%Y-%m-%d` command to get the correct date for changelogs, releases, or any date-dependent content.
 - **No Summary Documents**: Do not create any summary documents (e.g., `SUMMARY.md`, `CHANGES.md`, `ANALYSIS.md`, quick summaries, etc.) after completing tasks or fixes unless explicitly requested by the user. Code changes, git commits, and documentation updates are sufficient. Do not provide summary responses in the chat—be concise and direct instead.
+- **GitHub Releases**: Ensure every GitHub release includes detailed release notes (not just assets). Copy relevant content from `CHANGELOG.md`.
 - **Changelog Management**: 
+  - **Update CHANGELOG.md** for every release with a summary of changes.
   - **DO NOT** add library version history or detailed changelogs to `README.md`
   - All library dependency changes belong in `CHANGELOG.md` under "Library Dependency: nwp500-python" section
   - `README.md` should only reference the current version and link to CHANGELOG.md
