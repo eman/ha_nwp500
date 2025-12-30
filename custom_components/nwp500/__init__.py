@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import logging
 
+from typing import Any
+
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_DEVICE_ID, Platform
@@ -82,23 +84,42 @@ MODE_TO_DHW_ID: dict[str, int] = {
     "power_off": 6,
 }
 
+
+def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
+    """Validate that temperature is provided for modes that require it."""
+    mode = data.get(ATTR_OP_MODE)
+    temperature = data.get(ATTR_TEMPERATURE)
+
+    if mode not in ["vacation", "power_off"] and temperature is None:
+        raise vol.Invalid(f"Temperature is required for mode '{mode}'")
+
+    # Set default temperature for modes that don't use it but require a value for the library
+    if temperature is None and mode in ["vacation", "power_off"]:
+        data[ATTR_TEMPERATURE] = 120.0
+
+    return data
+
+
 # Service schemas
-SERVICE_SET_RESERVATION_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_ENABLED): cv.boolean,
-        vol.Required(ATTR_DAYS): vol.All(cv.ensure_list, [vol.In(VALID_DAYS)]),
-        vol.Required(ATTR_HOUR): vol.All(
-            vol.Coerce(int), vol.Range(min=0, max=23)
-        ),
-        vol.Optional(ATTR_MINUTE, default=0): vol.All(
-            vol.Coerce(int), vol.Range(min=0, max=59)
-        ),
-        vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
-        vol.Optional(ATTR_TEMPERATURE): vol.All(
-            vol.Coerce(float), vol.Range(min=80, max=150)
-        ),
-    }
+SERVICE_SET_RESERVATION_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required(ATTR_DEVICE_ID): cv.string,
+            vol.Required(ATTR_ENABLED): cv.boolean,
+            vol.Required(ATTR_DAYS): vol.All(cv.ensure_list, [vol.In(VALID_DAYS)]),
+            vol.Required(ATTR_HOUR): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=23)
+            ),
+            vol.Optional(ATTR_MINUTE, default=0): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=59)
+            ),
+            vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
+            vol.Optional(ATTR_TEMPERATURE): vol.All(
+                vol.Coerce(float), vol.Range(min=80, max=150)
+            ),
+        }
+    ),
+    validate_reservation_temperature,
 )
 
 SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.Schema(
@@ -211,17 +232,8 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         if mode_id is None:
             raise HomeAssistantError(f"Invalid mode: {mode}")
 
-        # For vacation and power_off modes, temperature is optional
-        # Use match/case for cleaner logic
-        if temperature is None:
-            match mode:
-                case "vacation" | "power_off":
-                    # Use a default value for non-temperature modes
-                    temperature = 120.0
-                case _:
-                    raise HomeAssistantError(
-                        f"Temperature is required for mode '{mode}'"
-                    )
+        # Temperature is guaranteed by schema validation
+        temperature = call.data[ATTR_TEMPERATURE]
 
         # Build the reservation entry using library function
         # Library handles Fahrenheit to half-degrees Celsius conversion

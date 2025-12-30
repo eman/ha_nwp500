@@ -61,6 +61,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         "power": SensorDeviceClass.POWER,
         "energy": SensorDeviceClass.ENERGY,
         "signal_strength": SensorDeviceClass.SIGNAL_STRENGTH,
+        "water": SensorDeviceClass.WATER,
     }
 
     # State class mapping

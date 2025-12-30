@@ -1,0 +1,45 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Enter your Navilink Smart Control account credentials.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate with Navien",
+        "description": "The credentials for account {account} need to be updated. Please enter your current Navien account credentials.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Navien service. If authentication succeeded but no devices were found, please verify your device is registered in the NaviLink app and is online.",
+      "invalid_auth": "Invalid email or password",
+      "unknown": "Unexpected error occurred"
+    },
+    "abort": {
+      "already_configured": "Account is already configured",
+      "reauth_successful": "Re-authentication successful",
+      "reauth_failed": "Re-authentication failed. Please try removing and re-adding the integration."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "NWP500 Options",
+        "description": "Configure advanced settings for your Navien NWP500 integration.",
+        "data": {
+          "scan_interval": "Update interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds."
+        }
+      }
+    }
+  }
+}

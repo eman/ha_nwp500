@@ -123,6 +123,14 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                 mode_value = get_enum_value(operation_setting)
                 # Use match/case for cleaner mode mapping (Python 3.10+)
                 match mode_value:
+                    case 1:
+                        return STATE_HEAT_PUMP
+                    case 2:
+                        return STATE_ELECTRIC
+                    case 3:
+                        return STATE_ECO
+                    case 4:
+                        return STATE_HIGH_DEMAND
                     case 5:
                         return STATE_ECO
                     case 6:
