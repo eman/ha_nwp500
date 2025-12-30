@@ -127,12 +127,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                         return STATE_HEAT_PUMP
                     case 2:
                         return STATE_ELECTRIC
-                    case 3:
+                    case 3 | 5:
                         return STATE_ECO
                     case 4:
                         return STATE_HIGH_DEMAND
-                    case 5:
-                        return STATE_ECO
                     case 6:
                         return STATE_OFF
                     case _:

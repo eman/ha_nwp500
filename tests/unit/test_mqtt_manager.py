@@ -37,7 +37,6 @@ def mock_mqtt_client():
         client.reset_reconnect = AsyncMock()
 
         # Mock control commands
-        # Mock control commands
         client.control = MagicMock()
         client.control.set_power = AsyncMock()
         client.control.set_dhw_temperature = AsyncMock()
