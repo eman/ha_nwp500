@@ -311,7 +311,7 @@ DEVICE_STATUS_SENSORS: Final = {
     "cumulated_dhw_flow_rate": {
         "name": "Cumulated DHW Flow Rate",
         "device_class": None,
-        "unit": "gallons",
+        "unit": "gal",
         "state_class": "total_increasing",
         "entity_registry_enabled_default": False,
     },
@@ -570,7 +570,7 @@ SENSOR_CONFIGS: Final = {
         "name": "Total Energy Capacity",
         "device_class": "energy",
         "unit": "Wh",
-        "state_class": "measurement",
+        "state_class": "total",
         "enabled": False,
     },
     "available_energy_capacity": {
@@ -578,7 +578,7 @@ SENSOR_CONFIGS: Final = {
         "name": "Available Energy Capacity",
         "device_class": "energy",
         "unit": "Wh",
-        "state_class": "measurement",
+        "state_class": "total",
         "enabled": False,
     },
     # Percentage sensors
@@ -635,7 +635,7 @@ SENSOR_CONFIGS: Final = {
         "attr": "cumulated_dhw_flow_rate",
         "name": "Cumulated DHW Flow Rate",
         "device_class": "water",
-        "unit": "gallons",
+        "unit": "gal",
         "state_class": "total_increasing",
         "enabled": False,
     },
