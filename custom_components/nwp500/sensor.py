@@ -61,12 +61,14 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         "power": SensorDeviceClass.POWER,
         "energy": SensorDeviceClass.ENERGY,
         "signal_strength": SensorDeviceClass.SIGNAL_STRENGTH,
+        "water": SensorDeviceClass.WATER,
     }
 
     # State class mapping
     state_class_map: dict[str, SensorStateClass] = {
         "measurement": SensorStateClass.MEASUREMENT,
         "total_increasing": SensorStateClass.TOTAL_INCREASING,
+        "total": SensorStateClass.TOTAL,
     }
 
     for key, config in SENSOR_CONFIGS.items():

@@ -6,6 +6,7 @@ Requires Home Assistant 2025.1+ (Python 3.13-3.14).
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +17,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from .const import DOMAIN
+from .const import DEFAULT_TEMPERATURE, DOMAIN
 from .coordinator import NWP500DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,12 +35,7 @@ SERVICE_SET_RESERVATION = "set_reservation"
 SERVICE_UPDATE_RESERVATIONS = "update_reservations"
 SERVICE_CLEAR_RESERVATIONS = "clear_reservations"
 SERVICE_REQUEST_RESERVATIONS = "request_reservations"
-SERVICE_ENABLE_DEMAND_RESPONSE = "enable_demand_response"
-SERVICE_DISABLE_DEMAND_RESPONSE = "disable_demand_response"
-SERVICE_RESET_AIR_FILTER = "reset_air_filter"
 SERVICE_SET_VACATION_DAYS = "set_vacation_days"
-SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
-SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -49,7 +45,6 @@ ATTR_MINUTE = "minute"
 ATTR_OP_MODE = "mode"  # Renamed to avoid conflict with HA's ATTR_MODE
 ATTR_TEMPERATURE = "temperature"
 ATTR_RESERVATIONS = "reservations"
-ATTR_RECIRCULATION_MODE = "mode"
 
 # Valid days of the week
 VALID_DAYS = [
@@ -82,23 +77,44 @@ MODE_TO_DHW_ID: dict[str, int] = {
     "power_off": 6,
 }
 
+
+def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
+    """Validate that temperature is provided for modes that require it."""
+    mode = data.get(ATTR_OP_MODE)
+    temperature = data.get(ATTR_TEMPERATURE)
+
+    if mode not in ["vacation", "power_off"] and temperature is None:
+        raise vol.Invalid(f"Temperature is required for mode '{mode}'")
+
+    # Set default temperature for modes that don't use it but require a value for the library
+    if temperature is None and mode in ["vacation", "power_off"]:
+        data[ATTR_TEMPERATURE] = DEFAULT_TEMPERATURE
+
+    return data
+
+
 # Service schemas
-SERVICE_SET_RESERVATION_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_ENABLED): cv.boolean,
-        vol.Required(ATTR_DAYS): vol.All(cv.ensure_list, [vol.In(VALID_DAYS)]),
-        vol.Required(ATTR_HOUR): vol.All(
-            vol.Coerce(int), vol.Range(min=0, max=23)
-        ),
-        vol.Optional(ATTR_MINUTE, default=0): vol.All(
-            vol.Coerce(int), vol.Range(min=0, max=59)
-        ),
-        vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
-        vol.Optional(ATTR_TEMPERATURE): vol.All(
-            vol.Coerce(float), vol.Range(min=80, max=150)
-        ),
-    }
+SERVICE_SET_RESERVATION_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required(ATTR_DEVICE_ID): cv.string,
+            vol.Required(ATTR_ENABLED): cv.boolean,
+            vol.Required(ATTR_DAYS): vol.All(
+                cv.ensure_list, [vol.In(VALID_DAYS)]
+            ),
+            vol.Required(ATTR_HOUR): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=23)
+            ),
+            vol.Optional(ATTR_MINUTE, default=0): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=59)
+            ),
+            vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
+            vol.Optional(ATTR_TEMPERATURE): vol.All(
+                vol.Coerce(float), vol.Range(min=80, max=150)
+            ),
+        }
+    ),
+    validate_reservation_temperature,
 )
 
 SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.Schema(
@@ -120,15 +136,6 @@ SERVICE_SET_VACATION_DAYS_SCHEMA = vol.Schema(
         vol.Required(ATTR_DEVICE_ID): cv.string,
         vol.Required(ATTR_DAYS): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=365)
-        ),
-    }
-)
-
-SERVICE_SET_RECIRCULATION_MODE_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_RECIRCULATION_MODE): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=4)
         ),
     }
 )
@@ -211,17 +218,14 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         if mode_id is None:
             raise HomeAssistantError(f"Invalid mode: {mode}")
 
-        # For vacation and power_off modes, temperature is optional
-        # Use match/case for cleaner logic
+        # Temperature is guaranteed by schema validation, but we check again for safety
         if temperature is None:
-            match mode:
-                case "vacation" | "power_off":
-                    # Use a default value for non-temperature modes
-                    temperature = 120.0
-                case _:
-                    raise HomeAssistantError(
-                        f"Temperature is required for mode '{mode}'"
-                    )
+            if mode in ["vacation", "power_off"]:
+                temperature = DEFAULT_TEMPERATURE
+            else:
+                raise HomeAssistantError(
+                    f"Temperature is required for mode '{mode}'"
+                )
 
         # Build the reservation entry using library function
         # Library handles Fahrenheit to half-degrees Celsius conversion
@@ -330,36 +334,6 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         schema=SERVICE_DEVICE_SCHEMA,
     )
 
-    async def async_enable_demand_response(call: ServiceCall) -> None:
-        """Handle enable_demand_response service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
-        _LOGGER.info("Enabling demand response for %s", mac_address)
-        success = await coordinator.async_send_command(
-            mac_address, "enable_demand_response"
-        )
-        if not success:
-            raise HomeAssistantError("Failed to enable demand response")
-
-    async def async_disable_demand_response(call: ServiceCall) -> None:
-        """Handle disable_demand_response service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
-        _LOGGER.info("Disabling demand response for %s", mac_address)
-        success = await coordinator.async_send_command(
-            mac_address, "disable_demand_response"
-        )
-        if not success:
-            raise HomeAssistantError("Failed to disable demand response")
-
-    async def async_reset_air_filter(call: ServiceCall) -> None:
-        """Handle reset_air_filter service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
-        _LOGGER.info("Resetting air filter timer for %s", mac_address)
-        success = await coordinator.async_send_command(
-            mac_address, "reset_air_filter"
-        )
-        if not success:
-            raise HomeAssistantError("Failed to reset air filter timer")
-
     async def async_set_vacation_days(call: ServiceCall) -> None:
         """Handle set_vacation_days service call."""
         coordinator, mac_address = await _get_coordinator_and_mac(call)
@@ -373,69 +347,11 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         if not success:
             raise HomeAssistantError("Failed to set vacation days")
 
-    async def async_set_recirculation_mode(call: ServiceCall) -> None:
-        """Handle set_recirculation_mode service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
-        mode = call.data[ATTR_RECIRCULATION_MODE]
-        _LOGGER.info(
-            "Setting recirculation mode to %d for %s", mode, mac_address
-        )
-        success = await coordinator.async_send_command(
-            mac_address, "set_recirculation_mode", mode=mode
-        )
-        if not success:
-            raise HomeAssistantError("Failed to set recirculation mode")
-
-    async def async_trigger_recirculation(call: ServiceCall) -> None:
-        """Handle trigger_recirculation service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
-        _LOGGER.info("Triggering recirculation pump for %s", mac_address)
-        success = await coordinator.async_send_command(
-            mac_address, "trigger_recirculation"
-        )
-        if not success:
-            raise HomeAssistantError("Failed to trigger recirculation")
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_ENABLE_DEMAND_RESPONSE,
-        async_enable_demand_response,
-        schema=SERVICE_DEVICE_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_DISABLE_DEMAND_RESPONSE,
-        async_disable_demand_response,
-        schema=SERVICE_DEVICE_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_RESET_AIR_FILTER,
-        async_reset_air_filter,
-        schema=SERVICE_DEVICE_SCHEMA,
-    )
-
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_VACATION_DAYS,
         async_set_vacation_days,
         schema=SERVICE_SET_VACATION_DAYS_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_RECIRCULATION_MODE,
-        async_set_recirculation_mode,
-        schema=SERVICE_SET_RECIRCULATION_MODE_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_TRIGGER_RECIRCULATION,
-        async_trigger_recirculation,
-        schema=SERVICE_DEVICE_SCHEMA,
     )
 
     _LOGGER.debug("Registered NWP500 reservation services")
@@ -455,5 +371,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, SERVICE_UPDATE_RESERVATIONS)
             hass.services.async_remove(DOMAIN, SERVICE_CLEAR_RESERVATIONS)
             hass.services.async_remove(DOMAIN, SERVICE_REQUEST_RESERVATIONS)
+            hass.services.async_remove(DOMAIN, SERVICE_SET_VACATION_DAYS)
 
     return unload_ok

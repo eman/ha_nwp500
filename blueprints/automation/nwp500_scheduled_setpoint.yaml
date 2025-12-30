@@ -1,0 +1,92 @@
+blueprint:
+  name: NWP500 Scheduled Setpoint
+  description: >
+    Schedule a temperature and mode change for your Navien NWP500 water heater
+    using Home Assistant's automation engine. This bypasses the device's internal
+    reservation system, allowing for more flexible scheduling.
+  domain: automation
+  input:
+    nwp500_device:
+      name: Water Heater
+      description: The NWP500 water heater entity to control.
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    
+    target_time:
+      name: Time
+      description: The time to execute the change.
+      selector:
+        time: {}
+        
+    target_days:
+      name: Days of the week
+      description: Only run on these days.
+      default: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: Monday
+              value: mon
+            - label: Tuesday
+              value: tue
+            - label: Wednesday
+              value: wed
+            - label: Thursday
+              value: thu
+            - label: Friday
+              value: fri
+            - label: Saturday
+              value: sat
+            - label: Sunday
+              value: sun
+              
+    target_temperature:
+      name: Temperature
+      description: Target temperature to set.
+      default: 120
+      selector:
+        number:
+          min: 100
+          max: 140
+          unit_of_measurement: "°F"
+          mode: slider
+          
+    target_mode:
+      name: Operation Mode
+      description: Operation mode to set.
+      default: "eco"
+      selector:
+        select:
+          options:
+            - label: Heat Pump
+              value: "heat_pump"
+            - label: Electric
+              value: "electric"
+            - label: Eco (Energy Saver)
+              value: "eco"
+            - label: High Demand
+              value: "high_demand"
+
+trigger:
+  - platform: time
+    at: !input target_time
+
+condition:
+  - condition: time
+    weekday: !input target_days
+
+action:
+  - service: water_heater.set_temperature
+    target:
+      entity_id: !input nwp500_device
+    data:
+      temperature: !input target_temperature
+      
+  - service: water_heater.set_operation_mode
+    target:
+      entity_id: !input nwp500_device
+    data:
+      operation_mode: !input target_mode

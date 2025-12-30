@@ -45,6 +45,7 @@ def mock_mqtt_client():
         client.control.request_reservations = AsyncMock()
         client.control.request_device_status = AsyncMock()
         client.control.request_device_info = AsyncMock()
+        client.ensure_device_info_cached = AsyncMock()
 
         mock.return_value = client
         yield client

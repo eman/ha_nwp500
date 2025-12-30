@@ -3,129 +3,68 @@
 [![CI](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml/badge.svg)](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-This custom integration provides comprehensive monitoring and control of Navien NWP500 Heat Pump Water Heaters through Home Assistant.
+This custom integration provides comprehensive monitoring and control of Navien NWP500 Heat Pump Water Heaters through Home Assistant. It communicates with the device via the Navien cloud API and establishes a local MQTT connection for real-time updates.
 
-## Features
+## Key Features
 
-### Water Heater Entity
-- **Temperature Control**: Set target DHW (Domestic Hot Water) temperature
-- **Operation Mode Control**: Switch between Heat Pump, Energy Saver, High Demand, and Electric modes
-- **Real-time Status**: Current temperature, target temperature, and operation state
-- **Power Control**: Turn the water heater on/off
-
-### Comprehensive Sensor Coverage
-The integration provides over 40 sensors covering all device status fields:
-
-#### Temperature Sensors (Enabled by Default)
-- Outside Temperature
-- Tank Upper Temperature  
-- Tank Lower Temperature
-- DHW Temperature
-- Current Power
-
-#### Temperature Sensors (Disabled by Default)
-- Discharge Temperature
-- Suction Temperature
-- Evaporator Temperature
-- Ambient Temperature
-- DHW Temperature 2
-- Current Inlet Temperature
-- Freeze Protection Temperature
-- Target/Current Super Heat
-
-#### Power & Energy Sensors
-- Current Power (enabled)
-- Total Energy Capacity (disabled)
-- Available Energy Capacity (disabled)
-
-#### Status Sensors
-- DHW Charge Percentage (enabled)
-- WiFi RSSI (disabled)
-- Error Code (enabled)
-- Sub Error Code (disabled)
-- Operation Mode (enabled)
-- DHW Operation Setting (enabled)
-
-#### Flow Rate & Performance
-- Current DHW Flow Rate (disabled)
-- Cumulated DHW Flow Rate (disabled)
-- Target/Current Fan RPM (disabled)
-- Fan PWM (disabled)
-- Mixing Rate (disabled)
-
-### Binary Sensors
-Comprehensive boolean status indicators:
-
-#### Primary Status (Enabled by Default)
-- Operation Busy
-- DHW In Use
-- Compressor Running
-- Upper Electric Element On
-- Lower Electric Element On
-
-#### Safety & System Status (Disabled by Default)
-- Freeze Protection Active
-- Scald Protection Active
-- Anti-Legionella Active
-- Air Filter Alarm
-- Error Buzzer Active
-
-#### System Components (Disabled by Default)
-- EEV Active
-- Evaporator Fan Running
-- Current Heat Use
-- Overheat Protection Enabled
-- Program Reservation Active
+*   **Full Control**: Set target temperature, change operation modes, and toggle power.
+*   **Real-time Monitoring**: View current water temperature, power consumption, and device status.
+*   **Energy Management**: Track energy usage and efficiency.
+*   **Safety Alerts**: Monitor for errors, leaks, and system warnings.
+*   **Scheduling**: Advanced reservation system for automated mode/temperature changes.
 
 ## Installation
 
-### Prerequisites
-- Navien NWP500 device installed and operational
-- [NaviLink Smart Control](https://www.navien.com/en/navilink) account with device registered
-- Home Assistant 2025.1+ (requires Python 3.13-3.14)
-
 ### HACS (Recommended)
-1. Install [HACS](https://hacs.xyz/) if not already installed
-2. Go to HACS → Integrations → ⋮ menu → Custom repositories
-3. Add: `https://github.com/eman/ha_nwp500` (Category: Integration)
-4. Find "Navien NWP500" and install
-5. Restart Home Assistant
+1.  Open HACS in Home Assistant.
+2.  Go to **Integrations** > **⋮** > **Custom repositories**.
+3.  Add `https://github.com/eman/ha_nwp500` with category **Integration**.
+4.  Search for "Navien NWP500" and install.
+5.  Restart Home Assistant.
 
 ### Manual Installation
-1. Clone: `git clone https://github.com/eman/ha_nwp500.git`
-2. Copy `ha_nwp500/custom_components/nwp500` to `/config/custom_components/`
-3. Restart Home Assistant
+1.  Clone this repository.
+2.  Copy `custom_components/nwp500` to your `config/custom_components/` directory.
+3.  Restart Home Assistant.
 
 ## Configuration
 
-1. Settings → Devices & Services → Create Integration
-2. Search "Navien NWP500"
-3. Enter NaviLink email and password
-4. Entities will be created automatically
+1.  Go to **Settings** > **Devices & Services**.
+2.  Click **Add Integration** and search for "Navien NWP500".
+3.  Enter your **NaviLink** email and password.
+4.  The integration will discover your devices and create entities.
+
+## Usage Guide
 
 ### Operation Modes
+The integration maps the device's modes to Home Assistant's water heater operation modes:
 
-The integration supports these DHW operation modes:
+*   **Heat Pump** (`heat_pump`): Uses only the heat pump. Most efficient.
+*   **Energy Saver** (`eco`): Hybrid mode balancing efficiency and recovery time.
+*   **High Demand** (`high_demand`): Uses heat pump and electric elements for fastest recovery.
+*   **Electric** (`electric`): Uses only electric elements.
 
-- **Heat Pump**: Heat pump only - most efficient
-- **Electric**: Electric elements only
-- **Energy Saver**: Hybrid mode for balance
-- **High Demand**: Hybrid mode for fast heating
+### Sensors & Entities
+To keep your system clean, **most advanced sensors are disabled by default**.
+
+**Enabled by Default:**
+*   Water Heater entity (Control)
+*   Tank & DHW Temperatures
+*   Current Power & Energy Status
+*   Error Codes & Basic Status
+
+**Available to Enable:**
+*   **Diagnostics**: Compressor temps, fan RPM, flow rates, refrigerant pressures.
+*   **Internal Status**: EEV steps, mixing rates, specific component status.
+*   **Safety**: Leak detection, freeze protection, scald warnings.
+
+To enable these, go to the device page in Home Assistant, look for "Disabled" entities, and enable the ones you need.
 
 ### Reservation Scheduling
+You can program the water heater to change modes or temperatures at specific times using the `nwp500.set_reservation` service.
 
-The integration provides services for programming automatic mode and temperature changes:
-
-#### Services
-
-| Service | Description |
-|---------|-------------|
-| `nwp500.set_reservation` | Create a single reservation with user-friendly parameters |
-| `nwp500.update_reservations` | Replace all reservations (advanced) |
-| `nwp500.clear_reservations` | Remove all reservation schedules |
-| `nwp500.request_reservations` | Request current reservation data from device |
-
-#### Example: Set a Weekday Morning Reservation
+**Example: Weekday Morning Boost**
+Set the heater to "High Demand" at 140°F every weekday morning at 6:30 AM.
 
 ```yaml
 service: nwp500.set_reservation
@@ -145,37 +84,74 @@ data:
   temperature: 140
 ```
 
-This creates a reservation that activates High Demand mode at 6:30 AM on weekdays with a target temperature of 140°F.
+## Automation Examples
+
+Here are some ways to automate your water heater:
+
+### 1. Solar Energy Dump
+Maximize self-consumption by overheating the water when you have excess solar power.
+
+```yaml
+alias: "Water Heater - Solar Boost"
+trigger:
+  - platform: numeric_state
+    entity_id: sensor.solar_export_power
+    above: 1000 # Watts
+action:
+  - service: water_heater.set_operation_mode
+    target:
+      entity_id: water_heater.navien_nwp500
+    data:
+      operation_mode: "high_demand"
+  - service: water_heater.set_temperature
+    target:
+      entity_id: water_heater.navien_nwp500
+    data:
+      temperature: 140
+```
+
+### 2. Leak Detection Alert
+Notify your phone immediately if the water heater detects a leak.
+*Note: Ensure `binary_sensor.water_leak_detected` is enabled.*
+
+```yaml
+alias: "Water Heater - Leak Alert"
+trigger:
+  - platform: state
+    entity_id: binary_sensor.navien_nwp500_water_leak_detected
+    to: "on"
+action:
+  - service: notify.mobile_app_phone
+    data:
+      message: "CRITICAL: Water leak detected at Water Heater!"
+      data:
+        push:
+          sound:
+            name: default
+            critical: 1
+            volume: 1.0
+```
+
+### 3. Vacation Mode
+Automatically set the water heater to a low energy state when you leave home.
+
+```yaml
+alias: "Water Heater - Away Mode"
+trigger:
+  - platform: state
+    entity_id: group.family
+    to: "not_home"
+action:
+  - service: water_heater.set_operation_mode
+    target:
+      entity_id: water_heater.navien_nwp500
+    data:
+      operation_mode: "eco" # or "off"
+```
 
 ## Library Version
-
-This integration currently uses **nwp500-python v7.2.2**.
-
-For version history and changelog, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
-
-## Entity Registry
-
-Most sensors are **disabled by default** to avoid cluttering your entity list. You can enable any sensor you need through:
-
-1. Settings → Devices & Services → Navien NWP500
-2. Click on your device
-3. Enable desired entities
-
-**Enabled by Default:**
-- Water heater entity
-- Primary temperature sensors
-- Error codes
-- Power consumption
-- DHW charge percentage
-- Operation status sensors
-
-## Energy Monitoring
-- Real-time power consumption
-- Energy capacity tracking
-- Efficiency monitoring
-
-
+This integration uses **nwp500-python v7.2.2**.
+For version history, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
 ## License
-
 This integration is released under the MIT License.

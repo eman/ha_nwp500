@@ -44,6 +44,9 @@ CONF_TOKEN_DATA: Final = "token_data"  # Token persistence
 
 # Default values
 DEFAULT_NAME: Final = "Navien NWP500"
+DEFAULT_TEMPERATURE: Final = (
+    120.0  # Default temperature for modes that don't use it
+)
 # Default polling interval for device status updates.
 # Set to 30 seconds to balance data freshness and server load.
 # Users can configure this via integration options (10-300 seconds).
@@ -308,7 +311,7 @@ DEVICE_STATUS_SENSORS: Final = {
     "cumulated_dhw_flow_rate": {
         "name": "Cumulated DHW Flow Rate",
         "device_class": None,
-        "unit": "gallons",
+        "unit": "gal",
         "state_class": "total_increasing",
         "entity_registry_enabled_default": False,
     },
@@ -567,6 +570,7 @@ SENSOR_CONFIGS: Final = {
         "name": "Total Energy Capacity",
         "device_class": "energy",
         "unit": "Wh",
+        "state_class": "total",
         "enabled": False,
     },
     "available_energy_capacity": {
@@ -574,6 +578,7 @@ SENSOR_CONFIGS: Final = {
         "name": "Available Energy Capacity",
         "device_class": "energy",
         "unit": "Wh",
+        "state_class": "total",
         "enabled": False,
     },
     # Percentage sensors
@@ -629,7 +634,8 @@ SENSOR_CONFIGS: Final = {
     "cumulated_dhw_flow_rate": {
         "attr": "cumulated_dhw_flow_rate",
         "name": "Cumulated DHW Flow Rate",
-        "unit": "gallons",
+        "device_class": "water",
+        "unit": "gal",
         "state_class": "total_increasing",
         "enabled": False,
     },
