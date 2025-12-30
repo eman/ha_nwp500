@@ -127,8 +127,8 @@ async def test_async_setup_entry_registers_services():
 
         await async_setup_entry(mock_hass, mock_entry)
 
-        # Verify all 10 services were registered
-        assert mock_hass.services.async_register.call_count == 10
+        # Verify all 5 services were registered
+        assert mock_hass.services.async_register.call_count == 5
 
         # Get all service names that were registered
         registered_services = [
@@ -211,5 +211,5 @@ async def test_async_unload_entry_removes_services_when_last():
 
     await async_unload_entry(mock_hass, mock_entry)
 
-    # All 4 services should be removed
-    assert mock_hass.services.async_remove.call_count == 4
+    # All 5 services should be removed
+    assert mock_hass.services.async_remove.call_count == 5

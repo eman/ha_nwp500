@@ -143,12 +143,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             # Hardware version: tank volume from library
             hw_version = None
             if volume_code is not None:
-                try:
-                    from nwp500.enums import VOLUME_CODE_TEXT
-
-                    hw_version = VOLUME_CODE_TEXT.get(volume_code)
-                except (ImportError, AttributeError, KeyError):
-                    pass
+                hw_version = str(volume_code)
 
             _LOGGER.info("Device capacity: volume_code=%s", volume_code)
 
@@ -316,15 +311,6 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
                 # Add volume_code text from library
                 if volume_code_value is not None:
-                    try:
-                        from nwp500.enums import VOLUME_CODE_TEXT
-
-                        volume_code_text = VOLUME_CODE_TEXT.get(
-                            volume_code_value
-                        )
-                        if volume_code_text:
-                            attrs["volume_code"] = volume_code_text
-                    except (ImportError, AttributeError, KeyError):
-                        pass
+                    attrs["volume_code"] = str(volume_code_value)
 
         return attrs

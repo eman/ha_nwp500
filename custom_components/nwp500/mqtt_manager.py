@@ -275,7 +275,7 @@ class NWP500MqttManager:
             # Request fresh status from device
             # We use request_device_status to get a lightweight status update
             # This avoids the caching behavior of ensure_device_info_cached
-            await self.mqtt_client.control.request_device_status(device)
+            await self.mqtt_client.request_device_status(device)
             self.consecutive_timeouts = 0
             return True
         except Exception as err:
@@ -289,7 +289,7 @@ class NWP500MqttManager:
             return
 
         try:
-            await self.mqtt_client.ensure_device_info_cached(device)
+            await self.mqtt_client.request_device_info(device)
         except Exception as err:
             self._handle_aws_error(err, "device info request")
 
@@ -303,76 +303,57 @@ class NWP500MqttManager:
         try:
             match command:
                 case "set_power":
-                    await self.mqtt_client.control.set_power(
+                    await self.mqtt_client.set_power(
                         device, kwargs.get("power_on", True)
                     )
                 case "set_temperature":
                     temp = kwargs.get("temperature")
                     if temp:
-                        await self.mqtt_client.control.set_dhw_temperature(
+                        await self.mqtt_client.set_dhw_temperature(
                             device, float(temp)
                         )
                 case "set_dhw_mode":
                     mode = kwargs.get("mode")
                     if mode:
-                        await self.mqtt_client.control.set_dhw_mode(
+                        await self.mqtt_client.set_dhw_mode(
                             device, int(mode)
                         )
                 case "set_tou_enabled":
                     enabled = kwargs.get("enabled", True)
-                    await self.mqtt_client.control.set_tou_enabled(
+                    await self.mqtt_client.set_tou_enabled(
                         device, enabled
                     )
                 case "enable_anti_legionella":
                     period_days = kwargs.get("period_days", 14)
-                    await self.mqtt_client.control.enable_anti_legionella(
+                    await self.mqtt_client.enable_anti_legionella(
                         device, period_days
                     )
                 case "disable_anti_legionella":
-                    await self.mqtt_client.control.disable_anti_legionella(
+                    await self.mqtt_client.disable_anti_legionella(
                         device
                     )
                 case "update_reservations":
                     reservations = kwargs.get("reservations", [])
                     enabled = kwargs.get("enabled", True)
-                    await self.mqtt_client.control.update_reservations(
+                    await self.mqtt_client.update_reservations(
                         device, reservations, enabled=enabled
                     )
                 case "request_reservations":
-                    await self.mqtt_client.control.request_reservations(device)
-                case "enable_demand_response":
-                    await self.mqtt_client.control.enable_demand_response(
-                        device
-                    )
-                case "disable_demand_response":
-                    await self.mqtt_client.control.disable_demand_response(
-                        device
-                    )
-                case "reset_air_filter":
-                    await self.mqtt_client.control.reset_air_filter(device)
+                    await self.mqtt_client.request_reservations(device)
                 case "set_vacation_days":
                     days = kwargs.get("days")
                     if days:
-                        await self.mqtt_client.control.set_vacation_days(
-                            device, int(days)
+                        # Mode 5 is vacation
+                        await self.mqtt_client.set_dhw_mode(
+                            device, 5, vacation_days=int(days)
                         )
-                case "set_recirculation_mode":
-                    mode = kwargs.get("mode")
-                    if mode:
-                        await self.mqtt_client.control.set_recirculation_mode(
-                            device, int(mode)
-                        )
-                case "trigger_recirculation":
-                    await self.mqtt_client.control.trigger_recirculation_hot_button(
-                        device
-                    )
                 case _:
                     _LOGGER.error("Unknown command: %s", command)
                     return False
 
             # Request update after command
             try:
-                await self.mqtt_client.control.request_device_status(device)
+                await self.mqtt_client.request_device_status(device)
             except Exception as err:
                 self._handle_aws_error(err, "post-command status request")
 

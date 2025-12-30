@@ -5,6 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 
@@ -18,8 +19,9 @@ from custom_components.nwp500 import (
     ATTR_RESERVATIONS,
     ATTR_TEMPERATURE,
     _async_setup_services,
+    validate_reservation_temperature,
 )
-from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.const import DEFAULT_TEMPERATURE, DOMAIN
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
 
 
@@ -50,15 +52,43 @@ def mock_service_call():
     return call
 
 
+class TestReservationValidator:
+    """Test reservation data validation."""
+
+    def test_validate_temperature_required(self):
+        """Test temperature is required for heating modes."""
+        data = {ATTR_OP_MODE: "heat_pump"}
+        with pytest.raises(vol.Invalid, match="Temperature is required"):
+            validate_reservation_temperature(data)
+
+    def test_validate_temperature_optional_for_vacation(self):
+        """Test temperature is optional for vacation mode."""
+        data = {ATTR_OP_MODE: "vacation"}
+        result = validate_reservation_temperature(data)
+        assert result[ATTR_TEMPERATURE] == DEFAULT_TEMPERATURE
+
+    def test_validate_temperature_optional_for_power_off(self):
+        """Test temperature is optional for power_off mode."""
+        data = {ATTR_OP_MODE: "power_off"}
+        result = validate_reservation_temperature(data)
+        assert result[ATTR_TEMPERATURE] == DEFAULT_TEMPERATURE
+
+    def test_validate_temperature_provided(self):
+        """Test provided temperature is preserved."""
+        data = {ATTR_OP_MODE: "heat_pump", ATTR_TEMPERATURE: 140.0}
+        result = validate_reservation_temperature(data)
+        assert result[ATTR_TEMPERATURE] == 140.0
+
+
 class TestReservationServices:
     """Tests for reservation service handlers."""
 
     @pytest.mark.asyncio
     async def test_setup_services_registers_all(self, mock_hass):
-        """Test that all 10 services are registered."""
+        """Test that all 5 services are registered."""
         await _async_setup_services(mock_hass)
 
-        assert mock_hass.services.async_register.call_count == 10
+        assert mock_hass.services.async_register.call_count == 5
 
     @pytest.mark.asyncio
     async def test_setup_services_skips_if_already_registered(self, mock_hass):
@@ -207,6 +237,51 @@ class TestReservationServices:
 
         with pytest.raises(HomeAssistantError, match="Temperature is required"):
             await set_reservation_handler(call)
+
+    @pytest.mark.asyncio
+    async def test_set_reservation_vacation_mode_uses_default_temp(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test set_reservation uses default temperature for vacation mode."""
+        mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_coordinator.async_update_reservations = AsyncMock(
+            return_value=True
+        )
+        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+        await _async_setup_services(mock_hass)
+
+        set_reservation_handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == "set_reservation":
+                set_reservation_handler = call[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            ATTR_ENABLED: True,
+            ATTR_DAYS: ["Monday"],
+            ATTR_HOUR: 6,
+            ATTR_MINUTE: 0,
+            ATTR_OP_MODE: "vacation",
+            # ATTR_TEMPERATURE not provided
+        }
+
+        with patch("nwp500.encoding.build_reservation_entry") as mock_build:
+            await set_reservation_handler(call)
+
+            mock_build.assert_called_once()
+            # Verify temperature_f is DEFAULT_TEMPERATURE
+            assert (
+                mock_build.call_args.kwargs["temperature_f"]
+                == DEFAULT_TEMPERATURE
+            )
 
     @pytest.mark.asyncio
     async def test_clear_reservations_sends_empty_list(

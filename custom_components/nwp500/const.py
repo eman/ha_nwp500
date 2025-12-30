@@ -44,6 +44,9 @@ CONF_TOKEN_DATA: Final = "token_data"  # Token persistence
 
 # Default values
 DEFAULT_NAME: Final = "Navien NWP500"
+DEFAULT_TEMPERATURE: Final = (
+    120.0  # Default temperature for modes that don't use it
+)
 # Default polling interval for device status updates.
 # Set to 30 seconds to balance data freshness and server load.
 # Users can configure this via integration options (10-300 seconds).
