@@ -1,19 +1,14 @@
 {
-  "include": [
-    "custom_components/nwp500"
-  ],
+  "include": ["custom_components/nwp500"],
   "exclude": [
     "**/__pycache__",
     "**/.mypy_cache",
     "**/.tox",
     "**/.venv",
-    "**/node_modules"
+    "**/node_modules",
   ],
   "ignore": [],
   "defineConstant": {},
-  "stubPath": "typings",
-  "reportMissingImports": "none",
-  "reportMissingTypeStubs": false,
   "pythonVersion": "3.13",
   "pythonPlatform": "Linux",
   "executionEnvironments": [
@@ -21,10 +16,12 @@
       "root": "custom_components/nwp500",
       "pythonVersion": "3.13",
       "pythonPlatform": "Linux",
-      "extraPaths": []
-    }
+      "extraPaths": [],
+    },
   ],
   "typeCheckingMode": "basic",
+  "reportMissingImports": false,
+  "reportMissingTypeStubs": false,
   "reportGeneralTypeIssues": true,
   "reportPropertyTypeMismatch": true,
   "reportFunctionMemberAccess": true,
@@ -56,7 +53,6 @@
   "reportUnusedImport": "warning",
   "reportUnusedFunction": false,
   "reportUnusedVariable": "warning",
-  "reportDuplicateString": false,
   "reportUntypedFunctionDecorator": false,
   "reportUntypedClassDecorator": false,
   "reportUntypedBaseClass": false,
@@ -77,5 +73,4 @@
   "reportUnusedExpression": false,
   "reportUnnecessaryTypeIgnoreComment": false,
   "reportMatchNotExhaustive": false,
-  "reportShadowedImports": true
 }

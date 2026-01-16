@@ -452,7 +452,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==7.2.2 awsiotsdk>=1.27.0"
+                "pip install nwp500-python==7.2.3 awsiotsdk>=1.27.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -564,15 +564,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 len(self.devices),
             )
 
-        except (
-            AuthenticationError,
-            InvalidCredentialsError,
-            TokenRefreshError,
-            TokenExpiredError,
-        ) as err:
-            # Authentication failed - trigger reauth flow
+        except InvalidCredentialsError as err:
+            # Invalid credentials - trigger reauth flow
             _LOGGER.error(
-                "Authentication failed for %s: %s. Starting reauth flow.",
+                "Invalid credentials for %s: %s. Starting reauth flow.",
                 email,
                 err,
             )
@@ -581,6 +576,33 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed(
                 "Authentication failed. Please re-authenticate through "
                 "the notifications panel or Settings > Devices & Services."
+            ) from err
+        except (
+            TokenRefreshError,
+            TokenExpiredError,
+            AuthenticationError,
+        ) as err:
+            # Token or authentication errors - check if retriable
+            # Network errors are marked as retriable in nwp500-python 7.2.3+
+            # Only non-retriable errors should trigger reauth
+            if err.retriable:
+                # Network error during auth/token refresh - will retry
+                _LOGGER.warning(
+                    "Network error during authentication for %s (will retry): %s",
+                    email,
+                    err,
+                )
+            else:
+                # Actual auth failure - trigger reauth
+                _LOGGER.error(
+                    "Authentication failed for %s: %s. Starting reauth flow.",
+                    email,
+                    err,
+                )
+                self.entry.async_start_reauth(self.hass)
+            await self.async_shutdown()
+            raise UpdateFailed(
+                f"Authentication error: {err}. Will retry on next update cycle."
             ) from err
         except (
             AwsCrtError,

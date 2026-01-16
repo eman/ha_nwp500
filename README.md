@@ -150,7 +150,7 @@ action:
 ```
 
 ## Library Version
-This integration uses **nwp500-python v7.2.2**.
+This integration uses **nwp500-python v7.2.3**.
 For version history, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
 ## License
