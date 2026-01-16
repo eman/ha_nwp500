@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
@@ -13,6 +13,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN, get_enum_value
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
+
+if TYPE_CHECKING:
+    from nwp500 import Device  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,7 +57,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)
@@ -107,7 +110,7 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)
@@ -154,7 +157,7 @@ class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[re
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)

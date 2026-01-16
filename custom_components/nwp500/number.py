@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
@@ -14,6 +14,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN, MAX_TEMPERATURE, MIN_TEMPERATURE
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
+
+if TYPE_CHECKING:
+    from nwp500 import Device  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +54,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator, mac_address, device)

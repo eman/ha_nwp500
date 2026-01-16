@@ -141,48 +141,30 @@ SERVICE_SET_VACATION_DAYS_SCHEMA = vol.Schema(
 )
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up NWP500 from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
+class NWP500ServiceHandler:
+    """Handles all NWP500 service calls with dependency injection.
+    
+    This class encapsulates service handler logic, making it testable
+    and avoiding closure complexity from nested functions.
+    """
 
-    coordinator = NWP500DataUpdateCoordinator(hass, entry)
-
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except UpdateFailed as err:
-        # Coordinator raises UpdateFailed for all setup errors
-        _LOGGER.error("Failed to connect to NWP500: %s", err)
-        raise ConfigEntryNotReady from err
-
-    hass.data[DOMAIN][entry.entry_id] = coordinator
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Register services (only once)
-    await _async_setup_services(hass)
-
-    return True
-
-
-async def _async_setup_services(hass: HomeAssistant) -> None:
-    """Set up services for the NWP500 integration."""
-    # Only register once
-    if hass.services.has_service(DOMAIN, SERVICE_SET_RESERVATION):
-        return
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the service handler."""
+        self.hass = hass
 
     async def _get_coordinator_and_mac(
-        call: ServiceCall,
+        self, call: ServiceCall
     ) -> tuple[NWP500DataUpdateCoordinator, str]:
         """Get coordinator and MAC address from service call."""
         device_id = call.data[ATTR_DEVICE_ID]
-        device_registry = dr.async_get(hass)
+        device_registry = dr.async_get(self.hass)
         device_entry = device_registry.async_get(device_id)
 
         if not device_entry:
             raise HomeAssistantError(f"Device {device_id} not found")
 
         # Find the coordinator for this device
-        for _entry_id, coordinator in hass.data[DOMAIN].items():
+        for _entry_id, coordinator in self.hass.data[DOMAIN].items():
             if not isinstance(coordinator, NWP500DataUpdateCoordinator):
                 continue
             for mac_address in coordinator.data.keys():
@@ -195,7 +177,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             f"Could not find NWP500 coordinator for device {device_id}"
         )
 
-    async def async_set_reservation(call: ServiceCall) -> None:
+    async def async_set_reservation(self, call: ServiceCall) -> None:
         """Handle set_reservation service call."""
         try:
             from nwp500.encoding import build_reservation_entry
@@ -204,7 +186,7 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
                 "nwp500-python library not available"
             ) from err
 
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
         enabled = call.data[ATTR_ENABLED]
         days = call.data[ATTR_DAYS]
@@ -256,9 +238,9 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         if not success:
             raise HomeAssistantError("Failed to set reservation")
 
-    async def async_update_reservations(call: ServiceCall) -> None:
+    async def async_update_reservations(self, call: ServiceCall) -> None:
         """Handle update_reservations service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
         reservations = call.data[ATTR_RESERVATIONS]
         enabled = call.data.get(ATTR_ENABLED, True)
@@ -280,9 +262,9 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         if not success:
             raise HomeAssistantError("Failed to update reservations")
 
-    async def async_clear_reservations(call: ServiceCall) -> None:
+    async def async_clear_reservations(self, call: ServiceCall) -> None:
         """Handle clear_reservations service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
         _LOGGER.info("Clearing all reservations for %s", mac_address)
 
@@ -294,9 +276,9 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         if not success:
             raise HomeAssistantError("Failed to clear reservations")
 
-    async def async_request_reservations(call: ServiceCall) -> None:
+    async def async_request_reservations(self, call: ServiceCall) -> None:
         """Handle request_reservations service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
         _LOGGER.info("Requesting reservations for %s", mac_address)
 
@@ -305,38 +287,9 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         if not success:
             raise HomeAssistantError("Failed to request reservations")
 
-    # Register all services with schemas
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_RESERVATION,
-        async_set_reservation,
-        schema=SERVICE_SET_RESERVATION_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_UPDATE_RESERVATIONS,
-        async_update_reservations,
-        schema=SERVICE_UPDATE_RESERVATIONS_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_CLEAR_RESERVATIONS,
-        async_clear_reservations,
-        schema=SERVICE_DEVICE_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_REQUEST_RESERVATIONS,
-        async_request_reservations,
-        schema=SERVICE_DEVICE_SCHEMA,
-    )
-
-    async def async_set_vacation_days(call: ServiceCall) -> None:
+    async def async_set_vacation_days(self, call: ServiceCall) -> None:
         """Handle set_vacation_days service call."""
-        coordinator, mac_address = await _get_coordinator_and_mac(call)
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
         days = call.data[ATTR_DAYS]
         _LOGGER.info(
             "Setting vacation mode for %s days on %s", days, mac_address
@@ -347,10 +300,72 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         if not success:
             raise HomeAssistantError("Failed to set vacation days")
 
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up NWP500 from a config entry."""
+    hass.data.setdefault(DOMAIN, {})
+
+    coordinator = NWP500DataUpdateCoordinator(hass, entry)
+
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except UpdateFailed as err:
+        # Coordinator raises UpdateFailed for all setup errors
+        _LOGGER.error("Failed to connect to NWP500: %s", err)
+        raise ConfigEntryNotReady from err
+
+    hass.data[DOMAIN][entry.entry_id] = coordinator
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Register services (only once)
+    await _async_setup_services(hass)
+
+    return True
+
+
+async def _async_setup_services(hass: HomeAssistant) -> None:
+    """Set up services for the NWP500 integration."""
+    # Only register once
+    if hass.services.has_service(DOMAIN, SERVICE_SET_RESERVATION):
+        return
+
+    # Create service handler instance
+    handler = NWP500ServiceHandler(hass)
+
+    # Register all services with schemas
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_RESERVATION,
+        handler.async_set_reservation,
+        schema=SERVICE_SET_RESERVATION_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_UPDATE_RESERVATIONS,
+        handler.async_update_reservations,
+        schema=SERVICE_UPDATE_RESERVATIONS_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CLEAR_RESERVATIONS,
+        handler.async_clear_reservations,
+        schema=SERVICE_DEVICE_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REQUEST_RESERVATIONS,
+        handler.async_request_reservations,
+        schema=SERVICE_DEVICE_SCHEMA,
+    )
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_SET_VACATION_DAYS,
-        async_set_vacation_days,
+        handler.async_set_vacation_days,
         schema=SERVICE_SET_VACATION_DAYS_SCHEMA,
     )
 
