@@ -377,6 +377,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                             # Cancel any existing reconnection task first
                             if self._reconnect_task and not self._reconnect_task.done():
                                 self._reconnect_task.cancel()
+                                try:
+                                    await self._reconnect_task
+                                except asyncio.CancelledError:
+                                    _LOGGER.debug(
+                                        "Previous MQTT reconnection task was cancelled"
+                                    )
                             # Create and track new reconnection task
                             self._reconnect_task = asyncio.create_task(
                                 self.mqtt_manager.force_reconnect(self.devices)
