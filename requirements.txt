@@ -14,7 +14,7 @@ awsiotsdk>=1.27.0
 
 # Type checking
 mypy>=1.0.0
-pyright>=1.1.0
+basedpyright>=1.0.0
 
 # Testing
 pytest>=7.0.0
