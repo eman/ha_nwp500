@@ -59,6 +59,20 @@ class NWP500MqttManager:
         self._connection_interruptions: list[dict[str, Any]] = []
         self._max_interruption_history: int = 20
 
+    async def __aenter__(self) -> NWP500MqttManager:
+        """Async context manager entry - set up MQTT connection."""
+        await self.setup()
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
+        """Async context manager exit - disconnect from MQTT."""
+        await self.disconnect()
+
     @property
     def is_connected(self) -> bool:
         """Return True if MQTT is connected."""

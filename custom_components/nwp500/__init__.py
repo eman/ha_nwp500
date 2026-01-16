@@ -17,7 +17,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from .const import DEFAULT_TEMPERATURE, DOMAIN
+from .const import DEFAULT_TEMPERATURE, DOMAIN, MODE_TO_DHW_ID
 from .coordinator import NWP500DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -66,16 +66,6 @@ VALID_MODES = [
     "vacation",
     "power_off",
 ]
-
-# Mode mapping for reservations (friendly name -> DHW mode ID)
-MODE_TO_DHW_ID: dict[str, int] = {
-    "heat_pump": 1,
-    "electric": 2,
-    "energy_saver": 3,
-    "high_demand": 4,
-    "vacation": 5,
-    "power_off": 6,
-}
 
 
 def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:

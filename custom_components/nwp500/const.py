@@ -126,6 +126,17 @@ HA_TO_DHW_OPERATION_SETTING: Final = {
 # Alias for consistency
 DHW_MODE_TO_HA: Final = DHW_OPERATION_SETTING_TO_HA
 
+# Mapping for reservation service calls (friendly mode names to DHW mode IDs)
+# Used by set_reservation and related services
+MODE_TO_DHW_ID: Final = {
+    "heat_pump": 1,
+    "electric": 2,
+    "energy_saver": 3,
+    "high_demand": 4,
+    "vacation": 5,
+    "power_off": 6,
+}
+
 # Temperature ranges (from nwp500-python documentation)
 MIN_TEMPERATURE: Final = 80  # °F (minimum safe operating temperature)
 MAX_TEMPERATURE: Final = 150  # °F (maximum supported by device)
