@@ -5,19 +5,20 @@
     "**/.mypy_cache",
     "**/.tox",
     "**/.venv",
-    "**/node_modules",
+    "**/node_modules"
   ],
   "ignore": [],
   "defineConstant": {},
   "pythonVersion": "3.13",
   "pythonPlatform": "Linux",
+  "stubPath": "custom_components/nwp500",
   "executionEnvironments": [
     {
       "root": "custom_components/nwp500",
       "pythonVersion": "3.13",
       "pythonPlatform": "Linux",
-      "extraPaths": [],
-    },
+      "extraPaths": []
+    }
   ],
   "typeCheckingMode": "basic",
   "reportMissingImports": false,
@@ -72,5 +73,5 @@
   "reportUnusedCoroutine": true,
   "reportUnusedExpression": false,
   "reportUnnecessaryTypeIgnoreComment": false,
-  "reportMatchNotExhaustive": false,
+  "reportMatchNotExhaustive": false
 }

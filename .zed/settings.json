@@ -1,0 +1,10 @@
+{
+  "lsp": {
+    "basedpyright": {
+      "settings": {
+        "python.analysis.typeCheckingMode": "basic",
+        "python.analysis.stubPath": ""
+      }
+    }
+  }
+}
