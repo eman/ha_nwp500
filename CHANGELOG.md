@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-01-16
+
+### Fixed
+- **Authentication Error Handling**: Fixed false reauth prompts when network errors occur during authentication
+  - Network errors during startup no longer trigger unnecessary reauthentication flows
+  - Only genuine credential failures now prompt users to re-authenticate
+  - Leverages `retriable` flag from nwp500-python v7.2.3 for intelligent error differentiation
+- **Type Checking Configuration**: Fixed JSON syntax errors and editor configuration issues
+  - Removed trailing commas from `pyrightconfig.json` for valid JSON
+  - Added `stubPath` configuration pointing to valid directory
+  - Created `.zed/settings.json` for proper Zed editor integration
+  - Resolves editor complaints about missing typings directory
+
+### Changed
+- **Code Quality**: Simplified error handling logic by removing unnecessary hasattr checks
+  - Direct access to `retriable` attribute makes code intention clearer
+  - Improved maintainability with explicit dependency on nwp500-python v7.2.3+
+- **Type Checking**: Migrated from Pyright to Basedpyright for faster, more robust type checking
+  - Updated `.github/workflows/ci.yml` to use basedpyright instead of pyright
+  - Faster type checking in CI pipeline without sacrificing accuracy
+  - Better alignment with modern Python tooling ecosystem
+
 ## [0.1.5] - 2025-12-28
 
 ### Added
