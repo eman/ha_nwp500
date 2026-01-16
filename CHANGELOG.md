@@ -107,6 +107,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This section tracks changes in the nwp500-python library that this integration depends on.
 
+### v7.2.3 (2026-01-16)
+
+#### Fixed
+- **Network Errors Triggering False Reauth**: Fixed issue where network errors during authentication startup were incorrectly triggering reauth prompts
+  - Root cause: Network errors and invalid credentials were both raised as `AuthenticationError`, making them indistinguishable
+  - Solution: Network errors in `sign_in()` and `refresh_token()` now set `retriable=True` flag
+  - Impact: Integration can now distinguish transient network failures from actual credential failures
+  - Home Assistant will retry automatically without prompting for reauthentication when network is unavailable
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.2.3
+
 ### v7.2.2 (2025-12-26)
 
 #### Fixed

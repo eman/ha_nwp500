@@ -1,22 +1,15 @@
 {
   "domain": "nwp500",
   "name": "Navien NWP500",
-  "codeowners": [
-    "@eman"
-  ],
+  "codeowners": ["@eman"],
   "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/eman/ha_nwp500",
   "integration_type": "device",
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
-  "loggers": [
-    "custom_components.nwp500"
-  ],
+  "loggers": ["custom_components.nwp500"],
   "quality_scale": "silver",
-  "requirements": [
-    "nwp500-python==7.2.2",
-    "awsiotsdk>=1.27.0"
-  ],
+  "requirements": ["nwp500-python==7.2.3", "awsiotsdk>=1.27.0"],
   "version": "0.1.5"
 }
