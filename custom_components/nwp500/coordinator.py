@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -79,8 +80,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self._mqtt_connected_since: float | None = None
         self._consecutive_timeouts: int = 0
         self._reconnection_in_progress: bool = False
-        self._timeout_history: list[dict[str, Any]] = []
-        self._max_timeout_history: int = 20
+        # Use deque for efficient circular buffer (automatic maxlen enforcement)
+        self._timeout_history: deque[dict[str, Any]] = deque(maxlen=20)
 
         # Get scan interval from options, fall back to default
         scan_interval = entry.options.get(
@@ -356,12 +357,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                             "consecutive_count": self._consecutive_timeouts,
                         }
                         self._timeout_history.append(timeout_event)
-                        # Keep only last 20 timeout events
-                        if (
-                            len(self._timeout_history)
-                            > self._max_timeout_history
-                        ):
-                            self._timeout_history.pop(0)
 
                         _LOGGER.error(
                             "Timeout requesting status for device %s - "
