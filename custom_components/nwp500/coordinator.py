@@ -585,7 +585,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             # Token or authentication errors - check if retriable
             # Network errors are marked as retriable in nwp500-python 7.2.3+
             # Only non-retriable errors should trigger reauth
-            if hasattr(err, "retriable") and err.retriable:
+            if err.retriable:
                 # Network error during auth/token refresh - will retry
                 _LOGGER.warning(
                     "Network error during authentication for %s (will retry): %s",
