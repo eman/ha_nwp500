@@ -133,7 +133,7 @@ SERVICE_SET_VACATION_DAYS_SCHEMA = vol.Schema(
 
 class NWP500ServiceHandler:
     """Handles all NWP500 service calls with dependency injection.
-    
+
     This class encapsulates service handler logic, making it testable
     and avoiding closure complexity from nested functions.
     """
