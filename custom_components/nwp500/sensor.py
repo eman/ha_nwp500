@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -28,6 +28,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN, SENSOR_CONFIGS
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
+
+if TYPE_CHECKING:
+    from nwp500 import Device  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -203,7 +206,7 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
         description: NWP500SensorEntityDescription,
     ) -> None:
         """Initialize the sensor."""
@@ -238,7 +241,7 @@ class NWP500DiagnosticSensor(NWP500Entity, SensorEntity):  # type: ignore[report
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
         key: str,
         name: str,
     ) -> None:
@@ -257,7 +260,7 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
@@ -302,7 +305,7 @@ class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
@@ -329,7 +332,7 @@ class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
@@ -354,7 +357,7 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(
@@ -395,7 +398,7 @@ class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(

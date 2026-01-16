@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -18,6 +18,9 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
+
+if TYPE_CHECKING:
+    from nwp500 import Device  # type: ignore[attr-defined]
 
 
 @dataclass(frozen=True)
@@ -348,7 +351,7 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):  # type: ignore[repo
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
         description: NWP500BinarySensorEntityDescription,
     ) -> None:
         """Initialize the binary sensor."""

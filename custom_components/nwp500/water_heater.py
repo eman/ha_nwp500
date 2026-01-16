@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.water_heater import (
     STATE_ECO,
@@ -33,6 +33,9 @@ from .const import (
 )
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
+
+if TYPE_CHECKING:
+    from nwp500 import Device  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,7 +76,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
-        device: Any,
+        device: Device,
     ) -> None:
         """Initialize the water heater."""
         super().__init__(coordinator, mac_address, device)

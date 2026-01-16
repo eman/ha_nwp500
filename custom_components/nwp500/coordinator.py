@@ -56,8 +56,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.api_client: NavienAPIClient | None = None
         self.mqtt_manager: NWP500MqttManager | None = None
         self.devices: list[Device] = []
+        self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
         self._periodic_task: asyncio.Task[Any] | None = None
+        self._reconnect_task: asyncio.Task[Any] | None = None  # Track reconnection task
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -134,6 +136,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 loop.default_exception_handler(context)
 
         loop.set_exception_handler(custom_exception_handler)
+
+    def _update_device_cache(self) -> None:
+        """Update the devices-by-MAC lookup cache for O(1) access.
+
+        Call this after updating self.devices to keep the cache in sync.
+        """
+        self._devices_by_mac = {d.device_info.mac_address: d for d in self.devices}
 
     async def _save_tokens(self) -> None:
         """Save current authentication tokens to entry.data.
@@ -369,8 +378,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 "Will attempt forced reconnection.",
                                 self._consecutive_timeouts,
                             )
-                            # Schedule reconnection asynchronously
-                            asyncio.create_task(
+                            # Schedule reconnection asynchronously and track the task
+                            # Cancel any existing reconnection task first
+                            if self._reconnect_task and not self._reconnect_task.done():
+                                self._reconnect_task.cancel()
+                            # Create and track new reconnection task
+                            self._reconnect_task = asyncio.create_task(
                                 self.mqtt_manager.force_reconnect(self.devices)
                             )
                     except AwsCrtError as err:
@@ -521,6 +534,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     "Please check the NaviLink app to verify your device "
                     "is registered and online."
                 )
+
+            # Build device lookup cache for O(1) access
+            self._update_device_cache()
 
             _LOGGER.info("Found %d devices", len(self.devices))
 
@@ -691,11 +707,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("MQTT manager not available")
             return False
 
-        device = None
-        for dev in self.devices:
-            if dev.device_info.mac_address == mac_address:
-                device = dev
-                break
+        device = self._devices_by_mac.get(mac_address)
 
         if not device:
             _LOGGER.error("Device %s not found", mac_address)
@@ -714,10 +726,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         devices_to_update = []
         if mac_address:
             # Request for specific device
-            for dev in self.devices:
-                if dev.device_info.mac_address == mac_address:
-                    devices_to_update.append(dev)
-                    break
+            device = self._devices_by_mac.get(mac_address)
+            if device:
+                devices_to_update.append(device)
         else:
             # Request for all devices
             devices_to_update = self.devices
@@ -764,11 +775,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("MQTT manager not available")
             return False
 
-        device = None
-        for dev in self.devices:
-            if dev.device_info.mac_address == mac_address:
-                device = dev
-                break
+        device = self._devices_by_mac.get(mac_address)
 
         if not device:
             _LOGGER.error("Device %s not found", mac_address)
@@ -794,11 +801,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("MQTT manager not available")
             return False
 
-        device = None
-        for dev in self.devices:
-            if dev.device_info.mac_address == mac_address:
-                device = dev
-                break
+        device = self._devices_by_mac.get(mac_address)
 
         if not device:
             _LOGGER.error("Device %s not found", mac_address)
@@ -825,11 +828,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             _LOGGER.error("MQTT manager not available")
             return False
 
-        device = None
-        for dev in self.devices:
-            if dev.device_info.mac_address == mac_address:
-                device = dev
-                break
+        device = self._devices_by_mac.get(mac_address)
 
         if not device:
             _LOGGER.error("Device %s not found", mac_address)
@@ -839,6 +838,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
+        # Cancel any pending reconnection task
+        if self._reconnect_task and not self._reconnect_task.done():
+            self._reconnect_task.cancel()
+            try:
+                await self._reconnect_task
+            except asyncio.CancelledError:
+                pass
+
         if self.mqtt_manager:
             await self.mqtt_manager.disconnect()
             self.mqtt_manager = None
