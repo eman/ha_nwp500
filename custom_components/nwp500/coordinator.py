@@ -60,7 +60,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
         self._periodic_task: asyncio.Task[Any] | None = None
-        self._reconnect_task: asyncio.Task[Any] | None = None  # Track reconnection task
+        self._reconnect_task: asyncio.Task[Any] | None = (
+            None  # Track reconnection task
+        )
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -143,7 +145,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
         Call this after updating self.devices to keep the cache in sync.
         """
-        self._devices_by_mac = {d.device_info.mac_address: d for d in self.devices}
+        self._devices_by_mac = {
+            d.device_info.mac_address: d for d in self.devices
+        }
 
     async def _save_tokens(self) -> None:
         """Save current authentication tokens to entry.data.
@@ -373,10 +377,22 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 "Will attempt forced reconnection.",
                                 self._consecutive_timeouts,
                             )
-                            # Schedule reconnection asynchronously and track the task
-                            # Cancel any existing reconnection task first
-                            if self._reconnect_task and not self._reconnect_task.done():
+                            # Schedule reconnection asynchronously
+                            # and track the task
+                            # Cancel any existing reconnection task
+                            # first
+                            if (
+                                self._reconnect_task
+                                and not self._reconnect_task.done()
+                            ):
                                 self._reconnect_task.cancel()
+                                try:
+                                    await self._reconnect_task
+                                except asyncio.CancelledError:
+                                    _LOGGER.debug(
+                                        "Previous MQTT reconnection task "
+                                        "was cancelled"
+                                    )
                             # Create and track new reconnection task
                             self._reconnect_task = asyncio.create_task(
                                 self.mqtt_manager.force_reconnect(self.devices)

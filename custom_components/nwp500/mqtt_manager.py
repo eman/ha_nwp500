@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import types
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -68,7 +69,7 @@ class NWP500MqttManager:
         self,
         exc_type: type[BaseException] | None,
         exc_val: BaseException | None,
-        exc_tb: Any,
+        exc_tb: types.TracebackType | None,
     ) -> None:
         """Async context manager exit - disconnect from MQTT."""
         await self.disconnect()
