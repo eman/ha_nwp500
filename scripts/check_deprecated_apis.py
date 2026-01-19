@@ -11,7 +11,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # Deprecated patterns that should trigger warnings/errors
 DEPRECATED_PATTERNS = {
     # API changes in recent HA versions
@@ -133,7 +132,7 @@ def main() -> int:
         if violations:
             all_violations[filepath] = violations
 
-            for line_num, message, line_content in violations:
+            for _line_num, message, _line_content in violations:
                 if "ERROR" in message:
                     total_errors += 1
                 else:
