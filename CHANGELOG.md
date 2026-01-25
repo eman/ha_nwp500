@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-01-25
+
+### Changed
+- **Code Cleanup**: Removed temporary MQTT token refresh workaround from `mqtt_manager.py`
+  - Workaround was replaced by proper library fix in nwp500-python 7.3.1
+  - Library now handles token validation in `connect()` instead of requiring pre-validation
+  - Simplifies integration code and eliminates redundant token refresh logic
+
 ## [0.1.8] - 2026-01-25
 
 ### Changed
