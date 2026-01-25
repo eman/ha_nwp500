@@ -32,7 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.6] - 2026-01-16
+## [0.1.8] - 2026-01-25
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded from 7.2.3 to 7.3.1
+  - **7.3.1 (2026-01-25)**: Removed strict token validity check from `NavienMqttClient.__init__()`, defers validation to `connect()` - resolves MQTT client creation with restored/expired tokens
+  - **7.3.0 (2026-01-19)**: Dynamic Unit Conversion feature - all temperature, flow, and volume measurements now automatically convert based on user's region preference (Metric/Imperial)
+    - Temperature fields convert between Celsius and Fahrenheit
+    - Flow rate fields convert between LPM and GPM
+    - Volume fields convert between Liters and Gallons
+    - New `get_field_unit()` method to retrieve correct unit suffix for any field
+    - New `unit_system` parameter on MQTT/API clients for explicit Metric/Imperial override
+  - See [nwp500-python 7.3.0 Release Notes](https://github.com/eman/nwp500-python/releases/tag/v7.3.0) for complete unit conversion documentation
 
 ### Fixed
 - **Authentication Error Handling**: Fixed false reauth prompts when network errors occur during authentication
