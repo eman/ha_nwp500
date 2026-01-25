@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.7] - 2026-01-25
 
 ### Fixed
 - **MQTT Token Stale Error**: Fixed hanging integration caused by stale/expired tokens during MQTT client initialization
@@ -19,13 +19,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Improved code organization by centralizing mode mappings in `const.py` module, eliminating duplicate `MODE_TO_DHW_ID` definitions
   - Better type checking with explicit `Device` types instead of generic `Any` for improved IDE support and error detection
 
-### Fixed
-- **Task Cleanup**: Properly await cancelled reconnection tasks in `coordinator.py` to prevent "Task was destroyed but it is pending" warnings
-  - Ensures reliable cleanup of previous MQTT reconnection tasks before creating new ones
-  - Follows established async cleanup patterns from `async_shutdown()` method
-- **Type Safety**: Improved type hint specificity in `mqtt_manager.py.__aexit__()`
-  - Changed `exc_tb` parameter from `Any` to `types.TracebackType | None` for better type safety
-
 ### Refactored
 - **Service Handler Architecture**: Refactored service handlers from nested functions into testable `NWP500ServiceHandler` class
   - Improves testability and maintainability
@@ -36,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replaced manual list management with `collections.deque(maxlen=20)` for timeout history tracking
   - Automatic circular buffer behavior without manual truncation logic
   - Reduces performance overhead of timeout history operations
+
+## [Unreleased]
 
 ## [0.1.6] - 2026-01-16
 
