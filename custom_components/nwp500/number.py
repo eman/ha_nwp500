@@ -48,7 +48,6 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
     _attr_native_min_value = MIN_TEMPERATURE
     _attr_native_max_value = MAX_TEMPERATURE
     _attr_native_step = 1
-    _attr_native_unit_of_measurement = UnitOfTemperature.FAHRENHEIT
 
     def __init__(
         self,
@@ -61,6 +60,30 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         self._attr_unique_id = f"{mac_address}_target_temperature"
         self._attr_name = f"{self.device_name} Target Temperature"
         self._attr_icon = "mdi:thermometer"
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return the unit of measurement, dynamically based on device settings.
+        
+        nwp500-python 7.3.0+ provides dynamic unit conversion based on the water
+        heater's region/unit preference.
+        """
+        if not (status := self._status):
+            return UnitOfTemperature.FAHRENHEIT
+        
+        try:
+            # Get the temperature unit from device status
+            unit_str = status.get_field_unit("dhw_target_temperature_setting")
+            # get_field_unit returns "°C" or "°F", map to HA constants
+            if unit_str == "°C":
+                return UnitOfTemperature.CELSIUS
+            elif unit_str == "°F":
+                return UnitOfTemperature.FAHRENHEIT
+        except (AttributeError, TypeError):
+            pass
+        
+        # Default to Fahrenheit
+        return UnitOfTemperature.FAHRENHEIT
 
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

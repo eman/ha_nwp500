@@ -216,6 +216,35 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         self._attr_name = f"{self.device_name} {description.name}"
 
     @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Return the native unit of measurement, dynamically based on device settings.
+        
+        nwp500-python 7.3.0+ provides dynamic unit conversion based on the water
+        heater's region/unit preference. This property uses get_field_unit() to
+        retrieve the correct unit for the current sensor field.
+        """
+        if not (status := self._status):
+            # Fallback to static unit if no status available yet
+            return self.entity_description.native_unit_of_measurement
+        
+        try:
+            # Get the attribute name from SENSOR_CONFIGS
+            from .const import SENSOR_CONFIGS
+            config = SENSOR_CONFIGS.get(self.entity_description.key, {})
+            attr_name = config.get("attr")
+            
+            if attr_name:
+                # Get dynamic unit from device status
+                unit_str = status.get_field_unit(attr_name)
+                if unit_str:
+                    return unit_str
+        except (AttributeError, TypeError, KeyError):
+            pass
+        
+        # Fall back to static unit from description
+        return self.entity_description.native_unit_of_measurement
+
+    @property
     def native_value(self) -> Any:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the state of the sensor."""
         if not (status := self._status):

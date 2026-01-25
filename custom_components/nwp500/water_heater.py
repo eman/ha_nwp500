@@ -62,7 +62,6 @@ async def async_setup_entry(
 class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 water heater entity."""
 
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
     _attr_min_temp = MIN_TEMPERATURE
     _attr_max_temp = MAX_TEMPERATURE
     _attr_supported_features = (
@@ -88,6 +87,31 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             STATE_HIGH_DEMAND,
             STATE_ELECTRIC,
         ]
+
+    @property
+    def temperature_unit(self) -> str:
+        """Return the unit of measurement used by this entity.
+        
+        Dynamically returns the unit based on the device's region/unit preference
+        as set in the water heater, thanks to nwp500-python 7.3.0+ dynamic unit
+        conversion.
+        """
+        if not (status := self._status):
+            return UnitOfTemperature.FAHRENHEIT
+        
+        try:
+            # Get the temperature unit from device status
+            unit_str = status.get_field_unit("dhw_temperature")
+            # get_field_unit returns "°C" or "°F", map to HA constants
+            if unit_str == "°C":
+                return UnitOfTemperature.CELSIUS
+            elif unit_str == "°F":
+                return UnitOfTemperature.FAHRENHEIT
+        except (AttributeError, TypeError):
+            pass
+        
+        # Default to Fahrenheit
+        return UnitOfTemperature.FAHRENHEIT
 
     @property
     def current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
