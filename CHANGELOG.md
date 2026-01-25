@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **MQTT Token Stale Error**: Fixed hanging integration caused by stale/expired tokens during MQTT client initialization
+  - Ensured tokens are refreshed BEFORE creating the MQTT client, preventing "Tokens are stale/expired" errors
+  - Resolves repeated MQTT connection failures and integration hang-ups after Home Assistant restart
+  - Integration now properly refreshes authentication tokens before attempting MQTT connection
+
 ### Changed
 - **Code Quality Improvements**: Enhanced type safety and resource management
   - Replaced generic `Any` type hints with proper `Device` types across all entity classes (`water_heater.py`, `switch.py`, `sensor.py`, `number.py`, `binary_sensor.py`, `entity.py`)

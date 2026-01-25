@@ -359,3 +359,19 @@ async def test_request_device_info_no_client(mock_auth_client, mock_device):
 
     # No error should be raised
     assert manager.mqtt_client is None
+
+
+@pytest.mark.asyncio
+async def test_setup_ensures_valid_token(manager, mock_mqtt_client):
+    """Test that setup calls ensure_valid_token before creating MQTT client."""
+    # Mock ensure_valid_token
+    manager.auth_client.ensure_valid_token = AsyncMock()
+
+    await manager.setup()
+
+    # Verify ensure_valid_token was called at least once during setup
+    # (called in setup() and again in connect())
+    assert manager.auth_client.ensure_valid_token.call_count >= 1
+    # Verify MQTT client was created and connected after token refresh
+    assert manager.mqtt_client is not None
+    mock_mqtt_client.connect.assert_called_once()

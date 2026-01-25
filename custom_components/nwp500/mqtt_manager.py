@@ -105,6 +105,17 @@ class NWP500MqttManager:
                 NavienMqttClient,
             )
 
+            # Ensure auth tokens are valid before creating MQTT client
+            try:
+                await self.auth_client.ensure_valid_token()
+                _LOGGER.debug("Auth tokens validated/refreshed before MQTT setup")
+            except Exception as auth_err:
+                _LOGGER.error(
+                    "Failed to ensure valid auth tokens during MQTT setup: %s",
+                    auth_err,
+                )
+                return False
+
             # Initialize diagnostics collector
             self.diagnostics = MqttDiagnosticsCollector(
                 enable_verbose_logging=False
