@@ -11,5 +11,5 @@
   "loggers": ["custom_components.nwp500"],
   "quality_scale": "silver",
   "requirements": ["nwp500-python==7.3.1", "awsiotsdk>=1.27.0"],
-  "version": "0.1.8"
+  "version": "0.1.9"
 }
