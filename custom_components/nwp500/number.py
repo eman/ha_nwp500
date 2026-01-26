@@ -73,10 +73,10 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
 
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Return target temperature in HA's configured unit.
+        """Return the current target temperature.
         
-        The library returns values in the device's native unit. We convert
-        to HA's configured unit if needed.
+        The library handles unit conversion based on HA's configured unit
+        system, so this value is already in the correct units.
         """
         if not (status := self._status):
             return None
@@ -86,64 +86,21 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
             )
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
-            
-            if target_temp is None:
-                return None
-            
-            target_temp = float(target_temp)
-            
-            # Get device's native unit and convert if needed
-            try:
-                device_unit = status.get_field_unit(
-                    "dhw_target_temperature_setting"
-                ).strip()
-                ha_unit = self.hass.config.units.temperature_unit
-                
-                # Convert between Celsius and Fahrenheit if units differ
-                if device_unit != ha_unit:
-                    if device_unit == "°C" and ha_unit == "°F":
-                        target_temp = (target_temp * 9 / 5) + 32
-                    elif device_unit == "°F" and ha_unit == "°C":
-                        target_temp = (target_temp - 32) * 5 / 9
-            except (AttributeError, TypeError):
-                pass
-            
-            return target_temp
+            return float(target_temp) if target_temp is not None else None
         except (AttributeError, TypeError, ValueError):
             return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set target temperature, converting from HA's unit to device's unit."""
-        try:
-            if not (status := self._status):
-                return
-            
-            temp_to_send = value
-            
-            # Convert from HA's unit back to device's native unit if needed
-            try:
-                device_unit = status.get_field_unit(
-                    "dhw_target_temperature_setting"
-                ).strip()
-                ha_unit = self.hass.config.units.temperature_unit
-                
-                if device_unit != ha_unit:
-                    if device_unit == "°C" and ha_unit == "°F":
-                        # Convert from Fahrenheit to Celsius
-                        temp_to_send = (value - 32) * 5 / 9
-                    elif device_unit == "°F" and ha_unit == "°C":
-                        # Convert from Celsius to Fahrenheit
-                        temp_to_send = (value * 9 / 5) + 32
-            except (AttributeError, TypeError):
-                pass
-            
-            success = await self.coordinator.async_control_device(
-                self.mac_address,
-                "set_temperature",
-                temperature=int(temp_to_send),
-            )
+        """Set the target temperature.
+        
+        The library handles unit conversion, so the value sent should be
+        in HA's configured unit (which the library already expects).
+        """
+        success = await self.coordinator.async_control_device(
+            self.mac_address,
+            "set_temperature",
+            temperature=int(value),
+        )
 
-            if success:
-                await self.coordinator.async_request_refresh()
-        except (AttributeError, TypeError, ValueError):
-            pass
+        if success:
+            await self.coordinator.async_request_refresh()

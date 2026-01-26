@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -516,9 +516,20 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     )
                     stored_tokens = None
 
+            # Determine unit system based on HA configuration
+            # Metric uses Celsius (°C), us_customary uses Fahrenheit (°F)
+            unit_system = (
+                "metric"
+                if self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+                else "us_customary"
+            )
+
             # Setup authentication client with stored tokens if available
             self.auth_client = NavienAuthClient(
-                email, password, stored_tokens=stored_tokens
+                email,
+                password,
+                stored_tokens=stored_tokens,
+                unit_system=unit_system,
             )
             assert self.auth_client is not None
             await self.auth_client.__aenter__()  # Authenticate or restore
