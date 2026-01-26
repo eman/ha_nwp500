@@ -217,18 +217,20 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        """Return the native unit for this field from the device.
+        """Return the native unit for this field from the device status.
         
-        Uses nwp500-python library's get_field_unit() to get the actual unit
-        based on the device's configured unit system (metric/us_customary).
+        Uses the device's temperature_type setting from the latest status
+        to determine if the unit should be Celsius or Fahrenheit.
         """
-        if not self.device:
-            return None
+        status = self._status
+        if not status:
+            # Fallback to entity description unit if no status available yet
+            return self.entity_description.native_unit_of_measurement
         
-        # Get the actual unit from the device for this field
+        # Get the actual unit from the device status for this field
         field_name = self.entity_description.key
         try:
-            unit = self.device.get_field_unit(field_name)
+            unit = status.get_field_unit(field_name)
             # get_field_unit returns units with leading space (e.g., " °C")
             # but native_unit_of_measurement should not have the space
             return unit.strip() if unit else None

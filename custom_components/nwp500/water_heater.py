@@ -90,17 +90,19 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
 
     @property
     def temperature_unit(self) -> str:
-        """Return the unit configured on the device.
+        """Return the unit configured on the device from latest status.
         
-        Uses nwp500-python library's get_field_unit() to get the actual unit
-        based on the device's configured unit system (metric/us_customary).
+        Uses the device's temperature_type setting from the latest status
+        to determine if the unit should be Celsius or Fahrenheit.
         """
-        if not self.device:
+        status = self._status
+        if not status:
+            # Fallback to HA's configured unit if no status available yet
             return self.hass.config.units.temperature_unit
         
         try:
-            # Get the device's configured temperature unit
-            unit = self.device.get_field_unit("tank_upper_temperature")
+            # Get the device's configured temperature unit from status
+            unit = status.get_field_unit("tank_upper_temperature")
             # get_field_unit returns units with leading space (e.g., " °C")
             # but temperature_unit property needs just the unit without space
             if unit:

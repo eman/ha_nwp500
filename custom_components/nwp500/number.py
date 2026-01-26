@@ -63,17 +63,19 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
 
     @property
     def native_unit_of_measurement(self) -> str:
-        """Return the unit configured on the device.
+        """Return the unit configured on the device from latest status.
         
-        Uses nwp500-python library's get_field_unit() to get the actual unit
-        based on the device's configured unit system (metric/us_customary).
+        Uses the device's temperature_type setting from the latest status
+        to determine if the unit should be Celsius or Fahrenheit.
         """
-        if not self.device:
+        status = self._status
+        if not status:
+            # Fallback to HA's configured unit if no status available yet
             return self.hass.config.units.temperature_unit
         
         try:
-            # Get the device's configured temperature unit for setpoint
-            unit = self.device.get_field_unit("dhw_target_temperature_setting")
+            # Get the device's configured temperature unit from status
+            unit = status.get_field_unit("dhw_target_temperature_setting")
             # get_field_unit returns units with leading space (e.g., " °C")
             # but native_unit_of_measurement should not have the space
             if unit:
