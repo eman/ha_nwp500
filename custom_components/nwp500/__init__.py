@@ -299,8 +299,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Set library's unit system to match Home Assistant preference
     # This ensures all values from the library are in the correct unit
-    # HA uses "metric" for metric and "us_customary" for imperial
-    unit_system = "metric" if hass.config.units.name == "metric" else "imperial"
+    # HA uses "metric" for metric and "us_customary" for imperial (HA standard term)
+    unit_system = "metric" if hass.config.units.name == "metric" else "us_customary"
     set_unit_system(unit_system)
 
     coordinator = NWP500DataUpdateCoordinator(hass, entry)
