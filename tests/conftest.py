@@ -121,6 +121,18 @@ def mock_device_status() -> MagicMock:
     # WiFi
     status.wifi_rssi = -45
 
+    # Mock get_field_unit method for dynamic units
+    def mock_get_field_unit(field_name: str) -> str:
+        if "temperature" in field_name:
+            return " °F"  # Default to Fahrenheit for testing
+        elif "flow_rate" in field_name:
+            return " GPM"
+        elif "dhw_flow_rate" in field_name and "cumulated" in field_name:
+            return " gal"
+        return ""
+
+    status.get_field_unit = mock_get_field_unit
+
     return status
 
 

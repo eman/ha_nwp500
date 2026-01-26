@@ -63,27 +63,13 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
 
     @property
     def native_unit_of_measurement(self) -> str:
-        """Return the unit configured on the device from latest status.
+        """Return Home Assistant's configured temperature unit.
         
-        Uses the device's temperature_type setting from the latest status
-        to determine if the unit should be Celsius or Fahrenheit.
+        Number entities don't do automatic unit conversion like sensors.
+        We return HA's configured unit and let the library handle conversion
+        through the DeviceStatus's temperature_type field.
         """
-        status = self._status
-        if not status:
-            # Fallback to HA's configured unit if no status available yet
-            return self.hass.config.units.temperature_unit
-        
-        try:
-            # Get the device's configured temperature unit from status
-            unit = status.get_field_unit("dhw_target_temperature_setting")
-            # get_field_unit returns units with leading space (e.g., " °C")
-            # but native_unit_of_measurement should not have the space
-            if unit:
-                return unit.strip()
-            return self.hass.config.units.temperature_unit
-        except Exception:
-            # Fallback to HA's configured unit if get_field_unit fails
-            return self.hass.config.units.temperature_unit
+        return self.hass.config.units.temperature_unit
 
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -97,13 +83,15 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
             return float(target_temp) if target_temp is not None else None
-        except (AttributeError, TypeError):
+        except (AttributeError, TypeError, ValueError):
             return None
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the target temperature."""
         success = await self.coordinator.async_control_device(
-            self.mac_address, "set_temperature", temperature=int(value)
+            self.mac_address,
+            "set_temperature",
+            temperature=int(value),
         )
 
         if success:
