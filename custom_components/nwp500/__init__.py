@@ -293,7 +293,14 @@ class NWP500ServiceHandler:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up NWP500 from a config entry."""
+    from nwp500 import set_unit_system  # type: ignore[attr-defined]
+
     hass.data.setdefault(DOMAIN, {})
+
+    # Set library's unit system to match Home Assistant preference
+    # This ensures all values from the library are in the correct unit
+    unit_system = "metric" if hass.config.units.is_metric else "imperial"
+    set_unit_system(unit_system)
 
     coordinator = NWP500DataUpdateCoordinator(hass, entry)
 
