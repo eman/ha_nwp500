@@ -217,23 +217,22 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        """Return the native unit using Home Assistant's preference.
+        """Return the native unit for this field from the device.
         
-        All sensors use the unit system configured in Home Assistant
-        settings, ensuring consistency across the entire dashboard.
-        Home Assistant handles unit display; devices provide values.
+        Uses nwp500-python library's get_field_unit() to get the actual unit
+        based on the device's configured unit system (metric/us_customary).
         """
-        # Get unit from entity description (may be None for text/enum sensors)
-        base_unit = self.entity_description.native_unit_of_measurement
-        if base_unit is None:
+        if not self.device:
             return None
         
-        # For temperature sensors, respect HA's configured unit system
-        if base_unit == UnitOfTemperature.FAHRENHEIT:
-            return self.hass.config.units.temperature_unit
-        
-        # For other units, return as-is (W, Wh, %, etc.)
-        return base_unit
+        # Get the actual unit from the device for this field
+        field_name = self.entity_description.key
+        try:
+            unit = self.device.get_field_unit(field_name)
+            return unit
+        except Exception:
+            # Fallback to entity description unit if get_field_unit fails
+            return self.entity_description.native_unit_of_measurement
 
     @property
     def native_value(self) -> Any:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

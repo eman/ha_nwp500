@@ -90,12 +90,21 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
 
     @property
     def temperature_unit(self) -> str:
-        """Return the unit using Home Assistant's preference.
+        """Return the unit configured on the device.
         
-        All temperatures use the unit system configured in Home Assistant
-        settings, ensuring consistency across the entire dashboard.
+        Uses nwp500-python library's get_field_unit() to get the actual unit
+        based on the device's configured unit system (metric/us_customary).
         """
-        return self.hass.config.units.temperature_unit
+        if not self.device:
+            return self.hass.config.units.temperature_unit
+        
+        try:
+            # Get the device's configured temperature unit
+            unit = self.device.get_field_unit("tank_upper_temperature")
+            return unit or self.hass.config.units.temperature_unit
+        except Exception:
+            # Fallback to HA's configured unit if get_field_unit fails
+            return self.hass.config.units.temperature_unit
 
     @property
     def current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

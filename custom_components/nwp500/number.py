@@ -63,12 +63,21 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
 
     @property
     def native_unit_of_measurement(self) -> str:
-        """Return the unit using Home Assistant's preference.
+        """Return the unit configured on the device.
         
-        All temperatures use the unit system configured in Home Assistant
-        settings, ensuring consistency across the entire dashboard.
+        Uses nwp500-python library's get_field_unit() to get the actual unit
+        based on the device's configured unit system (metric/us_customary).
         """
-        return self.hass.config.units.temperature_unit
+        if not self.device:
+            return self.hass.config.units.temperature_unit
+        
+        try:
+            # Get the device's configured temperature unit for setpoint
+            unit = self.device.get_field_unit("dhw_target_temperature_setting")
+            return unit or self.hass.config.units.temperature_unit
+        except Exception:
+            # Fallback to HA's configured unit if get_field_unit fails
+            return self.hass.config.units.temperature_unit
 
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
