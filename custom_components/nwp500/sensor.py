@@ -229,7 +229,9 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         field_name = self.entity_description.key
         try:
             unit = self.device.get_field_unit(field_name)
-            return unit
+            # get_field_unit returns units with leading space (e.g., " °C")
+            # but native_unit_of_measurement should not have the space
+            return unit.strip() if unit else None
         except Exception:
             # Fallback to entity description unit if get_field_unit fails
             return self.entity_description.native_unit_of_measurement

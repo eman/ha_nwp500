@@ -101,7 +101,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         try:
             # Get the device's configured temperature unit
             unit = self.device.get_field_unit("tank_upper_temperature")
-            return unit or self.hass.config.units.temperature_unit
+            # get_field_unit returns units with leading space (e.g., " °C")
+            # but temperature_unit property needs just the unit without space
+            if unit:
+                return unit.strip()
+            return self.hass.config.units.temperature_unit
         except Exception:
             # Fallback to HA's configured unit if get_field_unit fails
             return self.hass.config.units.temperature_unit

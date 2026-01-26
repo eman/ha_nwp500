@@ -74,7 +74,11 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         try:
             # Get the device's configured temperature unit for setpoint
             unit = self.device.get_field_unit("dhw_target_temperature_setting")
-            return unit or self.hass.config.units.temperature_unit
+            # get_field_unit returns units with leading space (e.g., " °C")
+            # but native_unit_of_measurement should not have the space
+            if unit:
+                return unit.strip()
+            return self.hass.config.units.temperature_unit
         except Exception:
             # Fallback to HA's configured unit if get_field_unit fails
             return self.hass.config.units.temperature_unit
