@@ -63,27 +63,12 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
 
     @property
     def native_unit_of_measurement(self) -> str:
-        """Return the unit of measurement, dynamically based on device settings.
+        """Return the unit using Home Assistant's preference.
         
-        nwp500-python 7.3.0+ provides dynamic unit conversion based on the water
-        heater's region/unit preference.
+        All temperatures use the unit system configured in Home Assistant
+        settings, ensuring consistency across the entire dashboard.
         """
-        if not (status := self._status):
-            return UnitOfTemperature.FAHRENHEIT
-        
-        try:
-            # Get the temperature unit from device status
-            unit_str = status.get_field_unit("dhw_target_temperature_setting")
-            # get_field_unit returns "°C" or "°F", map to HA constants
-            if unit_str == "°C":
-                return UnitOfTemperature.CELSIUS
-            elif unit_str == "°F":
-                return UnitOfTemperature.FAHRENHEIT
-        except (AttributeError, TypeError):
-            pass
-        
-        # Default to Fahrenheit
-        return UnitOfTemperature.FAHRENHEIT
+        return self.hass.config.units.temperature_unit
 
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

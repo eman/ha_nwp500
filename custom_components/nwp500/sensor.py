@@ -217,32 +217,23 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        """Return the native unit of measurement, dynamically based on device settings.
+        """Return the native unit using Home Assistant's preference.
         
-        nwp500-python 7.3.0+ provides dynamic unit conversion based on the water
-        heater's region/unit preference. This property uses get_field_unit() to
-        retrieve the correct unit for the current sensor field.
+        All sensors use the unit system configured in Home Assistant
+        settings, ensuring consistency across the entire dashboard.
+        Home Assistant handles unit display; devices provide values.
         """
-        if not (status := self._status):
-            # Fallback to static unit if no status available yet
-            return self.entity_description.native_unit_of_measurement
+        # Get unit from entity description (may be None for text/enum sensors)
+        base_unit = self.entity_description.native_unit_of_measurement
+        if base_unit is None:
+            return None
         
-        try:
-            # Get the attribute name from SENSOR_CONFIGS
-            from .const import SENSOR_CONFIGS
-            config = SENSOR_CONFIGS.get(self.entity_description.key, {})
-            attr_name = config.get("attr")
-            
-            if attr_name:
-                # Get dynamic unit from device status
-                unit_str = status.get_field_unit(attr_name)
-                if unit_str:
-                    return unit_str
-        except (AttributeError, TypeError, KeyError):
-            pass
+        # For temperature sensors, respect HA's configured unit system
+        if base_unit == UnitOfTemperature.FAHRENHEIT:
+            return self.hass.config.units.temperature_unit
         
-        # Fall back to static unit from description
-        return self.entity_description.native_unit_of_measurement
+        # For other units, return as-is (W, Wh, %, etc.)
+        return base_unit
 
     @property
     def native_value(self) -> Any:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
