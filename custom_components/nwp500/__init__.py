@@ -10,7 +10,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_DEVICE_ID, Platform
+from homeassistant.const import ATTR_DEVICE_ID, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
@@ -298,9 +298,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     # Set library's unit system to match Home Assistant preference
-    # This ensures all values from the library are in the correct unit
-    # HA uses "metric" for metric and "us_customary" for imperial (HA standard term)
-    unit_system = "metric" if hass.config.units.name == "metric" else "us_customary"
+    # Metric uses Celsius (°C), us_customary uses Fahrenheit (°F)
+    unit_system = (
+        "metric"
+        if hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        else "us_customary"
+    )
     set_unit_system(unit_system)
 
     coordinator = NWP500DataUpdateCoordinator(hass, entry)
