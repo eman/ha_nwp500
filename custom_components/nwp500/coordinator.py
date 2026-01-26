@@ -551,6 +551,24 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             _LOGGER.info("Found %d devices", len(self.devices))
 
+            # Set library unit system to match device's configuration
+            # The device.temperature_type determines if it's metric or us_customary
+            # This ensures all values from the library are in the device's configured units
+            if self.devices:
+                from nwp500 import set_unit_system  # type: ignore[attr-defined]
+                
+                device = self.devices[0]
+                # Import TemperatureType to check device setting
+                from nwp500.enums import TemperatureType  # type: ignore[attr-defined]
+                
+                is_metric = device.temperature_type == TemperatureType.CELSIUS
+                unit_system = "metric" if is_metric else "us_customary"
+                set_unit_system(unit_system)
+                _LOGGER.debug(
+                    "Set library unit system to %s based on device setting",
+                    unit_system,
+                )
+
             # Setup MQTT Manager
             self.mqtt_manager = NWP500MqttManager(
                 self.hass.loop,
