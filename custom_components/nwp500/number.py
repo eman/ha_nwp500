@@ -74,9 +74,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         ) is not None:
             return float(val)
 
-        if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS:
-            return round((MIN_TEMPERATURE - 32) * 5 / 9)
-        return MIN_TEMPERATURE
+        return float(MIN_TEMPERATURE)
 
     @property
     def native_max_value(self) -> float:
@@ -88,9 +86,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         ) is not None:
             return float(val)
 
-        if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS:
-            return round((MAX_TEMPERATURE - 32) * 5 / 9)
-        return MAX_TEMPERATURE
+        return float(MAX_TEMPERATURE)
 
     @property
     def native_unit_of_measurement(self) -> str:
@@ -129,7 +125,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         success = await self.coordinator.async_control_device(
             self.mac_address,
             "set_temperature",
-            temperature=int(value),
+            temperature=float(value),
         )
 
         if success:

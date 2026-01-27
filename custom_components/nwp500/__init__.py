@@ -202,14 +202,10 @@ class NWP500ServiceHandler:
         # Get device features to pass min/max limits if available
         features = coordinator.device_features.get(mac_address)
         temp_min = (
-            getattr(features, "dhw_temperature_min", None)
-            if features
-            else None
+            getattr(features, "dhw_temperature_min", None) if features else None
         )
         temp_max = (
-            getattr(features, "dhw_temperature_max", None)
-            if features
-            else None
+            getattr(features, "dhw_temperature_max", None) if features else None
         )
 
         # Build the reservation entry using library function

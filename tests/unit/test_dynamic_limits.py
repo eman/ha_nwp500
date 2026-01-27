@@ -72,11 +72,9 @@ class TestDynamicLimits:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        # Expected conversions:
-        # (80 - 32) * 5/9 = 26.66... -> 27
-        # (150 - 32) * 5/9 = 65.55... -> 66
-        assert heater.min_temp == 27.0
-        assert heater.max_temp == 66.0
+        # Should return raw constants even if HA is in Celsius (no manual conversion)
+        assert heater.min_temp == float(MIN_TEMPERATURE)
+        assert heater.max_temp == float(MAX_TEMPERATURE)
 
     def test_number_limits_from_features(
         self,
@@ -121,5 +119,5 @@ class TestDynamicLimits:
         )
         number.hass = mock_hass
 
-        assert number.native_min_value == 27.0
-        assert number.native_max_value == 66.0
+        assert number.native_min_value == float(MIN_TEMPERATURE)
+        assert number.native_max_value == float(MAX_TEMPERATURE)
