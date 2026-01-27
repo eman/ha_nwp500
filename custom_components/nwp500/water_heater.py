@@ -62,8 +62,6 @@ async def async_setup_entry(
 class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 water heater entity."""
 
-    _attr_min_temp = MIN_TEMPERATURE
-    _attr_max_temp = MAX_TEMPERATURE
     _attr_supported_features = (
         WaterHeaterEntityFeature.TARGET_TEMPERATURE
         | WaterHeaterEntityFeature.OPERATION_MODE
@@ -89,28 +87,27 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         ]
 
     @property
+    def min_temp(self) -> float:
+        """Return the minimum temperature."""
+        if self.temperature_unit == UnitOfTemperature.CELSIUS:
+            return round((MIN_TEMPERATURE - 32) * 5 / 9)
+        return float(MIN_TEMPERATURE)
+
+    @property
+    def max_temp(self) -> float:
+        """Return the maximum temperature."""
+        if self.temperature_unit == UnitOfTemperature.CELSIUS:
+            return round((MAX_TEMPERATURE - 32) * 5 / 9)
+        return float(MAX_TEMPERATURE)
+
+    @property
     def temperature_unit(self) -> str:
-        """Return the unit configured on the device from latest status.
+        """Return Home Assistant's configured temperature unit.
         
-        Uses the device's temperature_type setting from the latest status
-        to determine if the unit should be Celsius or Fahrenheit.
+        The library handles unit conversion based on HA's configured unit
+        system, so values are already in the correct units.
         """
-        status = self._status
-        if not status:
-            # Fallback to HA's configured unit if no status available yet
-            return self.hass.config.units.temperature_unit
-        
-        try:
-            # Get the device's configured temperature unit from status
-            unit = status.get_field_unit("tank_upper_temperature")
-            # get_field_unit returns units with leading space (e.g., " °C")
-            # but temperature_unit property needs just the unit without space
-            if unit:
-                return unit.strip()
-            return self.hass.config.units.temperature_unit
-        except Exception:
-            # Fallback to HA's configured unit if get_field_unit fails
-            return self.hass.config.units.temperature_unit
+        return self.hass.config.units.temperature_unit
 
     @property
     def current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

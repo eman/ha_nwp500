@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.components.number import (
+    NumberDeviceClass,
+    NumberEntity,
+    NumberMode,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
@@ -44,9 +48,8 @@ async def async_setup_entry(
 class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 target temperature number entity."""
 
+    _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_mode = NumberMode.BOX
-    _attr_native_min_value = MIN_TEMPERATURE
-    _attr_native_max_value = MAX_TEMPERATURE
     _attr_native_step = 1
 
     def __init__(
@@ -62,12 +65,25 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         self._attr_icon = "mdi:thermometer"
 
     @property
+    def native_min_value(self) -> float:
+        """Return the minimum value."""
+        if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS:
+            return round((MIN_TEMPERATURE - 32) * 5 / 9)
+        return MIN_TEMPERATURE
+
+    @property
+    def native_max_value(self) -> float:
+        """Return the maximum value."""
+        if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS:
+            return round((MAX_TEMPERATURE - 32) * 5 / 9)
+        return MAX_TEMPERATURE
+
+    @property
     def native_unit_of_measurement(self) -> str:
         """Return Home Assistant's configured temperature unit.
         
-        Number entities don't do automatic unit conversion like sensors.
-        We return HA's configured unit and let the library handle conversion
-        through the DeviceStatus's temperature_type field.
+        The library handles unit conversion based on HA's configured unit
+        system, so values are already in the correct units.
         """
         return self.hass.config.units.temperature_unit
 

@@ -8,8 +8,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 
 from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
+
+@pytest.fixture
+def mock_hass() -> MagicMock:
+    """Create a mock Home Assistant instance with configured units."""
+    hass = MagicMock()
+    hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+    return hass
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
 

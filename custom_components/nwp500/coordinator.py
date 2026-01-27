@@ -56,6 +56,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.auth_client: NavienAuthClient | None = None
         self.api_client: NavienAPIClient | None = None
         self.mqtt_manager: NWP500MqttManager | None = None
+        self.unit_system: str | None = None
         self.devices: list[Device] = []
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
@@ -251,6 +252,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         startup (once for first_refresh, once for scheduled update). This is
         expected Home Assistant behavior and not a bug.
         """
+        # Ensure library unit system context matches HA configuration
+        if self.unit_system:
+            try:
+                from nwp500.unit_system import set_unit_system
+                set_unit_system(self.unit_system)  # type: ignore[arg-type]
+            except (ImportError, AttributeError):
+                pass
+
         # Track performance metrics
         start_time = time.monotonic()
 
@@ -518,7 +527,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             # Determine unit system based on HA configuration
             # Metric uses Celsius (°C), us_customary uses Fahrenheit (°F)
-            unit_system = (
+            self.unit_system = (
                 "metric"
                 if self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
                 else "us_customary"
@@ -529,7 +538,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 email,
                 password,
                 stored_tokens=stored_tokens,
-                unit_system=unit_system,
+                unit_system=self.unit_system,  # type: ignore[arg-type]
             )
             assert self.auth_client is not None
             await self.auth_client.__aenter__()  # Authenticate or restore
@@ -538,7 +547,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             await self._save_tokens()
 
             # Setup API client
-            self.api_client = NavienAPIClient(auth_client=self.auth_client)
+            self.api_client = NavienAPIClient(
+                auth_client=self.auth_client,
+                unit_system=self.unit_system,  # type: ignore[arg-type]
+            )
             assert self.api_client is not None
 
             # Get devices
@@ -568,6 +580,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.auth_client,
                 self._on_device_status_update,
                 self._on_device_feature_update,
+                unit_system=self.unit_system,
             )
 
             # Connect to MQTT
