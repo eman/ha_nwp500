@@ -33,9 +33,8 @@ class TestNWP500WaterHeater:
 
         assert heater.coordinator == mock_coordinator
         assert heater.mac_address == mac_address
-        # Library conversion round-trip (F -> Half-C -> F) causes slight precision loss
-        assert heater.min_temp == pytest.approx(MIN_TEMPERATURE, abs=0.5)
-        assert heater.max_temp == pytest.approx(MAX_TEMPERATURE, abs=0.5)
+        assert heater.min_temp == MIN_TEMPERATURE
+        assert heater.max_temp == MAX_TEMPERATURE
 
     def test_current_temperature(
         self,
