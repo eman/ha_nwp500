@@ -330,7 +330,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             return
 
         success = await self.coordinator.async_control_device(
-            self.mac_address, "set_temperature", temperature=int(temperature)
+            self.mac_address, "set_temperature", temperature=float(temperature)
         )
 
         if success:

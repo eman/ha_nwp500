@@ -104,9 +104,9 @@ class TestReservationServices:
         self, mock_hass, mock_device_registry
     ):
         """Test set_reservation builds a proper reservation entry."""
-        # Setup mock coordinator
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
@@ -155,14 +155,16 @@ class TestReservationServices:
             await set_reservation_handler(call)
 
             # Verify build_reservation_entry was called with correct args
-            # Library now takes temperature_f directly instead of param
+            # Library now takes temperature (unit-agnostic) instead of temperature_f
             mock_build.assert_called_once_with(
                 enabled=True,
                 days=["Monday", "Wednesday", "Friday"],
                 hour=6,
                 minute=30,
                 mode_id=3,  # energy_saver
-                temperature_f=140.0,  # Fahrenheit directly
+                temperature=140.0,  # Value directly
+                temperature_min=None,
+                temperature_max=None,
             )
 
             # Verify coordinator was called
@@ -245,6 +247,7 @@ class TestReservationServices:
         """Test set_reservation uses default temperature for vacation mode."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
@@ -277,9 +280,9 @@ class TestReservationServices:
             await set_reservation_handler(call)
 
             mock_build.assert_called_once()
-            # Verify temperature_f is DEFAULT_TEMPERATURE
+            # Verify temperature is DEFAULT_TEMPERATURE
             assert (
-                mock_build.call_args.kwargs["temperature_f"]
+                mock_build.call_args.kwargs["temperature"]
                 == DEFAULT_TEMPERATURE
             )
 

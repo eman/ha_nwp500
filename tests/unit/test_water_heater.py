@@ -249,7 +249,7 @@ class TestNWP500WaterHeater:
         await heater.async_set_temperature(temperature=125)
 
         mock_coordinator.async_control_device.assert_called_once_with(
-            mac_address, "set_temperature", temperature=125
+            mac_address, "set_temperature", temperature=125.0
         )
         mock_coordinator.async_request_refresh.assert_called_once()
 

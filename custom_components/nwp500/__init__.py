@@ -199,15 +199,30 @@ class NWP500ServiceHandler:
                     f"Temperature is required for mode '{mode}'"
                 )
 
+        # Get device features to pass min/max limits if available
+        features = coordinator.device_features.get(mac_address)
+        temp_min = (
+            getattr(features, "dhw_temperature_min", None)
+            if features
+            else None
+        )
+        temp_max = (
+            getattr(features, "dhw_temperature_max", None)
+            if features
+            else None
+        )
+
         # Build the reservation entry using library function
-        # Library handles Fahrenheit to half-degrees Celsius conversion
+        # Library handles unit conversion based on global context
         reservation = build_reservation_entry(
             enabled=enabled,
             days=days,
             hour=hour,
             minute=minute,
             mode_id=mode_id,
-            temperature_f=float(temperature),
+            temperature=float(temperature),
+            temperature_min=temp_min,
+            temperature_max=temp_max,
         )
 
         _LOGGER.info(
