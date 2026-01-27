@@ -81,7 +81,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
     @property
     def native_unit_of_measurement(self) -> str:
         """Return Home Assistant's configured temperature unit.
-        
+
         The library handles unit conversion based on HA's configured unit
         system, so values are already in the correct units.
         """
@@ -90,7 +90,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the current target temperature.
-        
+
         The library handles unit conversion based on HA's configured unit
         system, so this value is already in the correct units.
         """
@@ -108,7 +108,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the target temperature.
-        
+
         The library handles unit conversion, so the value sent should be
         in HA's configured unit (which the library already expects).
         """

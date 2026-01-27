@@ -256,6 +256,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         if self.unit_system:
             try:
                 from nwp500.unit_system import set_unit_system
+
                 set_unit_system(self.unit_system)  # type: ignore[arg-type]
             except (ImportError, AttributeError):
                 pass
@@ -529,7 +530,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             # Metric uses Celsius (°C), us_customary uses Fahrenheit (°F)
             self.unit_system = (
                 "metric"
-                if self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+                if self.hass.config.units.temperature_unit
+                == UnitOfTemperature.CELSIUS
                 else "us_customary"
             )
 

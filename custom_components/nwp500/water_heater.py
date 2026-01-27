@@ -103,7 +103,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
     @property
     def temperature_unit(self) -> str:
         """Return Home Assistant's configured temperature unit.
-        
+
         The library handles unit conversion based on HA's configured unit
         system, so values are already in the correct units.
         """

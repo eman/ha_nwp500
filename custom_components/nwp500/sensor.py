@@ -218,26 +218,33 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return the native unit for this field.
-        
+
         For temperature sensors, returns HA's configured unit.
         For others, attempts to detect from status or description.
         """
         # For temperature sensors, always follow HA configuration
-        if self.entity_description.device_class == SensorDeviceClass.TEMPERATURE:
+        if (
+            self.entity_description.device_class
+            == SensorDeviceClass.TEMPERATURE
+        ):
             return self.hass.config.units.temperature_unit
 
         status = self._status
         if not status:
             # Fallback to entity description unit if no status available yet
             return self.entity_description.native_unit_of_measurement
-        
+
         # Get the actual unit from the device status for this field
         field_name = self.entity_description.key
         try:
             unit = status.get_field_unit(field_name)
             # get_field_unit returns units with leading space (e.g., " °C")
             # but native_unit_of_measurement should not have the space
-            return unit.strip() if unit else self.entity_description.native_unit_of_measurement
+            return (
+                unit.strip()
+                if unit
+                else self.entity_description.native_unit_of_measurement
+            )
         except Exception:
             # Fallback to entity description unit if get_field_unit fails
             return self.entity_description.native_unit_of_measurement
