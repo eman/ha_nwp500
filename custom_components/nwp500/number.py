@@ -67,6 +67,13 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
     @property
     def native_min_value(self) -> float:
         """Return the minimum value."""
+        if (
+            features := self.coordinator.device_features.get(self.mac_address)
+        ) and (
+            val := getattr(features, "dhw_temperature_min", None)
+        ) is not None:
+            return float(val)
+
         if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS:
             return round((MIN_TEMPERATURE - 32) * 5 / 9)
         return MIN_TEMPERATURE
@@ -74,6 +81,13 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
     @property
     def native_max_value(self) -> float:
         """Return the maximum value."""
+        if (
+            features := self.coordinator.device_features.get(self.mac_address)
+        ) and (
+            val := getattr(features, "dhw_temperature_max", None)
+        ) is not None:
+            return float(val)
+
         if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS:
             return round((MAX_TEMPERATURE - 32) * 5 / 9)
         return MAX_TEMPERATURE

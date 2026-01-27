@@ -89,6 +89,13 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
     @property
     def min_temp(self) -> float:
         """Return the minimum temperature."""
+        if (
+            features := self.coordinator.device_features.get(self.mac_address)
+        ) and (
+            val := getattr(features, "dhw_temperature_min", None)
+        ) is not None:
+            return float(val)
+
         if self.temperature_unit == UnitOfTemperature.CELSIUS:
             return round((MIN_TEMPERATURE - 32) * 5 / 9)
         return float(MIN_TEMPERATURE)
@@ -96,6 +103,13 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
     @property
     def max_temp(self) -> float:
         """Return the maximum temperature."""
+        if (
+            features := self.coordinator.device_features.get(self.mac_address)
+        ) and (
+            val := getattr(features, "dhw_temperature_max", None)
+        ) is not None:
+            return float(val)
+
         if self.temperature_unit == UnitOfTemperature.CELSIUS:
             return round((MAX_TEMPERATURE - 32) * 5 / 9)
         return float(MAX_TEMPERATURE)
