@@ -19,7 +19,6 @@ from homeassistant.const import (
     PERCENTAGE,
     UnitOfEnergy,
     UnitOfPower,
-    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -52,7 +51,6 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
 
     # Unit mapping for string-based units to HA constants
     unit_map: dict[str, str] = {
-        "°F": UnitOfTemperature.FAHRENHEIT,
         "W": UnitOfPower.WATT,
         "Wh": UnitOfEnergy.WATT_HOUR,
         "%": PERCENTAGE,
