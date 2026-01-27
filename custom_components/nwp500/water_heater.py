@@ -5,6 +5,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from nwp500 import (
+    fahrenheit_to_half_celsius,
+    reservation_param_to_preferred,
+)
+
 from homeassistant.components.water_heater import (
     STATE_ECO,
     STATE_ELECTRIC,
@@ -17,7 +22,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_OFF,
-    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -96,9 +100,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         ) is not None:
             return float(val)
 
-        if self.temperature_unit == UnitOfTemperature.CELSIUS:
-            return round((MIN_TEMPERATURE - 32) * 5 / 9)
-        return float(MIN_TEMPERATURE)
+        return float(
+            reservation_param_to_preferred(
+                fahrenheit_to_half_celsius(MIN_TEMPERATURE)
+            )
+        )
 
     @property
     def max_temp(self) -> float:
@@ -110,9 +116,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         ) is not None:
             return float(val)
 
-        if self.temperature_unit == UnitOfTemperature.CELSIUS:
-            return round((MAX_TEMPERATURE - 32) * 5 / 9)
-        return float(MAX_TEMPERATURE)
+        return float(
+            reservation_param_to_preferred(
+                fahrenheit_to_half_celsius(MAX_TEMPERATURE)
+            )
+        )
 
     @property
     def temperature_unit(self) -> str:
