@@ -786,7 +786,6 @@ SENSOR_CONFIGS: Final = {
     "hp_upper_on_diff_temp_setting": {
         "attr": "hp_upper_on_diff_temp_setting",
         "name": "HP Upper On Diff Temperature Setting",
-        "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -794,7 +793,6 @@ SENSOR_CONFIGS: Final = {
     "hp_lower_on_diff_temp_setting": {
         "attr": "hp_lower_on_diff_temp_setting",
         "name": "HP Lower On Diff Temperature Setting",
-        "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -802,7 +800,6 @@ SENSOR_CONFIGS: Final = {
     "hp_upper_off_diff_temp_setting": {
         "attr": "hp_upper_off_diff_temp_setting",
         "name": "HP Upper Off Diff Temperature Setting",
-        "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -810,7 +807,6 @@ SENSOR_CONFIGS: Final = {
     "hp_lower_off_diff_temp_setting": {
         "attr": "hp_lower_off_diff_temp_setting",
         "name": "HP Lower Off Diff Temperature Setting",
-        "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -851,7 +847,6 @@ SENSOR_CONFIGS: Final = {
     "he_upper_on_diff_temp_setting": {
         "attr": "he_upper_on_diff_temp_setting",
         "name": "HE Upper On Diff Temperature Setting",
-        "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -859,7 +854,6 @@ SENSOR_CONFIGS: Final = {
     "he_lower_on_diff_temp_setting": {
         "attr": "he_lower_on_diff_temp_setting",
         "name": "HE Lower On Diff Temperature Setting",
-        "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -867,7 +861,6 @@ SENSOR_CONFIGS: Final = {
     "he_upper_off_diff_temp_setting": {
         "attr": "he_upper_off_diff_temp_setting",
         "name": "HE Upper Off Diff Temperature Setting",
-        "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -875,7 +868,6 @@ SENSOR_CONFIGS: Final = {
     "he_lower_off_diff_temp_setting": {
         "attr": "he_lower_off_diff_temp_setting",
         "name": "HE Lower Off Diff Temperature Setting",
-        "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
