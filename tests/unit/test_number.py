@@ -53,12 +53,14 @@ class TestNWP500TargetTemperature:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test native_value property."""
         mac_address = mock_device.device_info.mac_address
         number = NWP500TargetTemperature(
             mock_coordinator, mac_address, mock_device
         )
+        number.hass = mock_hass
 
         assert number.native_value == 130.0
         assert number.unique_id == f"{mac_address}_target_temperature"
@@ -68,6 +70,7 @@ class TestNWP500TargetTemperature:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test native_value falls back to dhwTemperatureSetting."""
         # Remove dhw_target_temperature_setting
@@ -78,6 +81,7 @@ class TestNWP500TargetTemperature:
         number = NWP500TargetTemperature(
             mock_coordinator, mac_address, mock_device
         )
+        number.hass = mock_hass
 
         assert number.native_value == 125.0
 
@@ -86,6 +90,7 @@ class TestNWP500TargetTemperature:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test native_value when temperature is missing."""
         # Remove both temperature attributes
@@ -98,6 +103,7 @@ class TestNWP500TargetTemperature:
         number = NWP500TargetTemperature(
             mock_coordinator, mac_address, mock_device
         )
+        number.hass = mock_hass
 
         assert number.native_value is None
 
@@ -105,6 +111,7 @@ class TestNWP500TargetTemperature:
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test native_value when status is unavailable."""
         mock_coordinator.data = {
@@ -117,6 +124,7 @@ class TestNWP500TargetTemperature:
         number = NWP500TargetTemperature(
             mock_coordinator, mac_address, mock_device
         )
+        number.hass = mock_hass
 
         assert number.native_value is None
 
@@ -126,6 +134,7 @@ class TestNWP500TargetTemperature:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test setting native value."""
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
@@ -135,6 +144,7 @@ class TestNWP500TargetTemperature:
         number = NWP500TargetTemperature(
             mock_coordinator, mac_address, mock_device
         )
+        number.hass = mock_hass
 
         await number.async_set_native_value(135.0)
 
@@ -149,6 +159,7 @@ class TestNWP500TargetTemperature:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test setting native value fails."""
         mock_coordinator.async_control_device = AsyncMock(return_value=False)
@@ -158,6 +169,7 @@ class TestNWP500TargetTemperature:
         number = NWP500TargetTemperature(
             mock_coordinator, mac_address, mock_device
         )
+        number.hass = mock_hass
 
         await number.async_set_native_value(135.0)
 

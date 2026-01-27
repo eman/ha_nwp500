@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-01-26
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded from 7.3.1 to 7.3.2
+  - **7.3.2 (2026-01-26)**: Code quality and import organization improvements
+    - Fixed import sorting to follow isort rules
+    - Removed unused `Literal` type imports
+    - Consolidated `UnitSystemType` type alias to single definition in `unit_system.py` (DRY principle)
+    - Improved type safety with proper type alias definitions
+    - All linting checks passing with zero errors
+
 ## [0.1.7] - 2026-01-25
 
 ### Fixed
