@@ -68,7 +68,7 @@ pip install -r requirements.txt
 tox
 
 # Specific environments
-tox -e py313,py314      # Test on Python 3.13 and 3.14
+tox -e py313            # Test on Python 3.13
 tox -e coverage         # Test with coverage (requires 80%+)
 tox -e mypy             # Type check with mypy
 tox -e pyright          # Type check with pyright

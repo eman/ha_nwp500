@@ -155,7 +155,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `datetime.UTC` instead of `timezone.utc`
 - **Updated Python target**: Ruff target-version set to `py313`
 - **Dropped Python 3.12**: Removed py312 from test matrix, focusing on Python 3.13+
-- **Added Python 3.14**: Added py314 to test matrix for forward compatibility
+- **Removed Python 3.14**: Removed py314 from test matrix; pydantic-core lacks prebuilt wheels for Python 3.14
 
 ## [0.1.2] - 2025-12-18
 
