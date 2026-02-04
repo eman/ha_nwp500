@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 7.4.5
+
 ## [0.1.9] - 2026-01-25
 
 ### Changed
@@ -183,6 +186,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v7.3.4 (2026-01-27)
+
+#### Fixed
+- **Delta temperature calculations**: Normalized deltas to use consistent units and device sensor
+  offsets, preventing overstated temperature differences
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.3.4
 
 ### v7.2.3 (2026-01-16)
 
