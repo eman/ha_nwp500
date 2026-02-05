@@ -87,7 +87,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
 
     @property
     def min_temp(self) -> float:
-        """Return the minimum temperature."""
+        """Return the minimum temperature.
+
+        Device feature min/max values are provided by the library and respect
+        the unit system configured via set_unit_system() in the coordinator.
+        """
         if (
             features := self.coordinator.device_features.get(self.mac_address)
         ) and (
@@ -99,7 +103,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
 
     @property
     def max_temp(self) -> float:
-        """Return the maximum temperature."""
+        """Return the maximum temperature.
+
+        Device feature min/max values are provided by the library and respect
+        the unit system configured via set_unit_system() in the coordinator.
+        """
         if (
             features := self.coordinator.device_features.get(self.mac_address)
         ) and (

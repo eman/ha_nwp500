@@ -254,6 +254,35 @@ class TestNWP500WaterHeater:
         mock_coordinator.async_request_refresh.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_async_set_temperature_float_conversion(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Test that temperature is converted to float regardless of input type."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        # Test with int input
+        await heater.async_set_temperature(temperature=125)
+        call_args = mock_coordinator.async_control_device.call_args
+        assert isinstance(call_args.kwargs["temperature"], float)
+        assert call_args.kwargs["temperature"] == 125.0
+
+        mock_coordinator.async_control_device.reset_mock()
+
+        # Test with float input
+        await heater.async_set_temperature(temperature=128.5)
+        call_args = mock_coordinator.async_control_device.call_args
+        assert isinstance(call_args.kwargs["temperature"], float)
+        assert call_args.kwargs["temperature"] == 128.5
+
+    @pytest.mark.asyncio
     async def test_async_set_operation_mode(
         self,
         mock_coordinator: MagicMock,

@@ -8,13 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.10] - 2026-01-26
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded from 7.3.1 to 7.3.2
-  - **7.3.2 (2026-01-26)**: Code quality and import organization improvements
-    - Fixed import sorting to follow isort rules
-    - Removed unused `Literal` type imports
-    - Consolidated `UnitSystemType` type alias to single definition in `unit_system.py` (DRY principle)
-    - Improved type safety with proper type alias definitions
-    - All linting checks passing with zero errors
+- **Library Dependency: nwp500-python**: Upgraded from 7.3.1 to 7.4.5
+  - **7.4.5 (2026-01-26)**: Unit-aware fixes and temperature conversion improvements
+    - Implemented unit-aware logic to resolve temperature conversion issues
+    - Refactored water_heater and number platforms to use library-provided unit-aware values
+    - Removed manual unit conversions and fallback logic
+    - Removed device_class from differential temperature sensors to prevent incorrect offset application
+    - Updated reservations to use unit-agnostic temperature parameter
+    - Improved consistency in unit handling between Home Assistant and library
 
 ## [0.1.7] - 2026-01-25
 

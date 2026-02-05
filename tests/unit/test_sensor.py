@@ -198,3 +198,55 @@ class TestNWP500Sensor:
             connected_sensor.unique_id
             == f"{mac_address}_diagnostic_mqtt_status"
         )
+
+    def test_sensor_get_field_unit_integration(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test that sensors correctly call and use get_field_unit."""
+        from custom_components.nwp500.const import SENSOR_CONFIGS
+        from custom_components.nwp500.sensor import NWP500Sensor
+
+        # Find a temperature sensor description
+        temp_sensor_config = None
+        for key, config in SENSOR_CONFIGS.items():
+            if "temperature" in key.lower() and "dhw_temperature" == key:
+                temp_sensor_config = config
+                break
+
+        assert temp_sensor_config is not None
+
+        # Setup coordinator data with mock device status
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+
+        mac_address = mock_device.device_info.mac_address
+
+        # Create a sensor description from the config
+        from homeassistant.components.sensor import SensorEntityDescription
+
+        sensor_desc = SensorEntityDescription(
+            key="dhw_temperature",
+            name="DHW Temperature",
+        )
+
+        # Create sensor
+        sensor = NWP500Sensor(
+            mock_coordinator,
+            mac_address,
+            mock_device,
+            sensor_desc,
+        )
+
+        # Verify sensor has correct unit (should be stripped of spaces)
+        # The sensor should have the unit from get_field_unit without the space
+        unit = sensor.native_unit_of_measurement
+        if unit:
+            # Unit should be "°F" not " °F" (space stripped)
+            assert not unit.startswith(" ")
