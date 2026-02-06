@@ -19,8 +19,8 @@ RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip and install build tools
-RUN pip install --upgrade pip setuptools wheel
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Set working directory
 WORKDIR /workspaces/ha_nwp500
@@ -28,12 +28,11 @@ WORKDIR /workspaces/ha_nwp500
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install -r requirements.txt
-
-# Install additional development tools
-RUN pip install \
+# Install Python dependencies and tools using uv
+RUN uv pip install --system -r requirements.txt \
+    && uv pip install --system \
     tox \
+    tox-uv \
     black \
     ruff \
     ipython

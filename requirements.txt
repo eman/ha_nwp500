@@ -1,6 +1,7 @@
 # Python dependencies for Navien NWP500 Home Assistant Integration
 # These dependencies are also listed in custom_components/nwp500/manifest.json
 
+# Usage: uv pip install -r requirements.txt
 # Core integration library
 nwp500-python==7.4.5
 

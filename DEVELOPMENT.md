@@ -55,9 +55,9 @@ Device Control: HA Command → MQTT Message → Device Response → Status Updat
 
 **Local Setup**
 ```bash
-python3.13 -m venv .venv
+uv venv
 source .venv/bin/activate
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 ## Testing
@@ -231,7 +231,7 @@ curl -H "Authorization: Bearer $(cat token.txt)" \
 ## Common Issues
 
 ### Import Errors
-- Ensure dependencies: `pip install -r requirements.txt`
+- Ensure dependencies: `uv pip install -r requirements.txt`
 
 ### Type Checking Failures
 - Run `tox -e mypy --recreate` to reset cache

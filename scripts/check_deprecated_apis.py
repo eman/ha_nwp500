@@ -60,7 +60,7 @@ DEPRECATED_PATTERNS = {
         "message": "Use DeviceClass enum instead of string constants",
         "version": "2021.12+",
     },
-    r'ATTR_UNIT_OF_MEASUREMENT': {
+    r"ATTR_UNIT_OF_MEASUREMENT": {
         "severity": "warning",
         "message": "Use UnitOfMeasurement or native_unit_of_measurement instead",
         "version": "2023.10+",
@@ -116,10 +116,14 @@ def main() -> int:
     Returns:
         0 if no violations found, 1 otherwise
     """
-    custom_component_dir = Path(__file__).parent.parent / "custom_components" / "nwp500"
+    custom_component_dir = (
+        Path(__file__).parent.parent / "custom_components" / "nwp500"
+    )
 
     if not custom_component_dir.exists():
-        print(f"❌ Custom component directory not found: {custom_component_dir}")
+        print(
+            f"❌ Custom component directory not found: {custom_component_dir}"
+        )
         return 1
 
     all_violations: dict[Path, list[tuple[int, str, str]]] = {}

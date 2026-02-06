@@ -39,14 +39,14 @@ def update_file(file_path: Path, old_version: str, new_version: str) -> bool:
     content = re.sub(
         rf"nwp500-python=={re.escape(old_version)}",
         f"nwp500-python=={new_version}",
-        content
+        content,
     )
 
-    # Replace pip install nwp500-python==X.Y.Z in error messages
+    # Replace uv pip install nwp500-python==X.Y.Z in error messages
     content = re.sub(
-        rf"pip install nwp500-python=={re.escape(old_version)}",
-        f"pip install nwp500-python=={new_version}",
-        content
+        rf"uv pip install nwp500-python=={re.escape(old_version)}",
+        f"uv pip install nwp500-python=={new_version}",
+        content,
     )
 
     # Replace in CHANGELOG upgrade descriptions (e.g., "from 7.3.1 to 7.3.4")
@@ -73,7 +73,9 @@ def update_changelog(file_path: Path, new_version: str) -> bool:
     content = file_path.read_text()
 
     # Check if there's an [Unreleased] section with nwp500-python
-    unreleased_pattern = r"## \[Unreleased\]\s*\n((?:[^#]|\n(?!##))*?)(?=\n##|\Z)"
+    unreleased_pattern = (
+        r"## \[Unreleased\]\s*\n((?:[^#]|\n(?!##))*?)(?=\n##|\Z)"
+    )
     match = re.search(unreleased_pattern, content)
 
     if match:
@@ -86,7 +88,7 @@ def update_changelog(file_path: Path, new_version: str) -> bool:
                 r"nwp500-python.*?:\s+Upgraded.*?to\s+[\d.]+",
                 f"nwp500-python**: Upgraded to {new_version}",
                 unreleased_section,
-                count=1
+                count=1,
             )
             if updated != unreleased_section:
                 content = content.replace(unreleased_section, updated)

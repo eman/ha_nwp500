@@ -486,7 +486,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==7.4.5 awsiotsdk>=1.27.0"
+                "uv pip install nwp500-python==7.4.5 awsiotsdk>=1.27.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -674,6 +674,16 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self, mac_address: str, status: DeviceStatus
     ) -> None:
         """Handle device status update from MQTT Manager."""
+        # Schedule the update in the event loop to ensure thread-safety
+        # and avoid conflicts with DataUpdateCoordinator state management.
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_status_update_in_loop, mac_address, status
+        )
+
+    def _handle_status_update_in_loop(
+        self, mac_address: str, status: DeviceStatus
+    ) -> None:
+        """Process device status update within the event loop."""
         try:
             _LOGGER.debug("Received device status update for %s", mac_address)
 
@@ -705,8 +715,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.data[mac_address]["status"] = status
                 self.data[mac_address]["last_update"] = time.time()
 
-                # Schedule update for all listeners using thread-safe method
-                self.hass.loop.call_soon_threadsafe(self.async_update_listeners)
+                # Notify all listeners that data has changed
+                self.async_update_listeners()
 
         except Exception as err:
             _LOGGER.error("Error handling device status update: %s", err)
@@ -715,6 +725,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self, mac_address: str, feature: DeviceFeature
     ) -> None:
         """Handle device feature update from MQTT Manager."""
+        # Schedule the update in the event loop to ensure thread-safety
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_feature_update_in_loop, mac_address, feature
+        )
+
+    def _handle_feature_update_in_loop(
+        self, mac_address: str, feature: DeviceFeature
+    ) -> None:
+        """Process device feature update within the event loop."""
         try:
             _LOGGER.info("Received device feature update for %s", mac_address)
 
