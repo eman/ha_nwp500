@@ -243,7 +243,7 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
                 if unit
                 else self.entity_description.native_unit_of_measurement
             )
-        except Exception:
+        except (AttributeError, TypeError, KeyError, ValueError):
             # Fallback to entity description unit if get_field_unit fails
             return self.entity_description.native_unit_of_measurement
 

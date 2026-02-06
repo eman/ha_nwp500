@@ -250,3 +250,42 @@ class TestNWP500Sensor:
         if unit:
             # Unit should be "°F" not " °F" (space stripped)
             assert not unit.startswith(" ")
+
+    def test_sensor_temperature_unit_follows_ha_config(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Test that temperature sensors always use HA configured unit."""
+        from homeassistant.components.sensor import (
+            SensorDeviceClass,
+            SensorEntityDescription,
+        )
+        from homeassistant.const import UnitOfTemperature
+
+        from custom_components.nwp500.sensor import NWP500Sensor
+
+        # Configure HA to use Celsius
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+
+        # Create a temperature sensor description
+        desc = SensorEntityDescription(
+            key="test_temp",
+            name="Test Temperature",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            native_unit_of_measurement=None,
+        )
+
+        mac_address = mock_device.device_info.mac_address
+        sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
+        sensor.hass = mock_hass
+
+        # Should return Celsius from HA config
+        assert sensor.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+
+        # Change HA to Fahrenheit
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+
+        # Should now return Fahrenheit
+        assert sensor.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT

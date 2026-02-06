@@ -306,9 +306,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up NWP500 from a config entry."""
     hass.data.setdefault(DOMAIN, {})
 
-    # Don't override unit system - let nwp500-python library auto-detect from device
-    # The device will report its configured unit system (metric/us_customary)
-    # and all values from the library will be in the correct units
+    # Unit system is determined by the coordinator from the HA configuration
+    # and passed into NavienAuthClient/NavienAPIClient/MQTT. No unit handling
+    # is configured directly in this setup function.
 
     coordinator = NWP500DataUpdateCoordinator(hass, entry)
 

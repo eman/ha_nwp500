@@ -787,6 +787,8 @@ SENSOR_CONFIGS: Final = {
     # Note: device_class is intentionally omitted from differential temp sensors.
     # Home Assistant applies absolute temperature conversions (including offset) to
     # entities with device_class: temperature, which is incorrect for relative values.
+    # Differential sensors represent the difference between two temperatures, not
+    # absolute values, so the conversion would produce invalid results.
     "hp_upper_on_diff_temp_setting": {
         "attr": "hp_upper_on_diff_temp_setting",
         "name": "HP Upper On Diff Temperature Setting",

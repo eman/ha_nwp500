@@ -7,7 +7,6 @@ requirements, error messages, and documentation.
 
 import re
 import sys
-from datetime import datetime
 from pathlib import Path
 
 
@@ -85,8 +84,8 @@ def update_changelog(file_path: Path, new_version: str) -> bool:
         if "nwp500-python" in unreleased_section:
             # Update existing version reference
             updated = re.sub(
-                r"nwp500-python.*?:\s+Upgraded.*?to\s+[\d.]+",
-                f"nwp500-python**: Upgraded to {new_version}",
+                r"(- \*\*Library Dependency: nwp500-python\*\*: Upgraded .*?to\s+)[\d.]+",
+                rf"\1{new_version}",
                 unreleased_section,
                 count=1,
             )
@@ -96,7 +95,6 @@ def update_changelog(file_path: Path, new_version: str) -> bool:
                 return True
         else:
             # Add nwp500-python entry to Unreleased section
-            datetime.now().strftime("%Y-%m-%d")
             entry = f"""## [Unreleased]
 
 ### Changed

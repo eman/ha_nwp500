@@ -44,9 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 7.4.5
-
 ## [0.1.9] - 2026-01-25
 
 ### Changed

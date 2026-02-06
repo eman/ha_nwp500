@@ -135,10 +135,10 @@ def mock_device_status() -> MagicMock:
     def mock_get_field_unit(field_name: str) -> str:
         if "temperature" in field_name:
             return " °F"  # Default to Fahrenheit for testing
-        elif "flow_rate" in field_name:
-            return " GPM"
         elif "dhw_flow_rate" in field_name and "cumulated" in field_name:
             return " gal"
+        elif "flow_rate" in field_name:
+            return " GPM"
         return ""
 
     status.get_field_unit = mock_get_field_unit

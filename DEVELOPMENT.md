@@ -71,7 +71,7 @@ tox
 tox -e py313            # Test on Python 3.13
 tox -e coverage         # Test with coverage (requires 80%+)
 tox -e mypy             # Type check with mypy
-tox -e pyright          # Type check with pyright
+tox -e basedpyright     # Type check with basedpyright
 
 # Direct pytest
 pytest                  # All tests
