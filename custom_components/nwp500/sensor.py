@@ -19,7 +19,6 @@ from homeassistant.const import (
     PERCENTAGE,
     UnitOfEnergy,
     UnitOfPower,
-    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -52,7 +51,6 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
 
     # Unit mapping for string-based units to HA constants
     unit_map: dict[str, str] = {
-        "°F": UnitOfTemperature.FAHRENHEIT,
         "W": UnitOfPower.WATT,
         "Wh": UnitOfEnergy.WATT_HOUR,
         "%": PERCENTAGE,
@@ -217,32 +215,37 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        """Return the native unit of measurement, dynamically based on device settings.
-        
-        nwp500-python 7.3.0+ provides dynamic unit conversion based on the water
-        heater's region/unit preference. This property uses get_field_unit() to
-        retrieve the correct unit for the current sensor field.
+        """Return the native unit for this field.
+
+        For temperature sensors, returns HA's configured unit.
+        For others, attempts to detect from status or description.
         """
-        if not (status := self._status):
-            # Fallback to static unit if no status available yet
+        # For temperature sensors, always follow HA configuration
+        if (
+            self.entity_description.device_class
+            == SensorDeviceClass.TEMPERATURE
+        ):
+            return self.hass.config.units.temperature_unit
+
+        status = self._status
+        if not status:
+            # Fallback to entity description unit if no status available yet
             return self.entity_description.native_unit_of_measurement
-        
+
+        # Get the actual unit from the device status for this field
+        field_name = self.entity_description.key
         try:
-            # Get the attribute name from SENSOR_CONFIGS
-            from .const import SENSOR_CONFIGS
-            config = SENSOR_CONFIGS.get(self.entity_description.key, {})
-            attr_name = config.get("attr")
-            
-            if attr_name:
-                # Get dynamic unit from device status
-                unit_str = status.get_field_unit(attr_name)
-                if unit_str:
-                    return unit_str
-        except (AttributeError, TypeError, KeyError):
-            pass
-        
-        # Fall back to static unit from description
-        return self.entity_description.native_unit_of_measurement
+            unit = status.get_field_unit(field_name)
+            # get_field_unit returns units with leading space (e.g., " °C")
+            # but native_unit_of_measurement should not have the space
+            return (
+                unit.strip()
+                if unit
+                else self.entity_description.native_unit_of_measurement
+            )
+        except (AttributeError, TypeError, KeyError, ValueError):
+            # Fallback to entity description unit if get_field_unit fails
+            return self.entity_description.native_unit_of_measurement
 
     @property
     def native_value(self) -> Any:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

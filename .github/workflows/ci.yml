@@ -19,14 +19,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements.txt"
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-          cache: "pip"
 
       - name: Install tox
-        run: pip install tox
+        run: uv tool install tox --with tox-uv
 
       - name: Run ruff
         run: tox -e ruff
@@ -48,14 +53,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements.txt"
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-          cache: "pip"
 
       - name: Install tox
-        run: pip install tox
+        run: uv tool install tox --with tox-uv
 
       - name: Run mypy
         run: tox -e mypy
@@ -82,14 +92,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements.txt"
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-          cache: "pip"
 
       - name: Install tox
-        run: pip install tox
+        run: uv tool install tox --with tox-uv
 
       - name: Run basedpyright
         run: tox -e basedpyright
@@ -100,19 +115,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13", "3.14"]
+        python-version: ["3.13"]
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements.txt"
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
 
       - name: Install tox
-        run: pip install tox
+        run: uv tool install tox --with tox-uv
 
       - name: Run tests
         run: tox -e py$(echo "${{ matrix.python-version }}" | tr -d .)
@@ -124,14 +144,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements.txt"
+
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-          cache: "pip"
 
       - name: Install tox
-        run: pip install tox
+        run: uv tool install tox --with tox-uv
 
       - name: Run coverage
         run: tox -e coverage

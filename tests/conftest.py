@@ -8,8 +8,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 
 from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
+
+
+@pytest.fixture
+def mock_hass() -> MagicMock:
+    """Create a mock Home Assistant instance with configured units."""
+    hass = MagicMock()
+    hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+    return hass
+
 
 pytest_plugins = ["pytest_homeassistant_custom_component"]
 
@@ -120,6 +130,18 @@ def mock_device_status() -> MagicMock:
 
     # WiFi
     status.wifi_rssi = -45
+
+    # Mock get_field_unit method for dynamic units
+    def mock_get_field_unit(field_name: str) -> str:
+        if "temperature" in field_name:
+            return " °F"  # Default to Fahrenheit for testing
+        elif "dhw_flow_rate" in field_name and "cumulated" in field_name:
+            return " gal"
+        elif "flow_rate" in field_name:
+            return " GPM"
+        return ""
+
+    status.get_field_unit = mock_get_field_unit
 
     return status
 

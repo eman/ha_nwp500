@@ -5,9 +5,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from homeassistant.components.number import NumberEntity, NumberMode
+from homeassistant.components.number import (
+    NumberDeviceClass,
+    NumberEntity,
+    NumberMode,
+)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -44,9 +47,8 @@ async def async_setup_entry(
 class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 target temperature number entity."""
 
+    _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_mode = NumberMode.BOX
-    _attr_native_min_value = MIN_TEMPERATURE
-    _attr_native_max_value = MAX_TEMPERATURE
     _attr_native_step = 1
 
     def __init__(
@@ -62,32 +64,45 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         self._attr_icon = "mdi:thermometer"
 
     @property
+    def native_min_value(self) -> float:
+        """Return the minimum value."""
+        if (
+            features := self.coordinator.device_features.get(self.mac_address)
+        ) and (
+            val := getattr(features, "dhw_temperature_min", None)
+        ) is not None:
+            return float(val)
+
+        return float(MIN_TEMPERATURE)
+
+    @property
+    def native_max_value(self) -> float:
+        """Return the maximum value."""
+        if (
+            features := self.coordinator.device_features.get(self.mac_address)
+        ) and (
+            val := getattr(features, "dhw_temperature_max", None)
+        ) is not None:
+            return float(val)
+
+        return float(MAX_TEMPERATURE)
+
+    @property
     def native_unit_of_measurement(self) -> str:
-        """Return the unit of measurement, dynamically based on device settings.
-        
-        nwp500-python 7.3.0+ provides dynamic unit conversion based on the water
-        heater's region/unit preference.
+        """Return Home Assistant's configured temperature unit.
+
+        The library handles unit conversion based on HA's configured unit
+        system, so values are already in the correct units.
         """
-        if not (status := self._status):
-            return UnitOfTemperature.FAHRENHEIT
-        
-        try:
-            # Get the temperature unit from device status
-            unit_str = status.get_field_unit("dhw_target_temperature_setting")
-            # get_field_unit returns "°C" or "°F", map to HA constants
-            if unit_str == "°C":
-                return UnitOfTemperature.CELSIUS
-            elif unit_str == "°F":
-                return UnitOfTemperature.FAHRENHEIT
-        except (AttributeError, TypeError):
-            pass
-        
-        # Default to Fahrenheit
-        return UnitOfTemperature.FAHRENHEIT
+        return self.hass.config.units.temperature_unit
 
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Return the current target temperature."""
+        """Return the current target temperature.
+
+        The library handles unit conversion based on HA's configured unit
+        system, so this value is already in the correct units.
+        """
         if not (status := self._status):
             return None
         try:
@@ -97,13 +112,19 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
             return float(target_temp) if target_temp is not None else None
-        except (AttributeError, TypeError):
+        except (AttributeError, TypeError, ValueError):
             return None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the target temperature."""
+        """Set the target temperature.
+
+        The library handles unit conversion, so the value sent should be
+        in HA's configured unit (which the library already expects).
+        """
         success = await self.coordinator.async_control_device(
-            self.mac_address, "set_temperature", temperature=int(value)
+            self.mac_address,
+            "set_temperature",
+            temperature=float(value),
         )
 
         if success:

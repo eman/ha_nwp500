@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -56,6 +56,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.auth_client: NavienAuthClient | None = None
         self.api_client: NavienAPIClient | None = None
         self.mqtt_manager: NWP500MqttManager | None = None
+        self.unit_system: str | None = None
         self.devices: list[Device] = []
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
@@ -251,6 +252,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         startup (once for first_refresh, once for scheduled update). This is
         expected Home Assistant behavior and not a bug.
         """
+        # Ensure library unit system context matches HA configuration
+        if self.unit_system:
+            try:
+                from nwp500.unit_system import set_unit_system
+
+                set_unit_system(self.unit_system)  # type: ignore[arg-type]
+            except (ImportError, AttributeError):
+                pass
+
         # Track performance metrics
         start_time = time.monotonic()
 
@@ -476,7 +486,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "pip install nwp500-python==7.3.1 awsiotsdk>=1.27.0"
+                "uv pip install nwp500-python==7.4.5 awsiotsdk>=1.27.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -516,9 +526,21 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     )
                     stored_tokens = None
 
+            # Determine unit system based on HA configuration
+            # Metric uses Celsius (°C), us_customary uses Fahrenheit (°F)
+            self.unit_system = (
+                "metric"
+                if self.hass.config.units.temperature_unit
+                == UnitOfTemperature.CELSIUS
+                else "us_customary"
+            )
+
             # Setup authentication client with stored tokens if available
             self.auth_client = NavienAuthClient(
-                email, password, stored_tokens=stored_tokens
+                email,
+                password,
+                stored_tokens=stored_tokens,
+                unit_system=self.unit_system,  # type: ignore[arg-type]
             )
             assert self.auth_client is not None
             await self.auth_client.__aenter__()  # Authenticate or restore
@@ -527,7 +549,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             await self._save_tokens()
 
             # Setup API client
-            self.api_client = NavienAPIClient(auth_client=self.auth_client)
+            self.api_client = NavienAPIClient(
+                auth_client=self.auth_client,
+                unit_system=self.unit_system,  # type: ignore[arg-type]
+            )
             assert self.api_client is not None
 
             # Get devices
@@ -557,6 +582,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.auth_client,
                 self._on_device_status_update,
                 self._on_device_feature_update,
+                unit_system=self.unit_system,
             )
 
             # Connect to MQTT
@@ -648,6 +674,16 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self, mac_address: str, status: DeviceStatus
     ) -> None:
         """Handle device status update from MQTT Manager."""
+        # Schedule the update in the event loop to ensure thread-safety
+        # and avoid conflicts with DataUpdateCoordinator state management.
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_status_update_in_loop, mac_address, status
+        )
+
+    def _handle_status_update_in_loop(
+        self, mac_address: str, status: DeviceStatus
+    ) -> None:
+        """Process device status update within the event loop."""
         try:
             _LOGGER.debug("Received device status update for %s", mac_address)
 
@@ -679,8 +715,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.data[mac_address]["status"] = status
                 self.data[mac_address]["last_update"] = time.time()
 
-                # Schedule update for all listeners using thread-safe method
-                self.hass.loop.call_soon_threadsafe(self.async_update_listeners)
+                # Notify all listeners that data has changed
+                self.async_update_listeners()
 
         except Exception as err:
             _LOGGER.error("Error handling device status update: %s", err)
@@ -689,6 +725,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self, mac_address: str, feature: DeviceFeature
     ) -> None:
         """Handle device feature update from MQTT Manager."""
+        # Schedule the update in the event loop to ensure thread-safety
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_feature_update_in_loop, mac_address, feature
+        )
+
+    def _handle_feature_update_in_loop(
+        self, mac_address: str, feature: DeviceFeature
+    ) -> None:
+        """Process device feature update within the event loop."""
         try:
             _LOGGER.info("Received device feature update for %s", mac_address)
 
