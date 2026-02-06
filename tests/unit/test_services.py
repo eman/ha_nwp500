@@ -104,9 +104,9 @@ class TestReservationServices:
         self, mock_hass, mock_device_registry
     ):
         """Test set_reservation builds a proper reservation entry."""
-        # Setup mock coordinator
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
@@ -155,14 +155,91 @@ class TestReservationServices:
             await set_reservation_handler(call)
 
             # Verify build_reservation_entry was called with correct args
-            # Library now takes temperature_f directly instead of param
+            # Library now takes temperature (unit-agnostic) instead of temperature_f
             mock_build.assert_called_once_with(
                 enabled=True,
                 days=["Monday", "Wednesday", "Friday"],
                 hour=6,
                 minute=30,
                 mode_id=3,  # energy_saver
-                temperature_f=140.0,  # Fahrenheit directly
+                temperature=140.0,  # Value directly
+                temperature_min=None,
+                temperature_max=None,
+            )
+
+            # Verify coordinator was called
+            mock_coordinator.async_update_reservations.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_set_reservation_with_device_feature_limits(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test set_reservation respects device feature min/max temperature limits."""
+        mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+
+        # Mock device features with actual temperature limits
+        mock_features = MagicMock()
+        mock_features.dhw_temperature_min = 90.0
+        mock_features.dhw_temperature_max = 160.0
+        mock_coordinator.device_features = {"AA:BB:CC:DD:EE:FF": mock_features}
+        mock_coordinator.async_update_reservations = AsyncMock(
+            return_value=True
+        )
+        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+
+        # Setup device registry
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+        await _async_setup_services(mock_hass)
+
+        # Get the set_reservation handler
+        set_reservation_handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == "set_reservation":
+                set_reservation_handler = call[0][2]
+                break
+
+        assert set_reservation_handler is not None
+
+        # Create service call
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            ATTR_ENABLED: True,
+            ATTR_DAYS: ["Monday"],
+            ATTR_HOUR: 12,
+            ATTR_MINUTE: 0,
+            ATTR_OP_MODE: "heat_pump",
+            ATTR_TEMPERATURE: 130,
+        }
+
+        # Mock build_reservation_entry in the encoding module
+        with patch(
+            "nwp500.encoding.build_reservation_entry",
+            return_value={
+                "enable": 1,
+                "week": 2,
+                "hour": 12,
+                "min": 0,
+                "mode": 1,
+                "param": 130,
+            },
+        ) as mock_build:
+            await set_reservation_handler(call)
+
+            # Verify build_reservation_entry was called with device limits
+            mock_build.assert_called_once_with(
+                enabled=True,
+                days=["Monday"],
+                hour=12,
+                minute=0,
+                mode_id=1,  # heat_pump
+                temperature=130.0,
+                temperature_min=90.0,  # from device features
+                temperature_max=160.0,  # from device features
             )
 
             # Verify coordinator was called
@@ -245,6 +322,7 @@ class TestReservationServices:
         """Test set_reservation uses default temperature for vacation mode."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
@@ -277,9 +355,9 @@ class TestReservationServices:
             await set_reservation_handler(call)
 
             mock_build.assert_called_once()
-            # Verify temperature_f is DEFAULT_TEMPERATURE
+            # Verify temperature is DEFAULT_TEMPERATURE
             assert (
-                mock_build.call_args.kwargs["temperature_f"]
+                mock_build.call_args.kwargs["temperature"]
                 == DEFAULT_TEMPERATURE
             )
 

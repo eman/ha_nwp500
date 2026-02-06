@@ -17,7 +17,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_OFF,
-    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -62,9 +61,6 @@ async def async_setup_entry(
 class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 water heater entity."""
 
-    _attr_temperature_unit = UnitOfTemperature.FAHRENHEIT
-    _attr_min_temp = MIN_TEMPERATURE
-    _attr_max_temp = MAX_TEMPERATURE
     _attr_supported_features = (
         WaterHeaterEntityFeature.TARGET_TEMPERATURE
         | WaterHeaterEntityFeature.OPERATION_MODE
@@ -88,6 +84,47 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             STATE_HIGH_DEMAND,
             STATE_ELECTRIC,
         ]
+
+    @property
+    def min_temp(self) -> float:
+        """Return the minimum temperature.
+
+        Device feature min/max values are provided by the library and respect
+        the unit system configured via set_unit_system() in the coordinator.
+        """
+        if (
+            features := self.coordinator.device_features.get(self.mac_address)
+        ) and (
+            val := getattr(features, "dhw_temperature_min", None)
+        ) is not None:
+            return float(val)
+
+        return float(MIN_TEMPERATURE)
+
+    @property
+    def max_temp(self) -> float:
+        """Return the maximum temperature.
+
+        Device feature min/max values are provided by the library and respect
+        the unit system configured via set_unit_system() in the coordinator.
+        """
+        if (
+            features := self.coordinator.device_features.get(self.mac_address)
+        ) and (
+            val := getattr(features, "dhw_temperature_max", None)
+        ) is not None:
+            return float(val)
+
+        return float(MAX_TEMPERATURE)
+
+    @property
+    def temperature_unit(self) -> str:
+        """Return Home Assistant's configured temperature unit.
+
+        The library handles unit conversion based on HA's configured unit
+        system, so values are already in the correct units.
+        """
+        return self.hass.config.units.temperature_unit
 
     @property
     def current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -296,7 +333,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             return
 
         success = await self.coordinator.async_control_device(
-            self.mac_address, "set_temperature", temperature=int(temperature)
+            self.mac_address, "set_temperature", temperature=float(temperature)
         )
 
         if success:

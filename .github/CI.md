@@ -58,7 +58,7 @@ Before pushing code, run all checks locally:
 
 ```bash
 # Install tox
-pip install tox
+uv tool install tox --with tox-uv
 
 # Run all checks (recommended)
 tox

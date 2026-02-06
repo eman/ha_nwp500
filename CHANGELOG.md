@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2026-01-26
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded from 7.3.1 to 7.4.5
+  - **7.4.5 (2026-01-26)**: Unit-aware fixes and temperature conversion improvements
+    - Implemented unit-aware logic to resolve temperature conversion issues
+    - Refactored water_heater and number platforms to use library-provided unit-aware values
+    - Removed manual unit conversions and fallback logic
+    - Removed device_class from differential temperature sensors to prevent incorrect offset application
+    - Updated reservations to use unit-agnostic temperature parameter
+    - Improved consistency in unit handling between Home Assistant and library
+
 ## [0.1.7] - 2026-01-25
 
 ### Fixed
@@ -141,7 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `datetime.UTC` instead of `timezone.utc`
 - **Updated Python target**: Ruff target-version set to `py313`
 - **Dropped Python 3.12**: Removed py312 from test matrix, focusing on Python 3.13+
-- **Added Python 3.14**: Added py314 to test matrix for forward compatibility
+- **Removed Python 3.14**: Removed py314 from test matrix; pydantic-core lacks prebuilt wheels for Python 3.14
 
 ## [0.1.2] - 2025-12-18
 
@@ -172,6 +184,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v7.3.4 (2026-01-27)
+
+#### Fixed
+- **Delta temperature calculations**: Normalized deltas to use consistent units and device sensor
+  offsets, preventing overstated temperature differences
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v7.3.4
 
 ### v7.2.3 (2026-01-16)
 

@@ -24,10 +24,12 @@ class TestNWP500WaterHeater:
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test water heater initialization."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         assert heater.coordinator == mock_coordinator
         assert heater.mac_address == mac_address
@@ -39,10 +41,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test current_temperature returns dhwTemperature."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         assert heater.current_temperature == 120.0
 
@@ -51,10 +55,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test current_temperature returns None when unavailable."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         # Remove dhw_temperature to simulate unavailable sensor
         delattr(mock_device_status, "dhw_temperature")
@@ -66,10 +72,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test target_temperature property."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         assert heater.target_temperature == 130.0
 
@@ -78,10 +86,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test current_operation with heat pump mode."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
 
@@ -92,10 +102,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test current_operation with eco mode."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 3  # ENERGY_SAVER
 
@@ -106,10 +118,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test vacation mode returns eco as operation."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 5  # VACATION
 
@@ -120,10 +134,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test power off mode returns off state."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 6  # POWER_OFF
 
@@ -133,10 +149,12 @@ class TestNWP500WaterHeater:
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test operation_list returns available modes."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         operations = heater.operation_list
 
@@ -154,10 +172,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test is_on returns True when device is on."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
 
@@ -168,10 +188,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test is_on returns False when device is off."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 6  # POWER_OFF
 
@@ -182,10 +204,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test is_away_mode_on returns True in vacation."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 5  # VACATION
 
@@ -196,10 +220,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test is_away_mode_on returns False when not vacation."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
 
@@ -210,10 +236,12 @@ class TestNWP500WaterHeater:
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test setting temperature."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
@@ -221,19 +249,50 @@ class TestNWP500WaterHeater:
         await heater.async_set_temperature(temperature=125)
 
         mock_coordinator.async_control_device.assert_called_once_with(
-            mac_address, "set_temperature", temperature=125
+            mac_address, "set_temperature", temperature=125.0
         )
         mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_set_temperature_float_conversion(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Test that temperature is converted to float regardless of input type."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        # Test with int input
+        await heater.async_set_temperature(temperature=125)
+        call_args = mock_coordinator.async_control_device.call_args
+        assert isinstance(call_args.kwargs["temperature"], float)
+        assert call_args.kwargs["temperature"] == 125.0
+
+        mock_coordinator.async_control_device.reset_mock()
+
+        # Test with float input
+        await heater.async_set_temperature(temperature=128.5)
+        call_args = mock_coordinator.async_control_device.call_args
+        assert isinstance(call_args.kwargs["temperature"], float)
+        assert call_args.kwargs["temperature"] == 128.5
 
     @pytest.mark.asyncio
     async def test_async_set_operation_mode(
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test setting operation mode."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
@@ -252,10 +311,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test extra_state_attributes property."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         attrs = heater.extra_state_attributes
 
@@ -268,6 +329,7 @@ class TestNWP500WaterHeater:
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test extra_state_attributes when status unavailable."""
         mock_coordinator.data = {
@@ -278,6 +340,7 @@ class TestNWP500WaterHeater:
 
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         attrs = heater.extra_state_attributes
 
@@ -290,10 +353,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test setting temperature with None value."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_coordinator.async_control_device = AsyncMock()
 
@@ -308,10 +373,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test setting invalid operation mode."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_coordinator.async_control_device = AsyncMock()
 
@@ -326,10 +393,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test turning water heater on."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
@@ -348,10 +417,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test turning water heater off."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
@@ -370,10 +441,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test turning away mode on."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
@@ -393,10 +466,12 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test turning away mode off."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
@@ -415,6 +490,7 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test current_operation returns unknown for unmapped value."""
         # Set to unmapped operation setting value
@@ -422,6 +498,7 @@ class TestNWP500WaterHeater:
 
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         assert heater.current_operation == "unknown"
 
@@ -430,6 +507,7 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test is_on falls back to checking component status."""
         # Remove dhw_operation_setting to trigger fallback
@@ -440,6 +518,7 @@ class TestNWP500WaterHeater:
 
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         assert heater.is_on is True
 
@@ -448,6 +527,7 @@ class TestNWP500WaterHeater:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test is_on falls back to operationMode."""
         # Remove dhw_operation_setting to trigger fallback
@@ -464,5 +544,6 @@ class TestNWP500WaterHeater:
 
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
 
         assert heater.is_on is True

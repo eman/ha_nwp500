@@ -29,7 +29,7 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **GitHub Repository**: https://github.com/eman/nwp500-python
   - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
   - **PyPI Package**: https://pypi.org/project/nwp500-python/
-  - **Current Version**: 7.2.3 (see `custom_components/nwp500/manifest.json`)
+  - **Current Version**: 7.4.5 (see `custom_components/nwp500/manifest.json`)
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
@@ -153,12 +153,12 @@ When adopting a new version of the nwp500-python library (the primary dependency
 
 #### 4. **`custom_components/nwp500/coordinator.py`** (REQUIRED)
    - Update the error message in the ImportError handler
-   - Search for: `"pip install nwp500-python=="`
+   - Search for: `"uv pip install nwp500-python=="`
    - Update to new version (line ~316)
 
 #### 5. **`custom_components/nwp500/config_flow.py`** (REQUIRED)
    - Update the error message in the library availability check
-   - Search for: `"pip install nwp500-python=="`
+   - Search for: `"uv pip install nwp500-python=="`
    - Update to new version (line ~181)
 
 #### 6. **`CHANGELOG.md`** (REQUIRED)
@@ -186,7 +186,7 @@ When adopting a new version of the nwp500-python library (the primary dependency
 
 ```bash
 # 1. Check for new versions
-pip index versions nwp500-python
+uv pip index versions nwp500-python
 
 # 2. Check release notes
 curl -s https://api.github.com/repos/eman/nwp500-python/releases | jq '.[0]'

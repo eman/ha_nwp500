@@ -42,6 +42,7 @@ class NWP500MqttManager:
         auth_client: NavienAuthClient,
         on_status_update: Callable[[str, DeviceStatus], None],
         on_feature_update: Callable[[str, DeviceFeature], None],
+        unit_system: str | None = None,
     ) -> None:
         """Initialize the MQTT manager."""
         self.loop = hass_loop
@@ -50,6 +51,7 @@ class NWP500MqttManager:
         self.diagnostics: MqttDiagnosticsCollector | None = None
         self._on_status_update_callback = on_status_update
         self._on_feature_update_callback = on_feature_update
+        self.unit_system = unit_system
 
         # Connection tracking
         self.connected_since: float | None = None
@@ -111,7 +113,10 @@ class NWP500MqttManager:
             )
 
             # Token validation deferred to connect() per nwp500-python 7.3.1+
-            self.mqtt_client = NavienMqttClient(self.auth_client)
+            self.mqtt_client = NavienMqttClient(
+                self.auth_client,
+                unit_system=self.unit_system,  # type: ignore[arg-type]
+            )
 
             # Set up event listeners
             if self.mqtt_client:
