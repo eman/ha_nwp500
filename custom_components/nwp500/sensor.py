@@ -20,7 +20,6 @@ from homeassistant.const import (
     UnitOfEnergy,
     UnitOfPower,
     UnitOfTemperature,
-    UnitOfVolume,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -219,69 +218,27 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
     def native_unit_of_measurement(self) -> str | None:
         """Return the native unit for this field.
 
-        For temperature, volume, and flow sensors, returns HA's configured units.
-        For others, attempts to detect from status or description.
+        Prioritize the unit reported by the device status to ensure the value matches the unit.
+        Fallback to the entity description default if status is unavailable.
         """
-        # For temperature sensors, always follow HA configuration
-        # Check both enum and string representation for robustness
-        device_class = self.entity_description.device_class
-        if (
-            device_class == SensorDeviceClass.TEMPERATURE
-            or str(device_class) == "temperature"
-            or self.entity_description.key.endswith("_temperature")
-        ):
-            return self.hass.config.units.temperature_unit
-
-        # Handle Volume and Flow units based on HA unit system
-        is_metric = self.hass.config.units.is_metric
-        if (
-            device_class == SensorDeviceClass.WATER
-            or self.entity_description.key.endswith("_flow_rate")
-        ):
-            if self.entity_description.key.endswith("_flow_rate"):
-                return "LPM" if is_metric else "GPM"
-            return UnitOfVolume.LITERS if is_metric else UnitOfVolume.GALLONS
-
         status = self._status
-        if not status:
-            # Fallback to entity description unit if no status available yet
-            desc_unit = self.entity_description.native_unit_of_measurement
-            # Ensure description units also respect the unit system if they are flow/volume
-            if desc_unit == "GPM" and is_metric:
-                return "LPM"
-            if desc_unit == "gal" and is_metric:
-                return str(UnitOfVolume.LITERS)
-            return desc_unit
+        
+        # 1. Try to get the actual unit from the device status
+        if status:
+            field_name = self.entity_description.key
+            try:
+                unit = status.get_field_unit(field_name)
+                if unit:
+                    return unit.strip()
+            except (AttributeError, TypeError, KeyError, ValueError):
+                pass
 
-        # Get the actual unit from the device status for this field
-        field_name = self.entity_description.key
-        try:
-            unit = status.get_field_unit(field_name)
-            # get_field_unit returns units with leading space (e.g., " °C")
-            # but native_unit_of_measurement should not have the space
-            if unit:
-                stripped_unit = unit.strip()
-                # If the device returns a temperature unit, ensure it matches HA config
-                # for consistency, even if device_class wasn't caught above
-                if stripped_unit in ("°C", "°F"):
-                    return self.hass.config.units.temperature_unit
-                return stripped_unit
-            
-            # Fallback for flow/volume if stripping returns nothing
-            desc_unit = self.entity_description.native_unit_of_measurement
-            if desc_unit == "GPM" and is_metric:
-                return "LPM"
-            if desc_unit == "gal" and is_metric:
-                return str(UnitOfVolume.LITERS)
-            return desc_unit
-        except (AttributeError, TypeError, KeyError, ValueError):
-            # Fallback to entity description unit if get_field_unit fails
-            desc_unit = self.entity_description.native_unit_of_measurement
-            if desc_unit == "GPM" and is_metric:
-                return "LPM"
-            if desc_unit == "gal" and is_metric:
-                return str(UnitOfVolume.LITERS)
-            return desc_unit
+        # 2. For temperature sensors, if we have a status but no specific unit field,
+        # we might want to check the coordinator's unit system setting, but it's safer
+        # to fall back to the static definition if the device doesn't explicitly tell us.
+        
+        # 3. Fallback to entity description unit
+        return self.entity_description.native_unit_of_measurement
 
     @property
     def native_value(self) -> Any:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

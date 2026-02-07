@@ -70,6 +70,14 @@ class TestDynamicLimits:
 
         # Ensure device features missing
         mock_coordinator.device_features.get.return_value = None
+        
+        # Ensure status is missing so it falls back to HA config
+        mock_coordinator.data = {
+            mac_address: {
+                "device": mock_device,
+                "status": None,
+            }
+        }
 
         # Set HA to Celsius
         mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
@@ -115,6 +123,14 @@ class TestDynamicLimits:
 
         # Ensure device features missing
         mock_coordinator.device_features.get.return_value = None
+        
+        # Ensure status is missing so it falls back to HA config
+        mock_coordinator.data = {
+            mac_address: {
+                "device": mock_device,
+                "status": None,
+            }
+        }
 
         # Set HA to Celsius
         mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
