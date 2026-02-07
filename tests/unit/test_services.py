@@ -162,6 +162,7 @@ class TestReservationServices:
 
             # Verify build_reservation_entry was called with correct args
             # Library now takes temperature (unit-agnostic) instead of temperature_f
+            # When device features are not available, fallback constants are used
             mock_build.assert_called_once_with(
                 enabled=True,
                 days=["Monday", "Wednesday", "Friday"],
@@ -169,8 +170,8 @@ class TestReservationServices:
                 minute=30,
                 mode_id=3,  # energy_saver
                 temperature=140.0,  # Value directly
-                temperature_min=None,
-                temperature_max=None,
+                temperature_min=80,  # Fallback to MIN_TEMPERATURE_F when no device features
+                temperature_max=150,  # Fallback to MAX_TEMPERATURE_F when no device features
             )
 
             # Verify coordinator was called

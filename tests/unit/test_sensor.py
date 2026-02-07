@@ -227,6 +227,9 @@ class TestNWP500Sensor:
             }
         }
 
+        # Mock the coordinator's get_field_unit_safe method
+        mock_coordinator.get_field_unit_safe = MagicMock(return_value="°F")
+
         mac_address = mock_device.device_info.mac_address
 
         # Create a sensor description from the config
@@ -282,6 +285,9 @@ class TestNWP500Sensor:
                 "status": mock_device_status,
             }
         }
+
+        # Mock the coordinator's get_field_unit_safe method to return the device unit
+        mock_coordinator.get_field_unit_safe = MagicMock(return_value="°F")
 
         # Create a temperature sensor description
         desc = SensorEntityDescription(
