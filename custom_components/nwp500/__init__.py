@@ -102,9 +102,7 @@ SERVICE_SET_RESERVATION_SCHEMA = vol.All(
                 vol.Coerce(int), vol.Range(min=0, max=59)
             ),
             vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
-            vol.Optional(ATTR_TEMPERATURE): vol.All(
-                vol.Coerce(float), vol.Range(min=20, max=160)
-            ),
+            vol.Optional(ATTR_TEMPERATURE): vol.Coerce(float),
         }
     ),
     validate_reservation_temperature,
@@ -210,14 +208,43 @@ class NWP500ServiceHandler:
                     f"Temperature is required for mode '{mode}'"
                 )
 
-        # Get device features to pass min/max limits if available
+        # Get device features to use device-specific temperature limits
         features = coordinator.device_features.get(mac_address)
-        temp_min = (
+        device_temp_min = (
             getattr(features, "dhw_temperature_min", None) if features else None
         )
-        temp_max = (
+        device_temp_max = (
             getattr(features, "dhw_temperature_max", None) if features else None
         )
+
+        # Use device-specific limits if available, otherwise fallback to constants
+        if device_temp_min is not None and device_temp_max is not None:
+            temp_min, temp_max = device_temp_min, device_temp_max
+        else:
+            # Fallback to hardcoded ranges based on HA unit system
+            from homeassistant.const import UnitOfTemperature
+
+            from .const import (
+                MAX_TEMPERATURE_C,
+                MAX_TEMPERATURE_F,
+                MIN_TEMPERATURE_C,
+                MIN_TEMPERATURE_F,
+            )
+
+            if (
+                coordinator.hass.config.units.temperature_unit
+                == UnitOfTemperature.CELSIUS
+            ):
+                temp_min, temp_max = MIN_TEMPERATURE_C, MAX_TEMPERATURE_C
+            else:
+                temp_min, temp_max = MIN_TEMPERATURE_F, MAX_TEMPERATURE_F
+
+        # Validate temperature range
+        if not (temp_min <= temperature <= temp_max):
+            raise HomeAssistantError(
+                f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
+                f"is outside valid range ({temp_min}-{temp_max}°{coordinator.hass.config.units.temperature_unit})"
+            )
 
         # Build the reservation entry using library function
         # Library handles unit conversion based on global context
@@ -228,8 +255,8 @@ class NWP500ServiceHandler:
             minute=minute,
             mode_id=mode_id,
             temperature=float(temperature),
-            temperature_min=temp_min,
-            temperature_max=temp_max,
+            temperature_min=device_temp_min,
+            temperature_max=device_temp_max,
         )
 
         _LOGGER.info(

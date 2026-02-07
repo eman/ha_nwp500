@@ -253,58 +253,50 @@ class TestNWP500Sensor:
             # Unit should be "°F" not " °F" (space stripped)
             assert not unit.startswith(" ")
 
-        def test_sensor_temperature_unit_trusts_device(
-            self,
-            mock_coordinator: MagicMock,
-            mock_device: MagicMock,
-            mock_hass: MagicMock,
-            mock_device_status: MagicMock,
-        ):
-            """Test that temperature sensors trust the device's reported unit."""
-            from homeassistant.components.sensor import (
-                SensorDeviceClass,
-                SensorEntityDescription,
-            )
-            from homeassistant.const import UnitOfTemperature
+    def test_sensor_temperature_unit_trusts_device(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test that temperature sensors trust the device's reported unit."""
+        from homeassistant.components.sensor import (
+            SensorDeviceClass,
+            SensorEntityDescription,
+        )
+        from homeassistant.const import UnitOfTemperature
 
-            from custom_components.nwp500.sensor import NWP500Sensor
+        from custom_components.nwp500.sensor import NWP500Sensor
 
-            # Configure HA to use Celsius
+        # Configure HA to use Celsius
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
 
-            mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+        # Mock device reporting Fahrenheit
+        mock_device_status.get_field_unit.return_value = " °F"
 
-            # Mock device reporting Fahrenheit
-
-            mock_device_status.get_field_unit.return_value = " °F"
-
-            # Setup coordinator with status
-
-            mock_coordinator.data = {
-                mock_device.device_info.mac_address: {
-                    "device": mock_device,
-                    "status": mock_device_status,
-                }
+        # Setup coordinator with status
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+                "status": mock_device_status,
             }
+        }
 
-            # Create a temperature sensor description
+        # Create a temperature sensor description
+        desc = SensorEntityDescription(
+            key="test_temp",
+            name="Test Temperature",
+            device_class=SensorDeviceClass.TEMPERATURE,
+            native_unit_of_measurement=None,
+        )
 
-            desc = SensorEntityDescription(
-                key="test_temp",
-                name="Test Temperature",
-                device_class=SensorDeviceClass.TEMPERATURE,
-                native_unit_of_measurement=None,
-            )
+        mac_address = mock_device.device_info.mac_address
 
-            mac_address = mock_device.device_info.mac_address
+        sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
 
-            sensor = NWP500Sensor(
-                mock_coordinator, mac_address, mock_device, desc
-            )
+        sensor.hass = mock_hass
 
-            sensor.hass = mock_hass
-
-            # Should return Fahrenheit (device unit) despite HA being Celsius
-
-            # This prevents "120 °C" display errors when device sends F values
-
-            assert sensor.native_unit_of_measurement == "°F"
+        # Should return Fahrenheit (device unit) despite HA being Celsius
+        # This prevents "120 °C" display errors when device sends F values
+        assert sensor.native_unit_of_measurement == "°F"
