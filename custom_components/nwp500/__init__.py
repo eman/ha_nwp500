@@ -181,6 +181,13 @@ class NWP500ServiceHandler:
 
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
+        # SAFETY: Prevent service calls during unit system transitions
+        # This prevents temperatures from being set with wrong unit context
+        if getattr(coordinator, "_unit_change_in_progress", False):
+            raise HomeAssistantError(
+                "Cannot set reservation during unit system change. Please try again."
+            )
+
         enabled = call.data[ATTR_ENABLED]
         days = call.data[ATTR_DAYS]
         hour = call.data[ATTR_HOUR]

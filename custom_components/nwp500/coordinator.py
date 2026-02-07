@@ -67,6 +67,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self._unit_system_lock = (
             asyncio.Lock()
         )  # Prevent race conditions in unit sync
+        self._unit_change_in_progress = (
+            False  # Prevent operations during unit transitions
+        )
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -263,19 +266,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             else "us_customary"
         )
 
-        # Update unit system if it changed (with lock to prevent race conditions)
-        async with self._unit_system_lock:
-            if self.unit_system != current_unit_system:
-                _LOGGER.info(
-                    "Unit system changed from %s to %s",
-                    self.unit_system,
-                    current_unit_system,
-                )
-                self.unit_system = current_unit_system
-
-                # Update MQTT manager if it exists
-                if self.mqtt_manager:
-                    self.mqtt_manager.unit_system = current_unit_system
+        # Update unit system if it changed (with atomic transition protocol)
+        if self.unit_system != current_unit_system:
+            async with self._unit_system_lock:
+                # Double-check in case another thread changed it
+                if self.unit_system != current_unit_system:
+                    await self._atomic_unit_system_change(current_unit_system)
 
         # Ensure library unit system context matches current configuration
         if self.unit_system:
@@ -965,3 +961,55 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             pass
 
         return None
+
+    async def _atomic_unit_system_change(self, new_unit_system: str) -> None:
+        """Perform atomic unit system change transition.
+
+        This method ensures that unit changes are handled atomically to prevent
+        mixed-unit states which could be dangerous in a water heater system.
+
+        Args:
+            new_unit_system: The new unit system ("metric" or "us_customary")
+        """
+        old_unit_system = self.unit_system
+
+        _LOGGER.info(
+            "Starting atomic unit system change from %s to %s",
+            old_unit_system,
+            new_unit_system,
+        )
+
+        # Mark unit change in progress
+        self._unit_change_in_progress = True
+
+        try:
+            # Step 1: Update coordinator unit system
+            self.unit_system = new_unit_system
+
+            # Step 2: Update MQTT manager immediately
+            if self.mqtt_manager:
+                self.mqtt_manager.unit_system = new_unit_system
+
+            # Step 3: Update library unit system context
+            if self.unit_system:
+                try:
+                    from nwp500.unit_system import set_unit_system
+
+                    set_unit_system(self.unit_system)  # type: ignore[arg-type]
+                except (ImportError, AttributeError):
+                    pass
+
+            # Step 4: CRITICAL - Clear all cached data to prevent mixed-unit states
+            # This must happen AFTER unit system updates but BEFORE any new data processing
+            self.data.clear()
+            self.device_features.clear()
+
+            _LOGGER.warning(
+                "Unit system changed from %s to %s - cleared all cached data",
+                old_unit_system,
+                new_unit_system,
+            )
+
+        finally:
+            # Always clear the in-progress flag
+            self._unit_change_in_progress = False
