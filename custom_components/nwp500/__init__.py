@@ -81,7 +81,7 @@ def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
     if mode not in ["vacation", "power_off"] and temperature is None:
         raise vol.Invalid(f"Temperature is required for mode '{mode}'")
 
-    # Note: Default temperature for modes that don't use it is handled 
+    # Note: Default temperature for modes that don't use it is handled
     # in the service handler to ensure unit-system awareness.
     return data
 
@@ -198,9 +198,11 @@ class NWP500ServiceHandler:
         if temperature is None:
             if mode in ["vacation", "power_off"]:
                 from homeassistant.const import UnitOfTemperature
+
                 temperature = (
                     DEFAULT_TEMPERATURE_C
-                    if coordinator.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+                    if coordinator.hass.config.units.temperature_unit
+                    == UnitOfTemperature.CELSIUS
                     else DEFAULT_TEMPERATURE_F
                 )
             else:

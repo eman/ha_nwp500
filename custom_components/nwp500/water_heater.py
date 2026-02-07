@@ -129,7 +129,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         )
 
     @property
-    def temperature_unit(self) -> str:
+    def temperature_unit(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the unit of measurement used by the platform.
 
         Prefer the unit reported by the device status to ensure consistency with values.
@@ -140,10 +140,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                 # Try to get unit from DHW temperature field
                 unit = status.get_field_unit("dhw_temperature")
                 if unit:
-                    return unit.strip()
+                    return str(unit.strip())
             except (AttributeError, TypeError, KeyError, ValueError):
                 pass
-        
+
         return self.hass.config.units.temperature_unit
 
     @property

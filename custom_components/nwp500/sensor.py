@@ -19,7 +19,6 @@ from homeassistant.const import (
     PERCENTAGE,
     UnitOfEnergy,
     UnitOfPower,
-    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -74,7 +73,9 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
     }
 
     for key, config in SENSOR_CONFIGS.items():
-        attr_name: str = config["attr"]  # type: ignore[assignment]
+        if not isinstance(config, dict):
+            continue
+        attr_name: str = config["attr"]
 
         # Check if this is a text/enum sensor (no numeric value)
         is_enum_sensor = config.get("special") == "enum_name"
@@ -215,28 +216,28 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         self._attr_name = f"{self.device_name} {description.name}"
 
     @property
-    def native_unit_of_measurement(self) -> str | None:
+    def native_unit_of_measurement(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the native unit for this field.
 
         Prioritize the unit reported by the device status to ensure the value matches the unit.
         Fallback to the entity description default if status is unavailable.
         """
         status = self._status
-        
+
         # 1. Try to get the actual unit from the device status
         if status:
             field_name = self.entity_description.key
             try:
                 unit = status.get_field_unit(field_name)
                 if unit:
-                    return unit.strip()
+                    return str(unit.strip())
             except (AttributeError, TypeError, KeyError, ValueError):
                 pass
 
         # 2. For temperature sensors, if we have a status but no specific unit field,
         # we might want to check the coordinator's unit system setting, but it's safer
         # to fall back to the static definition if the device doesn't explicitly tell us.
-        
+
         # 3. Fallback to entity description unit
         return self.entity_description.native_unit_of_measurement
 
@@ -307,7 +308,7 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
         return None
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return additional attributes."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         attrs = {

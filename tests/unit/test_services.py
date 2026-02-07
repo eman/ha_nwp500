@@ -22,7 +22,6 @@ from custom_components.nwp500 import (
     validate_reservation_temperature,
 )
 from custom_components.nwp500.const import (
-    DEFAULT_TEMPERATURE_C,
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
 )
@@ -178,26 +177,18 @@ class TestReservationServices:
             mock_coordinator.async_update_reservations.assert_called_once()
 
         @pytest.mark.asyncio
-
         async def test_set_reservation_with_device_feature_limits(
-
             self, mock_hass, mock_device_registry
-
         ):
-
             """Test set_reservation respects device feature min/max temperature limits."""
-
             mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
 
             mock_coordinator.hass = mock_hass
 
             mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
 
-        
-
             # Mock device features with actual temperature limits
 
-    
         mock_features = MagicMock()
         mock_features.dhw_temperature_min = 90.0
         mock_features.dhw_temperature_max = 160.0
@@ -340,8 +331,9 @@ class TestReservationServices:
     ):
         """Test set_reservation uses default temperature for vacation mode."""
         from homeassistant.const import UnitOfTemperature
+
         mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
-        
+
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}

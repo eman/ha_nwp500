@@ -71,7 +71,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         self._attr_icon = "mdi:thermometer"
 
     @property
-    def native_min_value(self) -> float:
+    def native_min_value(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the minimum value."""
         if (
             features := self.coordinator.device_features.get(self.mac_address)
@@ -87,7 +87,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         )
 
     @property
-    def native_max_value(self) -> float:
+    def native_max_value(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the maximum value."""
         if (
             features := self.coordinator.device_features.get(self.mac_address)
@@ -103,7 +103,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         )
 
     @property
-    def native_unit_of_measurement(self) -> str:
+    def native_unit_of_measurement(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the unit of measurement.
 
         Prefer the unit reported by the device status to ensure consistency with values.
@@ -115,9 +115,9 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
                 unit = status.get_field_unit("dhw_target_temperature_setting")
                 if not unit:
                     unit = status.get_field_unit("dhw_temperature_setting")
-                
+
                 if unit:
-                    return unit.strip()
+                    return str(unit.strip())
             except (AttributeError, TypeError, KeyError, ValueError):
                 pass
 

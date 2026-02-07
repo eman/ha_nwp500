@@ -115,7 +115,7 @@ class NWP500MqttManager:
             # Token validation deferred to connect() per nwp500-python 7.3.1+
             self.mqtt_client = NavienMqttClient(
                 self.auth_client,
-                unit_system=self.unit_system,  # type: ignore[arg-type]
+                unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
 
             # Set up event listeners

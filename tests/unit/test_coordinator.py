@@ -95,6 +95,7 @@ def test_handle_feature_update_in_loop(coordinator):
 async def test_async_update_data_syncs_unit_system(coordinator, mock_hass):
     """Test that _async_update_data synchronizes the unit system."""
     from homeassistant.const import UnitOfTemperature
+
     mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
     coordinator.unit_system = "metric"
     # Set auth_client to mock to avoid _setup_clients() call which triggers network

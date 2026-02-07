@@ -70,7 +70,7 @@ class TestDynamicLimits:
 
         # Ensure device features missing
         mock_coordinator.device_features.get.return_value = None
-        
+
         # Ensure status is missing so it falls back to HA config
         mock_coordinator.data = {
             mac_address: {
@@ -123,7 +123,7 @@ class TestDynamicLimits:
 
         # Ensure device features missing
         mock_coordinator.device_features.get.return_value = None
-        
+
         # Ensure status is missing so it falls back to HA config
         mock_coordinator.data = {
             mac_address: {

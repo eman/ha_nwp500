@@ -255,7 +255,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         # Determine current unit system based on HA configuration
         current_unit_system = (
             "metric"
-            if self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+            if self.hass.config.units.temperature_unit
+            == UnitOfTemperature.CELSIUS
             else "us_customary"
         )
 
@@ -560,7 +561,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 email,
                 password,
                 stored_tokens=stored_tokens,
-                unit_system=self.unit_system,  # type: ignore[arg-type]
+                unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
             assert self.auth_client is not None
             await self.auth_client.__aenter__()  # Authenticate or restore
@@ -571,7 +572,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             # Setup API client
             self.api_client = NavienAPIClient(
                 auth_client=self.auth_client,
-                unit_system=self.unit_system,  # type: ignore[arg-type]
+                unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
             assert self.api_client is not None
 
