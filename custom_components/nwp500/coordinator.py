@@ -1006,7 +1006,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
             # Step 4: CRITICAL - Clear all cached data to prevent mixed-unit states
             # This must happen AFTER unit system updates but BEFORE any new data processing
-            self.data.clear()
+            if self.data is not None:
+                self.data.clear()
             self.device_features.clear()
 
             _LOGGER.warning(
