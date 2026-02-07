@@ -17,38 +17,14 @@ from custom_components.nwp500.water_heater import NWP500WaterHeater
 class TestDynamicLimits:
     """Test dynamic limits for water heater and number entities."""
 
-    def test_water_heater_limits_from_features(
+    def test_water_heater_limits_fahrenheit(
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_hass: MagicMock,
     ):
-        """Test water heater limits from device features."""
+        """Test water heater limits use platform constants (Fahrenheit)."""
         mac_address = mock_device.device_info.mac_address
-
-        # Mock device features
-        features = MagicMock()
-        features.dhw_temperature_min = 100.0
-        features.dhw_temperature_max = 140.0
-        mock_coordinator.device_features.get.return_value = features
-
-        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
-        heater.hass = mock_hass
-
-        assert heater.min_temp == 100.0
-        assert heater.max_temp == 140.0
-
-    def test_water_heater_limits_fallback_fahrenheit(
-        self,
-        mock_coordinator: MagicMock,
-        mock_device: MagicMock,
-        mock_hass: MagicMock,
-    ):
-        """Test water heater limits fallback (Fahrenheit)."""
-        mac_address = mock_device.device_info.mac_address
-
-        # Ensure device features missing
-        mock_coordinator.device_features.get.return_value = None
 
         # Set HA to Fahrenheit
         mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
@@ -56,28 +32,18 @@ class TestDynamicLimits:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
+        # Water heater limits always use platform constants
         assert heater.min_temp == float(MIN_TEMPERATURE_F)
         assert heater.max_temp == float(MAX_TEMPERATURE_F)
 
-    def test_water_heater_limits_fallback_celsius(
+    def test_water_heater_limits_celsius(
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_hass: MagicMock,
     ):
-        """Test water heater limits fallback (Celsius)."""
+        """Test water heater limits use platform constants (Celsius)."""
         mac_address = mock_device.device_info.mac_address
-
-        # Ensure device features missing
-        mock_coordinator.device_features.get.return_value = None
-
-        # Ensure status is missing so it falls back to HA config
-        mock_coordinator.data = {
-            mac_address: {
-                "device": mock_device,
-                "status": None,
-            }
-        }
 
         # Set HA to Celsius
         mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
@@ -85,7 +51,7 @@ class TestDynamicLimits:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        # Should return Celsius constants when HA is in Celsius
+        # Water heater limits always use platform constants
         assert heater.min_temp == float(MIN_TEMPERATURE_C)
         assert heater.max_temp == float(MAX_TEMPERATURE_C)
 
