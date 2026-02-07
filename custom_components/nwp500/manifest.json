@@ -10,7 +10,9 @@
   "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
   "assets": {
     "icon": "images/navien-icon.png",
-    "logo": "images/navien-icon.png"
+    "logo": "images/logo.png",
+    "logo_dark": "images/dark_logo.png",
+    "thumbnail": "images/icon.png"
   },
   "loggers": ["custom_components.nwp500"],
   "quality_scale": "silver",
