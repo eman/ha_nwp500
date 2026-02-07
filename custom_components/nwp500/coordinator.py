@@ -64,6 +64,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self._reconnect_task: asyncio.Task[Any] | None = (
             None  # Track reconnection task
         )
+        self._unit_system_lock = (
+            asyncio.Lock()
+        )  # Prevent race conditions in unit sync
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -260,18 +263,19 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             else "us_customary"
         )
 
-        # Update unit system if it changed
-        if self.unit_system != current_unit_system:
-            _LOGGER.info(
-                "Unit system changed from %s to %s",
-                self.unit_system,
-                current_unit_system,
-            )
-            self.unit_system = current_unit_system
+        # Update unit system if it changed (with lock to prevent race conditions)
+        async with self._unit_system_lock:
+            if self.unit_system != current_unit_system:
+                _LOGGER.info(
+                    "Unit system changed from %s to %s",
+                    self.unit_system,
+                    current_unit_system,
+                )
+                self.unit_system = current_unit_system
 
-            # Update MQTT manager if it exists
-            if self.mqtt_manager:
-                self.mqtt_manager.unit_system = current_unit_system
+                # Update MQTT manager if it exists
+                if self.mqtt_manager:
+                    self.mqtt_manager.unit_system = current_unit_system
 
         # Ensure library unit system context matches current configuration
         if self.unit_system:
@@ -935,3 +939,29 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             self.auth_client = None
 
         self.api_client = None
+
+        # Clear device features cache to prevent memory leaks
+        self.device_features.clear()
+
+    def get_field_unit_safe(self, status: Any, field_name: str) -> str | None:
+        """Safely get unit field from device status with standardized error handling.
+
+        Args:
+            status: Device status object
+            field_name: Name of the field to get unit for
+
+        Returns:
+            Unit string if available and valid, None otherwise
+        """
+        if not status:
+            return None
+
+        try:
+            unit = status.get_field_unit(field_name)
+            if unit and isinstance(unit, str):
+                return unit.strip()
+        except (AttributeError, TypeError, KeyError, ValueError, ImportError):
+            # Standardized exception handling across all entities
+            pass
+
+        return None

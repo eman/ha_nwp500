@@ -136,13 +136,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         Fallback to Home Assistant's configured temperature unit.
         """
         if status := self._status:
-            try:
-                # Try to get unit from DHW temperature field
-                unit = status.get_field_unit("dhw_temperature")
-                if unit:
-                    return str(unit.strip())
-            except (AttributeError, TypeError, KeyError, ValueError):
-                pass
+            unit = self.coordinator.get_field_unit_safe(
+                status, "dhw_temperature"
+            )
+            if unit:
+                return unit
 
         return self.hass.config.units.temperature_unit
 

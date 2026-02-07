@@ -102,7 +102,9 @@ SERVICE_SET_RESERVATION_SCHEMA = vol.All(
                 vol.Coerce(int), vol.Range(min=0, max=59)
             ),
             vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
-            vol.Optional(ATTR_TEMPERATURE): vol.Coerce(float),
+            vol.Optional(ATTR_TEMPERATURE): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=200)
+            ),
         }
     ),
     validate_reservation_temperature,
@@ -241,13 +243,22 @@ class NWP500ServiceHandler:
 
         # Validate temperature range
         if not (temp_min <= temperature <= temp_max):
-            raise HomeAssistantError(
-                f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
-                f"is outside valid range ({temp_min}-{temp_max}°{coordinator.hass.config.units.temperature_unit})"
-            )
+            # For device-specific limits, don't specify units as they may be in device units
+            # For fallback constants, they match HA's unit system
+            if device_temp_min is not None and device_temp_max is not None:
+                raise HomeAssistantError(
+                    f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
+                    f"is outside device valid range ({temp_min}-{temp_max})"
+                )
+            else:
+                raise HomeAssistantError(
+                    f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
+                    f"is outside valid range ({temp_min}-{temp_max}°{coordinator.hass.config.units.temperature_unit})"
+                )
 
         # Build the reservation entry using library function
         # Library handles unit conversion based on global context
+        # Ensure we never pass None values - use validated temp_min/temp_max as fallbacks
         reservation = build_reservation_entry(
             enabled=enabled,
             days=days,
@@ -255,8 +266,12 @@ class NWP500ServiceHandler:
             minute=minute,
             mode_id=mode_id,
             temperature=float(temperature),
-            temperature_min=device_temp_min,
-            temperature_max=device_temp_max,
+            temperature_min=device_temp_min
+            if device_temp_min is not None
+            else temp_min,
+            temperature_max=device_temp_max
+            if device_temp_max is not None
+            else temp_max,
         )
 
         _LOGGER.info(

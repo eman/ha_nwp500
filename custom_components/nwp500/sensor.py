@@ -227,12 +227,9 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         # 1. Try to get the actual unit from the device status
         if status:
             field_name = self.entity_description.key
-            try:
-                unit = status.get_field_unit(field_name)
-                if unit:
-                    return str(unit.strip())
-            except (AttributeError, TypeError, KeyError, ValueError):
-                pass
+            unit = self.coordinator.get_field_unit_safe(status, field_name)
+            if unit:
+                return unit
 
         # 2. For temperature sensors, if we have a status but no specific unit field,
         # we might want to check the coordinator's unit system setting, but it's safer

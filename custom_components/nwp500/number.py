@@ -110,16 +110,17 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         Fallback to Home Assistant's configured temperature unit.
         """
         if status := self._status:
-            try:
-                # Try to get unit from DHW target temperature field
-                unit = status.get_field_unit("dhw_target_temperature_setting")
-                if not unit:
-                    unit = status.get_field_unit("dhw_temperature_setting")
+            # Try to get unit from DHW target temperature field first
+            unit = self.coordinator.get_field_unit_safe(
+                status, "dhw_target_temperature_setting"
+            )
+            if not unit:
+                unit = self.coordinator.get_field_unit_safe(
+                    status, "dhw_temperature_setting"
+                )
 
-                if unit:
-                    return str(unit.strip())
-            except (AttributeError, TypeError, KeyError, ValueError):
-                pass
+            if unit:
+                return unit
 
         return self.hass.config.units.temperature_unit
 
