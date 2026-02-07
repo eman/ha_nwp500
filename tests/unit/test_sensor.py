@@ -306,3 +306,43 @@ class TestNWP500Sensor:
         # Should return Fahrenheit (device unit) despite HA being Celsius
         # This prevents "120 °C" display errors when device sends F values
         assert sensor.native_unit_of_measurement == "°F"
+
+    def test_sensor_unit_lookup_uses_attr_name(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Test that unit lookup uses attr_name if available in description."""
+        from custom_components.nwp500.sensor import (
+            NWP500Sensor,
+            NWP500SensorEntityDescription,
+        )
+
+        # Create description where key != attr_name
+        desc = NWP500SensorEntityDescription(
+            key="recirculation_temperature",
+            attr_name="recirc_temperature",
+            name="Recirc Temperature",
+        )
+
+        mock_coordinator.get_field_unit_safe = MagicMock(return_value="°C")
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+
+        mac_address = mock_device.device_info.mac_address
+        sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
+        sensor.hass = mock_hass
+
+        # Accessing unit should trigger lookup with attr_name
+        unit = sensor.native_unit_of_measurement
+
+        assert unit == "°C"
+        mock_coordinator.get_field_unit_safe.assert_called_once_with(
+            mock_device_status, "recirc_temperature"
+        )

@@ -19,6 +19,7 @@ select = [
     "A",      # flake8-builtins
     "C4",     # flake8-comprehensions
     "ISC",    # flake8-implicit-str-concat
+    "S",      # bandit (security)
 ]
 ignore = [
     "D100",   # Missing docstring in public module
@@ -33,6 +34,11 @@ ignore = [
     "D213",   # Multi-line docstring summary should start at the second line (conflicts with D212)
     "E501",   # Line too long (we handle this with line-length)
 ]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = ["S101"]
+"custom_components/nwp500/const.py" = ["S105"]
+"scripts/**/*.py" = ["S101"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

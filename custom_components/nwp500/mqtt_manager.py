@@ -301,8 +301,7 @@ class NWP500MqttManager:
             return True
         except Exception as err:
             self.consecutive_timeouts += 1
-            self._handle_aws_error(err, "status request")
-            return False
+            return self._handle_aws_error(err, "status request")
 
     async def request_device_info(self, device: Device) -> None:
         """Request device info."""

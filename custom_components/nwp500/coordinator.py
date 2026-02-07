@@ -60,7 +60,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.devices: list[Device] = []
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
-        self._periodic_task: asyncio.Task[Any] | None = None
         self._reconnect_task: asyncio.Task[Any] | None = (
             None  # Track reconnection task
         )
@@ -433,7 +432,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         # This occurs during MQTT reconnection and is expected
                         # The command will be queued and retried automatically
                         if (
-                            err.name
+                            get_aws_error_name(err)
                             == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
                         ):
                             _LOGGER.debug(
@@ -563,7 +562,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 stored_tokens=stored_tokens,
                 unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
-            assert self.auth_client is not None
+            if self.auth_client is None:
+                raise UpdateFailed("Failed to initialize authentication client")
             await self.auth_client.__aenter__()  # Authenticate or restore
 
             # Save tokens after successful authentication
@@ -574,7 +574,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 auth_client=self.auth_client,
                 unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
-            assert self.api_client is not None
+            if self.api_client is None:
+                raise UpdateFailed("Failed to initialize API client")
 
             # Get devices
             self.devices = await self.api_client.list_devices()
@@ -773,6 +774,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 )
 
             self.device_features[mac_address] = feature
+
+            # Notify listeners that features (which affect device info, limits, etc.)
+            # have been updated.
+            self.async_update_listeners()
         except Exception as err:
             _LOGGER.error("Error handling device feature update: %s", err)
 

@@ -38,6 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 class NWP500SensorEntityDescription(SensorEntityDescription):
     """Describes NWP500 sensor entity."""
 
+    attr_name: str | None = None
     value_fn: Callable[[Any], Any] | None = None
 
 
@@ -130,6 +131,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         descriptions.append(
             NWP500SensorEntityDescription(
                 key=key,
+                attr_name=attr_name,
                 name=str(config["name"]),
                 device_class=device_class_map.get(
                     str(config.get("device_class", ""))
@@ -226,7 +228,16 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
 
         # 1. Try to get the actual unit from the device status
         if status:
-            field_name = self.entity_description.key
+            # Use the actual attribute name for unit lookup in the library,
+            # not the entity key which might be different.
+            field_name = (
+                self.entity_description.attr_name
+                if isinstance(
+                    self.entity_description, NWP500SensorEntityDescription
+                )
+                and self.entity_description.attr_name
+                else self.entity_description.key
+            )
             unit = self.coordinator.get_field_unit_safe(status, field_name)
             if unit:
                 return unit

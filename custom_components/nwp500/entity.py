@@ -109,7 +109,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
         device_feature = self.coordinator.device_features.get(self.mac_address)
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "Building device info for %s - feature_available=%s",
             self.mac_address,
             device_feature is not None,
@@ -127,7 +127,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             )
             wifi_fw = getattr(device_feature, "wifi_sw_version", None)
 
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Device feature data: controller_fw=%s wifi_fw=%s serial=%s",
                 controller_fw,
                 wifi_fw,
@@ -161,9 +161,9 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                     else:
                         hw_version = str(volume_code)
 
-            _LOGGER.info("Device capacity: volume_code=%s", volume_code)
+            _LOGGER.debug("Device capacity: volume_code=%s", volume_code)
 
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Final device info: model=%s sw_version=%s hw_version=%s serial=%s",
                 model_name,
                 sw_version,

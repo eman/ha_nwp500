@@ -113,7 +113,42 @@ SERVICE_SET_RESERVATION_SCHEMA = vol.All(
 SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_RESERVATIONS): vol.All(cv.ensure_list),
+        vol.Required(ATTR_RESERVATIONS): vol.All(
+            cv.ensure_list,
+            [
+                vol.Schema(
+                    {
+                        vol.Required("enable"): vol.In(
+                            [1, 2], msg="Enable must be 1 (On) or 2 (Off)"
+                        ),
+                        vol.Required("week"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=127),
+                            msg="Week must be a bitfield (0-127)",
+                        ),
+                        vol.Required("hour"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=23),
+                            msg="Hour must be 0-23",
+                        ),
+                        vol.Required("min"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=59),
+                            msg="Minute must be 0-59",
+                        ),
+                        vol.Required("mode"): vol.In(
+                            [1, 2, 3, 4, 5, 6],
+                            msg="Mode must be 1-6 (HP, ELEC, ECO, BOOST, VAC, OFF)",
+                        ),
+                        vol.Required("param"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=255),
+                            msg="Param must be 0-255 (temperature in half-C)",
+                        ),
+                    }
+                )
+            ],
+        ),
         vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
     }
 )
@@ -305,10 +340,7 @@ class NWP500ServiceHandler:
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
         reservations = call.data[ATTR_RESERVATIONS]
-        enabled = call.data.get(ATTR_ENABLED, True)
-
-        if not isinstance(reservations, list):
-            raise HomeAssistantError("Reservations must be a list")
+        enabled = call.data[ATTR_ENABLED]
 
         _LOGGER.info(
             "Updating %d reservations for %s (enabled=%s)",
@@ -384,10 +416,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Register update listener for options changes
+    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
+
     # Register services (only once)
     await _async_setup_services(hass)
 
     return True
+
+
+async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload config entry when options are updated."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def _async_setup_services(hass: HomeAssistant) -> None:
