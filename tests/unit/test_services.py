@@ -21,7 +21,11 @@ from custom_components.nwp500 import (
     _async_setup_services,
     validate_reservation_temperature,
 )
-from custom_components.nwp500.const import DEFAULT_TEMPERATURE, DOMAIN
+from custom_components.nwp500.const import (
+    DEFAULT_TEMPERATURE_C,
+    DEFAULT_TEMPERATURE_F,
+    DOMAIN,
+)
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
 
 
@@ -63,15 +67,17 @@ class TestReservationValidator:
 
     def test_validate_temperature_optional_for_vacation(self):
         """Test temperature is optional for vacation mode."""
+        # Note: Validation doesn't set the default anymore, it's done in the handler
         data = {ATTR_OP_MODE: "vacation"}
         result = validate_reservation_temperature(data)
-        assert result[ATTR_TEMPERATURE] == DEFAULT_TEMPERATURE
+        assert ATTR_TEMPERATURE not in result
 
     def test_validate_temperature_optional_for_power_off(self):
         """Test temperature is optional for power_off mode."""
+        # Note: Validation doesn't set the default anymore, it's done in the handler
         data = {ATTR_OP_MODE: "power_off"}
         result = validate_reservation_temperature(data)
-        assert result[ATTR_TEMPERATURE] == DEFAULT_TEMPERATURE
+        assert ATTR_TEMPERATURE not in result
 
     def test_validate_temperature_provided(self):
         """Test provided temperature is preserved."""
@@ -105,6 +111,7 @@ class TestReservationServices:
     ):
         """Test set_reservation builds a proper reservation entry."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.async_update_reservations = AsyncMock(
@@ -170,15 +177,27 @@ class TestReservationServices:
             # Verify coordinator was called
             mock_coordinator.async_update_reservations.assert_called_once()
 
-    @pytest.mark.asyncio
-    async def test_set_reservation_with_device_feature_limits(
-        self, mock_hass, mock_device_registry
-    ):
-        """Test set_reservation respects device feature min/max temperature limits."""
-        mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
-        mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        @pytest.mark.asyncio
 
-        # Mock device features with actual temperature limits
+        async def test_set_reservation_with_device_feature_limits(
+
+            self, mock_hass, mock_device_registry
+
+        ):
+
+            """Test set_reservation respects device feature min/max temperature limits."""
+
+            mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+
+            mock_coordinator.hass = mock_hass
+
+            mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+
+        
+
+            # Mock device features with actual temperature limits
+
+    
         mock_features = MagicMock()
         mock_features.dhw_temperature_min = 90.0
         mock_features.dhw_temperature_max = 160.0
@@ -320,7 +339,11 @@ class TestReservationServices:
         self, mock_hass, mock_device_registry
     ):
         """Test set_reservation uses default temperature for vacation mode."""
+        from homeassistant.const import UnitOfTemperature
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.async_update_reservations = AsyncMock(
@@ -355,10 +378,10 @@ class TestReservationServices:
             await set_reservation_handler(call)
 
             mock_build.assert_called_once()
-            # Verify temperature is DEFAULT_TEMPERATURE
+            # Verify temperature is DEFAULT_TEMPERATURE_F (since we mocked HA as Fahrenheit)
             assert (
                 mock_build.call_args.kwargs["temperature"]
-                == DEFAULT_TEMPERATURE
+                == DEFAULT_TEMPERATURE_F
             )
 
     @pytest.mark.asyncio

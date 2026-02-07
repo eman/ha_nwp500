@@ -17,6 +17,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_OFF,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -26,8 +27,10 @@ from .const import (
     DHW_OPERATION_SETTING_TO_HA,
     DOMAIN,
     HA_TO_DHW_MODE,
-    MAX_TEMPERATURE,
-    MIN_TEMPERATURE,
+    MAX_TEMPERATURE_C,
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_C,
+    MIN_TEMPERATURE_F,
     get_enum_value,
 )
 from .coordinator import NWP500DataUpdateCoordinator
@@ -99,7 +102,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         ) is not None:
             return float(val)
 
-        return float(MIN_TEMPERATURE)
+        return (
+            float(MIN_TEMPERATURE_C)
+            if self.temperature_unit == UnitOfTemperature.CELSIUS
+            else float(MIN_TEMPERATURE_F)
+        )
 
     @property
     def max_temp(self) -> float:
@@ -115,7 +122,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         ) is not None:
             return float(val)
 
-        return float(MAX_TEMPERATURE)
+        return (
+            float(MAX_TEMPERATURE_C)
+            if self.temperature_unit == UnitOfTemperature.CELSIUS
+            else float(MAX_TEMPERATURE_F)
+        )
 
     @property
     def temperature_unit(self) -> str:

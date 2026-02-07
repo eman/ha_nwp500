@@ -7,8 +7,10 @@ from custom_components.nwp500.const import (
     DHW_OPERATION_SETTING_TO_HA,
     DOMAIN,
     HA_TO_DHW_MODE,
-    MAX_TEMPERATURE,
-    MIN_TEMPERATURE,
+    MAX_TEMPERATURE_C,
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_C,
+    MIN_TEMPERATURE_F,
     get_enum_value,
 )
 
@@ -20,9 +22,12 @@ def test_domain():
 
 def test_temperature_limits():
     """Test temperature min/max constants."""
-    assert MIN_TEMPERATURE == 80
-    assert MAX_TEMPERATURE == 150
-    assert MIN_TEMPERATURE < MAX_TEMPERATURE
+    assert MIN_TEMPERATURE_F == 80
+    assert MAX_TEMPERATURE_F == 150
+    assert MIN_TEMPERATURE_C == 27
+    assert MAX_TEMPERATURE_C == 65
+    assert MIN_TEMPERATURE_F < MAX_TEMPERATURE_F
+    assert MIN_TEMPERATURE_C < MAX_TEMPERATURE_C
 
 
 def test_get_enum_value_with_value_attribute():

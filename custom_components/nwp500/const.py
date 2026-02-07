@@ -44,9 +44,8 @@ CONF_TOKEN_DATA: Final = "token_data"  # Token persistence
 
 # Default values
 DEFAULT_NAME: Final = "Navien NWP500"
-DEFAULT_TEMPERATURE: Final = (
-    120.0  # Default temperature for modes that don't use it
-)
+DEFAULT_TEMPERATURE_F: Final = 120.0
+DEFAULT_TEMPERATURE_C: Final = 49.0
 # Default polling interval for device status updates.
 # Set to 30 seconds to balance data freshness and server load.
 # Users can configure this via integration options (10-300 seconds).
@@ -138,8 +137,10 @@ MODE_TO_DHW_ID: Final = {
 }
 
 # Temperature ranges (from nwp500-python documentation)
-MIN_TEMPERATURE: Final = 80  # °F (minimum safe operating temperature)
-MAX_TEMPERATURE: Final = 150  # °F (maximum supported by device)
+MIN_TEMPERATURE_F: Final = 80  # °F (minimum safe operating temperature)
+MAX_TEMPERATURE_F: Final = 150  # °F (maximum supported by device)
+MIN_TEMPERATURE_C: Final = 27  # °C (~80.6°F)
+MAX_TEMPERATURE_C: Final = 65  # °C (~149°F)
 
 # All device status fields that can be mapped to entities
 # Most will be disabled by default but available for users to enable

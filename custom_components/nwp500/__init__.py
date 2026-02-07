@@ -17,7 +17,12 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from .const import DEFAULT_TEMPERATURE, DOMAIN, MODE_TO_DHW_ID
+from .const import (
+    DEFAULT_TEMPERATURE_C,
+    DEFAULT_TEMPERATURE_F,
+    DOMAIN,
+    MODE_TO_DHW_ID,
+)
 from .coordinator import NWP500DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,10 +81,8 @@ def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
     if mode not in ["vacation", "power_off"] and temperature is None:
         raise vol.Invalid(f"Temperature is required for mode '{mode}'")
 
-    # Set default temperature for modes that don't use it but require a value for the library
-    if temperature is None and mode in ["vacation", "power_off"]:
-        data[ATTR_TEMPERATURE] = DEFAULT_TEMPERATURE
-
+    # Note: Default temperature for modes that don't use it is handled 
+    # in the service handler to ensure unit-system awareness.
     return data
 
 
@@ -100,7 +103,7 @@ SERVICE_SET_RESERVATION_SCHEMA = vol.All(
             ),
             vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
             vol.Optional(ATTR_TEMPERATURE): vol.All(
-                vol.Coerce(float), vol.Range(min=80, max=150)
+                vol.Coerce(float), vol.Range(min=20, max=160)
             ),
         }
     ),
@@ -190,10 +193,16 @@ class NWP500ServiceHandler:
         if mode_id is None:
             raise HomeAssistantError(f"Invalid mode: {mode}")
 
-        # Temperature is guaranteed by schema validation, but we check again for safety
+        # Temperature is guaranteed by schema validation for most modes.
+        # For vacation/power_off, we use a default that matches the unit system.
         if temperature is None:
             if mode in ["vacation", "power_off"]:
-                temperature = DEFAULT_TEMPERATURE
+                from homeassistant.const import UnitOfTemperature
+                temperature = (
+                    DEFAULT_TEMPERATURE_C
+                    if coordinator.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+                    else DEFAULT_TEMPERATURE_F
+                )
             else:
                 raise HomeAssistantError(
                     f"Temperature is required for mode '{mode}'"
@@ -223,13 +232,14 @@ class NWP500ServiceHandler:
 
         _LOGGER.info(
             "Setting reservation for %s: days=%s, time=%02d:%02d, "
-            "mode=%s, temp=%s°F",
+            "mode=%s, temp=%s%s",
             mac_address,
             days,
             hour,
             minute,
             mode,
             temperature,
+            coordinator.hass.config.units.temperature_unit,
         )
 
         success = await coordinator.async_update_reservations(

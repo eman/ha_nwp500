@@ -252,7 +252,27 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         startup (once for first_refresh, once for scheduled update). This is
         expected Home Assistant behavior and not a bug.
         """
-        # Ensure library unit system context matches HA configuration
+        # Determine current unit system based on HA configuration
+        current_unit_system = (
+            "metric"
+            if self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+            else "us_customary"
+        )
+
+        # Update unit system if it changed
+        if self.unit_system != current_unit_system:
+            _LOGGER.info(
+                "Unit system changed from %s to %s",
+                self.unit_system,
+                current_unit_system,
+            )
+            self.unit_system = current_unit_system
+
+            # Update MQTT manager if it exists
+            if self.mqtt_manager:
+                self.mqtt_manager.unit_system = current_unit_system
+
+        # Ensure library unit system context matches current configuration
         if self.unit_system:
             try:
                 from nwp500.unit_system import set_unit_system

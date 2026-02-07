@@ -11,10 +11,17 @@ from homeassistant.components.number import (
     NumberMode,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, MAX_TEMPERATURE, MIN_TEMPERATURE
+from .const import (
+    DOMAIN,
+    MAX_TEMPERATURE_C,
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_C,
+    MIN_TEMPERATURE_F,
+)
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
 
@@ -73,7 +80,11 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         ) is not None:
             return float(val)
 
-        return float(MIN_TEMPERATURE)
+        return (
+            float(MIN_TEMPERATURE_C)
+            if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+            else float(MIN_TEMPERATURE_F)
+        )
 
     @property
     def native_max_value(self) -> float:
@@ -85,7 +96,11 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         ) is not None:
             return float(val)
 
-        return float(MAX_TEMPERATURE)
+        return (
+            float(MAX_TEMPERATURE_C)
+            if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+            else float(MAX_TEMPERATURE_F)
+        )
 
     @property
     def native_unit_of_measurement(self) -> str:

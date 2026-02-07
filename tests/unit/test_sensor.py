@@ -204,6 +204,7 @@ class TestNWP500Sensor:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test that sensors correctly call and use get_field_unit."""
         from custom_components.nwp500.const import SENSOR_CONFIGS
@@ -243,6 +244,7 @@ class TestNWP500Sensor:
             mock_device,
             sensor_desc,
         )
+        sensor.hass = mock_hass
 
         # Verify sensor has correct unit (should be stripped of spaces)
         # The sensor should have the unit from get_field_unit without the space

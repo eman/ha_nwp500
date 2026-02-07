@@ -11,9 +11,12 @@ from homeassistant.components.water_heater import (
     STATE_HEAT_PUMP,
     STATE_HIGH_DEMAND,
 )
-from homeassistant.const import STATE_OFF
+from homeassistant.const import STATE_OFF, UnitOfTemperature
 
-from custom_components.nwp500.const import MAX_TEMPERATURE, MIN_TEMPERATURE
+from custom_components.nwp500.const import (
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_F,
+)
 from custom_components.nwp500.water_heater import NWP500WaterHeater
 
 
@@ -27,14 +30,15 @@ class TestNWP500WaterHeater:
         mock_hass: MagicMock,
     ):
         """Test water heater initialization."""
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
         assert heater.coordinator == mock_coordinator
         assert heater.mac_address == mac_address
-        assert heater.min_temp == MIN_TEMPERATURE
-        assert heater.max_temp == MAX_TEMPERATURE
+        assert heater.min_temp == MIN_TEMPERATURE_F
+        assert heater.max_temp == MAX_TEMPERATURE_F
 
     def test_current_temperature(
         self,

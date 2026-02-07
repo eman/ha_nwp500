@@ -4,7 +4,12 @@ from unittest.mock import MagicMock
 
 from homeassistant.const import UnitOfTemperature
 
-from custom_components.nwp500.const import MAX_TEMPERATURE, MIN_TEMPERATURE
+from custom_components.nwp500.const import (
+    MAX_TEMPERATURE_C,
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_C,
+    MIN_TEMPERATURE_F,
+)
 from custom_components.nwp500.number import NWP500TargetTemperature
 from custom_components.nwp500.water_heater import NWP500WaterHeater
 
@@ -51,8 +56,8 @@ class TestDynamicLimits:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        assert heater.min_temp == float(MIN_TEMPERATURE)  # 80.0
-        assert heater.max_temp == float(MAX_TEMPERATURE)  # 150.0
+        assert heater.min_temp == float(MIN_TEMPERATURE_F)
+        assert heater.max_temp == float(MAX_TEMPERATURE_F)
 
     def test_water_heater_limits_fallback_celsius(
         self,
@@ -72,9 +77,9 @@ class TestDynamicLimits:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        # Should return raw constants even if HA is in Celsius (no manual conversion)
-        assert heater.min_temp == float(MIN_TEMPERATURE)
-        assert heater.max_temp == float(MAX_TEMPERATURE)
+        # Should return Celsius constants when HA is in Celsius
+        assert heater.min_temp == float(MIN_TEMPERATURE_C)
+        assert heater.max_temp == float(MAX_TEMPERATURE_C)
 
     def test_number_limits_from_features(
         self,
@@ -119,5 +124,5 @@ class TestDynamicLimits:
         )
         number.hass = mock_hass
 
-        assert number.native_min_value == float(MIN_TEMPERATURE)
-        assert number.native_max_value == float(MAX_TEMPERATURE)
+        assert number.native_min_value == float(MIN_TEMPERATURE_C)
+        assert number.native_max_value == float(MAX_TEMPERATURE_C)
