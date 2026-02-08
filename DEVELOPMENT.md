@@ -159,6 +159,41 @@ python3 scripts/check_deprecated_apis.py
 
 ## Releasing
 
+### Using bump2version
+
+The recommended way to release is using `bump2version`, which automates version updates across all files.
+
+**Setup** (one-time):
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt  # includes bump2version
+```
+
+**Create a release:**
+```bash
+# Preview changes (dry-run)
+bump2version --dry-run --verbose patch  # or minor/major
+
+# Bump patch version (0.2.0 → 0.2.1)
+bump2version patch
+
+# Bump minor version (0.2.0 → 0.3.0)
+bump2version minor
+
+# Bump major version (0.2.0 → 1.0.0)
+bump2version major
+```
+
+This automatically:
+1. Updates `manifest.json` version
+2. Updates `CHANGELOG.md` with new section
+3. Updates `.bumpversion.cfg` current_version
+4. Commits all changes
+5. Creates and tags git commit (vX.Y.Z)
+6. Pushes commit and tag to origin
+
+**Manual Release** (if not using bump2version):
+
 ### Checklist
 1. All tests passing: `tox`
 2. Update version in `manifest.json`
@@ -189,12 +224,6 @@ After pushing tag, GitHub Actions will:
 
 ### Removed
 - Removed features
-```
-
-Update comparison links at bottom:
-```markdown
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/vX.Y.Z...HEAD
-[X.Y.Z]: https://github.com/eman/ha_nwp500/releases/tag/vX.Y.Z
 ```
 
 ## Updating nwp500-python Library
