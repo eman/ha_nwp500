@@ -29,3 +29,6 @@ homeassistant>=2025.1.0
 
 # Test automation
 tox>=4.0.0
+
+# Version management
+bump2version>=1.0.0
