@@ -38,6 +38,7 @@ _LOGGER = logging.getLogger(__name__)
 class NWP500SensorEntityDescription(SensorEntityDescription):
     """Describes NWP500 sensor entity."""
 
+    attr_name: str | None = None
     value_fn: Callable[[Any], Any] | None = None
 
 
@@ -73,7 +74,9 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
     }
 
     for key, config in SENSOR_CONFIGS.items():
-        attr_name: str = config["attr"]  # type: ignore[assignment]
+        if not isinstance(config, dict):
+            continue
+        attr_name: str = config["attr"]
 
         # Check if this is a text/enum sensor (no numeric value)
         is_enum_sensor = config.get("special") == "enum_name"
@@ -128,6 +131,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         descriptions.append(
             NWP500SensorEntityDescription(
                 key=key,
+                attr_name=attr_name,
                 name=str(config["name"]),
                 device_class=device_class_map.get(
                     str(config.get("device_class", ""))
@@ -214,38 +218,36 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         self._attr_name = f"{self.device_name} {description.name}"
 
     @property
-    def native_unit_of_measurement(self) -> str | None:
+    def native_unit_of_measurement(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the native unit for this field.
 
-        For temperature sensors, returns HA's configured unit.
-        For others, attempts to detect from status or description.
+        Prioritize the unit reported by the device status to ensure the value matches the unit.
+        Fallback to the entity description default if status is unavailable.
         """
-        # For temperature sensors, always follow HA configuration
-        if (
-            self.entity_description.device_class
-            == SensorDeviceClass.TEMPERATURE
-        ):
-            return self.hass.config.units.temperature_unit
-
         status = self._status
-        if not status:
-            # Fallback to entity description unit if no status available yet
-            return self.entity_description.native_unit_of_measurement
 
-        # Get the actual unit from the device status for this field
-        field_name = self.entity_description.key
-        try:
-            unit = status.get_field_unit(field_name)
-            # get_field_unit returns units with leading space (e.g., " °C")
-            # but native_unit_of_measurement should not have the space
-            return (
-                unit.strip()
-                if unit
-                else self.entity_description.native_unit_of_measurement
+        # 1. Try to get the actual unit from the device status
+        if status:
+            # Use the actual attribute name for unit lookup in the library,
+            # not the entity key which might be different.
+            field_name = (
+                self.entity_description.attr_name
+                if isinstance(
+                    self.entity_description, NWP500SensorEntityDescription
+                )
+                and self.entity_description.attr_name
+                else self.entity_description.key
             )
-        except (AttributeError, TypeError, KeyError, ValueError):
-            # Fallback to entity description unit if get_field_unit fails
-            return self.entity_description.native_unit_of_measurement
+            unit = self.coordinator.get_field_unit_safe(status, field_name)
+            if unit:
+                return unit
+
+        # 2. For temperature sensors, if we have a status but no specific unit field,
+        # we might want to check the coordinator's unit system setting, but it's safer
+        # to fall back to the static definition if the device doesn't explicitly tell us.
+
+        # 3. Fallback to entity description unit
+        return self.entity_description.native_unit_of_measurement
 
     @property
     def native_value(self) -> Any:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -314,7 +316,7 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
         return None
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return additional attributes."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         attrs = {

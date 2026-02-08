@@ -17,6 +17,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_OFF,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -26,8 +27,10 @@ from .const import (
     DHW_OPERATION_SETTING_TO_HA,
     DOMAIN,
     HA_TO_DHW_MODE,
-    MAX_TEMPERATURE,
-    MIN_TEMPERATURE,
+    MAX_TEMPERATURE_C,
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_C,
+    MIN_TEMPERATURE_F,
     get_enum_value,
 )
 from .coordinator import NWP500DataUpdateCoordinator
@@ -89,36 +92,30 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
     def min_temp(self) -> float:
         """Return the minimum temperature.
 
-        Device feature min/max values are provided by the library and respect
-        the unit system configured via set_unit_system() in the coordinator.
+        Uses platform constants for safe operating ranges.
+        Device setpoint limits are controlled separately via number entities.
         """
-        if (
-            features := self.coordinator.device_features.get(self.mac_address)
-        ) and (
-            val := getattr(features, "dhw_temperature_min", None)
-        ) is not None:
-            return float(val)
-
-        return float(MIN_TEMPERATURE)
+        return (
+            float(MIN_TEMPERATURE_C)
+            if self.temperature_unit == UnitOfTemperature.CELSIUS
+            else float(MIN_TEMPERATURE_F)
+        )
 
     @property
     def max_temp(self) -> float:
         """Return the maximum temperature.
 
-        Device feature min/max values are provided by the library and respect
-        the unit system configured via set_unit_system() in the coordinator.
+        Uses platform constants for safe operating ranges.
+        Device setpoint limits are controlled separately via number entities.
         """
-        if (
-            features := self.coordinator.device_features.get(self.mac_address)
-        ) and (
-            val := getattr(features, "dhw_temperature_max", None)
-        ) is not None:
-            return float(val)
-
-        return float(MAX_TEMPERATURE)
+        return (
+            float(MAX_TEMPERATURE_C)
+            if self.temperature_unit == UnitOfTemperature.CELSIUS
+            else float(MAX_TEMPERATURE_F)
+        )
 
     @property
-    def temperature_unit(self) -> str:
+    def temperature_unit(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return Home Assistant's configured temperature unit.
 
         The library handles unit conversion based on HA's configured unit
@@ -132,8 +129,8 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         if not (status := self._status):
             return None
         try:
-            dhw_temp = getattr(status, "dhw_temperature", None)
-            return float(dhw_temp) if dhw_temp is not None else None
+            temp = getattr(status, "dhw_temperature", None)
+            return float(temp) if temp is not None else None
         except (AttributeError, TypeError):
             return None
 
@@ -148,7 +145,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             )
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
-            return target_temp
+            return float(target_temp) if target_temp is not None else None
         except (AttributeError, TypeError):
             return None
 

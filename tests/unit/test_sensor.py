@@ -204,6 +204,7 @@ class TestNWP500Sensor:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
+        mock_hass: MagicMock,
     ):
         """Test that sensors correctly call and use get_field_unit."""
         from custom_components.nwp500.const import SENSOR_CONFIGS
@@ -226,6 +227,9 @@ class TestNWP500Sensor:
             }
         }
 
+        # Mock the coordinator's get_field_unit_safe method
+        mock_coordinator.get_field_unit_safe = MagicMock(return_value="°F")
+
         mac_address = mock_device.device_info.mac_address
 
         # Create a sensor description from the config
@@ -243,6 +247,7 @@ class TestNWP500Sensor:
             mock_device,
             sensor_desc,
         )
+        sensor.hass = mock_hass
 
         # Verify sensor has correct unit (should be stripped of spaces)
         # The sensor should have the unit from get_field_unit without the space
@@ -251,13 +256,14 @@ class TestNWP500Sensor:
             # Unit should be "°F" not " °F" (space stripped)
             assert not unit.startswith(" ")
 
-    def test_sensor_temperature_unit_follows_ha_config(
+    def test_sensor_temperature_unit_trusts_device(
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_hass: MagicMock,
+        mock_device_status: MagicMock,
     ):
-        """Test that temperature sensors always use HA configured unit."""
+        """Test that temperature sensors trust the device's reported unit."""
         from homeassistant.components.sensor import (
             SensorDeviceClass,
             SensorEntityDescription,
@@ -269,6 +275,20 @@ class TestNWP500Sensor:
         # Configure HA to use Celsius
         mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
 
+        # Mock device reporting Fahrenheit
+        mock_device_status.get_field_unit.return_value = " °F"
+
+        # Setup coordinator with status
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+
+        # Mock the coordinator's get_field_unit_safe method to return the device unit
+        mock_coordinator.get_field_unit_safe = MagicMock(return_value="°F")
+
         # Create a temperature sensor description
         desc = SensorEntityDescription(
             key="test_temp",
@@ -278,14 +298,51 @@ class TestNWP500Sensor:
         )
 
         mac_address = mock_device.device_info.mac_address
+
+        sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
+
+        sensor.hass = mock_hass
+
+        # Should return Fahrenheit (device unit) despite HA being Celsius
+        # This prevents "120 °C" display errors when device sends F values
+        assert sensor.native_unit_of_measurement == "°F"
+
+    def test_sensor_unit_lookup_uses_attr_name(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Test that unit lookup uses attr_name if available in description."""
+        from custom_components.nwp500.sensor import (
+            NWP500Sensor,
+            NWP500SensorEntityDescription,
+        )
+
+        # Create description where key != attr_name
+        desc = NWP500SensorEntityDescription(
+            key="recirculation_temperature",
+            attr_name="recirc_temperature",
+            name="Recirc Temperature",
+        )
+
+        mock_coordinator.get_field_unit_safe = MagicMock(return_value="°C")
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+
+        mac_address = mock_device.device_info.mac_address
         sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
         sensor.hass = mock_hass
 
-        # Should return Celsius from HA config
-        assert sensor.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+        # Accessing unit should trigger lookup with attr_name
+        unit = sensor.native_unit_of_measurement
 
-        # Change HA to Fahrenheit
-        mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
-
-        # Should now return Fahrenheit
-        assert sensor.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT
+        assert unit == "°C"
+        mock_coordinator.get_field_unit_safe.assert_called_once_with(
+            mock_device_status, "recirc_temperature"
+        )

@@ -60,9 +60,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.devices: list[Device] = []
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
-        self._periodic_task: asyncio.Task[Any] | None = None
         self._reconnect_task: asyncio.Task[Any] | None = (
             None  # Track reconnection task
+        )
+        self._unit_system_lock = (
+            asyncio.Lock()
+        )  # Prevent race conditions in unit sync
+        self._unit_change_in_progress = (
+            False  # Prevent operations during unit transitions
         )
         self._device_info_request_counter: dict[
             str, int
@@ -252,7 +257,22 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         startup (once for first_refresh, once for scheduled update). This is
         expected Home Assistant behavior and not a bug.
         """
-        # Ensure library unit system context matches HA configuration
+        # Determine current unit system based on HA configuration
+        current_unit_system = (
+            "metric"
+            if self.hass.config.units.temperature_unit
+            == UnitOfTemperature.CELSIUS
+            else "us_customary"
+        )
+
+        # Update unit system if it changed (with atomic transition protocol)
+        if self.unit_system != current_unit_system:
+            async with self._unit_system_lock:
+                # Double-check in case another thread changed it
+                if self.unit_system != current_unit_system:
+                    await self._atomic_unit_system_change(current_unit_system)
+
+        # Ensure library unit system context matches current configuration
         if self.unit_system:
             try:
                 from nwp500.unit_system import set_unit_system
@@ -412,7 +432,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         # This occurs during MQTT reconnection and is expected
                         # The command will be queued and retried automatically
                         if (
-                            err.name
+                            get_aws_error_name(err)
                             == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
                         ):
                             _LOGGER.debug(
@@ -540,9 +560,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 email,
                 password,
                 stored_tokens=stored_tokens,
-                unit_system=self.unit_system,  # type: ignore[arg-type]
+                unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
-            assert self.auth_client is not None
+            if self.auth_client is None:
+                raise UpdateFailed("Failed to initialize authentication client")
             await self.auth_client.__aenter__()  # Authenticate or restore
 
             # Save tokens after successful authentication
@@ -551,9 +572,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             # Setup API client
             self.api_client = NavienAPIClient(
                 auth_client=self.auth_client,
-                unit_system=self.unit_system,  # type: ignore[arg-type]
+                unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
-            assert self.api_client is not None
+            if self.api_client is None:
+                raise UpdateFailed("Failed to initialize API client")
 
             # Get devices
             self.devices = await self.api_client.list_devices()
@@ -752,6 +774,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 )
 
             self.device_features[mac_address] = feature
+
+            # Notify listeners that features (which affect device info, limits, etc.)
+            # have been updated.
+            self.async_update_listeners()
         except Exception as err:
             _LOGGER.error("Error handling device feature update: %s", err)
 
@@ -914,3 +940,82 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             self.auth_client = None
 
         self.api_client = None
+
+        # Clear device features cache to prevent memory leaks
+        self.device_features.clear()
+
+    def get_field_unit_safe(self, status: Any, field_name: str) -> str | None:
+        """Safely get unit field from device status with standardized error handling.
+
+        Args:
+            status: Device status object
+            field_name: Name of the field to get unit for
+
+        Returns:
+            Unit string if available and valid, None otherwise
+        """
+        if not status:
+            return None
+
+        try:
+            unit = status.get_field_unit(field_name)
+            if unit and isinstance(unit, str):
+                return unit.strip()
+        except (AttributeError, TypeError, KeyError, ValueError, ImportError):
+            # Standardized exception handling across all entities
+            pass
+
+        return None
+
+    async def _atomic_unit_system_change(self, new_unit_system: str) -> None:
+        """Perform atomic unit system change transition.
+
+        This method ensures that unit changes are handled atomically to prevent
+        mixed-unit states which could be dangerous in a water heater system.
+
+        Args:
+            new_unit_system: The new unit system ("metric" or "us_customary")
+        """
+        old_unit_system = self.unit_system
+
+        _LOGGER.info(
+            "Starting atomic unit system change from %s to %s",
+            old_unit_system,
+            new_unit_system,
+        )
+
+        # Mark unit change in progress
+        self._unit_change_in_progress = True
+
+        try:
+            # Step 1: Update coordinator unit system
+            self.unit_system = new_unit_system
+
+            # Step 2: Update MQTT manager immediately
+            if self.mqtt_manager:
+                self.mqtt_manager.unit_system = new_unit_system
+
+            # Step 3: Update library unit system context
+            if self.unit_system:
+                try:
+                    from nwp500.unit_system import set_unit_system
+
+                    set_unit_system(self.unit_system)  # type: ignore[arg-type]
+                except (ImportError, AttributeError):
+                    pass
+
+            # Step 4: CRITICAL - Clear all cached data to prevent mixed-unit states
+            # This must happen AFTER unit system updates but BEFORE any new data processing
+            if self.data is not None:
+                self.data.clear()
+            self.device_features.clear()
+
+            _LOGGER.warning(
+                "Unit system changed from %s to %s - cleared all cached data",
+                old_unit_system,
+                new_unit_system,
+            )
+
+        finally:
+            # Always clear the in-progress flag
+            self._unit_change_in_progress = False

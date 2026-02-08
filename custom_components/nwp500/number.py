@@ -11,10 +11,17 @@ from homeassistant.components.number import (
     NumberMode,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, MAX_TEMPERATURE, MIN_TEMPERATURE
+from .const import (
+    DOMAIN,
+    MAX_TEMPERATURE_C,
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_C,
+    MIN_TEMPERATURE_F,
+)
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
 
@@ -64,7 +71,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         self._attr_icon = "mdi:thermometer"
 
     @property
-    def native_min_value(self) -> float:
+    def native_min_value(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the minimum value."""
         if (
             features := self.coordinator.device_features.get(self.mac_address)
@@ -73,10 +80,14 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         ) is not None:
             return float(val)
 
-        return float(MIN_TEMPERATURE)
+        return (
+            float(MIN_TEMPERATURE_C)
+            if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+            else float(MIN_TEMPERATURE_F)
+        )
 
     @property
-    def native_max_value(self) -> float:
+    def native_max_value(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the maximum value."""
         if (
             features := self.coordinator.device_features.get(self.mac_address)
@@ -85,15 +96,32 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         ) is not None:
             return float(val)
 
-        return float(MAX_TEMPERATURE)
+        return (
+            float(MAX_TEMPERATURE_C)
+            if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+            else float(MAX_TEMPERATURE_F)
+        )
 
     @property
-    def native_unit_of_measurement(self) -> str:
-        """Return Home Assistant's configured temperature unit.
+    def native_unit_of_measurement(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return the unit of measurement.
 
-        The library handles unit conversion based on HA's configured unit
-        system, so values are already in the correct units.
+        Prefer the unit reported by the device status to ensure consistency with values.
+        Fallback to Home Assistant's configured temperature unit.
         """
+        if status := self._status:
+            # Try to get unit from DHW target temperature field first
+            unit = self.coordinator.get_field_unit_safe(
+                status, "dhw_target_temperature_setting"
+            )
+            if not unit:
+                unit = self.coordinator.get_field_unit_safe(
+                    status, "dhw_temperature_setting"
+                )
+
+            if unit:
+                return unit
+
         return self.hass.config.units.temperature_unit
 
     @property
