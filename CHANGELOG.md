@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2026-02-15
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded from 7.4.5 to 7.4.6
+  - **7.4.6 (2026-02-13)**: Bug fixes and security improvements
+    - Fixed `div_10()`/`mul_10()` converter consistency for all input types
+    - Fixed reservation decoding out-of-bounds access
+    - MQTT client now resubscribes to all topics after reconnection
+    - Fixed subscription leak in `wait_for_device_feature()`
+    - Prevents duplicate callback registration in subscription manager
+    - `MqttCommandQueue` now raises on `QueueFull` instead of silently dropping
+    - Removed hardcoded "GPM" unit from `recirc_dhw_flow_rate`; unit is now dynamic based on unit system
+    - Fixed temperature rounding in `RawCelsius` Fahrenheit conversion
+    - `is_metric_preferred()` now returns `False` instead of `None` when no unit system is set
+    - Security: Redacted MQTT topics in subscription manager logging
+
+### Fixed
+- **Falsy value checks in MQTT commands**: Fixed `mqtt_manager.py` where `if temp:` / `if mode:` / `if days:` would incorrectly skip commands when value was `0`. Changed to explicit `is not None` checks.
+- **Hardcoded flow rate unit**: Changed `recirculation_dhw_flow_rate` sensor from hardcoded "GPM" to dynamic unit from library, matching 7.4.6's unit-system-aware flow rate metadata.
+- **Raw enum serialization**: Water heater extra state attributes now serialize enum values to strings instead of storing raw enum objects.
+- **Timestamp precision**: Diagnostic sensor `connected_duration_seconds` now uses `time.time()` instead of `datetime.now().timestamp()` for correctness.
+
 ## [0.2.1] - 2026-02-08 - 2026-02-08
 
 ### Changed

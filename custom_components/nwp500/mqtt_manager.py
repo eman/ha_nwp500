@@ -328,13 +328,13 @@ class NWP500MqttManager:
                     )
                 case "set_temperature":
                     temp = kwargs.get("temperature")
-                    if temp:
+                    if temp is not None:
                         await self.mqtt_client.control.set_dhw_temperature(
                             device, float(temp)
                         )
                 case "set_dhw_mode":
                     mode = kwargs.get("mode")
-                    if mode:
+                    if mode is not None:
                         await self.mqtt_client.control.set_dhw_mode(
                             device, int(mode)
                         )
@@ -362,7 +362,7 @@ class NWP500MqttManager:
                     await self.mqtt_client.control.request_reservations(device)
                 case "set_vacation_days":
                     days = kwargs.get("days")
-                    if days:
+                    if days is not None:
                         # Mode 5 is vacation
                         await self.mqtt_client.control.set_dhw_mode(
                             device, 5, vacation_days=int(days)

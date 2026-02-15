@@ -39,6 +39,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="operation_busy",
+            translation_key="operation_busy",
             name="Operation Busy",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=True,
@@ -49,6 +50,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="freeze_protection_use",
+            translation_key="freeze_protection_use",
             name="Freeze Protection Active",
             entity_registry_enabled_default=True,
             value_fn=lambda status: getattr(
@@ -60,6 +62,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="dhw_use",
+            translation_key="dhw_use",
             name="DHW In Use",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=True,
@@ -70,6 +73,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="dhw_use_sustained",
+            translation_key="dhw_use_sustained",
             name="DHW Use Sustained",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
@@ -80,6 +84,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="comp_use",
+            translation_key="comp_use",
             name="Compressor Running",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=True,
@@ -90,6 +95,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="eev_use",
+            translation_key="eev_use",
             name="EEV Active",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
@@ -100,6 +106,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="eva_fan_use",
+            translation_key="eva_fan_use",
             name="Evaporator Fan Running",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
@@ -110,6 +117,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="heat_upper_use",
+            translation_key="heat_upper_use",
             name="Upper Electric Heating Element",
             device_class=BinarySensorDeviceClass.HEAT,
             entity_registry_enabled_default=True,
@@ -120,6 +128,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="heat_lower_use",
+            translation_key="heat_lower_use",
             name="Lower Electric Heating Element",
             device_class=BinarySensorDeviceClass.HEAT,
             entity_registry_enabled_default=True,
@@ -130,6 +139,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="scald_use",
+            translation_key="scald_use",
             name="Scald Protection Warning",
             device_class=BinarySensorDeviceClass.SAFETY,
             entity_registry_enabled_default=False,
@@ -140,6 +150,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="anti_legionella_use",
+            translation_key="anti_legionella_use",
             name="Anti-Legionella Enabled",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
@@ -151,6 +162,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="anti_legionella_operation_busy",
+            translation_key="anti_legionella_operation_busy",
             name="Anti-Legionella Cycle Running",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
@@ -163,6 +175,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="air_filter_alarm_use",
+            translation_key="air_filter_alarm_use",
             name="Air Filter Alarm Enabled",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
@@ -174,6 +187,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="error_buzzer_use",
+            translation_key="error_buzzer_use",
             name="Error Buzzer Enabled",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(status, "error_buzzer_use", None),
@@ -183,6 +197,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="eco_use",
+            translation_key="eco_use",
             name="Overheat Protection Enabled",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(status, "eco_use", None),
@@ -192,6 +207,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="program_reservation_use",
+            translation_key="program_reservation_use",
             name="Program Reservation Active",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
@@ -203,6 +219,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="shut_off_valve_use",
+            translation_key="shut_off_valve_use",
             name="Shut-Off Valve Status",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(status, "shut_off_valve_use", None),
@@ -212,6 +229,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="con_ovr_sensor_use",
+            translation_key="con_ovr_sensor_use",
             name="Condensate Overflow Sensor Active",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(status, "con_ovr_sensor_use", None),
@@ -221,6 +239,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="wtr_ovr_sensor_use",
+            translation_key="wtr_ovr_sensor_use",
             name="Water Leak Detected",
             device_class=BinarySensorDeviceClass.SAFETY,
             entity_registry_enabled_default=False,
@@ -231,6 +250,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="did_reload",
+            translation_key="did_reload",
             name="Device Recently Reloaded",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(status, "did_reload", None),
@@ -240,6 +260,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="recirculation_use",
+            translation_key="recirculation_use",
             name="Recirculation Active",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
@@ -250,6 +271,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="recirculation_pump_operation_status",
+            translation_key="recirculation_pump_operation_status",
             name="Recirculation Pump Running",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
@@ -262,6 +284,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="recirculation_operation_busy",
+            translation_key="recirculation_operation_busy",
             name="Recirculation Operation Busy",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
@@ -274,6 +297,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="recirculation_hot_button_ready",
+            translation_key="recirculation_hot_button_ready",
             name="Recirculation Hot Button Ready",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
@@ -285,6 +309,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="recirculation_reservation_use",
+            translation_key="recirculation_reservation_use",
             name="Recirculation Reservation Active",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(
@@ -296,6 +321,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="tou_override_status",
+            translation_key="tou_override_status",
             name="TOU Override Status",
             entity_registry_enabled_default=True,
             value_fn=lambda status: getattr(
@@ -307,6 +333,7 @@ def create_binary_sensor_descriptions() -> tuple[
     descriptions.append(
         NWP500BinarySensorEntityDescription(
             key="tou_status",
+            translation_key="tou_status",
             name="TOU Status",
             entity_registry_enabled_default=True,
             value_fn=lambda status: getattr(status, "tou_status", None),
@@ -358,7 +385,6 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):  # type: ignore[repo
         super().__init__(coordinator, mac_address, device)
         self.entity_description = description  # pyright: ignore[reportIncompatibleVariableOverride]
         self._attr_unique_id = f"{mac_address}_{description.key}"
-        self._attr_name = f"{self.device_name} {description.name}"
 
     @property
     def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
