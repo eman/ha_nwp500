@@ -3,7 +3,7 @@
 
 # Usage: uv pip install -r requirements.txt
 # Core integration library
-nwp500-python==7.4.5
+nwp500-python==7.4.6
 
 # AWS IoT SDK for MQTT communication
 awsiotsdk>=1.27.0

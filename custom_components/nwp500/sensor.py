@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -418,7 +419,7 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
                 telemetry["mqtt_connected_since"], tz=UTC
             )
             attrs["connected_duration_seconds"] = (
-                datetime.now().timestamp() - telemetry["mqtt_connected_since"]
+                time.time() - telemetry["mqtt_connected_since"]
             )
         return attrs
 

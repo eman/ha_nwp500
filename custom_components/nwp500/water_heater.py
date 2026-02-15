@@ -300,8 +300,12 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                     "upper_element_on": status_attrs["heat_upper_use"],
                     "lower_element_on": status_attrs["heat_lower_use"],
                     # Raw values for diagnostics
-                    "operation_mode_raw": operation_mode,
-                    "dhw_operation_setting_raw": dhw_operation_setting,
+                    "operation_mode_raw": str(operation_mode)
+                    if operation_mode is not None
+                    else None,
+                    "dhw_operation_setting_raw": str(dhw_operation_setting)
+                    if dhw_operation_setting is not None
+                    else None,
                 }
             )
         except (AttributeError, TypeError):
