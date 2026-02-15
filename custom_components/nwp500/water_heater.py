@@ -80,7 +80,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         """Initialize the water heater."""
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_water_heater"
-        self._attr_name = f"{self.device_name} Water Heater"
+        self._attr_translation_key = "water_heater"
         self._attr_operation_list = [
             STATE_ECO,
             STATE_HEAT_PUMP,
