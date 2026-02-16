@@ -41,6 +41,8 @@ SERVICE_UPDATE_RESERVATIONS = "update_reservations"
 SERVICE_CLEAR_RESERVATIONS = "clear_reservations"
 SERVICE_REQUEST_RESERVATIONS = "request_reservations"
 SERVICE_SET_VACATION_DAYS = "set_vacation_days"
+SERVICE_CONFIGURE_TOU = "configure_tou_schedule"
+SERVICE_REQUEST_TOU = "request_tou_settings"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -50,6 +52,7 @@ ATTR_MINUTE = "minute"
 ATTR_OP_MODE = "mode"  # Renamed to avoid conflict with HA's ATTR_MODE
 ATTR_TEMPERATURE = "temperature"
 ATTR_RESERVATIONS = "reservations"
+ATTR_PERIODS = "periods"
 
 # Valid days of the week
 VALID_DAYS = [
@@ -165,6 +168,65 @@ SERVICE_SET_VACATION_DAYS_SCHEMA = vol.Schema(
         vol.Required(ATTR_DAYS): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=365)
         ),
+    }
+)
+
+SERVICE_CONFIGURE_TOU_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
+        vol.Required(ATTR_PERIODS): vol.All(
+            cv.ensure_list,
+            vol.Length(max=16),
+            [
+                vol.Schema(
+                    {
+                        vol.Required("season"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=4095),
+                        ),
+                        vol.Required("week"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=127),
+                        ),
+                        vol.Required("start_hour"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=23),
+                        ),
+                        vol.Required("start_minute"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=59),
+                        ),
+                        vol.Required("end_hour"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=23),
+                        ),
+                        vol.Required("end_minute"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=59),
+                        ),
+                        vol.Required("price_min"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0),
+                        ),
+                        vol.Required("price_max"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0),
+                        ),
+                        vol.Required("decimal_point"): vol.All(
+                            vol.Coerce(int),
+                            vol.Range(min=0, max=10),
+                        ),
+                    }
+                )
+            ],
+        ),
+        vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
+    }
+)
+
+SERVICE_REQUEST_TOU_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_DEVICE_ID): cv.string,
     }
 )
 
@@ -335,6 +397,9 @@ class NWP500ServiceHandler:
         if not success:
             raise HomeAssistantError("Failed to set reservation")
 
+        # Auto-refresh stored reservation state
+        await coordinator.async_request_reservations(mac_address)
+
     async def async_update_reservations(self, call: ServiceCall) -> None:
         """Handle update_reservations service call."""
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
@@ -356,6 +421,9 @@ class NWP500ServiceHandler:
         if not success:
             raise HomeAssistantError("Failed to update reservations")
 
+        # Auto-refresh stored reservation state
+        await coordinator.async_request_reservations(mac_address)
+
     async def async_clear_reservations(self, call: ServiceCall) -> None:
         """Handle clear_reservations service call."""
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
@@ -369,6 +437,9 @@ class NWP500ServiceHandler:
 
         if not success:
             raise HomeAssistantError("Failed to clear reservations")
+
+        # Auto-refresh stored reservation state
+        await coordinator.async_request_reservations(mac_address)
 
     async def async_request_reservations(self, call: ServiceCall) -> None:
         """Handle request_reservations service call."""
@@ -393,6 +464,54 @@ class NWP500ServiceHandler:
         )
         if not success:
             raise HomeAssistantError("Failed to set vacation days")
+
+    async def async_configure_tou_schedule(self, call: ServiceCall) -> None:
+        """Handle configure_tou_schedule service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        raw_periods: list[dict[str, Any]] = call.data[ATTR_PERIODS]
+        enabled = call.data[ATTR_ENABLED]
+
+        # Convert HA snake_case keys to library camelCase protocol format
+        periods = [
+            {
+                "season": p["season"],
+                "week": p["week"],
+                "startHour": p["start_hour"],
+                "startMinute": p["start_minute"],
+                "endHour": p["end_hour"],
+                "endMinute": p["end_minute"],
+                "priceMin": p["price_min"],
+                "priceMax": p["price_max"],
+                "decimalPoint": p["decimal_point"],
+            }
+            for p in raw_periods
+        ]
+
+        _LOGGER.info(
+            "Configuring TOU schedule with %d periods for %s (enabled=%s)",
+            len(periods),
+            mac_address,
+            enabled,
+        )
+
+        success = await coordinator.async_configure_tou_schedule(
+            mac_address, periods, enabled=enabled
+        )
+
+        if not success:
+            raise HomeAssistantError("Failed to configure TOU schedule")
+
+    async def async_request_tou_settings(self, call: ServiceCall) -> None:
+        """Handle request_tou_settings service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        _LOGGER.info("Requesting TOU settings for %s", mac_address)
+
+        success = await coordinator.async_request_tou_settings(mac_address)
+
+        if not success:
+            raise HomeAssistantError("Failed to request TOU settings")
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -475,7 +594,21 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         schema=SERVICE_SET_VACATION_DAYS_SCHEMA,
     )
 
-    _LOGGER.debug("Registered NWP500 reservation services")
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_CONFIGURE_TOU,
+        handler.async_configure_tou_schedule,
+        schema=SERVICE_CONFIGURE_TOU_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REQUEST_TOU,
+        handler.async_request_tou_settings,
+        schema=SERVICE_REQUEST_TOU_SCHEMA,
+    )
+
+    _LOGGER.debug("Registered NWP500 services")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -493,5 +626,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, SERVICE_CLEAR_RESERVATIONS)
             hass.services.async_remove(DOMAIN, SERVICE_REQUEST_RESERVATIONS)
             hass.services.async_remove(DOMAIN, SERVICE_SET_VACATION_DAYS)
+            hass.services.async_remove(DOMAIN, SERVICE_CONFIGURE_TOU)
+            hass.services.async_remove(DOMAIN, SERVICE_REQUEST_TOU)
 
     return unload_ok

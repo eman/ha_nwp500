@@ -42,6 +42,8 @@ class NWP500MqttManager:
         auth_client: NavienAuthClient,
         on_status_update: Callable[[str, DeviceStatus], None],
         on_feature_update: Callable[[str, DeviceFeature], None],
+        on_reservation_update: Callable[[str, dict[str, Any]], None] | None = None,
+        on_tou_update: Callable[[str, dict[str, Any]], None] | None = None,
         unit_system: str | None = None,
     ) -> None:
         """Initialize the MQTT manager."""
@@ -51,6 +53,8 @@ class NWP500MqttManager:
         self.diagnostics: MqttDiagnosticsCollector | None = None
         self._on_status_update_callback = on_status_update
         self._on_feature_update_callback = on_feature_update
+        self._on_reservation_update_callback = on_reservation_update
+        self._on_tou_update_callback = on_tou_update
         self.unit_system = unit_system
 
         # Connection tracking
@@ -251,12 +255,51 @@ class NWP500MqttManager:
                     device, feature
                 ),
             )
+            # Subscribe to scheduling response topics
+            await self._subscribe_scheduling_responses(device)
         except Exception as err:
             _LOGGER.warning(
                 "Failed to subscribe to device %s: %s",
                 device.device_info.mac_address,
                 err,
             )
+
+    async def _subscribe_scheduling_responses(self, device: Device) -> None:
+        """Subscribe to reservation and TOU response topics for a device."""
+        if not self.mqtt_client:
+            return
+
+        device_type = str(device.device_info.device_type)
+        client_id = self.mqtt_client.client_id
+        mac_address = device.device_info.mac_address
+
+        # Subscribe to reservation responses: cmd/{device_type}/{client_id}/res/rsv/rd
+        rsv_topic = f"cmd/{device_type}/{client_id}/res/rsv/rd"
+        await self.mqtt_client.subscribe(
+            rsv_topic,
+            lambda topic, message: self._on_reservation_response(
+                mac_address, topic, message
+            ),
+        )
+        _LOGGER.debug(
+            "Subscribed to reservation responses for %s on %s",
+            mac_address,
+            rsv_topic,
+        )
+
+        # Subscribe to TOU responses: cmd/{device_type}/{client_id}/res/tou/rd
+        tou_topic = f"cmd/{device_type}/{client_id}/res/tou/rd"
+        await self.mqtt_client.subscribe(
+            tou_topic,
+            lambda topic, message: self._on_tou_response(
+                mac_address, topic, message
+            ),
+        )
+        _LOGGER.debug(
+            "Subscribed to TOU responses for %s on %s",
+            mac_address,
+            tou_topic,
+        )
 
     async def start_periodic_requests(self, device: Device) -> None:
         """Start periodic status requests."""
@@ -360,6 +403,22 @@ class NWP500MqttManager:
                     )
                 case "request_reservations":
                     await self.mqtt_client.control.request_reservations(device)
+                case "configure_tou_schedule":
+                    controller_serial = kwargs.get("controller_serial_number", "")
+                    periods = kwargs.get("periods", [])
+                    enabled = kwargs.get("enabled", True)
+                    await self.mqtt_client.control.configure_tou_schedule(
+                        device,
+                        controller_serial_number=controller_serial,
+                        periods=periods,
+                        enabled=enabled,
+                    )
+                case "request_tou_settings":
+                    controller_serial = kwargs.get("controller_serial_number", "")
+                    await self.mqtt_client.control.request_tou_settings(
+                        device,
+                        controller_serial_number=controller_serial,
+                    )
                 case "set_vacation_days":
                     days = kwargs.get("days")
                     if days is not None:
@@ -430,6 +489,38 @@ class NWP500MqttManager:
                 return True
         _LOGGER.error("Error during %s: %s", context, err)
         return False
+
+    def _on_reservation_response(
+        self, mac_address: str, topic: str, message: dict[str, Any]
+    ) -> None:
+        """Handle reservation response from device."""
+        try:
+            _LOGGER.debug(
+                "Received reservation response for %s on %s",
+                mac_address,
+                topic,
+            )
+            response = message.get("response", {})
+            if self._on_reservation_update_callback:
+                self._on_reservation_update_callback(mac_address, response)
+        except Exception as err:
+            _LOGGER.error("Error handling reservation response: %s", err)
+
+    def _on_tou_response(
+        self, mac_address: str, topic: str, message: dict[str, Any]
+    ) -> None:
+        """Handle TOU response from device."""
+        try:
+            _LOGGER.debug(
+                "Received TOU response for %s on %s",
+                mac_address,
+                topic,
+            )
+            response = message.get("response", {})
+            if self._on_tou_update_callback:
+                self._on_tou_update_callback(mac_address, response)
+        except Exception as err:
+            _LOGGER.error("Error handling TOU response: %s", err)
 
     # Event Handlers
     def _on_device_status_event(self, event_data: DeviceStatusEvent) -> None:
