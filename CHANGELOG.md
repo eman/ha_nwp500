@@ -27,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Raw enum serialization**: Water heater extra state attributes now serialize enum values to strings instead of storing raw enum objects.
 - **Timestamp precision**: Diagnostic sensor `connected_duration_seconds` now uses `time.time()` instead of `datetime.now().timestamp()` for correctness.
 
-## [## [0.2.1]] - 2026-02-08 - 2026-02-08
+## [## [0.2.2]] - 2026-02-08 - 2026-02-08
 
 ### Changed
 - **Unit System Synchronization**: Fixed temperature and flow rate unit conversions to properly respect Home Assistant's configured unit system
