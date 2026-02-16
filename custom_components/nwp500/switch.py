@@ -62,7 +62,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_power"
-        self._attr_name = f"{self.device_name} Power"
+        self._attr_translation_key = "power"
         self._attr_icon = "mdi:power"
 
     @property
@@ -115,7 +115,7 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_tou"
-        self._attr_name = f"{self.device_name} TOU"
+        self._attr_translation_key = "tou"
         self._attr_icon = "mdi:clock-time-four-outline"
 
     @property
@@ -162,7 +162,7 @@ class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[re
         """Initialize the switch."""
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_anti_legionella"
-        self._attr_name = f"{self.device_name} Anti-Legionella"
+        self._attr_translation_key = "anti_legionella"
         self._attr_icon = "mdi:bacteria-outline"
 
     @property

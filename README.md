@@ -1,6 +1,6 @@
 # Navien NWP500 Water Heater - Home Assistant Integration
 
-**Version**: 0.2.1
+**Version**: 0.2.2
 
 [![CI](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml/badge.svg)](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
@@ -152,7 +152,7 @@ action:
 ```
 
 ## Library Version
-This integration uses **nwp500-python v7.4.5**.
+This integration uses **nwp500-python v7.4.6**.
 For version history, see [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python).
 
 ## License

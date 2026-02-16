@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -132,6 +133,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
             NWP500SensorEntityDescription(
                 key=key,
                 attr_name=attr_name,
+                translation_key=key,
                 name=str(config["name"]),
                 device_class=device_class_map.get(
                     str(config.get("device_class", ""))
@@ -215,7 +217,6 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         super().__init__(coordinator, mac_address, device)
         self.entity_description = description
         self._attr_unique_id = f"{mac_address}_{description.key}"
-        self._attr_name = f"{self.device_name} {description.name}"
 
     @property
     def native_unit_of_measurement(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -277,12 +278,11 @@ class NWP500DiagnosticSensor(NWP500Entity, SensorEntity):  # type: ignore[report
         mac_address: str,
         device: Device,
         key: str,
-        name: str,
     ) -> None:
         """Initialize the diagnostic sensor."""
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_diagnostic_{key}"
-        self._attr_name = f"{self.device_name} {name}"
+        self._attr_translation_key = key
 
 
 class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
@@ -302,7 +302,6 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
             mac_address,
             device,
             "last_response",
-            "Last MQTT Response",
         )
 
     @property
@@ -347,7 +346,6 @@ class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
             mac_address,
             device,
             "request_count",
-            "MQTT Requests Sent",
         )
 
     @property
@@ -374,7 +372,6 @@ class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
             mac_address,
             device,
             "response_count",
-            "MQTT Responses Received",
         )
 
     @property
@@ -399,7 +396,6 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
             mac_address,
             device,
             "mqtt_status",
-            "MQTT Connection Status",
         )
 
     @property
@@ -418,7 +414,7 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
                 telemetry["mqtt_connected_since"], tz=UTC
             )
             attrs["connected_duration_seconds"] = (
-                datetime.now().timestamp() - telemetry["mqtt_connected_since"]
+                time.time() - telemetry["mqtt_connected_since"]
             )
         return attrs
 
@@ -440,7 +436,6 @@ class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
             mac_address,
             device,
             "consecutive_timeouts",
-            "Consecutive Timeouts",
         )
 
     @property

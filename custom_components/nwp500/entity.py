@@ -20,6 +20,8 @@ _LOGGER = logging.getLogger(__name__)
 class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
     """Base class for NWP500 entities."""
 
+    _attr_has_entity_name = True
+
     def __init__(
         self,
         coordinator: NWP500DataUpdateCoordinator,

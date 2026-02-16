@@ -932,7 +932,7 @@ SENSOR_CONFIGS: Final = {
     "recirculation_dhw_flow_rate": {
         "attr": "recirc_dhw_flow_rate",
         "name": "Recirculation DHW Flow Rate",
-        "unit": "GPM",
+        "unit": None,
         "state_class": "measurement",
         "enabled": False,
     },
