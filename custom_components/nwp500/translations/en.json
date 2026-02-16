@@ -453,7 +453,7 @@
         },
         "temperature": {
           "name": "Temperature",
-          "description": "Target temperature in Fahrenheit (80-150°F). Required for heating modes, ignored for vacation and power off modes."
+          "description": "Target temperature in Fahrenheit (80-150\u00b0F). Required for heating modes, ignored for vacation and power off modes."
         }
       }
     },
@@ -487,7 +487,7 @@
     },
     "request_reservations": {
       "name": "Request Reservations",
-      "description": "Request the current reservation schedules from the device. The response will be logged and can be viewed in Home Assistant logs with debug logging enabled for this integration.",
+      "description": "Request the current reservation schedules from the device. The response will be stored in the coordinator and fired as a nwp500_reservations_updated event.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -556,6 +556,34 @@
     "trigger_recirculation": {
       "name": "Trigger Recirculation",
       "description": "Manually trigger the recirculation pump hot button. Immediately starts the recirculation pump to deliver hot water to fixtures.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        }
+      }
+    },
+    "configure_tou_schedule": {
+      "name": "Configure TOU Schedule",
+      "description": "Configure the Time of Use (TOU) pricing schedule on the device. Up to 16 periods can be defined with seasonal, weekly, and time-based pricing information.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        },
+        "periods": {
+          "name": "TOU Periods",
+          "description": "List of TOU period entries with season, week, time, and price fields."
+        },
+        "enabled": {
+          "name": "Enabled",
+          "description": "Whether the TOU scheduling system is enabled"
+        }
+      }
+    },
+    "request_tou_settings": {
+      "name": "Request TOU Settings",
+      "description": "Request the current Time of Use (TOU) schedule configuration from the device. The response will be stored and fired as a nwp500_tou_updated event.",
       "fields": {
         "device_id": {
           "name": "Device",

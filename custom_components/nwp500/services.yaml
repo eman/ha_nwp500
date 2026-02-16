@@ -143,8 +143,8 @@ request_reservations:
   name: Request Reservations
   description: >-
     Request the current reservation schedules from the device. The response
-    will be logged and can be viewed in Home Assistant logs with debug logging
-    enabled for this integration.
+    will be stored in the coordinator and fired as a
+    nwp500_reservations_updated event.
   fields:
     device_id:
       name: Device
@@ -247,6 +247,55 @@ trigger_recirculation:
   description: >-
     Manually trigger the recirculation pump hot button. Immediately starts
     the recirculation pump to deliver hot water to fixtures.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+
+configure_tou_schedule:
+  name: Configure TOU Schedule
+  description: >-
+    Configure the Time of Use (TOU) pricing schedule on the device.
+    Up to 16 periods can be defined with seasonal, weekly, and
+    time-based pricing information. The device uses this to optimize
+    heating based on electricity rates.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: true
+      selector:
+        device:
+          integration: nwp500
+    periods:
+      name: TOU Periods
+      description: >-
+        List of TOU period entries (max 16). Each entry is a dictionary with
+        keys: season (month bitfield 0-4095), week (day bitfield 0-127),
+        start_hour (0-23), start_minute (0-59), end_hour (0-23),
+        end_minute (0-59), price_min (encoded price), price_max (encoded price),
+        decimal_point (decimal places for price).
+      required: true
+      selector:
+        object:
+    enabled:
+      name: Enabled
+      description: Whether the TOU scheduling system is enabled
+      required: false
+      default: true
+      selector:
+        boolean:
+
+request_tou_settings:
+  name: Request TOU Settings
+  description: >-
+    Request the current Time of Use (TOU) schedule configuration from the
+    device. The response will be stored in the coordinator and fired as a
+    nwp500_tou_updated event.
   fields:
     device_id:
       name: Device
