@@ -42,7 +42,8 @@ class NWP500MqttManager:
         auth_client: NavienAuthClient,
         on_status_update: Callable[[str, DeviceStatus], None],
         on_feature_update: Callable[[str, DeviceFeature], None],
-        on_reservation_update: Callable[[str, dict[str, Any]], None] | None = None,
+        on_reservation_update: Callable[[str, dict[str, Any]], None]
+        | None = None,
         on_tou_update: Callable[[str, dict[str, Any]], None] | None = None,
         unit_system: str | None = None,
     ) -> None:
@@ -404,7 +405,9 @@ class NWP500MqttManager:
                 case "request_reservations":
                     await self.mqtt_client.control.request_reservations(device)
                 case "configure_tou_schedule":
-                    controller_serial = kwargs.get("controller_serial_number", "")
+                    controller_serial = kwargs.get(
+                        "controller_serial_number", ""
+                    )
                     periods = kwargs.get("periods", [])
                     enabled = kwargs.get("enabled", True)
                     await self.mqtt_client.control.configure_tou_schedule(
@@ -414,7 +417,9 @@ class NWP500MqttManager:
                         enabled=enabled,
                     )
                 case "request_tou_settings":
-                    controller_serial = kwargs.get("controller_serial_number", "")
+                    controller_serial = kwargs.get(
+                        "controller_serial_number", ""
+                    )
                     await self.mqtt_client.control.request_tou_settings(
                         device,
                         controller_serial_number=controller_serial,
