@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Time of Use (TOU) Services**: Added two new services for managing TOU schedules
+  - `configure_tou_schedule`: Configure time-based rate periods (up to 16 periods)
+  - `request_tou_settings`: Request current TOU configuration from device
+- **MQTT subscription handling**: Enhanced coordinator to handle TOU/reservation response subscriptions
+
+### Changed
+- **Service schema improvements**: Converted TOU service parameters from camelCase to snake_case for consistency with Home Assistant conventions
+- **Auto-refresh behavior**: Reservation services (`set_reservation`, `update_reservations`, `clear_reservations`) now automatically request current state after successful writes
+- **Service log messages**: Updated to "Registered NWP500 services" for clarity
+
+### Fixed
+- **Import cleanup**: Removed unused `DEVICE_TYPE_WATER_HEATER` import from mqtt_manager.py
+- **TOU validation**: Added max 16 period validation to TOU schedule configuration
+- **Code formatting**: Fixed ruff formatting issues
+
 ## [0.2.2] - 2026-02-15
 
 ### Changed

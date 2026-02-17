@@ -812,9 +812,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
     ) -> None:
         """Process reservation schedule response within the event loop."""
         try:
-            _LOGGER.info(
-                "Received reservation schedule for %s", mac_address
-            )
+            _LOGGER.info("Received reservation schedule for %s", mac_address)
 
             self.reservation_schedules[mac_address] = response
 
@@ -845,9 +843,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
     ) -> None:
         """Process TOU schedule response within the event loop."""
         try:
-            _LOGGER.info(
-                "Received TOU schedule for %s", mac_address
-            )
+            _LOGGER.info("Received TOU schedule for %s", mac_address)
 
             self.tou_schedules[mac_address] = response
 
