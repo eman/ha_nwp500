@@ -3,7 +3,7 @@
  * Visualizes water heater status using a device image with data overlays.
  */
 
-const CARD_VERSION = '2.1.3';
+const CARD_VERSION = '2.1.5';
 
 class NWP500VisualCard extends HTMLElement {
   constructor() {
@@ -142,7 +142,32 @@ class NWP500VisualCard extends HTMLElement {
             <ha-icon icon="mdi:fire" class="burning-icon"></ha-icon>
           </div>` : ''}
 
-          <!-- ... (rest of overlays) -->
+          <!-- DHW Outlet (Top Left approx) -->
+          <div class="overlay badge outlet-badge">
+            <ha-icon icon="mdi:thermometer"></ha-icon>
+            <div class="badge-label">Outlet</div>
+            <div class="badge-value">${dhwTemp}</div>
+          </div>
+
+          <!-- DHW Charge (Top Right approx) -->
+          <div class="overlay badge charge-badge">
+            <ha-icon icon="mdi:water-percent"></ha-icon>
+            <div class="badge-label">Charge</div>
+            <div class="badge-value">${dhwCharge}</div>
+          </div>
+
+          <!-- Lower Tank (Bottom Right approx) -->
+          <div class="overlay badge lower-badge">
+            <ha-icon icon="mdi:thermometer-low"></ha-icon>
+            <div class="badge-label">Lower</div>
+            <div class="badge-value">${tankLower}</div>
+          </div>
+          
+          <!-- Current Mode Indicator (Bottom Center) -->
+          <div class="overlay mode-indicator">
+            <span class="mode-label">Running:</span>
+            <span class="mode-value">${modeFriendly}</span>
+          </div>
         </div>
       </ha-card>
     `;
@@ -313,15 +338,15 @@ class NWP500VisualCard extends HTMLElement {
         width: 100%;
         height: 100%;
       }
-      .screen-temp { font-size: clamp(14px, 3.5vw, 28px); font-weight: 700; line-height: 1; letter-spacing: 1px; margin-bottom: 2px; }
+      .screen-temp { font-size: clamp(12px, 3.0vw, 22px); font-weight: 700; line-height: 1; letter-spacing: 1px; margin-bottom: 2px; }
       .screen-mode { 
-        font-size: clamp(8px, 1.2vw, 12px); 
+        font-size: clamp(7px, 1.0vw, 10px); 
         text-transform: uppercase; 
         font-weight: 500; 
         opacity: 0.9;
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 3px;
       }
       .screen-mode ha-icon { --mdc-icon-size: 14px; }
       .screen-mode span { line-height: 1; margin-top: 1px; }
