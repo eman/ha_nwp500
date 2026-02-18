@@ -4,9 +4,23 @@ __pycache__/
 *$py.class
 *.so
 .Python
-*.egg-info/
-dist/
 build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
 # IDE
 .vscode/
@@ -24,19 +38,39 @@ Thumbs.db
 *.db-wal
 *.log
 token.txt
+diagnostics/
+config/
+!custom_components/
+.HA_VERSION
+.storage/
+deps/
+image_cache/
+tts/
 
-# Type checking
+# Type checking and testing
 .mypy_cache/
-.tox/
-.venv/
-
-# Test and coverage artifacts
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
 .pytest_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
 .coverage
+.coverage.*
 htmlcov/
 coverage.xml
-.tox/
 *.cover
-.hypothesis/
-diagnostics
-resources/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.venv3/
+
+# Environment variables
+.env
+
+resources
