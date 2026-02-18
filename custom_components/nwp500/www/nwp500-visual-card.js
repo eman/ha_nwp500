@@ -118,72 +118,55 @@ class NWP500VisualCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${this._getStyles()}</style>
       <ha-card>
-        <div class="card-content">
-          <div class="visual-container">
-            <!-- Background Image -->
-            <img src="/nwp500/nwp500-visual-card.png?v=2.0.11" class="bg-image" crossOrigin="anonymous" id="bgImage">
+        <div class="visual-container">
+          <!-- Background Image -->
+          <img src="/nwp500/nwp500-visual-card.png?v=2.0.11" class="bg-image" crossOrigin="anonymous" id="bgImage">
 
-            <!-- Overlays -->
-            
-            <!-- Screen Area (Control Panel) -->
-            <div class="overlay screen-overlay" id="screenArea">
-              <div class="screen-content ${isError ? 'error' : ''}">
-                <div class="screen-temp">${targetDisplay}</div>
-                <div class="screen-mode">
-                  <ha-icon icon="${modeData.icon}"></ha-icon>
-                  <span>${modeData.label}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Heating Status (Fire Icon) - Independent Overlay -->
-            ${isBurning ? `
-            <div class="overlay heating-status" id="heatingStatus">
-              <ha-icon icon="mdi:fire" class="burning-icon"></ha-icon>
-            </div>` : ''}
-
-            <!-- Current Mode Indicator (Bottom Center of Image - Optional context) -->
-            <!-- Removing from image area as requested to avoid overlap -->
-          </div>
-
-          <!-- Stats Footer -->
-          <div class="stats-container">
-            <!-- DHW Outlet -->
-            <div class="stat-item">
-              <div class="stat-icon-circle"><ha-icon icon="mdi:thermometer"></ha-icon></div>
-              <div class="stat-info">
-                <div class="stat-label">Outlet</div>
-                <div class="stat-value">${dhwTemp}</div>
-              </div>
-            </div>
-
-            <!-- DHW Charge -->
-            <div class="stat-item">
-              <div class="stat-icon-circle"><ha-icon icon="mdi:water-percent"></ha-icon></div>
-              <div class="stat-info">
-                <div class="stat-label">Charge</div>
-                <div class="stat-value">${dhwCharge}</div>
-              </div>
-            </div>
-
-            <!-- Lower Tank -->
-            <div class="stat-item">
-              <div class="stat-icon-circle"><ha-icon icon="mdi:thermometer-low"></ha-icon></div>
-              <div class="stat-info">
-                <div class="stat-label">Lower</div>
-                <div class="stat-value">${tankLower}</div>
-              </div>
-            </div>
-
-            <!-- Mode (Moved from image) -->
-            <div class="stat-item mode-stat">
-              <div class="stat-icon-circle"><ha-icon icon="${modeData.icon}"></ha-icon></div>
-              <div class="stat-info">
-                <div class="stat-label">Mode</div>
-                <div class="stat-value">${modeFriendly}</div>
+          <!-- Overlays -->
+          
+          <!-- Screen Area (Control Panel) -->
+          <div class="overlay screen-overlay" id="screenArea">
+            <div class="screen-content ${isError ? 'error' : ''}">
+              <div class="screen-temp">${targetDisplay}</div>
+              <div class="screen-mode">
+                <ha-icon icon="${modeData.icon}"></ha-icon>
+                <span>${modeData.label}</span>
               </div>
             </div>
           </div>
+
+          <!-- Heating Status (Fire Icon) - Independent Overlay -->
+          ${isBurning ? `
+          <div class="overlay heating-status" id="heatingStatus">
+            <ha-icon icon="mdi:fire" class="burning-icon"></ha-icon>
+          </div>` : ''}
+
+          <!-- Debug Overlays -->
+          <div class="debug-overlay" title="Card Boundary"></div>
+          <div class="tank-bounds-overlay" title="Projected Tank Area"></div>
+
+          <!-- DHW Outlet (Top Left approx) -->
+          <div class="overlay badge outlet-badge">
+            <ha-icon icon="mdi:thermometer"></ha-icon>
+            <div class="badge-label">Outlet</div>
+            <div class="badge-value">${dhwTemp}</div>
+          </div>
+
+          <!-- DHW Charge (Top Right approx) -->
+          <div class="overlay badge charge-badge">
+            <ha-icon icon="mdi:water-percent"></ha-icon>
+            <div class="badge-label">Charge</div>
+            <div class="badge-value">${dhwCharge}</div>
+          </div>
+
+          <!-- Lower Tank (Bottom Right approx) -->
+          <div class="overlay badge lower-badge">
+            <ha-icon icon="mdi:thermometer-low"></ha-icon>
+            <div class="badge-label">Lower</div>
+            <div class="badge-value">${tankLower}</div>
+          </div>
+          
+          <!-- Current Mode Indicator Removed -->
         </div>
       </ha-card>
     `;
@@ -287,8 +270,13 @@ class NWP500VisualCard extends HTMLElement {
       this._showControlModal(stateObj, targetTemp, minTemp, maxTemp, settingFriendly);
     });
 
+
     if (this._modalEl) {
-      // Modal handling
+      // Re-render modal if open? (Simple way: close it on re-render or keep logic separate. 
+      // For now, let's close it on re-render to avoid stale state, or implement update logic)
+      // Better: don't re-render modal on every state change if interacting.
+      // But render() is called on state change. 
+      // We'll leave modal handling to separate methods.
     }
   }
 
@@ -297,21 +285,16 @@ class NWP500VisualCard extends HTMLElement {
       :host { display: block; }
       ha-card {
         overflow: hidden;
-        background: var(--ha-card-background, var(--card-background-color, white));
-        border-radius: var(--ha-card-border-radius, 4px);
-        box-shadow: var(--ha-card-box-shadow, 0px 2px 1px -1px rgba(0,0,0,0.2), 0px 1px 1px 0px rgba(0,0,0,0.14), 0px 1px 3px 0px rgba(0,0,0,0.12));
-      }
-      .card-content {
-        padding: 0;
-        display: flex;
-        flex-direction: column;
+        background: none;
+        border: none;
+        box-shadow: none;
       }
       .visual-container {
         position: relative;
         width: 100%;
         max-width: 400px;
         margin: 0 auto;
-        aspect-ratio: 1; /* Square-ish for new image */
+        display: inline-block; /* Let image dictate height */
       }
       .bg-image {
         width: 100%;
@@ -330,19 +313,20 @@ class NWP500VisualCard extends HTMLElement {
       }
 
       /* Screen Area - The Black Panel */
+      /* Targeted for v2.0.0 image (stout/square) */
       .screen-overlay {
-        top: 17%;
+        top: 17%; /* Moved down to match physical screen top edge */
         left: 50%;
         transform: translateX(-50%);
         width: 24%;
-        height: 20%;
+        height: 20%; /* Expanded height to allow true vertical centering */
         display: flex;
         align-items: center;
         justify-content: center;
       }
       .screen-content {
         color: #fff;
-        text-shadow: 0 0 10px rgba(0,255,0,0.4);
+        text-shadow: 0 0 10px rgba(0,255,0,0.4); /* Slight green glow hint for "active" look? Or just white. Let's stick to white/crisp. */
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -359,15 +343,67 @@ class NWP500VisualCard extends HTMLElement {
         opacity: 0.9;
         display: flex;
         align-items: center;
-        justify-content: center;
         gap: 3px;
       }
       .screen-mode ha-icon { --mdc-icon-size: 14px; }
       .screen-mode span { line-height: 1; margin-top: 1px; }
       
+      /* Badges - On the Tank */
+      .badge {
+        background: rgba(0, 0, 0, 0.6); /* Darker, more transparent */
+        backdrop-filter: blur(4px);
+        border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 50%; /* Circular or pill? Let's try compact pills or circles */
+        width: 45px; height: 45px; /* Fixed circle size for compactness */
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        transition: all 0.2s ease;
+      }
+      .badge:hover { background: rgba(0, 0, 0, 0.8); transform: scale(1.1); border-color: rgba(255,255,255,0.4); z-index: 20; }
+      
+      /* Icon small or hidden? Let's keep icon small */
+      .badge ha-icon { --mdc-icon-size: 14px; margin-bottom: 0; color: #80cbc4; opacity: 0.9; }
+      .badge-label { display: none; /* Hide label for compact look, use icon */ }
+      .badge-value { font-size: 11px; font-weight: 700; line-height: 1; margin-top: 1px; }
+
+      /* Temporary Debug Overlay for Tank Bounds */
+      .debug-overlay {
+        position: absolute;
+        top: 0; bottom: 0; left: 0; right: 0;
+        border: 2px solid cyan;
+        pointer-events: none;
+        z-index: 100;
+        opacity: 0.5;
+      }
+      .tank-bounds-overlay {
+        position: absolute;
+        top: 10%; bottom: 10%; left: 25%; right: 25%;
+        border: 2px dashed rgba(255,0,0,0.7);
+        pointer-events: none;
+        z-index: 99;
+      }
+
+      /* Positions on the Tank Image */
+      /* Outlet (Hot) - Mid-Tank, Left */
+      .outlet-badge { top: 42%; left: 28%; }
+      
+      /* Charge - Mid-Tank, Right */
+      .charge-badge { top: 42%; right: 28%; }
+      
+      /* Lower Temp - Bottom area */
+      .lower-badge { bottom: 25%; left: 50%; transform: translateX(-50%); } 
+
+      /* Mode Indicator Removed (Redundant) */
+      .mode-label { display: none; }
+      .mode-value { font-size: 10px; color: #ccc; letter-spacing: 0.5px; }
       /* Heating Status - Independent Fire Icon */
       .heating-status {
-        top: 38%;
+        top: 38%; /* Just below the screen (17% + 20% = 37%) */
         left: 50%;
         transform: translateX(-50%);
         color: #ff9800;
@@ -384,61 +420,6 @@ class NWP500VisualCard extends HTMLElement {
         0% { opacity: 0.7; transform: scale(0.9); }
         50% { opacity: 1; transform: scale(1.1); }
         100% { opacity: 0.7; transform: scale(0.9); }
-      }
-
-      /* Stats Footer */
-      .stats-container {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
-        padding: 16px;
-        background: var(--primary-background-color, #fafafa);
-        border-top: 1px solid var(--divider-color, #e0e0e0);
-      }
-      .stat-item {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: flex-start;
-        text-align: center;
-        cursor: pointer;
-      }
-      .stat-icon-circle {
-        background: var(--card-background-color, white);
-        border: 1px solid var(--divider-color, #e0e0e0);
-        border-radius: 50%;
-        width: 36px;
-        height: 36px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 4px;
-        color: var(--primary-color, #03a9f4);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-      }
-      .stat-icon-circle ha-icon { --mdc-icon-size: 18px; }
-      
-      .stat-info {
-        display: flex;
-        flex-direction: column;
-      }
-      .stat-label {
-        font-size: 10px;
-        text-transform: uppercase;
-        color: var(--secondary-text-color, #727272);
-        margin-bottom: 2px;
-      }
-      .stat-value {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--primary-text-color, #212121);
-      }
-      
-      /* Mode stat specific style if needed */
-      .mode-stat .stat-value {
-        text-transform: capitalize;
-        font-size: 12px;
-        line-height: 1.1;
       }
     `;
   }
