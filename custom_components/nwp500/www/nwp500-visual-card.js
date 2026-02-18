@@ -141,9 +141,7 @@ class NWP500VisualCard extends HTMLElement {
             <ha-icon icon="mdi:fire" class="burning-icon"></ha-icon>
           </div>` : ''}
 
-          <!-- Debug Overlays -->
-          <div class="debug-overlay" title="Card Boundary"></div>
-          <div class="tank-bounds-overlay" title="Projected Tank Area"></div>
+          <!-- Debug Overlays Removed -->
 
           <!-- DHW Outlet (Top Left approx) -->
           <div class="overlay badge outlet-badge">
@@ -270,6 +268,30 @@ class NWP500VisualCard extends HTMLElement {
       this._showControlModal(stateObj, targetTemp, minTemp, maxTemp, settingFriendly);
     });
 
+    const outletBadge = this.shadowRoot.querySelector('.outlet-badge');
+    if (outletBadge) {
+      outletBadge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._showHistoryModal('DHW Outlet Temperature', dhwTemp, '', this._config.dhw_temp);
+      });
+    }
+
+    const chargeBadge = this.shadowRoot.querySelector('.charge-badge');
+    if (chargeBadge) {
+      chargeBadge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._showHistoryModal('DHW Charge', dhwCharge, '', this._config.dhw_charge);
+      });
+    }
+
+    const lowerBadge = this.shadowRoot.querySelector('.lower-badge');
+    if (lowerBadge) {
+      lowerBadge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this._showHistoryModal('Lower Tank Temperature', tankLower, '', this._config.tank_lower);
+      });
+    }
+
 
     if (this._modalEl) {
       // Re-render modal if open? (Simple way: close it on re-render or keep logic separate. 
@@ -371,22 +393,7 @@ class NWP500VisualCard extends HTMLElement {
       .badge-label { display: none; /* Hide label for compact look, use icon */ }
       .badge-value { font-size: 11px; font-weight: 700; line-height: 1; margin-top: 1px; }
 
-      /* Temporary Debug Overlay for Tank Bounds */
-      .debug-overlay {
-        position: absolute;
-        top: 0; bottom: 0; left: 0; right: 0;
-        border: 2px solid cyan;
-        pointer-events: none;
-        z-index: 100;
-        opacity: 0.5;
-      }
-      .tank-bounds-overlay {
-        position: absolute;
-        top: 10%; bottom: 10%; left: 25%; right: 25%;
-        border: 2px dashed rgba(255,0,0,0.7);
-        pointer-events: none;
-        z-index: 99;
-      }
+      /* Debug Overlays Removed */
 
       /* Positions on the Tank Image */
       /* Outlet (Hot) - Mid-Tank, Left */
@@ -555,6 +562,135 @@ class NWP500VisualCard extends HTMLElement {
       }
       close();
     });
+  }
+
+  async _fetchHistory(entityId) {
+    const end = new Date();
+    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000); // 24h ago
+    const startStr = start.toISOString();
+    const endStr = end.toISOString();
+
+    // minimal_response to save bandwidth, significant_changes_only=0 for resolution
+    try {
+      const history = await this._hass.callApi('GET', `history/period/${startStr}?filter_entity_id=${entityId}&end_time=${endStr}&minimal_response`);
+      return history[0] || [];
+    } catch (e) {
+      console.warn('NWP500 Card: Failed to fetch history', e);
+      return [];
+    }
+  }
+
+  _renderSparkline(history, width, height) {
+    if (!history || history.length < 2) return '';
+
+    // Parse data
+    const data = history.map(h => ({
+      t: new Date(h.last_changed).getTime(),
+      v: Number(h.state)
+    })).filter(d => !isNaN(d.v));
+
+    if (data.length === 0) return '';
+
+    const minTime = data[0].t;
+    const maxTime = data[data.length - 1].t;
+    const timeRange = maxTime - minTime;
+
+    // Find min/max value for scaling
+    let minVal = data[0].v;
+    let maxVal = data[0].v;
+    data.forEach(d => {
+      if (d.v < minVal) minVal = d.v;
+      if (d.v > maxVal) maxVal = d.v;
+    });
+
+    // Add some padding
+    const range = maxVal - minVal;
+    const padding = range * 0.1 || 1; // Avoid divide by zero if flat
+    const plotMin = minVal - padding;
+    const plotMax = maxVal + padding;
+    const plotRange = plotMax - plotMin;
+
+    // Generate path
+    // X = (t - minTime) / timeRange * width
+    // Y = height - (v - plotMin) / plotRange * height
+
+    let path = `M 0,${height} `; // Start bottom-left
+
+    data.forEach((d, i) => {
+      const x = ((d.t - minTime) / timeRange) * width;
+      const y = height - ((d.v - plotMin) / plotRange) * height;
+      if (i === 0) path = `M ${x},${y} `;
+      else path += `L ${x},${y} `;
+    });
+
+    return path;
+  }
+
+  async _showHistoryModal(title, state, unit, entityId) {
+    if (this._modalEl) return;
+
+    // Fetch history first (show loading?)
+    // Let's create modal with loading state
+    const modalStyle = `
+      .nwp-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+      .nwp-modal { background: #222; border: 1px solid #444; border-radius: 12px; width: 90%; max-width: 400px; padding: 20px; color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+      .nwp-h { font-size: 18px; margin-bottom: 20px; font-weight: 600; display: flex; justify-content: space-between; }
+      .nwp-stat-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+      .nwp-stat-val { font-size: 32px; font-weight: 300; }
+      .nwp-stat-unit { font-size: 16px; color: #aaa; }
+      .nwp-chart-container { width: 100%; height: 150px; background: rgba(255,255,255,0.05); border-radius: 8px; overflow: hidden; position: relative; }
+      .nwp-chart-svg { width: 100%; height: 100%; }
+      .nwp-chart-path { fill: none; stroke: #00BCD4; stroke-width: 2; vector-effect: non-scaling-stroke; }
+      .nwp-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #aaa; font-size: 12px; }
+    `;
+
+    const div = document.createElement('div');
+    div.innerHTML = `
+      <style>${modalStyle}</style>
+      <div class="nwp-modal-overlay">
+        <div class="nwp-modal">
+          <div class="nwp-h">
+            <span>${title}</span>
+            <span style="cursor:pointer" id="nwpClose">✕</span>
+          </div>
+          <div class="nwp-stat-row">
+            <span class="nwp-stat-val">${state}</span>
+            <span class="nwp-stat-unit">${unit}</span>
+          </div>
+          <div class="nwp-chart-container">
+            <div class="nwp-loading">Loading 24h History...</div>
+            <svg class="nwp-chart-svg" viewBox="0 0 400 150" preserveAspectRatio="none">
+              <path class="nwp-chart-path" d="" />
+            </svg>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(div);
+    this._modalEl = div;
+
+    const close = () => { div.remove(); this._modalEl = null; };
+    div.querySelector('#nwpClose').addEventListener('click', close);
+    div.querySelector('.nwp-modal-overlay').addEventListener('click', (e) => {
+      if (e.target === div.querySelector('.nwp-modal-overlay')) close();
+    });
+
+    // Fetch and render
+    const history = await this._fetchHistory(entityId);
+    const path = this._renderSparkline(history, 400, 150);
+
+    const svgPath = div.querySelector('.nwp-chart-path');
+    const loading = div.querySelector('.nwp-loading');
+
+    if (loading) loading.style.display = 'none';
+    if (svgPath) {
+      if (path) svgPath.setAttribute('d', path);
+      else if (loading) {
+        loading.textContent = 'No data available';
+        loading.style.display = 'block';
+      }
+    }
   }
 }
 
