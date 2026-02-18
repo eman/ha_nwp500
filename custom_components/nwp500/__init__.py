@@ -172,6 +172,7 @@ SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
         vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
     }
 )
+)
 
 SERVICE_DEVICE_SCHEMA = vol.Schema(
     {

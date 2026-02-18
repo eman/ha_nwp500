@@ -3,7 +3,7 @@
  * Visualizes water heater status using a device image with data overlays.
  */
 
-const CARD_VERSION = '2.1.6';
+const CARD_VERSION = '2.2.0';
 
 class NWP500VisualCard extends HTMLElement {
   constructor() {
