@@ -65,12 +65,12 @@ class NWP500ScheduleCard extends HTMLElement {
   }
 
   static getStubConfig() {
-    return { device_id: '', title: 'Water Heater Schedule' };
+    return { entity: '', title: 'Water Heater Schedule' };
   }
 
   setConfig(config) {
-    if (!config.device_id) {
-      throw new Error('device_id is required');
+    if (!config.device_id && !config.entity) {
+      throw new Error('Entity or device_id is required');
     }
     this._config = { title: 'Water Heater Schedule', ...config };
   }
@@ -107,9 +107,11 @@ class NWP500ScheduleCard extends HTMLElement {
   async _requestReservations() {
     if (!this._hass) return;
     try {
-      await this._hass.callService('nwp500', 'request_reservations', {
-        device_id: this._config.device_id,
-      });
+      const serviceData = {};
+      if (this._config.entity) serviceData.entity_id = this._config.entity;
+      else if (this._config.device_id) serviceData.device_id = this._config.device_id;
+
+      await this._hass.callService('nwp500', 'request_reservations', serviceData);
     } catch (e) {
       console.warn('NWP500 Schedule Card: Could not request reservations', e);
     }
@@ -130,11 +132,14 @@ class NWP500ScheduleCard extends HTMLElement {
   async _updateReservations(reservations, enabled) {
     if (!this._hass) return;
     try {
-      await this._hass.callService('nwp500', 'update_reservations', {
-        device_id: this._config.device_id,
+      const serviceData = {
         reservations: reservations,
         enabled: enabled,
-      });
+      };
+      if (this._config.entity) serviceData.entity_id = this._config.entity;
+      else if (this._config.device_id) serviceData.device_id = this._config.device_id;
+
+      await this._hass.callService('nwp500', 'update_reservations', serviceData);
       // Refresh after short delay
       setTimeout(() => this._requestReservations(), 1500);
     } catch (e) {

@@ -3,7 +3,7 @@
  * Visualizes water heater status using a device image with data overlays.
  */
 
-const CARD_VERSION = '1.0.0';
+const CARD_VERSION = '2.1.1';
 
 class NWP500VisualCard extends HTMLElement {
   constructor() {
@@ -32,7 +32,12 @@ class NWP500VisualCard extends HTMLElement {
     if (!config.entity) {
       throw new Error('Entity (water_heater) is required');
     }
-    this._config = config;
+    const defaults = {
+      dhw_temp: 'sensor.navien_nwp500_dhw_outlet_temperature',
+      dhw_charge: 'sensor.navien_nwp500_dhw_charge_percentage',
+      tank_lower: 'sensor.navien_nwp500_tank_lower_temperature'
+    };
+    this._config = { ...defaults, ...config };
   }
 
   set hass(hass) {
@@ -86,13 +91,17 @@ class NWP500VisualCard extends HTMLElement {
     const modeFriendly = modeData.label;
     const settingFriendly = modeData.label;
 
-    const targetTemp = stateObj.attributes.temperature;
-    const minTemp = stateObj.attributes.min_temp || 110;
-    const maxTemp = stateObj.attributes.max_temp || 140; // Default range if missing
-
     // Check units
     const useCelsius = this._hass.config.unit_system.temperature === '°C';
     const tempUnit = useCelsius ? '°C' : '°F';
+
+    // Default limits based on unit system
+    const minTempDefault = useCelsius ? 35 : 100; // ~95F / 100F
+    const maxTempDefault = useCelsius ? 60 : 140; // ~140F
+
+    const targetTemp = stateObj.attributes.temperature;
+    const minTemp = stateObj.attributes.min_temp || minTempDefault;
+    const maxTemp = stateObj.attributes.max_temp || maxTempDefault;
 
     // Cache bust image
     const now = Date.now();
@@ -112,7 +121,7 @@ class NWP500VisualCard extends HTMLElement {
       <ha-card>
         <div class="visual-container">
           <!-- Background Image -->
-          <img src="/nwp500/nwp500-visual-card.png?v=2.0.6" class="bg-image">
+          <img src="/nwp500/nwp500-visual-card.png?v=2.0.11" class="bg-image">
 
           <!-- Overlays -->
           
@@ -208,11 +217,11 @@ class NWP500VisualCard extends HTMLElement {
       /* Screen Area - The Black Panel */
       /* Targeted for v2.0.0 image (stout/square) */
       .screen-overlay {
-        top: 24%; /* Moved down slightly to fit new image screen pos */
+        top: 17%; /* Moved down to match physical screen top edge */
         left: 50%;
         transform: translateX(-50%);
         width: 24%;
-        height: 14%;
+        height: 20%; /* Expanded height to allow true vertical centering */
         display: flex;
         align-items: center;
         justify-content: center;
@@ -393,12 +402,12 @@ class NWP500VisualCard extends HTMLElement {
             away_mode: true
           });
         } else if (mode === 'off') {
-          // Actually off is tricky, integration maps 'off' to operation_mode but relies on set_operation_mode
-          await this._hass.callService('water_heater', 'set_operation_mode', {
-            entity_id: stateObj.entity_id,
-            operation_mode: 'off'
+          // Use turn_off service for Off mode
+          await this._hass.callService('water_heater', 'turn_off', {
+            entity_id: stateObj.entity_id
           });
         } else {
+          // For other modes, ensure away mode is off first if active
           if (stateObj.attributes.away_mode === 'on') {
             await this._hass.callService('water_heater', 'set_away_mode', {
               entity_id: stateObj.entity_id,

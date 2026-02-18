@@ -12,11 +12,12 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_DEVICE_ID, Platform
+from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
@@ -105,7 +106,8 @@ def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
 SERVICE_SET_RESERVATION_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Required(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
             vol.Required(ATTR_ENABLED): cv.boolean,
             vol.Required(ATTR_DAYS): vol.All(
                 cv.ensure_list, [vol.In(VALID_DAYS)]
@@ -122,22 +124,25 @@ SERVICE_SET_RESERVATION_SCHEMA = vol.All(
             ),
         }
     ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
     validate_reservation_temperature,
 )
 
-SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_RESERVATIONS): vol.All(
-            cv.ensure_list,
-            [
-                vol.Schema(
-                    {
-                        vol.Required("enable"): vol.In(
-                            [1, 2], msg="Enable must be 2 (On) or 1 (Off)"
-                        ),
-                        vol.Required("week"): vol.All(
-                            vol.Coerce(int),
+SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Required(ATTR_RESERVATIONS): vol.All(
+                cv.ensure_list,
+                [
+                    vol.Schema(
+                        {
+                            vol.Required("enable"): vol.In(
+                                [1, 2], msg="Enable must be 2 (On) or 1 (Off)"
+                            ),
+                            vol.Required("week"): vol.All(
+                                vol.Coerce(int),
                             vol.Range(min=0, max=254),
                             msg="Week must be a bitfield (0-254, Sun=128..Sat=2)",
                         ),
@@ -236,10 +241,14 @@ SERVICE_CONFIGURE_TOU_SCHEMA = vol.Schema(
     }
 )
 
-SERVICE_REQUEST_TOU_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-    }
+SERVICE_REQUEST_TOU_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
 
@@ -258,8 +267,21 @@ class NWP500ServiceHandler:
         self, call: ServiceCall
     ) -> tuple[NWP500DataUpdateCoordinator, str]:
         """Get coordinator and MAC address from service call."""
-        device_id = call.data[ATTR_DEVICE_ID]
         device_registry = dr.async_get(self.hass)
+        entity_registry = er.async_get(self.hass)
+
+        device_id = call.data.get(ATTR_DEVICE_ID)
+        entity_id = call.data.get(ATTR_ENTITY_ID)
+
+        if entity_id:
+            entity_entry = entity_registry.async_get(entity_id)
+            if not entity_entry:
+                raise HomeAssistantError(f"Entity {entity_id} not found")
+            device_id = entity_entry.device_id
+
+        if not device_id:
+            raise HomeAssistantError("Neither device_id nor entity_id provided")
+
         device_entry = device_registry.async_get(device_id)
 
         if not device_entry:
