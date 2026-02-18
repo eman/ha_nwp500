@@ -3,7 +3,7 @@
  * Visualizes water heater status using a device image with data overlays.
  */
 
-const CARD_VERSION = '2.1.5';
+const CARD_VERSION = '2.1.6';
 
 class NWP500VisualCard extends HTMLElement {
   constructor() {
@@ -15,8 +15,7 @@ class NWP500VisualCard extends HTMLElement {
   }
 
   static getConfigElement() {
-    // Just a stub for now, use YAML
-    return document.createElement('div');
+    return document.createElement('nwp500-visual-card-editor');
   }
 
   static getStubConfig() {
@@ -119,54 +118,71 @@ class NWP500VisualCard extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${this._getStyles()}</style>
       <ha-card>
-        <div class="visual-container">
-          <!-- Background Image -->
-          <img src="/nwp500/nwp500-visual-card.png?v=2.0.11" class="bg-image" crossOrigin="anonymous" id="bgImage">
+        <div class="card-content">
+          <div class="visual-container">
+            <!-- Background Image -->
+            <img src="/nwp500/nwp500-visual-card.png?v=2.0.11" class="bg-image" crossOrigin="anonymous" id="bgImage">
 
-          <!-- Overlays -->
-          
-          <!-- Screen Area (Control Panel) -->
-          <div class="overlay screen-overlay" id="screenArea">
-            <div class="screen-content ${isError ? 'error' : ''}">
-              <div class="screen-temp">${targetDisplay}</div>
-              <div class="screen-mode">
-                <ha-icon icon="${modeData.icon}"></ha-icon>
-                <span>${modeData.label}</span>
+            <!-- Overlays -->
+            
+            <!-- Screen Area (Control Panel) -->
+            <div class="overlay screen-overlay" id="screenArea">
+              <div class="screen-content ${isError ? 'error' : ''}">
+                <div class="screen-temp">${targetDisplay}</div>
+                <div class="screen-mode">
+                  <ha-icon icon="${modeData.icon}"></ha-icon>
+                  <span>${modeData.label}</span>
+                </div>
               </div>
             </div>
+
+            <!-- Heating Status (Fire Icon) - Independent Overlay -->
+            ${isBurning ? `
+            <div class="overlay heating-status" id="heatingStatus">
+              <ha-icon icon="mdi:fire" class="burning-icon"></ha-icon>
+            </div>` : ''}
+
+            <!-- Current Mode Indicator (Bottom Center of Image - Optional context) -->
+            <!-- Removing from image area as requested to avoid overlap -->
           </div>
 
-          <!-- Heating Status (Fire Icon) - Independent Overlay -->
-          ${isBurning ? `
-          <div class="overlay heating-status" id="heatingStatus">
-            <ha-icon icon="mdi:fire" class="burning-icon"></ha-icon>
-          </div>` : ''}
+          <!-- Stats Footer -->
+          <div class="stats-container">
+            <!-- DHW Outlet -->
+            <div class="stat-item">
+              <div class="stat-icon-circle"><ha-icon icon="mdi:thermometer"></ha-icon></div>
+              <div class="stat-info">
+                <div class="stat-label">Outlet</div>
+                <div class="stat-value">${dhwTemp}</div>
+              </div>
+            </div>
 
-          <!-- DHW Outlet (Top Left approx) -->
-          <div class="overlay badge outlet-badge">
-            <ha-icon icon="mdi:thermometer"></ha-icon>
-            <div class="badge-label">Outlet</div>
-            <div class="badge-value">${dhwTemp}</div>
-          </div>
+            <!-- DHW Charge -->
+            <div class="stat-item">
+              <div class="stat-icon-circle"><ha-icon icon="mdi:water-percent"></ha-icon></div>
+              <div class="stat-info">
+                <div class="stat-label">Charge</div>
+                <div class="stat-value">${dhwCharge}</div>
+              </div>
+            </div>
 
-          <!-- DHW Charge (Top Right approx) -->
-          <div class="overlay badge charge-badge">
-            <ha-icon icon="mdi:water-percent"></ha-icon>
-            <div class="badge-label">Charge</div>
-            <div class="badge-value">${dhwCharge}</div>
-          </div>
+            <!-- Lower Tank -->
+            <div class="stat-item">
+              <div class="stat-icon-circle"><ha-icon icon="mdi:thermometer-low"></ha-icon></div>
+              <div class="stat-info">
+                <div class="stat-label">Lower</div>
+                <div class="stat-value">${tankLower}</div>
+              </div>
+            </div>
 
-          <!-- Lower Tank (Bottom Right approx) -->
-          <div class="overlay badge lower-badge">
-            <ha-icon icon="mdi:thermometer-low"></ha-icon>
-            <div class="badge-label">Lower</div>
-            <div class="badge-value">${tankLower}</div>
-          </div>
-          
-          <!-- Current Mode Indicator (Bottom Center) -->
-          <div class="overlay mode-indicator">
-            <span class="mode-label">Running:</span>
-            <span class="mode-value">${modeFriendly}</span>
+            <!-- Mode (Moved from image) -->
+            <div class="stat-item mode-stat">
+              <div class="stat-icon-circle"><ha-icon icon="${modeData.icon}"></ha-icon></div>
+              <div class="stat-info">
+                <div class="stat-label">Mode</div>
+                <div class="stat-value">${modeFriendly}</div>
+              </div>
+            </div>
           </div>
         </div>
       </ha-card>
@@ -259,8 +275,6 @@ class NWP500VisualCard extends HTMLElement {
               const heatingTop = ((lastY / h) * 100) + 2; // 2% margin below screen
               heatingEl.style.top = `${heatingTop}%`;
             }
-
-            //console.log('Detected Screen:', { finalTop, finalHeight, finalLeft, finalWidth });
           }
         }
       } catch (e) {
@@ -273,13 +287,8 @@ class NWP500VisualCard extends HTMLElement {
       this._showControlModal(stateObj, targetTemp, minTemp, maxTemp, settingFriendly);
     });
 
-
     if (this._modalEl) {
-      // Re-render modal if open? (Simple way: close it on re-render or keep logic separate. 
-      // For now, let's close it on re-render to avoid stale state, or implement update logic)
-      // Better: don't re-render modal on every state change if interacting.
-      // But render() is called on state change. 
-      // We'll leave modal handling to separate methods.
+      // Modal handling
     }
   }
 
@@ -288,9 +297,14 @@ class NWP500VisualCard extends HTMLElement {
       :host { display: block; }
       ha-card {
         overflow: hidden;
-        background: none;
-        border: none;
-        box-shadow: none;
+        background: var(--ha-card-background, var(--card-background-color, white));
+        border-radius: var(--ha-card-border-radius, 4px);
+        box-shadow: var(--ha-card-box-shadow, 0px 2px 1px -1px rgba(0,0,0,0.2), 0px 1px 1px 0px rgba(0,0,0,0.14), 0px 1px 3px 0px rgba(0,0,0,0.12));
+      }
+      .card-content {
+        padding: 0;
+        display: flex;
+        flex-direction: column;
       }
       .visual-container {
         position: relative;
@@ -316,20 +330,19 @@ class NWP500VisualCard extends HTMLElement {
       }
 
       /* Screen Area - The Black Panel */
-      /* Targeted for v2.0.0 image (stout/square) */
       .screen-overlay {
-        top: 17%; /* Moved down to match physical screen top edge */
+        top: 17%;
         left: 50%;
         transform: translateX(-50%);
         width: 24%;
-        height: 20%; /* Expanded height to allow true vertical centering */
+        height: 20%;
         display: flex;
         align-items: center;
         justify-content: center;
       }
       .screen-content {
         color: #fff;
-        text-shadow: 0 0 10px rgba(0,255,0,0.4); /* Slight green glow hint for "active" look? Or just white. Let's stick to white/crisp. */
+        text-shadow: 0 0 10px rgba(0,255,0,0.4);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -346,59 +359,15 @@ class NWP500VisualCard extends HTMLElement {
         opacity: 0.9;
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: 3px;
       }
       .screen-mode ha-icon { --mdc-icon-size: 14px; }
       .screen-mode span { line-height: 1; margin-top: 1px; }
       
-      /* Badges - On the Tank */
-      .badge {
-        background: rgba(0, 0, 0, 0.6); /* Darker, more transparent */
-        backdrop-filter: blur(4px);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 50%; /* Circular or pill? Let's try compact pills or circles */
-        width: 45px; height: 45px; /* Fixed circle size for compactness */
-        padding: 0;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        color: #fff;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        transition: all 0.2s ease;
-      }
-      .badge:hover { background: rgba(0, 0, 0, 0.8); transform: scale(1.1); border-color: rgba(255,255,255,0.4); z-index: 20; }
-      
-      /* Icon small or hidden? Let's keep icon small */
-      .badge ha-icon { --mdc-icon-size: 14px; margin-bottom: 0; color: #80cbc4; opacity: 0.9; }
-      .badge-label { display: none; /* Hide label for compact look, use icon */ }
-      .badge-value { font-size: 11px; font-weight: 700; line-height: 1; margin-top: 1px; }
-
-      /* Positions on the Tank Image */
-      /* Outlet (Hot) - Left Shoulder */
-      .outlet-badge { top: 25%; left: 22%; }
-      
-      /* Charge - Right Shoulder or Center */
-      /* Let's put Charge on the right shoulder matching outlet */
-      .charge-badge { top: 25%; right: 22%; }
-      
-      /* Lower Temp - Bottom area */
-      .lower-badge { bottom: 25%; left: 50%; transform: translateX(-50%); } 
-
-      /* Mode Indicator - Keep at bottom or remove if redundant with screen? */
-      /* User wanted 'other measurements resized'. Mode is on screen too. */
-      /* Let's keep the pill at the very bottom overlapping the tank feet/base */
-      .mode-indicator {
-        bottom: 5%; left: 50%; transform: translateX(-50%);
-        background: rgba(0,0,0,0.8);
-        padding: 4px 12px; border-radius: 12px;
-        border: none;
-      }
-      .mode-label { display: none; }
-      .mode-value { font-size: 10px; color: #ccc; letter-spacing: 0.5px; }
       /* Heating Status - Independent Fire Icon */
       .heating-status {
-        top: 38%; /* Just below the screen (17% + 20% = 37%) */
+        top: 38%;
         left: 50%;
         transform: translateX(-50%);
         color: #ff9800;
@@ -415,6 +384,61 @@ class NWP500VisualCard extends HTMLElement {
         0% { opacity: 0.7; transform: scale(0.9); }
         50% { opacity: 1; transform: scale(1.1); }
         100% { opacity: 0.7; transform: scale(0.9); }
+      }
+
+      /* Stats Footer */
+      .stats-container {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        padding: 16px;
+        background: var(--primary-background-color, #fafafa);
+        border-top: 1px solid var(--divider-color, #e0e0e0);
+      }
+      .stat-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        text-align: center;
+        cursor: pointer;
+      }
+      .stat-icon-circle {
+        background: var(--card-background-color, white);
+        border: 1px solid var(--divider-color, #e0e0e0);
+        border-radius: 50%;
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 4px;
+        color: var(--primary-color, #03a9f4);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      }
+      .stat-icon-circle ha-icon { --mdc-icon-size: 18px; }
+      
+      .stat-info {
+        display: flex;
+        flex-direction: column;
+      }
+      .stat-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        color: var(--secondary-text-color, #727272);
+        margin-bottom: 2px;
+      }
+      .stat-value {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--primary-text-color, #212121);
+      }
+      
+      /* Mode stat specific style if needed */
+      .mode-stat .stat-value {
+        text-transform: capitalize;
+        font-size: 12px;
+        line-height: 1.1;
       }
     `;
   }
@@ -553,4 +577,45 @@ class NWP500VisualCard extends HTMLElement {
   }
 }
 
+class NWP500VisualCardEditor extends HTMLElement {
+  setConfig(config) {
+    this._config = config;
+    this.innerHTML = `
+      <div class="card-config">
+        <div>
+          <paper-input label="Entity" .value="${config.entity}" class="config-entity"></paper-input>
+        </div>
+      </div>
+    `;
+    this.querySelector('.config-entity').addEventListener('change', this._valueChanged.bind(this));
+  }
+
+  _valueChanged(ev) {
+    if (!this._config || !this._hass) return;
+    const target = ev.target;
+    // Simple single value update for now
+    if (this._config.entity === target.value) return;
+
+    config = {
+      ...this._config,
+      entity: target.value
+    };
+    const event = new Event("config-changed", {
+      bubbles: true,
+      composed: true
+    });
+    event.detail = { config };
+    this.dispatchEvent(event);
+  }
+}
+
+customElements.define('nwp500-visual-card-editor', NWP500VisualCardEditor);
 customElements.define('nwp500-visual-card', NWP500VisualCard);
+
+window.customCards = window.customCards || [];
+window.customCards.push({
+  type: "nwp500-visual-card",
+  name: "NWP500 Visual Card",
+  preview: true,
+  description: "Visual representation of the NWP500 water heater status"
+});
