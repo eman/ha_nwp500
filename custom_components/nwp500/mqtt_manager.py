@@ -25,6 +25,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Reconnection backoff delays (seconds): 2s, 5s, 15s, 30s, 60s cap
+_RECONNECT_BACKOFF_DELAYS: list[float] = [2.0, 5.0, 15.0, 30.0, 60.0]
+
 
 def get_aws_error_name(exception: Any) -> str:
     """Extract the name from an AwsCrtError safely."""
@@ -62,6 +65,8 @@ class NWP500MqttManager:
         self.connected_since: float | None = None
         self.reconnection_in_progress: bool = False
         self.consecutive_timeouts: int = 0
+        self._reconnect_attempts: int = 0
+        self._last_reconnect_time: float = 0.0
 
         # Connection state tracking for diagnostics
         self._connection_interruptions: list[dict[str, Any]] = []
@@ -97,6 +102,8 @@ class NWP500MqttManager:
             "connected_since": self.connected_since,
             "consecutive_timeouts": self.consecutive_timeouts,
             "reconnection_in_progress": self.reconnection_in_progress,
+            "reconnect_attempts": self._reconnect_attempts,
+            "last_reconnect_time": self._last_reconnect_time,
             "connection_interruptions": self._connection_interruptions,
         }
 
@@ -112,13 +119,25 @@ class NWP500MqttManager:
                 NavienMqttClient,
             )
 
+            class PatchedNavienMqttClient(NavienMqttClient):
+                """Patched client to handle AWSIoT SDK callback changes."""
+
+                def _on_connection_resumed_internal(
+                    self, return_code: Any, session_present: Any, **kwargs: Any
+                ) -> None:
+                    """Handle connection resumed with extra kwargs."""
+                    super()._on_connection_resumed_internal(
+                        return_code, session_present
+                    )
+
+
             # Initialize diagnostics collector
             self.diagnostics = MqttDiagnosticsCollector(
                 enable_verbose_logging=False
             )
 
             # Token validation deferred to connect() per nwp500-python 7.3.1+
-            self.mqtt_client = NavienMqttClient(
+            self.mqtt_client = PatchedNavienMqttClient(
                 self.auth_client,
                 unit_system=self.unit_system,  # type: ignore[arg-type]
             )
@@ -447,33 +466,66 @@ class NWP500MqttManager:
             return self._handle_aws_error(err, f"command {command}")
 
     async def force_reconnect(self, devices: list[Device]) -> bool:
-        """Force reconnection and re-authenticate tokens if needed."""
+        """Force reconnection with exponential backoff.
+
+        Uses increasing delays between attempts: 2s, 5s, 15s, 30s, 60s (cap).
+        Backoff resets on successful reconnection.
+        """
         if self.reconnection_in_progress:
             return False
 
         self.reconnection_in_progress = True
         try:
-            _LOGGER.warning("Forcing MQTT reconnection...")
+            # Calculate backoff delay based on attempt count
+            delay_index = min(
+                self._reconnect_attempts, len(_RECONNECT_BACKOFF_DELAYS) - 1
+            )
+            backoff_delay = _RECONNECT_BACKOFF_DELAYS[delay_index]
+
+            _LOGGER.warning(
+                "Forcing MQTT reconnection (attempt %d, backoff %.0fs)...",
+                self._reconnect_attempts + 1,
+                backoff_delay,
+            )
 
             # Full teardown
             await self.disconnect()
 
-            # Wait a moment before reconnecting
-            await asyncio.sleep(2.0)
+            # Wait with exponential backoff before reconnecting
+            await asyncio.sleep(backoff_delay)
+
+            self._last_reconnect_time = time.time()
 
             # Re-initialize and connect (connect() will refresh auth tokens)
             if await self.setup():
-                _LOGGER.info("Reconnection successful")
+                _LOGGER.info(
+                    "Reconnection successful after %d attempt(s)",
+                    self._reconnect_attempts + 1,
+                )
                 self.consecutive_timeouts = 0
+                self._reconnect_attempts = 0  # Reset backoff on success
 
                 # Re-subscribe to all devices
                 for device in devices:
                     await self.subscribe_device(device)
                 return True
 
+            # Failed - increment attempt counter for next backoff
+            self._reconnect_attempts += 1
+            _LOGGER.warning(
+                "Reconnection failed (attempt %d). Next backoff: %.0fs",
+                self._reconnect_attempts,
+                _RECONNECT_BACKOFF_DELAYS[
+                    min(
+                        self._reconnect_attempts,
+                        len(_RECONNECT_BACKOFF_DELAYS) - 1,
+                    )
+                ],
+            )
             return False
 
         except Exception as err:
+            self._reconnect_attempts += 1
             _LOGGER.error("Error during forced reconnect: %s", err)
             return False
         finally:

@@ -3,7 +3,7 @@
  * Visualizes water heater status using a device image with data overlays.
  */
 
-const CARD_VERSION = '2.2.0';
+const CARD_VERSION = '2.4.0';
 
 class NWP500VisualCard extends HTMLElement {
   constructor() {
@@ -87,7 +87,6 @@ class NWP500VisualCard extends HTMLElement {
     };
 
     const modeData = MODE_MAP[currentModeRaw] || MODE_MAP[currentModeRaw.toLowerCase()] || { label: currentModeRaw.replace(/_/g, ' '), icon: 'mdi:information' };
-    const modeFriendly = modeData.label;
     const settingFriendly = modeData.label;
 
     // Check units
@@ -103,7 +102,7 @@ class NWP500VisualCard extends HTMLElement {
     const maxTemp = stateObj.attributes.max_temp || maxTempDefault;
 
     // Cache bust image
-    const now = Date.now();
+
 
     // Format values
     const dhwTemp = dhwTempState ? `${Math.round(Number(dhwTempState.state))}${tempUnit}` : '--';
@@ -120,7 +119,7 @@ class NWP500VisualCard extends HTMLElement {
       <ha-card>
         <div class="visual-container">
           <!-- Background Image -->
-          <img src="/nwp500/nwp500-visual-card.png?v=2.0.11" class="bg-image" crossOrigin="anonymous" id="bgImage">
+          <img src="/nwp500/nwp500-visual-card.png?v=2.4.0" class="bg-image" crossOrigin="anonymous" id="bgImage">
 
           <!-- Overlays -->
           
@@ -174,94 +173,7 @@ class NWP500VisualCard extends HTMLElement {
     const screenEl = this.shadowRoot.getElementById('screenArea');
     const heatingEl = this.shadowRoot.getElementById('heatingStatus'); // Might be null if not burning
 
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0);
 
-        const w = canvas.width;
-        const h = canvas.height;
-        const imageData = ctx.getImageData(0, 0, w, h).data;
-
-        // Strategy: Scan vertical center line to find the dark screen box
-        // We expect it roughly in the top half.
-        // Dark threshold: R,G,B all < 40 (tuned for black screen)
-
-        const centerX = Math.floor(w / 2);
-        let firstY = -1;
-        let lastY = -1;
-
-        // 1. Find vertical bounds (top/bottom)
-        for (let y = 0; y < h; y++) {
-          const idx = (y * w + centerX) * 4;
-          const r = imageData[idx];
-          const g = imageData[idx + 1];
-          const b = imageData[idx + 2];
-
-          const isDark = r < 50 && g < 50 && b < 50;
-
-          if (isDark) {
-            if (firstY === -1) firstY = y;
-            lastY = y;
-          } else if (firstY !== -1 && y > firstY + 20) {
-            // If we found a block and now hit light again (and block was big enough), stop.
-            // This prevents finding the bottom footer or feet.
-            break;
-          }
-        }
-
-        if (firstY !== -1 && lastY !== -1) {
-          // 2. Find horizontal bounds (left/right) at the vertical center of the detected block
-          const centerY = Math.floor((firstY + lastY) / 2);
-          let firstX = -1;
-          let lastX = -1;
-
-          for (let x = 0; x < w; x++) {
-            const idx = (centerY * w + x) * 4;
-            const r = imageData[idx];
-            const g = imageData[idx + 1];
-            const b = imageData[idx + 2];
-            const isDark = r < 50 && g < 50 && b < 50;
-
-            if (isDark) {
-              if (firstX === -1) firstX = x;
-              lastX = x;
-            } else if (firstX !== -1 && x > firstX + 20) {
-              // End of screen
-              break;
-            }
-          }
-
-          if (firstX !== -1 && lastX !== -1) {
-            // Refine edges slightly (shrink by 1-2% to be safe inside bezel)
-            const padX = (lastX - firstX) * 0.05;
-            const padY = (lastY - firstY) * 0.05;
-
-            const finalTop = ((firstY + padY) / h) * 100;
-            const finalHeight = ((lastY - firstY - (padY * 2)) / h) * 100;
-            const finalLeft = ((firstX + padX) / w) * 100;
-            const finalWidth = ((lastX - firstX - (padX * 2)) / w) * 100;
-
-            // Apply to screen element
-            screenEl.style.top = `${finalTop}%`;
-            screenEl.style.height = `${finalHeight}%`;
-            screenEl.style.left = `${finalLeft + (finalWidth / 2)}%`; // Styles use center transform
-            screenEl.style.width = `${finalWidth}%`;
-
-            // Apply to heating element (just below bottom edge)
-            if (heatingEl) {
-              const heatingTop = ((lastY / h) * 100) + 2; // 2% margin below screen
-              heatingEl.style.top = `${heatingTop}%`;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('NWP500 Card: Auto-detection failed (likely CORS), using CSS fallback.', e);
-      }
-    };
 
     // Attach listeners
     this.shadowRoot.getElementById('screenArea').addEventListener('click', () => {
@@ -307,9 +219,13 @@ class NWP500VisualCard extends HTMLElement {
       :host { display: block; }
       ha-card {
         overflow: hidden;
-        background: none;
-        border: none;
-        box-shadow: none;
+        background: var(--ha-card-background, var(--card-background-color, white));
+        border: var(--ha-card-border-width, 1px) solid var(--ha-card-border-color, var(--divider-color, #e0e0e0));
+        box-shadow: var(--ha-card-box-shadow, 0px 2px 1px -1px rgba(0,0,0,0.2), 0px 1px 1px 0px rgba(0,0,0,0.14), 0px 1px 3px 0px rgba(0,0,0,0.12));
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 16px 0;
       }
       .visual-container {
         position: relative;
@@ -337,11 +253,11 @@ class NWP500VisualCard extends HTMLElement {
       /* Screen Area - The Black Panel */
       /* Targeted for v2.0.0 image (stout/square) */
       .screen-overlay {
-        top: 17%; /* Moved down to match physical screen top edge */
+        top: 22%; /* Moved down to match new physical screen */
         left: 50%;
         transform: translateX(-50%);
-        width: 24%;
-        height: 20%; /* Expanded height to allow true vertical centering */
+        width: 35%;
+        height: 25%; /* Expanded for larger display */
         display: flex;
         align-items: center;
         justify-content: center;
@@ -357,9 +273,9 @@ class NWP500VisualCard extends HTMLElement {
         width: 100%;
         height: 100%;
       }
-      .screen-temp { font-size: clamp(12px, 3.0vw, 22px); font-weight: 700; line-height: 1; letter-spacing: 1px; margin-bottom: 2px; }
+      .screen-temp { font-size: clamp(20px, 5.0vw, 36px); font-weight: 700; line-height: 1; letter-spacing: 1px; margin-bottom: 2px; }
       .screen-mode { 
-        font-size: clamp(7px, 1.0vw, 10px); 
+        font-size: clamp(10px, 1.5vw, 14px); 
         text-transform: uppercase; 
         font-weight: 500; 
         opacity: 0.9;
@@ -370,12 +286,12 @@ class NWP500VisualCard extends HTMLElement {
       .screen-mode ha-icon { --mdc-icon-size: 14px; }
       .screen-mode span { line-height: 1; margin-top: 1px; }
       
-      /* Badges - On the Tank */
+      /* Badges */
       .badge {
-        background: rgba(0, 0, 0, 0.6); /* Darker, more transparent */
+        background: rgba(255, 255, 255, 0.15); /* Frosted white for black screen */
         backdrop-filter: blur(4px);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 50%; /* Circular or pill? Let's try compact pills or circles */
+        border: 1px solid rgba(255,255,255,0.25);
+        border-radius: 50%;
         width: 45px; height: 45px; /* Fixed circle size for compactness */
         padding: 0;
         display: flex;
@@ -396,21 +312,21 @@ class NWP500VisualCard extends HTMLElement {
       /* Debug Overlays Removed */
 
       /* Positions on the Tank Image */
-      /* Outlet (Hot) - Mid-Tank, Left */
-      .outlet-badge { top: 42%; left: 28%; }
+      /* Outlet (Hot) - Left side of black screen */
+      .outlet-badge { top: 52%; left: 35%; }
       
-      /* Charge - Mid-Tank, Right */
-      .charge-badge { top: 42%; right: 28%; }
+      /* Charge - Right side of black screen */
+      .charge-badge { top: 52%; right: 35%; }
       
-      /* Lower Temp - Bottom area */
-      .lower-badge { bottom: 25%; left: 50%; transform: translateX(-50%); } 
+      /* Lower Temp - Bottom center of black screen */
+      .lower-badge { top: 62%; left: 50%; transform: translateX(-50%); } 
 
       /* Mode Indicator Removed (Redundant) */
       .mode-label { display: none; }
       .mode-value { font-size: 10px; color: #ccc; letter-spacing: 0.5px; }
       /* Heating Status - Independent Fire Icon */
       .heating-status {
-        top: 38%; /* Just below the screen (17% + 20% = 37%) */
+        top: 48%; /* Just below the screen */
         left: 50%;
         transform: translateX(-50%);
         color: #ff9800;
