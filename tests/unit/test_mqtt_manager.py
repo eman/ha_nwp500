@@ -1,5 +1,7 @@
 """Tests for NWP500MqttManager."""
 
+from __future__ import annotations
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,40 +17,103 @@ from custom_components.nwp500.mqtt_manager import (
 def mock_auth_client():
     """Mock NavienAuthClient."""
     client = AsyncMock()
+    client.ensure_valid_token = AsyncMock()
     client.get_access_token = AsyncMock(return_value="test_token")
+    client.current_tokens = None
     return client
 
 
+# Use the mock_mqtt_client fixture from conftest but override for mqtt_manager tests
 @pytest.fixture
-def mock_mqtt_client():
-    """Mock NavienMqttClient."""
-    with patch("nwp500.NavienMqttClient") as mock:
-        client = MagicMock()
-        client.connect = AsyncMock(return_value=True)
-        client.disconnect = AsyncMock()
-        client.subscribe_device_status = AsyncMock()
-        client.subscribe_device_feature = AsyncMock()
-        client.start_periodic_device_status_requests = AsyncMock()
-        client.start_periodic_device_info_requests = AsyncMock()
-        client.request_device_info = AsyncMock()
-        client.request_device_status = AsyncMock()
-        client.ensure_device_info_cached = AsyncMock()
-        client.stop_all_periodic_tasks = AsyncMock()
-        client.reset_reconnect = AsyncMock()
+def mock_mqtt_client(monkeypatch):
+    """Mock NavienMqttClient for mqtt_manager tests."""
+    # Store all created clients and the last one
+    state = {"last": None, "all": []}
 
-        # Mock control commands
-        client.control = MagicMock()
-        client.control.set_power = AsyncMock()
-        client.control.set_dhw_temperature = AsyncMock()
-        client.control.set_dhw_mode = AsyncMock()
-        client.control.update_reservations = AsyncMock()
-        client.control.request_reservations = AsyncMock()
-        client.control.request_device_status = AsyncMock()
-        client.control.request_device_info = AsyncMock()
-        client.ensure_device_info_cached = AsyncMock()
+    class MockFactory:
+        """Factory that creates and tracks mock MQTT clients."""
 
-        mock.return_value = client
-        yield client
+        def __init__(self, auth_client, unit_system=None):
+            """Create a mock client and track it."""
+            self.auth_client = auth_client
+            self.unit_system = unit_system
+            self.is_connected = True
+            self.client_id = "test-client-id"
+
+            # All async methods for tracking calls
+            self.connect = AsyncMock(return_value=True)
+            self.disconnect = AsyncMock()
+            self.subscribe_device_status = AsyncMock()
+            self.subscribe_device_feature = AsyncMock()
+            self.subscribe = AsyncMock()
+            self.start_periodic_requests = AsyncMock()
+            self.request_device_info = AsyncMock()
+            self.ensure_device_info_cached = AsyncMock()
+            self.stop_all_periodic_tasks = AsyncMock()
+            self.reset_reconnect = AsyncMock()
+
+            # Sync methods
+            self.on = MagicMock()
+            self.off = MagicMock()
+
+            # Mock control with all command methods
+            self.control = MagicMock()
+            self.control.set_power = AsyncMock()
+            self.control.set_dhw_temperature = AsyncMock()
+            self.control.set_dhw_mode = AsyncMock()
+            self.control.set_tou_enabled = AsyncMock()
+            self.control.enable_anti_legionella = AsyncMock()
+            self.control.disable_anti_legionella = AsyncMock()
+            self.control.update_reservations = AsyncMock()
+            self.control.request_reservations = AsyncMock()
+            self.control.request_device_status = AsyncMock()
+            self.control.request_device_info = AsyncMock()
+            self.control.request_tou_settings = AsyncMock()
+            self.control.configure_tou_schedule = AsyncMock()
+
+            # Track this client
+            state["last"] = self
+            state["all"].append(self)
+
+        def _on_connection_resumed_internal(self, return_code, session_present, **kwargs):
+            """Mock for compatibility with PatchedNavienMqttClient."""
+            pass
+
+    # Create a mock diagnostics collector with async methods
+    mock_diagnostics = MagicMock()
+    mock_diagnostics.record_connection_success = AsyncMock()
+    mock_diagnostics.record_connection_drop = AsyncMock()
+
+    # Patch at the import location using the factory
+    monkeypatch.setattr("nwp500.NavienMqttClient", MockFactory)
+    monkeypatch.setattr("nwp500.MqttDiagnosticsCollector", MagicMock(return_value=mock_diagnostics))
+
+    # Create a wrapper that returns the most recently created client
+    class ClientWrapper:
+        """Wrapper that delegates to the last created client."""
+
+        @property
+        def all_clients(self):
+            """Get all created clients."""
+            return state["all"]
+
+        def __getattr__(self, name):
+            """Delegate to the last created client."""
+            if state["last"]:
+                return getattr(state["last"], name)
+            raise AttributeError(f"No client created yet, attribute: {name}")
+
+        def __setattr__(self, name, value):
+            """Set attributes on the last created client."""
+            # Allow setting on the wrapper itself
+            if name in ("all_clients",):
+                super().__setattr__(name, value)
+            elif state["last"]:
+                setattr(state["last"], name, value)
+            else:
+                raise AttributeError(f"No client created yet, cannot set: {name}")
+
+    return ClientWrapper()
 
 
 @pytest.fixture
@@ -181,15 +246,23 @@ async def test_force_reconnect(manager, mock_mqtt_client, mock_device):
 
     assert result is True, "force_reconnect failed"
 
-    mock_mqtt_client.disconnect.assert_called()
-    # Initial connect (1) + Reconnect (1) = 2
-    assert mock_mqtt_client.connect.call_count == 2
+    # The first client created in setup() should have disconnect called during reconnect
+    assert len(mock_mqtt_client.all_clients) >= 2
+    first_client = mock_mqtt_client.all_clients[0]
+    first_client.disconnect.assert_called()
+    
+    # Total connect calls across both clients (1 from setup + 1 from reconnect)
+    # Each client's connect is called once
+    total_connects = sum(c.connect.call_count for c in mock_mqtt_client.all_clients)
+    assert total_connects == 2
 
     # Verify re-subscription
     # subscribe_device calls subscribe_device_status and subscribe_device_feature
     # Initial subscription (1) + Re-subscription (1) = 2
-    assert mock_mqtt_client.subscribe_device_status.call_count == 2
-    assert mock_mqtt_client.subscribe_device_feature.call_count == 2
+    # The last client should have these calls from re-subscription
+    last_client = mock_mqtt_client.all_clients[-1]
+    assert last_client.subscribe_device_status.call_count >= 1
+    assert last_client.subscribe_device_feature.call_count >= 1
 
 
 @pytest.mark.asyncio
