@@ -119,7 +119,7 @@ class NWP500VisualCard extends HTMLElement {
       <ha-card>
         <div class="visual-container">
           <!-- Background Image -->
-          <img src="/nwp500/nwp500-visual-card.png?v=2.4.0" class="bg-image" crossOrigin="anonymous" id="bgImage">
+          <img src="/nwp500/nwp500-visual-card.png?v=2.4.1" class="bg-image" crossOrigin="anonymous" id="bgImage">
 
           <!-- Overlays -->
           
@@ -313,13 +313,13 @@ class NWP500VisualCard extends HTMLElement {
 
       /* Positions on the Tank Image */
       /* Outlet (Hot) - Left side of black screen */
-      .outlet-badge { top: 52%; left: 35%; }
+      .outlet-badge { top: 52%; left: 30%; }
       
       /* Charge - Right side of black screen */
-      .charge-badge { top: 52%; right: 35%; }
+      .charge-badge { top: 52%; right: 30%; }
       
       /* Lower Temp - Bottom center of black screen */
-      .lower-badge { top: 62%; left: 50%; transform: translateX(-50%); } 
+      .lower-badge { top: 58%; left: 50%; transform: translateX(-50%); } 
 
       /* Mode Indicator Removed (Redundant) */
       .mode-label { display: none; }
