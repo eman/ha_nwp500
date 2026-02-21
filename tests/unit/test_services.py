@@ -101,7 +101,7 @@ class TestReservationServices:
         await _async_setup_services(mock_hass)
 
         assert mock_hass.services.async_register.call_count == 7
-        
+
         # Verify all expected services are registered
         registered_services = [
             call[0][1]  # Service name is second arg (after domain)

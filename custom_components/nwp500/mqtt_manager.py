@@ -291,15 +291,19 @@ class NWP500MqttManager:
         rsv_topic = f"cmd/{device_type}/{client_id}/res/rsv/rd"
         if rsv_topic not in self._subscribed_scheduling_topics:
             await self.mqtt_client.subscribe(
-                rsv_topic, self._on_reservation_response,
+                rsv_topic,
+                self._on_reservation_response,
             )
             self._subscribed_scheduling_topics.add(rsv_topic)
-            _LOGGER.debug("Subscribed to reservation responses on %s", rsv_topic)
+            _LOGGER.debug(
+                "Subscribed to reservation responses on %s", rsv_topic
+            )
 
         tou_topic = f"cmd/{device_type}/{client_id}/res/tou/rd"
         if tou_topic not in self._subscribed_scheduling_topics:
             await self.mqtt_client.subscribe(
-                tou_topic, self._on_tou_response,
+                tou_topic,
+                self._on_tou_response,
             )
             self._subscribed_scheduling_topics.add(tou_topic)
             _LOGGER.debug("Subscribed to TOU responses on %s", tou_topic)
@@ -516,9 +520,7 @@ class NWP500MqttManager:
         except Exception as err:
             _LOGGER.error("Error handling reservation response: %s", err)
 
-    def _on_tou_response(
-        self, topic: str, message: dict[str, Any]
-    ) -> None:
+    def _on_tou_response(self, topic: str, message: dict[str, Any]) -> None:
         """Handle TOU response from device.
 
         See _on_reservation_response for broadcast rationale.
