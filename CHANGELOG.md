@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Service log messages**: Updated to "Registered NWP500 services" for clarity
 
 ### Fixed
+- **State attribute conflict**: Renamed `state` extra attribute to `state_province` to avoid conflicts with Home Assistant's reserved `state` concept. The `state` key conflicted with MQTT integration where `state` refers to entity value, not geographic location.
 - **Import cleanup**: Removed unused `DEVICE_TYPE_WATER_HEATER` import from mqtt_manager.py
 - **TOU validation**: Added max 16 period validation to TOU schedule configuration
 - **Code formatting**: Fixed ruff formatting issues

@@ -231,7 +231,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 if location.city:
                     attrs["city"] = location.city
                 if location.state:
-                    attrs["state"] = location.state
+                    attrs["state_province"] = location.state
                 if location.latitude:
                     attrs["latitude"] = location.latitude
                 if location.longitude:
