@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Custom Lovelace Cards**: Two bundled custom frontend cards served automatically by the integration
-  - `nwp500-schedule-card`: Visual weekly schedule editor for managing reservoir heating reservations
+  - `nwp500-schedule-card`: Visual weekly schedule editor for managing heating reservations
   - `nwp500-visual-card`: Visual status card showing current device state and temperatures
   - Cards are registered as Lovelace resources automatically — no manual resource configuration needed
 - **Time of Use (TOU) Services**: Added two new services for managing TOU schedules

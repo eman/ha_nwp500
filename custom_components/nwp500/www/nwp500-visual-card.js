@@ -629,7 +629,7 @@ class NWP500VisualCardEditor extends HTMLElement {
     // Simple single value update for now
     if (this._config.entity === target.value) return;
 
-    config = {
+    const config = {
       ...this._config,
       entity: target.value
     };
