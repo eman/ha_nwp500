@@ -347,6 +347,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         dhw_mode_value = HA_TO_DHW_MODE.get(operation_mode)
 
         if dhw_mode_value is None:
+            # Check if this is an "off" request
+            if operation_mode.lower() == STATE_OFF:
+                await self.async_turn_off()
+                return
+
             _LOGGER.error("Invalid operation mode: %s", operation_mode)
             return
 

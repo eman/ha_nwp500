@@ -6,15 +6,18 @@ Requires Home Assistant 2025.1+ (Python 3.13-3.14).
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
+from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_DEVICE_ID, Platform
+from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
@@ -26,6 +29,16 @@ from .const import (
 from .coordinator import NWP500DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+# Frontend card
+CARD_URL = f"/{DOMAIN}/nwp500-schedule-card.js"
+CARD_PATH = Path(__file__).parent / "www" / "nwp500-schedule-card.js"
+
+VISUAL_CARD_URL = f"/{DOMAIN}/nwp500-visual-card.js"
+VISUAL_CARD_PATH = Path(__file__).parent / "www" / "nwp500-visual-card.js"
+
+VISUAL_IMAGE_URL = f"/{DOMAIN}/nwp500-visual-card.png"
+VISUAL_IMAGE_PATH = Path(__file__).parent / "www" / "nwp500-visual-card.png"
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -93,7 +106,8 @@ def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
 SERVICE_SET_RESERVATION_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Required(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
             vol.Required(ATTR_ENABLED): cv.boolean,
             vol.Required(ATTR_DAYS): vol.All(
                 cv.ensure_list, [vol.In(VALID_DAYS)]
@@ -110,24 +124,27 @@ SERVICE_SET_RESERVATION_SCHEMA = vol.All(
             ),
         }
     ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
     validate_reservation_temperature,
 )
 
-SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_RESERVATIONS): vol.All(
-            cv.ensure_list,
-            [
-                vol.Schema(
-                    {
-                        vol.Required("enable"): vol.In(
-                            [1, 2], msg="Enable must be 1 (On) or 2 (Off)"
-                        ),
-                        vol.Required("week"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=127),
-                            msg="Week must be a bitfield (0-127)",
+SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Required(ATTR_RESERVATIONS): vol.All(
+                cv.ensure_list,
+                [
+                    vol.Schema(
+                        {
+                            vol.Required("enable"): vol.In(
+                                [1, 2], msg="Enable must be 2 (On) or 1 (Off)"
+                            ),
+                            vol.Required("week"): vol.All(
+                                vol.Coerce(int),
+                            vol.Range(min=0, max=254),
+                            msg="Week must be a bitfield (0-254, Sun=128..Sat=2)",
                         ),
                         vol.Required("hour"): vol.All(
                             vol.Coerce(int),
@@ -154,6 +171,7 @@ SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.Schema(
         ),
         vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
     }
+)
 )
 
 SERVICE_DEVICE_SCHEMA = vol.Schema(
@@ -224,10 +242,14 @@ SERVICE_CONFIGURE_TOU_SCHEMA = vol.Schema(
     }
 )
 
-SERVICE_REQUEST_TOU_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-    }
+SERVICE_REQUEST_TOU_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
 
@@ -246,8 +268,21 @@ class NWP500ServiceHandler:
         self, call: ServiceCall
     ) -> tuple[NWP500DataUpdateCoordinator, str]:
         """Get coordinator and MAC address from service call."""
-        device_id = call.data[ATTR_DEVICE_ID]
         device_registry = dr.async_get(self.hass)
+        entity_registry = er.async_get(self.hass)
+
+        device_id = call.data.get(ATTR_DEVICE_ID)
+        entity_id = call.data.get(ATTR_ENTITY_ID)
+
+        if entity_id:
+            entity_entry = entity_registry.async_get(entity_id)
+            if not entity_entry:
+                raise HomeAssistantError(f"Entity {entity_id} not found")
+            device_id = entity_entry.device_id
+
+        if not device_id:
+            raise HomeAssistantError("Neither device_id nor entity_id provided")
+
         device_entry = device_registry.async_get(device_id)
 
         if not device_entry:
@@ -390,8 +425,17 @@ class NWP500ServiceHandler:
             coordinator.hass.config.units.temperature_unit,
         )
 
+        # Read-modify-write: append to existing schedule instead of replacing
+        existing_schedule = coordinator.reservation_schedules.get(
+            mac_address, {}
+        )
+        existing_entries = list(
+            existing_schedule.get("reservation", [])
+        )
+        existing_entries.append(reservation)
+
         success = await coordinator.async_update_reservations(
-            mac_address, [reservation], enabled=True
+            mac_address, existing_entries, enabled=True
         )
 
         if not success:
@@ -512,6 +556,34 @@ class NWP500ServiceHandler:
 
         if not success:
             raise HomeAssistantError("Failed to request TOU settings")
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the NWP500 integration domain (once, before any config entries)."""
+    # Serve the bundled Lovelace card JS from the component's www/ directory.
+    # This makes the custom card available without users needing to manually
+    # register it as a Lovelace resource or install it separately via HACS.
+    if CARD_PATH.is_file():
+        from homeassistant.components.http import StaticPathConfig
+
+        configs = [StaticPathConfig(CARD_URL, str(CARD_PATH), False)]
+
+        if VISUAL_CARD_PATH.is_file():
+            configs.append(StaticPathConfig(VISUAL_CARD_URL, str(VISUAL_CARD_PATH), False))
+            add_extra_js_url(hass, VISUAL_CARD_URL)
+
+        if VISUAL_IMAGE_PATH.is_file():
+            configs.append(StaticPathConfig(VISUAL_IMAGE_URL, str(VISUAL_IMAGE_PATH), False))
+
+        await hass.http.async_register_static_paths(configs)
+        add_extra_js_url(hass, CARD_URL)
+        _LOGGER.debug("Registered frontend assets")
+    else:
+        _LOGGER.warning(
+            "Frontend card not found at %s — schedule card will not be available",
+            CARD_PATH,
+        )
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
