@@ -10,8 +10,11 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from custom_components.nwp500 import (
     MODE_TO_DHW_ID,
     SERVICE_CLEAR_RESERVATIONS,
+    SERVICE_CONFIGURE_TOU,
     SERVICE_REQUEST_RESERVATIONS,
+    SERVICE_REQUEST_TOU,
     SERVICE_SET_RESERVATION,
+    SERVICE_SET_VACATION_DAYS,
     SERVICE_UPDATE_RESERVATIONS,
     async_setup_entry,
     async_unload_entry,
@@ -127,8 +130,8 @@ async def test_async_setup_entry_registers_services():
 
         await async_setup_entry(mock_hass, mock_entry)
 
-        # Verify all 5 services were registered
-        assert mock_hass.services.async_register.call_count == 5
+        # Verify all 7 services were registered
+        assert mock_hass.services.async_register.call_count == 7
 
         # Get all service names that were registered
         registered_services = [
@@ -139,6 +142,9 @@ async def test_async_setup_entry_registers_services():
         assert SERVICE_UPDATE_RESERVATIONS in registered_services
         assert SERVICE_CLEAR_RESERVATIONS in registered_services
         assert SERVICE_REQUEST_RESERVATIONS in registered_services
+        assert SERVICE_SET_VACATION_DAYS in registered_services
+        assert SERVICE_CONFIGURE_TOU in registered_services
+        assert SERVICE_REQUEST_TOU in registered_services
 
 
 @pytest.mark.asyncio
@@ -211,5 +217,5 @@ async def test_async_unload_entry_removes_services_when_last():
 
     await async_unload_entry(mock_hass, mock_entry)
 
-    # All 5 services should be removed
-    assert mock_hass.services.async_remove.call_count == 5
+    # All 7 services should be removed
+    assert mock_hass.services.async_remove.call_count == 7

@@ -18,6 +18,13 @@ from custom_components.nwp500 import (
     ATTR_OP_MODE,
     ATTR_RESERVATIONS,
     ATTR_TEMPERATURE,
+    SERVICE_CLEAR_RESERVATIONS,
+    SERVICE_CONFIGURE_TOU,
+    SERVICE_REQUEST_RESERVATIONS,
+    SERVICE_REQUEST_TOU,
+    SERVICE_SET_RESERVATION,
+    SERVICE_SET_VACATION_DAYS,
+    SERVICE_UPDATE_RESERVATIONS,
     _async_setup_services,
     validate_reservation_temperature,
 )
@@ -90,10 +97,23 @@ class TestReservationServices:
 
     @pytest.mark.asyncio
     async def test_setup_services_registers_all(self, mock_hass):
-        """Test that all 5 services are registered."""
+        """Test that all 7 services are registered."""
         await _async_setup_services(mock_hass)
 
-        assert mock_hass.services.async_register.call_count == 5
+        assert mock_hass.services.async_register.call_count == 7
+
+        # Verify all expected services are registered
+        registered_services = [
+            call[0][1]  # Service name is second arg (after domain)
+            for call in mock_hass.services.async_register.call_args_list
+        ]
+        assert SERVICE_SET_RESERVATION in registered_services
+        assert SERVICE_UPDATE_RESERVATIONS in registered_services
+        assert SERVICE_CLEAR_RESERVATIONS in registered_services
+        assert SERVICE_REQUEST_RESERVATIONS in registered_services
+        assert SERVICE_SET_VACATION_DAYS in registered_services
+        assert SERVICE_CONFIGURE_TOU in registered_services
+        assert SERVICE_REQUEST_TOU in registered_services
 
     @pytest.mark.asyncio
     async def test_setup_services_skips_if_already_registered(self, mock_hass):

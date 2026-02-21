@@ -60,6 +60,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.devices: list[Device] = []
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
+        self.reservation_schedules: dict[str, dict[str, Any]] = {}
+        self.tou_schedules: dict[str, dict[str, Any]] = {}
         self._reconnect_task: asyncio.Task[Any] | None = (
             None  # Track reconnection task
         )
@@ -604,6 +606,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 self.auth_client,
                 self._on_device_status_update,
                 self._on_device_feature_update,
+                on_reservation_update=self._on_reservation_update,
+                on_tou_update=self._on_tou_update,
                 unit_system=self.unit_system,
             )
 
@@ -631,6 +635,20 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     except Exception as err:
                         _LOGGER.warning(
                             "Failed to request initial device info: %s", err
+                        )
+
+                    # Request initial reservation schedule
+                    try:
+                        await self.mqtt_manager.send_command(
+                            device, "request_reservations"
+                        )
+                        _LOGGER.debug(
+                            "Requested initial reservations for %s",
+                            device.device_info.mac_address,
+                        )
+                    except Exception as err:
+                        _LOGGER.warning(
+                            "Failed to request initial reservations: %s", err
                         )
 
             _LOGGER.info(
@@ -781,6 +799,67 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("Error handling device feature update: %s", err)
 
+    def _on_reservation_update(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Handle reservation schedule response from MQTT Manager."""
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_reservation_update_in_loop, mac_address, response
+        )
+
+    def _handle_reservation_update_in_loop(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Process reservation schedule response within the event loop."""
+        try:
+            _LOGGER.info("Received reservation schedule for %s", mac_address)
+
+            self.reservation_schedules[mac_address] = response
+
+            # Fire HA event so custom cards and automations can react
+            self.hass.bus.async_fire(
+                "nwp500_reservations_updated",
+                {
+                    "mac_address": mac_address,
+                    "reservation_use": response.get("reservationUse", 0),
+                    "reservations": response.get("reservation", []),
+                },
+            )
+
+            self.async_update_listeners()
+        except Exception as err:
+            _LOGGER.error("Error handling reservation update: %s", err)
+
+    def _on_tou_update(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Handle TOU schedule response from MQTT Manager."""
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_tou_update_in_loop, mac_address, response
+        )
+
+    def _handle_tou_update_in_loop(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Process TOU schedule response within the event loop."""
+        try:
+            _LOGGER.info("Received TOU schedule for %s", mac_address)
+
+            self.tou_schedules[mac_address] = response
+
+            # Fire HA event so custom cards and automations can react
+            self.hass.bus.async_fire(
+                "nwp500_tou_updated",
+                {
+                    "mac_address": mac_address,
+                    "tou_data": response,
+                },
+            )
+
+            self.async_update_listeners()
+        except Exception as err:
+            _LOGGER.error("Error handling TOU update: %s", err)
+
     async def async_control_device(
         self, mac_address: str, command: str, **kwargs: Any
     ) -> bool:
@@ -893,6 +972,93 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             device, "request_reservations"
         )
 
+    async def async_configure_tou_schedule(
+        self,
+        mac_address: str,
+        periods: list[dict[str, Any]],
+        enabled: bool = True,
+    ) -> bool:
+        """Configure TOU schedule for a device.
+
+        Args:
+            mac_address: Device MAC address
+            periods: List of TOU period entries (built with build_tou_period)
+            enabled: Whether TOU scheduling is enabled
+
+        Returns:
+            True if command was sent successfully
+        """
+        if not self.mqtt_manager:
+            _LOGGER.error("MQTT manager not available")
+            return False
+
+        device = self._devices_by_mac.get(mac_address)
+        if not device:
+            _LOGGER.error("Device %s not found", mac_address)
+            return False
+
+        # Get controller serial number from device features
+        features = self.device_features.get(mac_address)
+        controller_serial = (
+            getattr(features, "controller_serial_number", "")
+            if features
+            else ""
+        )
+        if not controller_serial:
+            _LOGGER.error(
+                "Controller serial number not available for %s. "
+                "Device info may not have been received yet.",
+                mac_address,
+            )
+            return False
+
+        return await self.mqtt_manager.send_command(
+            device,
+            "configure_tou_schedule",
+            controller_serial_number=controller_serial,
+            periods=periods,
+            enabled=enabled,
+        )
+
+    async def async_request_tou_settings(self, mac_address: str) -> bool:
+        """Request current TOU settings from a device.
+
+        Args:
+            mac_address: Device MAC address
+
+        Returns:
+            True if request was sent successfully
+        """
+        if not self.mqtt_manager:
+            _LOGGER.error("MQTT manager not available")
+            return False
+
+        device = self._devices_by_mac.get(mac_address)
+        if not device:
+            _LOGGER.error("Device %s not found", mac_address)
+            return False
+
+        # Get controller serial number from device features
+        features = self.device_features.get(mac_address)
+        controller_serial = (
+            getattr(features, "controller_serial_number", "")
+            if features
+            else ""
+        )
+        if not controller_serial:
+            _LOGGER.error(
+                "Controller serial number not available for %s. "
+                "Device info may not have been received yet.",
+                mac_address,
+            )
+            return False
+
+        return await self.mqtt_manager.send_command(
+            device,
+            "request_tou_settings",
+            controller_serial_number=controller_serial,
+        )
+
     async def async_send_command(
         self, mac_address: str, command: str, **kwargs: Any
     ) -> bool:
@@ -943,6 +1109,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
 
         # Clear device features cache to prevent memory leaks
         self.device_features.clear()
+        self.reservation_schedules.clear()
+        self.tou_schedules.clear()
 
     def get_field_unit_safe(self, status: Any, field_name: str) -> str | None:
         """Safely get unit field from device status with standardized error handling.
