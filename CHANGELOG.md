@@ -7,13 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-21
+
 ### Added
+- **Custom Lovelace Cards**: Two bundled custom frontend cards served automatically by the integration
+  - `nwp500-schedule-card`: Visual weekly schedule editor for managing heating reservations
+  - `nwp500-visual-card`: Visual status card showing current device state and temperatures
+  - Cards are registered as Lovelace resources automatically — no manual resource configuration needed
 - **Time of Use (TOU) Services**: Added two new services for managing TOU schedules
   - `configure_tou_schedule`: Configure time-based rate periods (up to 16 periods)
   - `request_tou_settings`: Request current TOU configuration from device
+- **Vacation Days Service**: Added `set_vacation_days` service to configure vacation mode duration
+- **Entity ID support for services**: All services now accept either `device_id` or `entity_id` to identify the target device
 - **MQTT subscription handling**: Enhanced coordinator to handle TOU/reservation response subscriptions
 
 ### Changed
+- **Library Dependency: nwp500-python**: Upgraded from 7.4.6 to 7.4.8
+  - **7.4.8 (2026-02-21)**: Reservation CRUD helpers
+    - Added `fetch_reservations()`, `add_reservation()`, `delete_reservation()`, `update_reservation()` to `nwp500.reservations`
+    - See [release notes](https://github.com/eman/nwp500-python/releases/tag/v7.4.8) for full details
+- **Read-modify-write for reservations**: `set_reservation` now reads the current schedule and appends entries rather than replacing the full list
 - **Service schema improvements**: Converted TOU service parameters from camelCase to snake_case for consistency with Home Assistant conventions
 - **Auto-refresh behavior**: Reservation services (`set_reservation`, `update_reservations`, `clear_reservations`) now automatically request current state after successful writes
 - **Service log messages**: Updated to "Registered NWP500 services" for clarity

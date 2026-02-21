@@ -60,6 +60,16 @@ SLOW_UPDATE_THRESHOLD: Final = (
     5.0  # seconds - warn if update takes longer than this
 )
 
+# Reconnection backoff parameters
+# Exponential backoff delays (seconds) for MQTT reconnection attempts
+RECONNECT_BACKOFF_DELAYS: Final = [2.0, 5.0, 15.0, 30.0, 60.0]
+# Minimum seconds between reconnection attempts (prevents rapid retry loops)
+MIN_RECONNECT_INTERVAL: Final = 30.0
+
+# Entity staleness threshold
+# Number of consecutive update cycles without fresh data before marking unavailable
+STALE_DATA_THRESHOLD: Final = 5
+
 # Device types and models
 DEVICE_TYPE_WATER_HEATER: Final = 52
 

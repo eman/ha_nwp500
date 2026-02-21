@@ -31,6 +31,7 @@ from .const import (
     CONF_TOKEN_DATA,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MIN_RECONNECT_INTERVAL,
     SLOW_UPDATE_THRESHOLD,
 )
 from .mqtt_manager import NWP500MqttManager, get_aws_error_name
@@ -56,7 +57,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self.auth_client: NavienAuthClient | None = None
         self.api_client: NavienAPIClient | None = None
         self.mqtt_manager: NWP500MqttManager | None = None
-        self.unit_system: str | None = None
+        self.unit_system: str | None = (
+            "metric"
+            if hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+            else "us_customary"
+        )
         self.devices: list[Device] = []
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
@@ -292,11 +297,18 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         # Check MQTT connection state before attempting requests
         if self.mqtt_manager:
             if not self.mqtt_manager.is_connected:
-                _LOGGER.error(
-                    "MQTT client is not connected. Device status requests "
-                    "will fail. Connection may have been lost or failed "
-                    "to reconnect."
-                )
+                # Log at reduced frequency to avoid flooding during outages
+                if self._consecutive_timeouts == 0:
+                    _LOGGER.error(
+                        "MQTT client is not connected. Device status requests "
+                        "will fail. Connection may have been lost or failed "
+                        "to reconnect."
+                    )
+                else:
+                    _LOGGER.debug(
+                        "MQTT still disconnected (consecutive timeouts: %d)",
+                        self._consecutive_timeouts,
+                    )
 
         try:
             # Reuse existing data structure to leverage Python 3.13's optimized
@@ -403,32 +415,53 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         )
 
                         # After 3 consecutive timeouts, force reconnection
+                        # Rate-limited: skip if a reconnection was recently
+                        # attempted (within MIN_RECONNECT_INTERVAL)
                         if self._consecutive_timeouts >= 3:
-                            _LOGGER.warning(
-                                "Detected %d consecutive MQTT timeouts. "
-                                "Will attempt forced reconnection.",
-                                self._consecutive_timeouts,
+                            elapsed = (
+                                time.time()
+                                - self.mqtt_manager._last_reconnect_time
                             )
-                            # Schedule reconnection asynchronously
-                            # and track the task
-                            # Cancel any existing reconnection task
-                            # first
-                            if (
-                                self._reconnect_task
-                                and not self._reconnect_task.done()
-                            ):
-                                self._reconnect_task.cancel()
-                                try:
-                                    await self._reconnect_task
-                                except asyncio.CancelledError:
-                                    _LOGGER.debug(
-                                        "Previous MQTT reconnection task "
-                                        "was cancelled"
+                            if elapsed < MIN_RECONNECT_INTERVAL:
+                                _LOGGER.debug(
+                                    "Skipping reconnection - last attempt "
+                                    "%.0fs ago (min interval: %.0fs). "
+                                    "Resetting timeout counter.",
+                                    elapsed,
+                                    MIN_RECONNECT_INTERVAL,
+                                )
+                                # Reset counter to prevent immediate
+                                # re-trigger on next cycle
+                                self._consecutive_timeouts = 0
+                            else:
+                                _LOGGER.warning(
+                                    "Detected %d consecutive MQTT timeouts. "
+                                    "Will attempt forced reconnection.",
+                                    self._consecutive_timeouts,
+                                )
+                                # Reset counter before reconnecting to
+                                # prevent rapid re-trigger if reconnect
+                                # is slow
+                                self._consecutive_timeouts = 0
+                                # Cancel any existing reconnection task
+                                if (
+                                    self._reconnect_task
+                                    and not self._reconnect_task.done()
+                                ):
+                                    self._reconnect_task.cancel()
+                                    try:
+                                        await self._reconnect_task
+                                    except asyncio.CancelledError:
+                                        _LOGGER.debug(
+                                            "Previous MQTT reconnection "
+                                            "task was cancelled"
+                                        )
+                                # Create and track new reconnection task
+                                self._reconnect_task = asyncio.create_task(
+                                    self.mqtt_manager.force_reconnect(
+                                        self.devices
                                     )
-                            # Create and track new reconnection task
-                            self._reconnect_task = asyncio.create_task(
-                                self.mqtt_manager.force_reconnect(self.devices)
-                            )
+                                )
                     except AwsCrtError as err:
                         # Handle clean session cancellation gracefully
                         # This occurs during MQTT reconnection and is expected
@@ -508,7 +541,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "uv pip install nwp500-python==7.4.6 awsiotsdk>=1.27.0"
+                "uv pip install nwp500-python==7.4.8 awsiotsdk>=1.27.0"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"

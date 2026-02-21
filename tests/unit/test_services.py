@@ -16,6 +16,7 @@ from custom_components.nwp500 import (
     ATTR_HOUR,
     ATTR_MINUTE,
     ATTR_OP_MODE,
+    ATTR_PERIODS,
     ATTR_RESERVATIONS,
     ATTR_TEMPERATURE,
     SERVICE_CLEAR_RESERVATIONS,
@@ -133,7 +134,11 @@ class TestReservationServices:
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
+        mock_coordinator.reservation_schedules = {}  # Required for read-modify-write
         mock_coordinator.async_update_reservations = AsyncMock(
+            return_value=True
+        )
+        mock_coordinator.async_request_reservations = AsyncMock(
             return_value=True
         )
         mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
@@ -359,6 +364,7 @@ class TestReservationServices:
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
+        mock_coordinator.reservation_schedules = {}  # Required for read-modify-write
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
@@ -367,6 +373,10 @@ class TestReservationServices:
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+        mock_coordinator.async_request_reservations = AsyncMock(
+            return_value=True
+        )
 
         await _async_setup_services(mock_hass)
 
@@ -533,3 +543,206 @@ class TestReservationServices:
 
         with pytest.raises(HomeAssistantError, match="not found"):
             await request_handler(call)
+
+
+class TestTouAndVacationServices:
+    """Tests for TOU schedule and vacation day services."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, mock_hass, mock_device_registry):
+        """Set up common test fixtures."""
+        self.mock_hass = mock_hass
+        self.mock_device_registry = mock_device_registry
+        self.mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        self.mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_hass.data[DOMAIN]["entry_1"] = self.mock_coordinator
+
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+    @pytest.mark.asyncio
+    async def test_set_vacation_days_calls_coordinator(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test set_vacation_days calls coordinator with correct args."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
+
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_SET_VACATION_DAYS:
+                handler = call[0][2]
+                break
+
+        assert handler is not None
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", ATTR_DAYS: 7}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF", "set_vacation_days", days=7
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_vacation_days_raises_on_failure(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test set_vacation_days raises HomeAssistantError on failure."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
+
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_SET_VACATION_DAYS:
+                handler = call[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", ATTR_DAYS: 3}
+        with pytest.raises(
+            HomeAssistantError, match="Failed to set vacation days"
+        ):
+            await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_configure_tou_schedule_calls_coordinator(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test configure_tou_schedule calls coordinator with converted periods."""
+        self.mock_coordinator.async_configure_tou_schedule = AsyncMock(
+            return_value=True
+        )
+
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_CONFIGURE_TOU:
+                handler = call[0][2]
+                break
+
+        assert handler is not None
+        period = {
+            "season": 1,
+            "week": 62,
+            "start_hour": 8,
+            "start_minute": 0,
+            "end_hour": 22,
+            "end_minute": 0,
+            "price_min": 10,
+            "price_max": 100,
+            "decimal_point": 2,
+        }
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            ATTR_PERIODS: [period],
+            ATTR_ENABLED: True,
+        }
+        await handler(call)
+
+        self.mock_coordinator.async_configure_tou_schedule.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF",
+            [
+                {
+                    "season": 1,
+                    "week": 62,
+                    "startHour": 8,
+                    "startMinute": 0,
+                    "endHour": 22,
+                    "endMinute": 0,
+                    "priceMin": 10,
+                    "priceMax": 100,
+                    "decimalPoint": 2,
+                }
+            ],
+            enabled=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_configure_tou_schedule_raises_on_failure(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test configure_tou_schedule raises HomeAssistantError on failure."""
+        self.mock_coordinator.async_configure_tou_schedule = AsyncMock(
+            return_value=False
+        )
+
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_CONFIGURE_TOU:
+                handler = call[0][2]
+                break
+
+        period = {
+            "season": 0,
+            "week": 0,
+            "start_hour": 0,
+            "start_minute": 0,
+            "end_hour": 1,
+            "end_minute": 0,
+            "price_min": 0,
+            "price_max": 1,
+            "decimal_point": 0,
+        }
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            ATTR_PERIODS: [period],
+            ATTR_ENABLED: False,
+        }
+        with pytest.raises(HomeAssistantError, match="Failed to configure TOU"):
+            await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_request_tou_settings_calls_coordinator(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test request_tou_settings calls coordinator."""
+        self.mock_coordinator.async_request_tou_settings = AsyncMock(
+            return_value=True
+        )
+
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_REQUEST_TOU:
+                handler = call[0][2]
+                break
+
+        assert handler is not None
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        await handler(call)
+
+        self.mock_coordinator.async_request_tou_settings.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF"
+        )
+
+    @pytest.mark.asyncio
+    async def test_request_tou_settings_raises_on_failure(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test request_tou_settings raises HomeAssistantError on failure."""
+        self.mock_coordinator.async_request_tou_settings = AsyncMock(
+            return_value=False
+        )
+
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_REQUEST_TOU:
+                handler = call[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        with pytest.raises(HomeAssistantError, match="Failed to request TOU"):
+            await handler(call)

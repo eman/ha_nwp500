@@ -14,6 +14,14 @@ set_reservation:
       selector:
         device:
           integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
     enabled:
       name: Enabled
       description: Whether this reservation entry is active
@@ -109,6 +117,14 @@ update_reservations:
       selector:
         device:
           integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
     reservations:
       name: Reservations
       description: >-
@@ -138,6 +154,14 @@ clear_reservations:
       selector:
         device:
           integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
 
 request_reservations:
   name: Request Reservations
@@ -152,6 +176,14 @@ request_reservations:
       required: true
       selector:
         device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
           integration: nwp500
 
 enable_demand_response:

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import DOMAIN, STALE_DATA_THRESHOLD
 from .coordinator import NWP500DataUpdateCoordinator
 
 if TYPE_CHECKING:
@@ -33,6 +33,8 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         self.mac_address = mac_address
         self.device = device
         self._last_feature_update = None
+        self._stale_count: int = 0
+        self._last_seen_update: float | None = None
 
         # Build device info with available information
         self._attr_device_info = self._build_device_info()
@@ -63,8 +65,38 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
+        # Track data staleness for availability
+        device_data = self.device_data
+        if device_data:
+            last_update = device_data.get("last_update")
+            if (
+                last_update is not None
+                and last_update != self._last_seen_update
+            ):
+                self._last_seen_update = last_update
+                self._stale_count = 0
+            else:
+                self._stale_count += 1
+        else:
+            self._stale_count += 1
+
         self._update_attrs()
         super()._handle_coordinator_update()
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available.
+
+        Marks entity unavailable when data is stale (no fresh updates
+        for several consecutive coordinator cycles), indicating the MQTT
+        connection is likely down.
+        """
+        if not super().available:
+            return False
+        # Allow initial state before any data arrives
+        if self._last_seen_update is None and self._stale_count == 0:
+            return True
+        return self._stale_count < STALE_DATA_THRESHOLD
 
     @property
     def _status(self) -> Any | None:
