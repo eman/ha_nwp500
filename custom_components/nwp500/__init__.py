@@ -48,6 +48,8 @@ PLATFORMS: list[Platform] = [
     Platform.NUMBER,
 ]
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 # Service names
 SERVICE_SET_RESERVATION = "set_reservation"
 SERVICE_UPDATE_RESERVATIONS = "update_reservations"
