@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-21
+
 ### Added
 - **Custom Lovelace Cards**: Two bundled custom frontend cards served automatically by the integration
   - `nwp500-schedule-card`: Visual weekly schedule editor for managing heating reservations
