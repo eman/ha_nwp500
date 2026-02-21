@@ -173,13 +173,25 @@ SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
             ),
             vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
         }
-    )
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
 SERVICE_DEVICE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_DEVICE_ID): cv.string,
     }
+)
+
+# Schema for services that target a device but also accept entity_id
+SERVICE_DEVICE_OR_ENTITY_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
 SERVICE_SET_VACATION_DAYS_SCHEMA = vol.Schema(
@@ -432,6 +444,13 @@ class NWP500ServiceHandler:
             mac_address, {}
         )
         existing_entries = list(existing_schedule.get("reservation", []))
+        if not existing_schedule:
+            _LOGGER.warning(
+                "No cached reservation schedule for %s. Call "
+                "request_reservations first to avoid overwriting device "
+                "reservations that have not yet been fetched.",
+                mac_address,
+            )
         existing_entries.append(reservation)
 
         success = await coordinator.async_update_reservations(
@@ -655,14 +674,14 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         DOMAIN,
         SERVICE_CLEAR_RESERVATIONS,
         handler.async_clear_reservations,
-        schema=SERVICE_DEVICE_SCHEMA,
+        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
     )
 
     hass.services.async_register(
         DOMAIN,
         SERVICE_REQUEST_RESERVATIONS,
         handler.async_request_reservations,
-        schema=SERVICE_DEVICE_SCHEMA,
+        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
     )
 
     hass.services.async_register(

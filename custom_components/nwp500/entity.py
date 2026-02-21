@@ -69,7 +69,10 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         device_data = self.device_data
         if device_data:
             last_update = device_data.get("last_update")
-            if last_update and last_update != self._last_seen_update:
+            if (
+                last_update is not None
+                and last_update != self._last_seen_update
+            ):
                 self._last_seen_update = last_update
                 self._stale_count = 0
             else:
