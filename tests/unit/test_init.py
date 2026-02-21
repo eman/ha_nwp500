@@ -10,8 +10,11 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from custom_components.nwp500 import (
     MODE_TO_DHW_ID,
     SERVICE_CLEAR_RESERVATIONS,
+    SERVICE_CONFIGURE_TOU,
     SERVICE_REQUEST_RESERVATIONS,
+    SERVICE_REQUEST_TOU,
     SERVICE_SET_RESERVATION,
+    SERVICE_SET_VACATION_DAYS,
     SERVICE_UPDATE_RESERVATIONS,
     async_setup_entry,
     async_unload_entry,
@@ -139,6 +142,9 @@ async def test_async_setup_entry_registers_services():
         assert SERVICE_UPDATE_RESERVATIONS in registered_services
         assert SERVICE_CLEAR_RESERVATIONS in registered_services
         assert SERVICE_REQUEST_RESERVATIONS in registered_services
+        assert SERVICE_SET_VACATION_DAYS in registered_services
+        assert SERVICE_CONFIGURE_TOU in registered_services
+        assert SERVICE_REQUEST_TOU in registered_services
 
 
 @pytest.mark.asyncio

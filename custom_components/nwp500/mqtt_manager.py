@@ -67,6 +67,12 @@ class NWP500MqttManager:
         self._connection_interruptions: list[dict[str, Any]] = []
         self._max_interruption_history: int = 20
 
+        # Track subscribed scheduling response topics to avoid duplicates.
+        # Topics are per (device_type, client_id), not per device MAC, so
+        # we subscribe once and broadcast responses to all known devices.
+        self._subscribed_scheduling_topics: set[str] = set()
+        self._tracked_mac_addresses: list[str] = []
+
     async def __aenter__(self) -> NWP500MqttManager:
         """Async context manager entry - set up MQTT connection."""
         await self.setup()
@@ -266,41 +272,41 @@ class NWP500MqttManager:
             )
 
     async def _subscribe_scheduling_responses(self, device: Device) -> None:
-        """Subscribe to reservation and TOU response topics for a device."""
+        """Subscribe to reservation and TOU response topics for a device.
+
+        Response topics are ``cmd/{device_type}/{client_id}/res/…`` — they are
+        shared across all devices of the same type.  We subscribe only once per
+        unique topic and broadcast incoming responses to every tracked device.
+        """
         if not self.mqtt_client:
             return
 
+        mac_address = device.device_info.mac_address
+        if mac_address not in self._tracked_mac_addresses:
+            self._tracked_mac_addresses.append(mac_address)
+
         device_type = str(device.device_info.device_type)
         client_id = self.mqtt_client.client_id
-        mac_address = device.device_info.mac_address
 
-        # Subscribe to reservation responses: cmd/{device_type}/{client_id}/res/rsv/rd
         rsv_topic = f"cmd/{device_type}/{client_id}/res/rsv/rd"
-        await self.mqtt_client.subscribe(
-            rsv_topic,
-            lambda topic, message: self._on_reservation_response(
-                mac_address, topic, message
-            ),
-        )
-        _LOGGER.debug(
-            "Subscribed to reservation responses for %s on %s",
-            mac_address,
-            rsv_topic,
-        )
+        if rsv_topic not in self._subscribed_scheduling_topics:
+            await self.mqtt_client.subscribe(
+                rsv_topic,
+                self._on_reservation_response,
+            )
+            self._subscribed_scheduling_topics.add(rsv_topic)
+            _LOGGER.debug(
+                "Subscribed to reservation responses on %s", rsv_topic
+            )
 
-        # Subscribe to TOU responses: cmd/{device_type}/{client_id}/res/tou/rd
         tou_topic = f"cmd/{device_type}/{client_id}/res/tou/rd"
-        await self.mqtt_client.subscribe(
-            tou_topic,
-            lambda topic, message: self._on_tou_response(
-                mac_address, topic, message
-            ),
-        )
-        _LOGGER.debug(
-            "Subscribed to TOU responses for %s on %s",
-            mac_address,
-            tou_topic,
-        )
+        if tou_topic not in self._subscribed_scheduling_topics:
+            await self.mqtt_client.subscribe(
+                tou_topic,
+                self._on_tou_response,
+            )
+            self._subscribed_scheduling_topics.add(tou_topic)
+            _LOGGER.debug("Subscribed to TOU responses on %s", tou_topic)
 
     async def start_periodic_requests(self, device: Device) -> None:
         """Start periodic status requests."""
@@ -496,34 +502,35 @@ class NWP500MqttManager:
         return False
 
     def _on_reservation_response(
-        self, mac_address: str, topic: str, message: dict[str, Any]
+        self, topic: str, message: dict[str, Any]
     ) -> None:
-        """Handle reservation response from device."""
+        """Handle reservation response from device.
+
+        The response topic is shared across devices, so we broadcast to all
+        tracked MAC addresses.  The coordinator stores per-MAC — the last
+        writer wins, which is correct for single-device setups and acceptable
+        for multi-device until the protocol includes device identification.
+        """
         try:
-            _LOGGER.debug(
-                "Received reservation response for %s on %s",
-                mac_address,
-                topic,
-            )
             response = message.get("response", {})
+            _LOGGER.debug("Received reservation response on %s", topic)
             if self._on_reservation_update_callback:
-                self._on_reservation_update_callback(mac_address, response)
+                for mac in self._tracked_mac_addresses:
+                    self._on_reservation_update_callback(mac, response)
         except Exception as err:
             _LOGGER.error("Error handling reservation response: %s", err)
 
-    def _on_tou_response(
-        self, mac_address: str, topic: str, message: dict[str, Any]
-    ) -> None:
-        """Handle TOU response from device."""
+    def _on_tou_response(self, topic: str, message: dict[str, Any]) -> None:
+        """Handle TOU response from device.
+
+        See _on_reservation_response for broadcast rationale.
+        """
         try:
-            _LOGGER.debug(
-                "Received TOU response for %s on %s",
-                mac_address,
-                topic,
-            )
             response = message.get("response", {})
+            _LOGGER.debug("Received TOU response on %s", topic)
             if self._on_tou_update_callback:
-                self._on_tou_update_callback(mac_address, response)
+                for mac in self._tracked_mac_addresses:
+                    self._on_tou_update_callback(mac, response)
         except Exception as err:
             _LOGGER.error("Error handling TOU response: %s", err)
 
