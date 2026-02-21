@@ -75,7 +75,9 @@ def mock_mqtt_client(monkeypatch):
             state["last"] = self
             state["all"].append(self)
 
-        def _on_connection_resumed_internal(self, return_code, session_present, **kwargs):
+        def _on_connection_resumed_internal(
+            self, return_code, session_present, **kwargs
+        ):
             """Mock for compatibility with PatchedNavienMqttClient."""
             pass
 
@@ -86,7 +88,10 @@ def mock_mqtt_client(monkeypatch):
 
     # Patch at the import location using the factory
     monkeypatch.setattr("nwp500.NavienMqttClient", MockFactory)
-    monkeypatch.setattr("nwp500.MqttDiagnosticsCollector", MagicMock(return_value=mock_diagnostics))
+    monkeypatch.setattr(
+        "nwp500.MqttDiagnosticsCollector",
+        MagicMock(return_value=mock_diagnostics),
+    )
 
     # Create a wrapper that returns the most recently created client
     class ClientWrapper:
@@ -111,7 +116,9 @@ def mock_mqtt_client(monkeypatch):
             elif state["last"]:
                 setattr(state["last"], name, value)
             else:
-                raise AttributeError(f"No client created yet, cannot set: {name}")
+                raise AttributeError(
+                    f"No client created yet, cannot set: {name}"
+                )
 
     return ClientWrapper()
 
@@ -250,10 +257,12 @@ async def test_force_reconnect(manager, mock_mqtt_client, mock_device):
     assert len(mock_mqtt_client.all_clients) >= 2
     first_client = mock_mqtt_client.all_clients[0]
     first_client.disconnect.assert_called()
-    
+
     # Total connect calls across both clients (1 from setup + 1 from reconnect)
     # Each client's connect is called once
-    total_connects = sum(c.connect.call_count for c in mock_mqtt_client.all_clients)
+    total_connects = sum(
+        c.connect.call_count for c in mock_mqtt_client.all_clients
+    )
     assert total_connects == 2
 
     # Verify re-subscription

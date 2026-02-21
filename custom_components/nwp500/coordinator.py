@@ -33,7 +33,6 @@ from .const import (
     DOMAIN,
     MIN_RECONNECT_INTERVAL,
     SLOW_UPDATE_THRESHOLD,
-    STALE_DATA_THRESHOLD,
 )
 from .mqtt_manager import NWP500MqttManager, get_aws_error_name
 

@@ -143,35 +143,35 @@ SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
                             ),
                             vol.Required("week"): vol.All(
                                 vol.Coerce(int),
-                            vol.Range(min=0, max=254),
-                            msg="Week must be a bitfield (0-254, Sun=128..Sat=2)",
-                        ),
-                        vol.Required("hour"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=23),
-                            msg="Hour must be 0-23",
-                        ),
-                        vol.Required("min"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=59),
-                            msg="Minute must be 0-59",
-                        ),
-                        vol.Required("mode"): vol.In(
-                            [1, 2, 3, 4, 5, 6],
-                            msg="Mode must be 1-6 (HP, ELEC, ECO, BOOST, VAC, OFF)",
-                        ),
-                        vol.Required("param"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=255),
-                            msg="Param must be 0-255 (temperature in half-C)",
-                        ),
-                    }
-                )
-            ],
-        ),
-        vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
-    }
-)
+                                vol.Range(min=0, max=254),
+                                msg="Week must be a bitfield (0-254, Sun=128..Sat=2)",
+                            ),
+                            vol.Required("hour"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=23),
+                                msg="Hour must be 0-23",
+                            ),
+                            vol.Required("min"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=59),
+                                msg="Minute must be 0-59",
+                            ),
+                            vol.Required("mode"): vol.In(
+                                [1, 2, 3, 4, 5, 6],
+                                msg="Mode must be 1-6 (HP, ELEC, ECO, BOOST, VAC, OFF)",
+                            ),
+                            vol.Required("param"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=255),
+                                msg="Param must be 0-255 (temperature in half-C)",
+                            ),
+                        }
+                    )
+                ],
+            ),
+            vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
+        }
+    )
 )
 
 SERVICE_DEVICE_SCHEMA = vol.Schema(
@@ -429,9 +429,7 @@ class NWP500ServiceHandler:
         existing_schedule = coordinator.reservation_schedules.get(
             mac_address, {}
         )
-        existing_entries = list(
-            existing_schedule.get("reservation", [])
-        )
+        existing_entries = list(existing_schedule.get("reservation", []))
         existing_entries.append(reservation)
 
         success = await coordinator.async_update_reservations(
@@ -569,11 +567,17 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         configs = [StaticPathConfig(CARD_URL, str(CARD_PATH), False)]
 
         if VISUAL_CARD_PATH.is_file():
-            configs.append(StaticPathConfig(VISUAL_CARD_URL, str(VISUAL_CARD_PATH), False))
+            configs.append(
+                StaticPathConfig(VISUAL_CARD_URL, str(VISUAL_CARD_PATH), False)
+            )
             add_extra_js_url(hass, VISUAL_CARD_URL)
 
         if VISUAL_IMAGE_PATH.is_file():
-            configs.append(StaticPathConfig(VISUAL_IMAGE_URL, str(VISUAL_IMAGE_PATH), False))
+            configs.append(
+                StaticPathConfig(
+                    VISUAL_IMAGE_URL, str(VISUAL_IMAGE_PATH), False
+                )
+            )
 
         await hass.http.async_register_static_paths(configs)
         add_extra_js_url(hass, CARD_URL)

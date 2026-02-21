@@ -4,6 +4,7 @@
   "codeowners": ["@eman"],
   "config_flow": true,
   "dependencies": [],
+  "after_dependencies": ["frontend", "http"],
   "documentation": "https://github.com/eman/ha_nwp500",
   "integration_type": "device",
   "iot_class": "cloud_push",

@@ -136,7 +136,6 @@ class NWP500MqttManager:
                         return_code, session_present
                     )
 
-
             # Initialize diagnostics collector
             self.diagnostics = MqttDiagnosticsCollector(
                 enable_verbose_logging=False
