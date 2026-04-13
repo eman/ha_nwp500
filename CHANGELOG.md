@@ -22,19 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `nwp500_demand_response`: Enable/disable demand response via a binary sensor (utility signal) or a scheduled time window
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded from 7.4.8 to 7.4.9
-  - **7.4.9 (2026-04-12)**: Bug fixes and dependency updates
-    - Fixed timezone-naive datetime in token expiry checks (uses `datetime.now(UTC)` throughout)
-    - Fixed vacation mode sent wrong MQTT command (`set_vacation_days()` now uses correct `DHW_MODE` command; valid range corrected to 1–30 days)
-    - Fixed duplicate AWS IoT subscribe calls on reconnect
-    - Fixed anti-legionella set-period state preservation (no longer re-enables when feature is off)
-    - Fixed subscription state lost after failed resubscription
-    - Fixed unit system detection returning `None` on timeout
-    - Fixed once-listener becoming permanent with duplicate callbacks
-    - Fixed auth session leaked on client construction failure
-    - Bumped minimum dependency versions: `aiohttp>=3.13.5`, `pydantic>=2.12.5`, `awsiotsdk>=1.28.2`
-    - See [release notes](https://github.com/eman/nwp500-python/releases/tag/v7.4.9) for full details
-- **Python requirement**: Upgraded to Python 3.14 (required by Home Assistant 2026.4.0+ which resolves the `aiohttp>=3.13.5` dependency)
+- **Library Dependency: nwp500-python**: Remains at 7.4.8 (7.4.9 upgrade deferred)
+  - **7.4.9** requires `pydantic>=2.12.5`, but Home Assistant currently ships `pydantic==2.12.2`. Installing 7.4.9 causes an unsatisfiable dependency error in HA. The upgrade will be adopted once HA ships with `pydantic>=2.12.5`.
+  - 7.4.8 requires only `pydantic>=2.0.0` and remains fully compatible with all current HA versions.
 - **Service schemas**: `set_vacation_days` and `configure_tou_schedule` now accept `entity_id` in addition to `device_id` (consistent with all other services)
 - **Recirculation mode UI**: `set_recirculation_mode` service now shows a labelled select dropdown instead of a plain number field
 - **MQTT command logging**: All `send_command()` dispatches now emit a unified debug log entry
