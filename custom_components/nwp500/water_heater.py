@@ -379,13 +379,14 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         await self.async_set_operation_mode(STATE_ECO)
 
     async def async_turn_away_mode_on(self) -> None:
-        """Turn away mode on by setting vacation mode with a default duration."""
-        # Vacation mode requires a duration; use 30 days (device maximum) as default.
-        # For a custom duration use the nwp500.set_vacation_days service instead.
+        """Turn away mode on by setting vacation mode for 1 day.
+
+        For a custom duration use the nwp500.set_vacation_days service instead.
+        """
         await self._control_device(
             "set_vacation_days",
             "Failed to set vacation mode",
-            days=30,
+            days=1,
         )
 
     async def async_turn_away_mode_off(self) -> None:
