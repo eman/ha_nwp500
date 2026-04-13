@@ -117,21 +117,26 @@ class TestNWP500WaterHeater:
 
         assert heater.current_operation == STATE_ECO
 
-    def test_current_operation_vacation_returns_eco(
+    def test_current_operation_vacation_returns_pre_vacation_mode(
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
         mock_hass: MagicMock,
     ):
-        """Test vacation mode returns eco as operation."""
+        """Test vacation mode returns the stored pre-vacation mode, or eco if none."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
         mock_device_status.dhw_operation_setting.value = 5  # VACATION
 
+        # No pre-vacation mode stored: fall back to eco
         assert heater.current_operation == STATE_ECO
+
+        # With a stored pre-vacation mode it should be returned instead
+        heater._pre_vacation_mode = STATE_HEAT_PUMP
+        assert heater.current_operation == STATE_HEAT_PUMP
 
     def test_current_operation_power_off(
         self,
@@ -447,16 +452,18 @@ class TestNWP500WaterHeater:
         mock_device_status: MagicMock,
         mock_hass: MagicMock,
     ):
-        """Test turning away mode on."""
+        """Test turning away mode on captures the current mode and sets vacation."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
+        mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
 
         await heater.async_turn_away_mode_on()
 
+        assert heater._pre_vacation_mode == STATE_HEAT_PUMP
         mock_coordinator.async_control_device.assert_called_once_with(
             mac_address,
             "set_vacation_days",
@@ -472,10 +479,40 @@ class TestNWP500WaterHeater:
         mock_device_status: MagicMock,
         mock_hass: MagicMock,
     ):
-        """Test turning away mode off."""
+        """Test turning away mode off restores the pre-vacation operation mode."""
         mac_address = mock_device.device_info.mac_address
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
+        heater._pre_vacation_mode = STATE_HEAT_PUMP
+
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        await heater.async_turn_away_mode_off()
+
+        assert heater._pre_vacation_mode is None
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address,
+            "set_dhw_mode",
+            mode=1,  # HEAT_PUMP mode value
+        )
+        mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_async_turn_away_mode_off_defaults_to_eco(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Test turning away mode off falls back to eco when no mode was stored."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+
+        # Device is in vacation mode with no pre-vacation mode stored
+        mock_device_status.dhw_operation_setting.value = 5  # VACATION
 
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()

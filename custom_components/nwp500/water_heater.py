@@ -87,6 +87,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             STATE_HIGH_DEMAND,
             STATE_ELECTRIC,
         ]
+        self._pre_vacation_mode: str | None = None
 
     @property
     def min_temp(self) -> float:
@@ -164,10 +165,14 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                         return STATE_HEAT_PUMP
                     case 2:
                         return STATE_ELECTRIC
-                    case 3 | 5:
+                    case 3:
                         return STATE_ECO
                     case 4:
                         return STATE_HIGH_DEMAND
+                    case 5:
+                        # Vacation mode: show the mode that was active before
+                        # vacation so the UI reflects what will be restored.
+                        return self._pre_vacation_mode or STATE_ECO
                     case 6:
                         return STATE_OFF
                     case _:
@@ -383,6 +388,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
 
         For a custom duration use the nwp500.set_vacation_days service instead.
         """
+        self._pre_vacation_mode = self.current_operation
         await self._control_device(
             "set_vacation_days",
             "Failed to set vacation mode",
@@ -390,8 +396,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         )
 
     async def async_turn_away_mode_off(self) -> None:
-        """Turn away mode off by returning to eco mode."""
-        await self.async_set_operation_mode(STATE_ECO)
+        """Turn away mode off by restoring the pre-vacation operation mode."""
+        restore_mode = self.current_operation or STATE_ECO
+        self._pre_vacation_mode = None
+        await self.async_set_operation_mode(restore_mode)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the water heater off by setting to power off mode."""
