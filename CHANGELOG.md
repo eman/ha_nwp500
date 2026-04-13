@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-04-13
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded from 7.4.8 to 7.4.10
+  - **7.4.10 (2026-04-13)**: Loosened `pydantic` requirement from `>=2.12.5` to `>=2.0.0` for Home Assistant compatibility
+  - **7.4.9 (2026-04-13)**: Bug fixes and dependency updates — see [release notes](https://github.com/eman/nwp500-python/releases/tag/v7.4.9)
+- **Tooling**: ruff, mypy, and pyright configs updated to target Python 3.14
+
+### Fixed
+- **Away mode toggle**: UI toggle now correctly activates vacation mode for 1 day via `set_vacation_days(days=1)` — previously called `set_dhw_mode(mode=5)` without the required `vacation_days` parameter, causing the command to be silently ignored by the device
+- **Away mode heating mode display**: The UI no longer switches to `eco` when vacation mode is activated; the previous heating mode (e.g. `heat_pump`) is preserved and shown while away, and restored when away mode is turned off
+- **Away mode restore**: `async_turn_away_mode_off` validates the stored pre-vacation mode, warns and falls back to `eco` if the stored value is unmapped, and clears state only after the restore call
+- **MQTT callbacks**: `add_done_callback` lambdas now guard against `CancelledError` before inspecting `f.exception()`, preventing spurious errors on task cancellation
+- **Recirculation mode**: `set_recirculation_mode` now logs an error and returns `False` when the required `mode` kwarg is missing instead of silently no-opping
+- **Blueprint fixes**: `nwp500_away_mode` — fixed person-list expansion, corrected `energy_saver` → `eco`, vacation days capped at 30; `nwp500_solar_boost` / `nwp500_demand_response` — minor value corrections
+- **Service schema**: `set_vacation_days` range corrected to 1–30 days (was 1–365) in service schema, strings, and translations
+- **devcontainer docs**: `awsiotsdk` minimum version corrected to `>=1.28.2`
+- **CHANGELOG**: 7.4.9 release notes link corrected to point to the v7.4.9 tag
+
 ## [0.14.0] - 2026-04-13
 
 ### Added
