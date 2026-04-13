@@ -542,7 +542,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "uv pip install nwp500-python==7.4.8 awsiotsdk>=1.27.0"
+                "uv pip install nwp500-python==7.4.10 awsiotsdk>=1.28.2"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"

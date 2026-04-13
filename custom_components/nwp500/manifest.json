@@ -11,6 +11,6 @@
   "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
   "loggers": ["custom_components.nwp500"],
   "quality_scale": "silver",
-  "requirements": ["nwp500-python==7.4.8", "awsiotsdk>=1.27.0"],
+  "requirements": ["nwp500-python==7.4.10", "awsiotsdk>=1.28.2"],
   "version": "0.14.0"
 }
