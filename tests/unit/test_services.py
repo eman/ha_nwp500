@@ -813,7 +813,9 @@ class TestDemandResponseAndRecirculationServices:
 
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_DEVICE_ID: "device_123"}
-        with pytest.raises(HomeAssistantError, match="Failed to enable demand response"):
+        with pytest.raises(
+            HomeAssistantError, match="Failed to enable demand response"
+        ):
             await handler(call)
 
     @pytest.mark.asyncio
@@ -855,7 +857,9 @@ class TestDemandResponseAndRecirculationServices:
 
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_DEVICE_ID: "device_123"}
-        with pytest.raises(HomeAssistantError, match="Failed to disable demand response"):
+        with pytest.raises(
+            HomeAssistantError, match="Failed to disable demand response"
+        ):
             await handler(call)
 
     @pytest.mark.asyncio
@@ -897,7 +901,9 @@ class TestDemandResponseAndRecirculationServices:
 
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_DEVICE_ID: "device_123"}
-        with pytest.raises(HomeAssistantError, match="Failed to reset air filter"):
+        with pytest.raises(
+            HomeAssistantError, match="Failed to reset air filter"
+        ):
             await handler(call)
 
     @pytest.mark.asyncio
@@ -939,7 +945,9 @@ class TestDemandResponseAndRecirculationServices:
 
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_DEVICE_ID: "device_123", "mode": 1}
-        with pytest.raises(HomeAssistantError, match="Failed to set recirculation mode"):
+        with pytest.raises(
+            HomeAssistantError, match="Failed to set recirculation mode"
+        ):
             await handler(call)
 
     @pytest.mark.asyncio
@@ -981,5 +989,7 @@ class TestDemandResponseAndRecirculationServices:
 
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_DEVICE_ID: "device_123"}
-        with pytest.raises(HomeAssistantError, match="Failed to trigger recirculation"):
+        with pytest.raises(
+            HomeAssistantError, match="Failed to trigger recirculation"
+        ):
             await handler(call)

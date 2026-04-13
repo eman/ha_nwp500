@@ -12,7 +12,12 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID, Platform, UnitOfTemperature
+from homeassistant.const import (
+    ATTR_DEVICE_ID,
+    ATTR_ENTITY_ID,
+    Platform,
+    UnitOfTemperature,
+)
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections import deque
 import asyncio
 import logging
 import time
 import types
+from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -139,7 +139,10 @@ class NWP500MqttManager:
                     """Patched client to handle AWSIoT SDK callback changes."""
 
                     def _on_connection_resumed_internal(
-                        self, return_code: Any, session_present: Any, **kwargs: Any
+                        self,
+                        return_code: Any,
+                        session_present: Any,
+                        **kwargs: Any,
                     ) -> None:
                         """Handle connection resumed with extra kwargs."""
                         super()._on_connection_resumed_internal(
@@ -469,9 +472,13 @@ class NWP500MqttManager:
                             device, 5, vacation_days=int(days)
                         )
                 case "enable_demand_response":
-                    await self.mqtt_client.control.enable_demand_response(device)
+                    await self.mqtt_client.control.enable_demand_response(
+                        device
+                    )
                 case "disable_demand_response":
-                    await self.mqtt_client.control.disable_demand_response(device)
+                    await self.mqtt_client.control.disable_demand_response(
+                        device
+                    )
                 case "reset_air_filter":
                     await self.mqtt_client.control.reset_air_filter(device)
                 case "set_recirculation_mode":
@@ -681,11 +688,11 @@ class NWP500MqttManager:
                 self.mqtt_client.reset_reconnect(), self.loop
             )
             future.add_done_callback(
-                lambda f: _LOGGER.error(
-                    "reset_reconnect error: %s", f.exception()
+                lambda f: (
+                    _LOGGER.error("reset_reconnect error: %s", f.exception())
+                    if f.exception()
+                    else None
                 )
-                if f.exception()
-                else None
             )
 
     def _on_connection_interrupted(self, error: Exception) -> None:
@@ -703,11 +710,13 @@ class NWP500MqttManager:
                 self.loop,
             )
             future.add_done_callback(
-                lambda f: _LOGGER.debug(
-                    "record_connection_drop error: %s", f.exception()
+                lambda f: (
+                    _LOGGER.debug(
+                        "record_connection_drop error: %s", f.exception()
+                    )
+                    if f.exception()
+                    else None
                 )
-                if f.exception()
-                else None
             )
 
     def _on_connection_resumed(
@@ -724,9 +733,11 @@ class NWP500MqttManager:
                 self.loop,
             )
             future.add_done_callback(
-                lambda f: _LOGGER.debug(
-                    "record_connection_success error: %s", f.exception()
+                lambda f: (
+                    _LOGGER.debug(
+                        "record_connection_success error: %s", f.exception()
+                    )
+                    if f.exception()
+                    else None
                 )
-                if f.exception()
-                else None
             )
