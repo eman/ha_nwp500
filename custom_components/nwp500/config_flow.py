@@ -205,7 +205,7 @@ async def validate_input(
             device = devices[0]
             device_name = device.device_info.device_name or "NWP500"
 
-    except (CannotConnect, InvalidAuth):
+    except CannotConnect, InvalidAuth:
         # Re-raise our own exceptions
         raise
     except Exception as err:  # noqa: BLE001

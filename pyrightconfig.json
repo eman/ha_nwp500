@@ -9,13 +9,13 @@
   ],
   "ignore": [],
   "defineConstant": {},
-  "pythonVersion": "3.13",
+  "pythonVersion": "3.14",
   "pythonPlatform": "Linux",
   "stubPath": "custom_components/nwp500",
   "executionEnvironments": [
     {
       "root": "custom_components/nwp500",
-      "pythonVersion": "3.13",
+      "pythonVersion": "3.14",
       "pythonPlatform": "Linux",
       "extraPaths": []
     }
