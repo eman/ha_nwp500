@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **5 new device control services**:
+  - `enable_demand_response`: Enable participation in utility demand response programs
+  - `disable_demand_response`: Disable utility demand response participation
+  - `reset_air_filter`: Reset the air filter maintenance timer after cleaning/replacement
+  - `set_recirculation_mode`: Set recirculation pump mode (Always On / Button / Schedule / Temperature Triggered) with a labeled dropdown UI
+  - `trigger_recirculation`: Manually trigger the recirculation pump hot button
+  - All new services support both `device_id` and `entity_id` target selection
+- **4 new automation blueprints** (in `blueprints/automation/`):
+  - `nwp500_solar_boost`: Switch to High Demand mode when solar generation exceeds a configurable threshold; revert to Eco when it drops
+  - `nwp500_away_mode`: Activate vacation mode when all tracked household members leave; restore normal mode on return
+  - `nwp500_leak_alert`: Send a notification and optionally power off the water heater when a moisture/flood sensor triggers
+  - `nwp500_demand_response`: Enable/disable demand response via a binary sensor (utility signal) or a scheduled time window
+
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded from 7.4.8 to 7.4.9
   - **7.4.9 (2026-04-12)**: Bug fixes and dependency updates
@@ -20,6 +34,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Fixed auth session leaked on client construction failure
     - Bumped minimum dependency versions: `aiohttp>=3.13.5`, `pydantic>=2.12.5`, `awsiotsdk>=1.28.2`
     - See [release notes](https://github.com/eman/nwp500-python/releases/tag/v7.4.9) for full details
+- **Python requirement**: Upgraded to Python 3.14 (required by Home Assistant 2026.4.0+ which resolves the `aiohttp>=3.13.5` dependency)
+- **Service schemas**: `set_vacation_days` and `configure_tou_schedule` now accept `entity_id` in addition to `device_id` (consistent with all other services)
+- **Recirculation mode UI**: `set_recirculation_mode` service now shows a labelled select dropdown instead of a plain number field
+- **MQTT command logging**: All `send_command()` dispatches now emit a unified debug log entry
+- **Water heater refactor**: Extracted `_control_device()` helper in `water_heater.py`, eliminating repeated boilerplate across `set_temperature`, `set_operation_mode`, `turn_away_mode_on`, and `turn_off`
+
+### Fixed
+- **README version badge**: Updated from 0.2.2 to 0.3.0
+- **Energy capacity sensor classification**: `total_energy_capacity` and `available_energy_capacity` corrected from `device_class=energy / state_class=total` to `device_class=energy_storage / state_class=measurement` — these represent current stored energy (fluctuates), not a cumulative counter
+- **Coordinator null guard**: Added `if not coordinator.data:` check before iterating device keys during service resolution, preventing a crash when coordinator data is not yet populated
+- **Sensor telemetry None guards**: MQTT request/response count sensors now use `.get()` with a fallback of 0 instead of direct dict access, preventing `KeyError` on uninitialized telemetry
+- **Thread safety — connection interruptions**: `_connection_interruptions` changed from a plain `list` to `deque(maxlen=20)`, making it safe for MQTT callback threads and eliminating the manual truncation loop
+- **Private attribute access**: `coordinator.py` now uses the public `mqtt_manager.last_reconnect_time` property instead of accessing `_last_reconnect_time` directly
+- **Silent Future exceptions**: `asyncio.run_coroutine_threadsafe()` calls in MQTT callbacks now attach `.add_done_callback()` error handlers so exceptions are logged rather than silently discarded
+- **MAC address tracking**: `_tracked_mac_addresses` changed from `list` to `set` for O(1) membership checks and to prevent duplicate subscriptions
+- **Local import hoisting**: Repeated local imports of `UnitOfTemperature` and temperature constants inside function bodies moved to module level in `__init__.py`
 
 ## [0.3.0] - 2026-02-21
 
