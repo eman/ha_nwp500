@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded from 7.4.8 to 7.4.9
+  - **7.4.9 (2026-04-12)**: Bug fixes and dependency updates
+    - Fixed timezone-naive datetime in token expiry checks (uses `datetime.now(UTC)` throughout)
+    - Fixed vacation mode sent wrong MQTT command (`set_vacation_days()` now uses correct `DHW_MODE` command; valid range corrected to 1–30 days)
+    - Fixed duplicate AWS IoT subscribe calls on reconnect
+    - Fixed anti-legionella set-period state preservation (no longer re-enables when feature is off)
+    - Fixed subscription state lost after failed resubscription
+    - Fixed unit system detection returning `None` on timeout
+    - Fixed once-listener becoming permanent with duplicate callbacks
+    - Fixed auth session leaked on client construction failure
+    - Bumped minimum dependency versions: `aiohttp>=3.13.5`, `pydantic>=2.12.5`, `awsiotsdk>=1.28.2`
+    - See [release notes](https://github.com/eman/nwp500-python/releases/tag/v7.4.9) for full details
+
 ## [0.3.0] - 2026-02-21
 
 ### Added
