@@ -692,9 +692,11 @@ class NWP500MqttManager:
                 self.mqtt_client.reset_reconnect(), self.loop
             )
             future.add_done_callback(
-                lambda f: _LOGGER.error("reset_reconnect error: %s", f.exception())
-                if not f.cancelled() and f.exception()
-                else None
+                lambda f: (
+                    _LOGGER.error("reset_reconnect error: %s", f.exception())
+                    if not f.cancelled() and f.exception()
+                    else None
+                )
             )
 
     def _on_connection_interrupted(self, error: Exception) -> None:
@@ -712,9 +714,13 @@ class NWP500MqttManager:
                 self.loop,
             )
             future.add_done_callback(
-                lambda f: _LOGGER.debug("record_connection_drop error: %s", f.exception())
-                if not f.cancelled() and f.exception()
-                else None
+                lambda f: (
+                    _LOGGER.debug(
+                        "record_connection_drop error: %s", f.exception()
+                    )
+                    if not f.cancelled() and f.exception()
+                    else None
+                )
             )
 
     def _on_connection_resumed(
@@ -731,7 +737,11 @@ class NWP500MqttManager:
                 self.loop,
             )
             future.add_done_callback(
-                lambda f: _LOGGER.debug("record_connection_success error: %s", f.exception())
-                if not f.cancelled() and f.exception()
-                else None
+                lambda f: (
+                    _LOGGER.debug(
+                        "record_connection_success error: %s", f.exception()
+                    )
+                    if not f.cancelled() and f.exception()
+                    else None
+                )
             )
