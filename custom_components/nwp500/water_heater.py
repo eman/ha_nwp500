@@ -397,9 +397,18 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
 
     async def async_turn_away_mode_off(self) -> None:
         """Turn away mode off by restoring the pre-vacation operation mode."""
-        restore_mode = self.current_operation or STATE_ECO
-        self._pre_vacation_mode = None
+        restore_mode = self._pre_vacation_mode or STATE_ECO
+
+        if restore_mode not in HA_TO_DHW_MODE and restore_mode.lower() != STATE_OFF:
+            _LOGGER.warning(
+                "Invalid pre-vacation operation mode '%s'; falling back to %s",
+                restore_mode,
+                STATE_ECO,
+            )
+            restore_mode = STATE_ECO
+
         await self.async_set_operation_mode(restore_mode)
+        self._pre_vacation_mode = None
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the water heater off by setting to power off mode."""

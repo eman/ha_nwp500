@@ -526,6 +526,33 @@ class TestNWP500WaterHeater:
         )
         mock_coordinator.async_request_refresh.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_async_turn_away_mode_off_invalid_stored_mode_falls_back_to_eco(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Test turning away mode off warns and falls back to eco for an invalid stored mode."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+        heater._pre_vacation_mode = "unknown"
+
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        await heater.async_turn_away_mode_off()
+
+        assert heater._pre_vacation_mode is None
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address,
+            "set_dhw_mode",
+            mode=3,  # ECO mode value
+        )
+        mock_coordinator.async_request_refresh.assert_called_once()
+
     def test_current_operation_unknown(
         self,
         mock_coordinator: MagicMock,

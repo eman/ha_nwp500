@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Fixed once-listener becoming permanent with duplicate callbacks
     - Fixed auth session leaked on client construction failure
     - Bumped minimum dependency versions: `aiohttp>=3.13.5`, `awsiotsdk>=1.28.2`
-    - See [release notes](https://github.com/eman/nwp500-python/releases/tag/v7.4.10) for full details
+    - See [release notes](https://github.com/eman/nwp500-python/releases/tag/v7.4.9) for full details
 - **Service schemas**: `set_vacation_days` and `configure_tou_schedule` now accept `entity_id` in addition to `device_id` (consistent with all other services)
 - **Recirculation mode UI**: `set_recirculation_mode` service now shows a labelled select dropdown instead of a plain number field
 - **MQTT command logging**: All `send_command()` dispatches now emit a unified debug log entry
