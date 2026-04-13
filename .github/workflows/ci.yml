@@ -28,7 +28,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install tox
         run: uv tool install tox --with tox-uv
@@ -62,7 +62,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install tox
         run: uv tool install tox --with tox-uv
@@ -101,7 +101,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install tox
         run: uv tool install tox --with tox-uv
@@ -115,7 +115,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13"]
+        python-version: ["3.14"]
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -153,7 +153,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install tox
         run: uv tool install tox --with tox-uv
@@ -164,7 +164,7 @@ jobs:
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v6
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
           fail_ci_if_error: false

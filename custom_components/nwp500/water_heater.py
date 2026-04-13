@@ -313,6 +313,19 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
 
         return attrs
 
+    async def _control_device(
+        self, command: str, error_message: str, **kwargs: Any
+    ) -> bool:
+        """Send a command and request refresh on success, log error on failure."""
+        success = await self.coordinator.async_control_device(
+            self.mac_address, command, **kwargs
+        )
+        if success:
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error(error_message)
+        return success
+
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature.
 
@@ -333,21 +346,17 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             )
             return
 
-        success = await self.coordinator.async_control_device(
-            self.mac_address, "set_temperature", temperature=float(temperature)
+        await self._control_device(
+            "set_temperature",
+            "Failed to set temperature",
+            temperature=float(temperature),
         )
-
-        if success:
-            # Trigger immediate data refresh
-            await self.coordinator.async_request_refresh()
 
     async def async_set_operation_mode(self, operation_mode: str) -> None:
         """Set new operation mode using DHW mode control."""
-        # Map Home Assistant operation mode to DHW mode value
         dhw_mode_value = HA_TO_DHW_MODE.get(operation_mode)
 
         if dhw_mode_value is None:
-            # Check if this is an "off" request
             if operation_mode.lower() == STATE_OFF:
                 await self.async_turn_off()
                 return
@@ -359,18 +368,14 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             "Setting DHW mode to %s (value: %d)", operation_mode, dhw_mode_value
         )
 
-        success = await self.coordinator.async_control_device(
-            self.mac_address, "set_dhw_mode", mode=dhw_mode_value
+        await self._control_device(
+            "set_dhw_mode",
+            f"Failed to set operation mode to {operation_mode}",
+            mode=dhw_mode_value,
         )
-
-        if success:
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set operation mode to %s", operation_mode)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the water heater on by setting it to energy saver mode."""
-        # When turning "on", set to energy saver (eco) mode as default
         await self.async_set_operation_mode(STATE_ECO)
 
     async def async_turn_away_mode_on(self) -> None:
@@ -378,16 +383,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         # Vacation mode is handled separately from operation modes
         # since it's not in operation_list. This follows HA design
         # where away_mode is a dedicated feature, not an op mode
-        success = await self.coordinator.async_control_device(
-            self.mac_address,
+        await self._control_device(
             "set_dhw_mode",
+            "Failed to set vacation mode",
             mode=5,  # VACATION mode
         )
-
-        if success:
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set vacation mode")
 
     async def async_turn_away_mode_off(self) -> None:
         """Turn away mode off by returning to eco mode."""
@@ -397,13 +397,8 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         """Turn the water heater off by setting to power off mode."""
         # Use DHW mode 6 (POWER_OFF) instead of the uncertain set_power method
         # This maps to the "off" operation mode in our DHW_MODE_TO_HA mapping
-        success = await self.coordinator.async_control_device(
-            self.mac_address,
+        await self._control_device(
             "set_dhw_mode",
+            "Failed to set water heater to power off mode",
             mode=6,  # POWER_OFF mode
         )
-
-        if success:
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set water heater to power off mode")

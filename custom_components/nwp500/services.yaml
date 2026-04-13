@@ -196,9 +196,17 @@ enable_demand_response:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
           integration: nwp500
 
 disable_demand_response:
@@ -208,9 +216,17 @@ disable_demand_response:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
           integration: nwp500
 
 reset_air_filter:
@@ -222,9 +238,17 @@ reset_air_filter:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
           integration: nwp500
 
 set_vacation_days:
@@ -237,18 +261,26 @@ set_vacation_days:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
     days:
       name: Days
-      description: Number of days for vacation mode (1-365)
+      description: Number of days for vacation mode (1-30)
       required: true
       selector:
         number:
           min: 1
-          max: 365
+          max: 30
           mode: box
 
 set_recirculation_mode:
@@ -260,19 +292,33 @@ set_recirculation_mode:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
     mode:
       name: Mode
-      description: Recirculation mode (1-4)
+      description: Recirculation pump operation mode
       required: true
       selector:
-        number:
-          min: 1
-          max: 4
-          mode: box
+        select:
+          options:
+            - label: Always On
+              value: "1"
+            - label: Button / On Demand
+              value: "2"
+            - label: Schedule
+              value: "3"
+            - label: Temperature Triggered
+              value: "4"
 
 trigger_recirculation:
   name: Trigger Recirculation
@@ -283,9 +329,17 @@ trigger_recirculation:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
           integration: nwp500
 
 configure_tou_schedule:
@@ -299,9 +353,17 @@ configure_tou_schedule:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
           integration: nwp500
     periods:
       name: TOU Periods
@@ -332,7 +394,15 @@ request_tou_settings:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
           integration: nwp500

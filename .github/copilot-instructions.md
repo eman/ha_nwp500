@@ -11,8 +11,8 @@ tox -e mypy
 # Run all tests with coverage
 tox -e coverage
 
-# Run tests on specific Python version (py312 or py313)
-tox -e py313 -- tests/unit/test_sensor.py -v
+# Run tests on specific Python version (py314)
+tox -e py314 -- tests/unit/test_sensor.py -v
 
 # Full validation (type check + tests + coverage)
 tox
@@ -29,7 +29,7 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **GitHub Repository**: https://github.com/eman/nwp500-python
   - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
   - **PyPI Package**: https://pypi.org/project/nwp500-python/
-  - **Current Version**: 7.4.6 (see `custom_components/nwp500/manifest.json`)
+  - **Current Version**: 7.4.9 (see `custom_components/nwp500/manifest.json`)
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration

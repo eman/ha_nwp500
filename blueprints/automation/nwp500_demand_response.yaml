@@ -1,0 +1,108 @@
+blueprint:
+  name: NWP500 Demand Response
+  description: >
+    Enable or disable demand response participation on your Navien NWP500
+    water heater based on a utility signal sensor or a time window. When
+    demand response is enabled, the device can respond to utility signals
+    to reduce consumption during peak demand events.
+  domain: automation
+  input:
+    nwp500_entity:
+      name: Water Heater
+      description: The NWP500 water heater entity to control.
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+
+    control_mode:
+      name: Control Mode
+      description: >
+        Choose how demand response is controlled: by a binary sensor signal
+        from your utility, or by a scheduled time window.
+      default: sensor
+      selector:
+        select:
+          options:
+            - label: Binary Sensor (Utility Signal)
+              value: sensor
+            - label: Time Window (Schedule)
+              value: schedule
+
+    dr_sensor:
+      name: Demand Response Signal Sensor
+      description: >
+        A binary sensor that turns ON when demand response should be enabled
+        (e.g. a utility signal or grid stress indicator). Only used when
+        Control Mode is set to Binary Sensor.
+      selector:
+        entity:
+          device_class: power
+
+    window_start:
+      name: Peak Window Start Time
+      description: >
+        Time when the peak demand window begins (demand response enabled).
+        Only used when Control Mode is set to Time Window.
+      default: "14:00:00"
+      selector:
+        time:
+
+    window_end:
+      name: Peak Window End Time
+      description: >
+        Time when the peak demand window ends (demand response disabled).
+        Only used when Control Mode is set to Time Window.
+      default: "19:00:00"
+      selector:
+        time:
+
+trigger:
+  - platform: state
+    entity_id: !input dr_sensor
+    to: "on"
+    id: dr_enable
+
+  - platform: state
+    entity_id: !input dr_sensor
+    to: "off"
+    id: dr_disable
+
+  - platform: time
+    at: !input window_start
+    id: window_open
+
+  - platform: time
+    at: !input window_end
+    id: window_close
+
+variables:
+  control_mode: !input control_mode
+
+action:
+  - choose:
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'dr_enable' and control_mode == 'sensor' }}"
+              - condition: template
+                value_template: "{{ trigger.id == 'window_open' and control_mode == 'schedule' }}"
+        sequence:
+          - service: nwp500.enable_demand_response
+            data:
+              entity_id: !input nwp500_entity
+
+      - conditions:
+          - condition: or
+            conditions:
+              - condition: template
+                value_template: "{{ trigger.id == 'dr_disable' and control_mode == 'sensor' }}"
+              - condition: template
+                value_template: "{{ trigger.id == 'window_close' and control_mode == 'schedule' }}"
+        sequence:
+          - service: nwp500.disable_demand_response
+            data:
+              entity_id: !input nwp500_entity
+
+mode: single

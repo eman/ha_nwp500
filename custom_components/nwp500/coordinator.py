@@ -333,9 +333,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 if self.mqtt_manager:
                     try:
                         # Generate request ID for tracking
-                        request_id = f"{mac_address}_{int(time.time() * 1000)}"
+                        now = time.time()
+                        request_id = f"{mac_address}_{int(now * 1000)}"
                         self._last_request_id = request_id
-                        self._last_request_time = time.time()
+                        self._last_request_time = now
                         self._total_requests_sent += 1
 
                         _LOGGER.debug(
@@ -420,7 +421,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         if self._consecutive_timeouts >= 3:
                             elapsed = (
                                 time.time()
-                                - self.mqtt_manager._last_reconnect_time
+                                - self.mqtt_manager.last_reconnect_time
                             )
                             if elapsed < MIN_RECONNECT_INTERVAL:
                                 _LOGGER.debug(
@@ -541,7 +542,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "uv pip install nwp500-python==7.4.8 awsiotsdk>=1.27.0"
+                "uv pip install nwp500-python==7.4.9 awsiotsdk>=1.28.2"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
