@@ -72,6 +72,9 @@ class NWP500MqttManager:
         # Connection state tracking for diagnostics
         self._connection_interruptions: deque[dict[str, Any]] = deque(maxlen=20)
 
+        # Lazily-resolved patched MQTT client class (set on first setup())
+        self._patched_client_cls: type | None = None
+
         # Track subscribed scheduling response topics to avoid duplicates.
         # Topics are per (device_type, client_id), not per device MAC, so
         # we subscribe once and broadcast responses to all known devices.
@@ -130,16 +133,20 @@ class NWP500MqttManager:
                 NavienMqttClient,
             )
 
-            class PatchedNavienMqttClient(NavienMqttClient):
-                """Patched client to handle AWSIoT SDK callback changes."""
+            if self._patched_client_cls is None:
 
-                def _on_connection_resumed_internal(
-                    self, return_code: Any, session_present: Any, **kwargs: Any
-                ) -> None:
-                    """Handle connection resumed with extra kwargs."""
-                    super()._on_connection_resumed_internal(
-                        return_code, session_present
-                    )
+                class PatchedNavienMqttClient(NavienMqttClient):
+                    """Patched client to handle AWSIoT SDK callback changes."""
+
+                    def _on_connection_resumed_internal(
+                        self, return_code: Any, session_present: Any, **kwargs: Any
+                    ) -> None:
+                        """Handle connection resumed with extra kwargs."""
+                        super()._on_connection_resumed_internal(
+                            return_code, session_present
+                        )
+
+                self._patched_client_cls = PatchedNavienMqttClient
 
             # Initialize diagnostics collector
             self.diagnostics = MqttDiagnosticsCollector(
@@ -147,7 +154,7 @@ class NWP500MqttManager:
             )
 
             # Token validation deferred to connect() per nwp500-python 7.3.1+
-            self.mqtt_client = PatchedNavienMqttClient(
+            self.mqtt_client = self._patched_client_cls(
                 self.auth_client,
                 unit_system=self.unit_system,  # type: ignore[arg-type]
             )
@@ -670,8 +677,15 @@ class NWP500MqttManager:
             "MQTT reconnection failed (attempt %d). Resetting...", attempt
         )
         if self.mqtt_client:
-            asyncio.run_coroutine_threadsafe(
+            future = asyncio.run_coroutine_threadsafe(
                 self.mqtt_client.reset_reconnect(), self.loop
+            )
+            future.add_done_callback(
+                lambda f: _LOGGER.error(
+                    "reset_reconnect error: %s", f.exception()
+                )
+                if f.exception()
+                else None
             )
 
     def _on_connection_interrupted(self, error: Exception) -> None:
@@ -684,9 +698,16 @@ class NWP500MqttManager:
         self._connection_interruptions.append(interruption_event)
 
         if self.diagnostics:
-            asyncio.run_coroutine_threadsafe(
+            future = asyncio.run_coroutine_threadsafe(
                 self.diagnostics.record_connection_drop(error=error),
                 self.loop,
+            )
+            future.add_done_callback(
+                lambda f: _LOGGER.debug(
+                    "record_connection_drop error: %s", f.exception()
+                )
+                if f.exception()
+                else None
             )
 
     def _on_connection_resumed(
@@ -694,11 +715,18 @@ class NWP500MqttManager:
     ) -> None:
         """Handle connection resume event for diagnostics."""
         if self.diagnostics:
-            asyncio.run_coroutine_threadsafe(
+            future = asyncio.run_coroutine_threadsafe(
                 self.diagnostics.record_connection_success(
                     event_type="resumed",
                     session_present=session_present,
                     return_code=return_code,
                 ),
                 self.loop,
+            )
+            future.add_done_callback(
+                lambda f: _LOGGER.debug(
+                    "record_connection_success error: %s", f.exception()
+                )
+                if f.exception()
+                else None
             )

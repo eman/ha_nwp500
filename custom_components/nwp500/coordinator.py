@@ -333,9 +333,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 if self.mqtt_manager:
                     try:
                         # Generate request ID for tracking
-                        request_id = f"{mac_address}_{int(time.time() * 1000)}"
+                        now = time.time()
+                        request_id = f"{mac_address}_{int(now * 1000)}"
                         self._last_request_id = request_id
-                        self._last_request_time = time.time()
+                        self._last_request_time = now
                         self._total_requests_sent += 1
 
                         _LOGGER.debug(
