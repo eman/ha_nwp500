@@ -87,6 +87,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             STATE_HIGH_DEMAND,
             STATE_ELECTRIC,
         ]
+        self._pre_vacation_mode: str | None = None
 
     @property
     def min_temp(self) -> float:
@@ -131,7 +132,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         try:
             temp = getattr(status, "dhw_temperature", None)
             return float(temp) if temp is not None else None
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             return None
 
     @property
@@ -146,7 +147,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
             return float(target_temp) if target_temp is not None else None
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             return None
 
     @property
@@ -164,17 +165,21 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                         return STATE_HEAT_PUMP
                     case 2:
                         return STATE_ELECTRIC
-                    case 3 | 5:
+                    case 3:
                         return STATE_ECO
                     case 4:
                         return STATE_HIGH_DEMAND
+                    case 5:
+                        # Vacation mode: show the mode that was active before
+                        # vacation so the UI reflects what will be restored.
+                        return self._pre_vacation_mode or STATE_ECO
                     case 6:
                         return STATE_OFF
                     case _:
                         return DHW_OPERATION_SETTING_TO_HA.get(
                             mode_value, "unknown"
                         )
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return "unknown"
 
@@ -197,7 +202,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return get_enum_value(operation_mode) not in [0, 6]
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return None
 
@@ -210,7 +215,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 return bool(get_enum_value(operation_setting) == 5)
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return False
 
@@ -308,7 +313,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                     else None,
                 }
             )
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
 
         return attrs
@@ -379,19 +384,34 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         await self.async_set_operation_mode(STATE_ECO)
 
     async def async_turn_away_mode_on(self) -> None:
-        """Turn away mode on by setting to vacation mode."""
-        # Vacation mode is handled separately from operation modes
-        # since it's not in operation_list. This follows HA design
-        # where away_mode is a dedicated feature, not an op mode
+        """Turn away mode on by setting vacation mode for 1 day.
+
+        For a custom duration use the nwp500.set_vacation_days service instead.
+        """
+        self._pre_vacation_mode = self.current_operation
         await self._control_device(
-            "set_dhw_mode",
+            "set_vacation_days",
             "Failed to set vacation mode",
-            mode=5,  # VACATION mode
+            days=1,
         )
 
     async def async_turn_away_mode_off(self) -> None:
-        """Turn away mode off by returning to eco mode."""
-        await self.async_set_operation_mode(STATE_ECO)
+        """Turn away mode off by restoring the pre-vacation operation mode."""
+        restore_mode = self._pre_vacation_mode or STATE_ECO
+
+        if (
+            restore_mode not in HA_TO_DHW_MODE
+            and restore_mode.lower() != STATE_OFF
+        ):
+            _LOGGER.warning(
+                "Invalid pre-vacation operation mode '%s'; falling back to %s",
+                restore_mode,
+                STATE_ECO,
+            )
+            restore_mode = STATE_ECO
+
+        await self.async_set_operation_mode(restore_mode)
+        self._pre_vacation_mode = None
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the water heater off by setting to power off mode."""

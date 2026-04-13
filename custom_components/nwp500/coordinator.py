@@ -285,7 +285,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 from nwp500.unit_system import set_unit_system
 
                 set_unit_system(self.unit_system)  # type: ignore[arg-type]
-            except (ImportError, AttributeError):
+            except ImportError, AttributeError:
                 pass
 
         # Track performance metrics
@@ -396,7 +396,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                     mac_address,
                                 )
 
-                    except (TimeoutError, MqttError):
+                    except TimeoutError, MqttError:
                         self._consecutive_timeouts += 1
 
                         # Record timeout event in history
@@ -542,7 +542,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "uv pip install nwp500-python==7.4.9 awsiotsdk>=1.28.2"
+                "uv pip install nwp500-python==7.4.10 awsiotsdk>=1.28.2"
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -1163,7 +1163,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             unit = status.get_field_unit(field_name)
             if unit and isinstance(unit, str):
                 return unit.strip()
-        except (AttributeError, TypeError, KeyError, ValueError, ImportError):
+        except AttributeError, TypeError, KeyError, ValueError, ImportError:
             # Standardized exception handling across all entities
             pass
 
@@ -1203,7 +1203,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     from nwp500.unit_system import set_unit_system
 
                     set_unit_system(self.unit_system)  # type: ignore[arg-type]
-                except (ImportError, AttributeError):
+                except ImportError, AttributeError:
                     pass
 
             # Step 4: CRITICAL - Clear all cached data to prevent mixed-unit states

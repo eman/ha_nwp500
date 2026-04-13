@@ -186,7 +186,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
                     if volume_code in VOLUME_CODE_TEXT:
                         hw_version = VOLUME_CODE_TEXT[volume_code]
-                except (ImportError, AttributeError, TypeError):
+                except ImportError, AttributeError, TypeError:
                     pass
 
                 if hw_version is None:

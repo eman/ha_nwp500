@@ -174,7 +174,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            "uv pip install nwp500-python==7.4.9 awsiotsdk>=1.28.2"
+            "uv pip install nwp500-python==7.4.10 awsiotsdk>=1.28.2"
         )
         raise CannotConnect("nwp500-python library not available")
 
@@ -205,7 +205,7 @@ async def validate_input(
             device = devices[0]
             device_name = device.device_info.device_name or "NWP500"
 
-    except (CannotConnect, InvalidAuth):
+    except CannotConnect, InvalidAuth:
         # Re-raise our own exceptions
         raise
     except Exception as err:  # noqa: BLE001
