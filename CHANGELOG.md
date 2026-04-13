@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] - 2026-04-13
 
 ### Added
 - **5 new device control services**:
@@ -145,8 +145,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Replaced manual list management with `collections.deque(maxlen=20)` for timeout history tracking
   - Automatic circular buffer behavior without manual truncation logic
   - Reduces performance overhead of timeout history operations
-
-## [Unreleased]
 
 ## [0.1.9] - 2026-01-25
 
@@ -672,7 +670,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/eman/ha_nwp500/compare/v0.3.0...v0.14.0
 [0.1.5]: https://github.com/eman/ha_nwp500/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/eman/ha_nwp500/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/eman/ha_nwp500/compare/v0.1.2...v0.1.3
