@@ -483,10 +483,14 @@ class NWP500MqttManager:
                     await self.mqtt_client.control.reset_air_filter(device)
                 case "set_recirculation_mode":
                     mode = kwargs.get("mode")
-                    if mode is not None:
-                        await self.mqtt_client.control.set_recirculation_mode(
-                            device, int(mode)
+                    if mode is None:
+                        _LOGGER.error(
+                            "set_recirculation_mode requires 'mode' kwarg but none was provided"
                         )
+                        return False
+                    await self.mqtt_client.control.set_recirculation_mode(
+                        device, int(mode)
+                    )
                 case "trigger_recirculation":
                     await self.mqtt_client.control.trigger_recirculation_hot_button(
                         device
@@ -688,11 +692,9 @@ class NWP500MqttManager:
                 self.mqtt_client.reset_reconnect(), self.loop
             )
             future.add_done_callback(
-                lambda f: (
-                    _LOGGER.error("reset_reconnect error: %s", f.exception())
-                    if f.exception()
-                    else None
-                )
+                lambda f: _LOGGER.error("reset_reconnect error: %s", f.exception())
+                if not f.cancelled() and f.exception()
+                else None
             )
 
     def _on_connection_interrupted(self, error: Exception) -> None:
@@ -710,13 +712,9 @@ class NWP500MqttManager:
                 self.loop,
             )
             future.add_done_callback(
-                lambda f: (
-                    _LOGGER.debug(
-                        "record_connection_drop error: %s", f.exception()
-                    )
-                    if f.exception()
-                    else None
-                )
+                lambda f: _LOGGER.debug("record_connection_drop error: %s", f.exception())
+                if not f.cancelled() and f.exception()
+                else None
             )
 
     def _on_connection_resumed(
@@ -733,11 +731,7 @@ class NWP500MqttManager:
                 self.loop,
             )
             future.add_done_callback(
-                lambda f: (
-                    _LOGGER.debug(
-                        "record_connection_success error: %s", f.exception()
-                    )
-                    if f.exception()
-                    else None
-                )
+                lambda f: _LOGGER.debug("record_connection_success error: %s", f.exception())
+                if not f.cancelled() and f.exception()
+                else None
             )

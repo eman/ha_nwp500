@@ -275,12 +275,12 @@ set_vacation_days:
           integration: nwp500
     days:
       name: Days
-      description: Number of days for vacation mode (1-365)
+      description: Number of days for vacation mode (1-30)
       required: true
       selector:
         number:
           min: 1
-          max: 365
+          max: 30
           mode: box
 
 set_recirculation_mode:

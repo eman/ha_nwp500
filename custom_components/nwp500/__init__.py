@@ -215,7 +215,7 @@ SERVICE_SET_VACATION_DAYS_SCHEMA = vol.All(
             vol.Optional(ATTR_DEVICE_ID): cv.string,
             vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
             vol.Required(ATTR_DAYS): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=365)
+                vol.Coerce(int), vol.Range(min=1, max=30)
             ),
         }
     ),

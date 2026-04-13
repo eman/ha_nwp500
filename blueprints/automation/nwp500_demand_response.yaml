@@ -35,7 +35,6 @@ blueprint:
         A binary sensor that turns ON when demand response should be enabled
         (e.g. a utility signal or grid stress indicator). Only used when
         Control Mode is set to Binary Sensor.
-      default:
       selector:
         entity:
           device_class: power

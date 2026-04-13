@@ -539,7 +539,7 @@
     },
     "set_vacation_days": {
       "name": "Set Vacation Days",
-      "description": "Configure vacation mode duration. Sets the device to vacation mode for the specified number of days (1-365). Vacation mode reduces energy consumption during extended absences.",
+      "description": "Configure vacation mode duration. Sets the device to vacation mode for the specified number of days (1-30). Vacation mode reduces energy consumption during extended absences.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -551,7 +551,7 @@
         },
         "days": {
           "name": "Days",
-          "description": "Number of days for vacation mode (1-365)"
+          "description": "Number of days for vacation mode (1-30)"
         }
       }
     },

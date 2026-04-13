@@ -69,12 +69,12 @@ blueprint:
     eco_mode:
       name: Eco Operation Mode
       description: Operation mode to revert to when solar generation drops.
-      default: energy_saver
+      default: eco
       selector:
         select:
           options:
             - label: Energy Saver (Eco)
-              value: energy_saver
+              value: eco
             - label: Heat Pump Only
               value: heat_pump
 
