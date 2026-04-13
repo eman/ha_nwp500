@@ -459,8 +459,8 @@ class TestNWP500WaterHeater:
 
         mock_coordinator.async_control_device.assert_called_once_with(
             mac_address,
-            "set_dhw_mode",
-            mode=5,  # VACATION mode value
+            "set_vacation_days",
+            days=30,
         )
         mock_coordinator.async_request_refresh.assert_called_once()
 
