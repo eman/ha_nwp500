@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2] - 2026-04-13
+
+### Added
+- **Brand images**: Added `brand/` directory with `icon.png` (256×256) and `logo.png` (1616×225 wordmark) for Home Assistant 2026.3+ local brand image support in custom components
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded from 7.4.8 to 7.4.10
+  - **7.4.10 (2026-04-13)**: Loosened `pydantic` requirement from `>=2.12.5` to `>=2.0.0` for Home Assistant compatibility
+  - **7.4.9 (2026-04-13)**: Bug fixes — see [release notes](https://github.com/eman/nwp500-python/releases/tag/v7.4.9)
+- **Tooling**: ruff, mypy, and pyright configs updated to target Python 3.14
+- **CI**: Bumped `actions/upload-artifact` from 5 to 7, `codecov/codecov-action` from 5 to 6, `softprops/action-gh-release` from 2 to 3
+
+### Fixed
+- **Away mode toggle**: UI toggle now correctly activates vacation mode for 1 day via `set_vacation_days(days=1)` — previously called `set_dhw_mode(mode=5)` without the required `vacation_days` parameter, causing the command to be silently ignored by the device
+- **Away mode heating mode display**: The UI no longer switches to `eco` when vacation mode is activated; the previous heating mode is preserved and restored when away mode is turned off
+- **Away mode restore**: `async_turn_away_mode_off` validates the stored pre-vacation mode, warns and falls back to `eco` if unmapped, and clears state only after the restore call
+- **MQTT callbacks**: `add_done_callback` lambdas now guard against `CancelledError` before inspecting `f.exception()`
+- **Recirculation mode**: `set_recirculation_mode` now logs an error when the required `mode` kwarg is missing instead of silently no-opping
+- **Blueprint fixes**: `nwp500_away_mode` — fixed person-list expansion, corrected `energy_saver` → `eco`, vacation days capped at 30; `nwp500_solar_boost` / `nwp500_demand_response` — minor value corrections
+- **Service schema**: `set_vacation_days` range corrected to 1–30 days (was 1–365)
+
 ## [0.14.0] - 2026-04-13
 
 ### Added
@@ -670,7 +691,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.14.2...HEAD
+[0.14.2]: https://github.com/eman/ha_nwp500/compare/v0.14.0...v0.14.2
 [0.14.0]: https://github.com/eman/ha_nwp500/compare/v0.3.0...v0.14.0
 [0.1.5]: https://github.com/eman/ha_nwp500/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/eman/ha_nwp500/compare/v0.1.3...v0.1.4
