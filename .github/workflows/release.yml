@@ -45,7 +45,7 @@ jobs:
           zip -r ../nwp500-${{ steps.version.outputs.version }}.zip nwp500/
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body: ${{ steps.changelog.outputs.notes }}
           files: nwp500-${{ steps.version.outputs.version }}.zip
