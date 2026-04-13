@@ -11,10 +11,15 @@ from custom_components.nwp500 import (
     MODE_TO_DHW_ID,
     SERVICE_CLEAR_RESERVATIONS,
     SERVICE_CONFIGURE_TOU,
+    SERVICE_DISABLE_DEMAND_RESPONSE,
+    SERVICE_ENABLE_DEMAND_RESPONSE,
     SERVICE_REQUEST_RESERVATIONS,
     SERVICE_REQUEST_TOU,
+    SERVICE_RESET_AIR_FILTER,
+    SERVICE_SET_RECIRCULATION_MODE,
     SERVICE_SET_RESERVATION,
     SERVICE_SET_VACATION_DAYS,
+    SERVICE_TRIGGER_RECIRCULATION,
     SERVICE_UPDATE_RESERVATIONS,
     async_setup_entry,
     async_unload_entry,
@@ -130,8 +135,8 @@ async def test_async_setup_entry_registers_services():
 
         await async_setup_entry(mock_hass, mock_entry)
 
-        # Verify all 7 services were registered
-        assert mock_hass.services.async_register.call_count == 7
+        # Verify all 12 services were registered
+        assert mock_hass.services.async_register.call_count == 12
 
         # Get all service names that were registered
         registered_services = [
@@ -145,6 +150,11 @@ async def test_async_setup_entry_registers_services():
         assert SERVICE_SET_VACATION_DAYS in registered_services
         assert SERVICE_CONFIGURE_TOU in registered_services
         assert SERVICE_REQUEST_TOU in registered_services
+        assert SERVICE_ENABLE_DEMAND_RESPONSE in registered_services
+        assert SERVICE_DISABLE_DEMAND_RESPONSE in registered_services
+        assert SERVICE_RESET_AIR_FILTER in registered_services
+        assert SERVICE_SET_RECIRCULATION_MODE in registered_services
+        assert SERVICE_TRIGGER_RECIRCULATION in registered_services
 
 
 @pytest.mark.asyncio
@@ -217,5 +227,5 @@ async def test_async_unload_entry_removes_services_when_last():
 
     await async_unload_entry(mock_hass, mock_entry)
 
-    # All 7 services should be removed
-    assert mock_hass.services.async_remove.call_count == 7
+    # All 12 services should be removed
+    assert mock_hass.services.async_remove.call_count == 12

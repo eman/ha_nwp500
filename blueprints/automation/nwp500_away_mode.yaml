@@ -1,0 +1,91 @@
+blueprint:
+  name: NWP500 Away Mode
+  description: >
+    Automatically activate vacation mode on your Navien NWP500 water heater
+    when everyone leaves home, and restore the previous mode when someone
+    returns. Reduces energy consumption during extended absences.
+  domain: automation
+  input:
+    nwp500_entity:
+      name: Water Heater
+      description: The NWP500 water heater entity to control.
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+
+    tracked_persons:
+      name: People to Track
+      description: >
+        Select the person entities to track. Vacation mode activates when ALL
+        selected people are away from home.
+      selector:
+        entity:
+          domain: person
+          multiple: true
+
+    vacation_days:
+      name: Vacation Duration (Days)
+      description: >
+        Number of days to set for vacation mode (1–365). The device will
+        automatically exit vacation mode after this many days even if the
+        automation does not trigger again.
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 365
+          step: 1
+          unit_of_measurement: days
+          mode: box
+
+    return_mode:
+      name: Return Operation Mode
+      description: Operation mode to restore when someone comes home.
+      default: energy_saver
+      selector:
+        select:
+          options:
+            - label: Energy Saver (Eco)
+              value: energy_saver
+            - label: Heat Pump Only
+              value: heat_pump
+            - label: High Demand
+              value: high_demand
+            - label: Electric Only
+              value: electric
+
+trigger:
+  - platform: state
+    entity_id: !input tracked_persons
+    id: person_state_change
+
+condition: []
+
+action:
+  - variables:
+      all_away: >
+        {% set persons = expand(trigger.entity_id if trigger.entity_id is string else (trigger.entity_id | list)) %}
+        {{ persons | selectattr('state', 'eq', 'not_home') | list | count == persons | list | count }}
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ all_away }}"
+        sequence:
+          - service: nwp500.set_vacation_days
+            data:
+              entity_id: !input nwp500_entity
+              days: !input vacation_days
+
+      - conditions:
+          - condition: template
+            value_template: "{{ not all_away }}"
+        sequence:
+          - service: water_heater.set_operation_mode
+            target:
+              entity_id: !input nwp500_entity
+            data:
+              operation_mode: !input return_mode
+
+mode: single

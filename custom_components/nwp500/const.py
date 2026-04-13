@@ -590,17 +590,17 @@ SENSOR_CONFIGS: Final = {
     "total_energy_capacity": {
         "attr": "total_energy_capacity",
         "name": "Total Energy Capacity",
-        "device_class": "energy",
+        "device_class": "energy_storage",
         "unit": "Wh",
-        "state_class": "total",
+        "state_class": "measurement",
         "enabled": False,
     },
     "available_energy_capacity": {
         "attr": "available_energy_capacity",
         "name": "Available Energy Capacity",
-        "device_class": "energy",
+        "device_class": "energy_storage",
         "unit": "Wh",
-        "state_class": "total",
+        "state_class": "measurement",
         "enabled": False,
     },
     # Percentage sensors

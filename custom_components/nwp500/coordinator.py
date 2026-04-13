@@ -420,7 +420,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                         if self._consecutive_timeouts >= 3:
                             elapsed = (
                                 time.time()
-                                - self.mqtt_manager._last_reconnect_time
+                                - self.mqtt_manager.last_reconnect_time
                             )
                             if elapsed < MIN_RECONNECT_INTERVAL:
                                 _LOGGER.debug(

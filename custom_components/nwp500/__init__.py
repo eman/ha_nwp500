@@ -12,7 +12,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID, Platform
+from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID, Platform, UnitOfTemperature
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
@@ -24,6 +24,10 @@ from .const import (
     DEFAULT_TEMPERATURE_C,
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
+    MAX_TEMPERATURE_C,
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_C,
+    MIN_TEMPERATURE_F,
     MODE_TO_DHW_ID,
 )
 from .coordinator import NWP500DataUpdateCoordinator
@@ -58,6 +62,11 @@ SERVICE_REQUEST_RESERVATIONS = "request_reservations"
 SERVICE_SET_VACATION_DAYS = "set_vacation_days"
 SERVICE_CONFIGURE_TOU = "configure_tou_schedule"
 SERVICE_REQUEST_TOU = "request_tou_settings"
+SERVICE_ENABLE_DEMAND_RESPONSE = "enable_demand_response"
+SERVICE_DISABLE_DEMAND_RESPONSE = "disable_demand_response"
+SERVICE_RESET_AIR_FILTER = "reset_air_filter"
+SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
+SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -65,6 +74,7 @@ ATTR_DAYS = "days"
 ATTR_HOUR = "hour"
 ATTR_MINUTE = "minute"
 ATTR_OP_MODE = "mode"  # Renamed to avoid conflict with HA's ATTR_MODE
+ATTR_RECIRCULATION_MODE = "mode"
 ATTR_TEMPERATURE = "temperature"
 ATTR_RESERVATIONS = "reservations"
 ATTR_PERIODS = "periods"
@@ -194,66 +204,74 @@ SERVICE_DEVICE_OR_ENTITY_SCHEMA = vol.All(
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
-SERVICE_SET_VACATION_DAYS_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_DAYS): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=365)
-        ),
-    }
+SERVICE_SET_VACATION_DAYS_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Required(ATTR_DAYS): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=365)
+            ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
-SERVICE_CONFIGURE_TOU_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-        vol.Required(ATTR_PERIODS): vol.All(
-            cv.ensure_list,
-            vol.Length(max=16),
-            [
-                vol.Schema(
-                    {
-                        vol.Required("season"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=4095),
-                        ),
-                        vol.Required("week"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=127),
-                        ),
-                        vol.Required("start_hour"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=23),
-                        ),
-                        vol.Required("start_minute"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=59),
-                        ),
-                        vol.Required("end_hour"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=23),
-                        ),
-                        vol.Required("end_minute"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=59),
-                        ),
-                        vol.Required("price_min"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0),
-                        ),
-                        vol.Required("price_max"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0),
-                        ),
-                        vol.Required("decimal_point"): vol.All(
-                            vol.Coerce(int),
-                            vol.Range(min=0, max=10),
-                        ),
-                    }
-                )
-            ],
-        ),
-        vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
-    }
+SERVICE_CONFIGURE_TOU_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Required(ATTR_PERIODS): vol.All(
+                cv.ensure_list,
+                vol.Length(max=16),
+                [
+                    vol.Schema(
+                        {
+                            vol.Required("season"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=4095),
+                            ),
+                            vol.Required("week"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=127),
+                            ),
+                            vol.Required("start_hour"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=23),
+                            ),
+                            vol.Required("start_minute"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=59),
+                            ),
+                            vol.Required("end_hour"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=23),
+                            ),
+                            vol.Required("end_minute"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=59),
+                            ),
+                            vol.Required("price_min"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0),
+                            ),
+                            vol.Required("price_max"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0),
+                            ),
+                            vol.Required("decimal_point"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=10),
+                            ),
+                        }
+                    )
+                ],
+            ),
+            vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
 SERVICE_REQUEST_TOU_SCHEMA = vol.All(
@@ -261,6 +279,19 @@ SERVICE_REQUEST_TOU_SCHEMA = vol.All(
         {
             vol.Optional(ATTR_DEVICE_ID): cv.string,
             vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+SERVICE_SET_RECIRCULATION_MODE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Required(ATTR_RECIRCULATION_MODE): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=4)
+            ),
         }
     ),
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
@@ -306,7 +337,9 @@ class NWP500ServiceHandler:
         for _entry_id, coordinator in self.hass.data[DOMAIN].items():
             if not isinstance(coordinator, NWP500DataUpdateCoordinator):
                 continue
-            for mac_address in coordinator.data.keys():
+            if not coordinator.data:
+                continue
+            for mac_address in coordinator.data:
                 # Check if device identifiers match
                 for identifier in device_entry.identifiers:
                     if identifier[0] == DOMAIN and identifier[1] == mac_address:
@@ -350,8 +383,6 @@ class NWP500ServiceHandler:
         # For vacation/power_off, we use a default that matches the unit system.
         if temperature is None:
             if mode in ["vacation", "power_off"]:
-                from homeassistant.const import UnitOfTemperature
-
                 temperature = (
                     DEFAULT_TEMPERATURE_C
                     if coordinator.hass.config.units.temperature_unit
@@ -377,15 +408,6 @@ class NWP500ServiceHandler:
             temp_min, temp_max = device_temp_min, device_temp_max
         else:
             # Fallback to hardcoded ranges based on HA unit system
-            from homeassistant.const import UnitOfTemperature
-
-            from .const import (
-                MAX_TEMPERATURE_C,
-                MAX_TEMPERATURE_F,
-                MIN_TEMPERATURE_C,
-                MIN_TEMPERATURE_F,
-            )
-
             if (
                 coordinator.hass.config.units.temperature_unit
                 == UnitOfTemperature.CELSIUS
@@ -576,6 +598,59 @@ class NWP500ServiceHandler:
         if not success:
             raise HomeAssistantError("Failed to request TOU settings")
 
+    async def async_enable_demand_response(self, call: ServiceCall) -> None:
+        """Handle enable_demand_response service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Enabling demand response for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "enable_demand_response"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to enable demand response")
+
+    async def async_disable_demand_response(self, call: ServiceCall) -> None:
+        """Handle disable_demand_response service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Disabling demand response for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "disable_demand_response"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to disable demand response")
+
+    async def async_reset_air_filter(self, call: ServiceCall) -> None:
+        """Handle reset_air_filter service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Resetting air filter timer for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "reset_air_filter"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to reset air filter timer")
+
+    async def async_set_recirculation_mode(self, call: ServiceCall) -> None:
+        """Handle set_recirculation_mode service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        mode = call.data[ATTR_RECIRCULATION_MODE]
+        _LOGGER.info(
+            "Setting recirculation mode to %d for %s", mode, mac_address
+        )
+        success = await coordinator.async_send_command(
+            mac_address, "set_recirculation_mode", mode=mode
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set recirculation mode")
+
+    async def async_trigger_recirculation(self, call: ServiceCall) -> None:
+        """Handle trigger_recirculation service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Triggering recirculation for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "trigger_recirculation"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to trigger recirculation")
+
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the NWP500 integration domain (once, before any config entries)."""
@@ -705,6 +780,41 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
         schema=SERVICE_REQUEST_TOU_SCHEMA,
     )
 
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ENABLE_DEMAND_RESPONSE,
+        handler.async_enable_demand_response,
+        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_DISABLE_DEMAND_RESPONSE,
+        handler.async_disable_demand_response,
+        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_RESET_AIR_FILTER,
+        handler.async_reset_air_filter,
+        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_RECIRCULATION_MODE,
+        handler.async_set_recirculation_mode,
+        schema=SERVICE_SET_RECIRCULATION_MODE_SCHEMA,
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_TRIGGER_RECIRCULATION,
+        handler.async_trigger_recirculation,
+        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    )
+
     _LOGGER.debug("Registered NWP500 services")
 
 
@@ -725,5 +835,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, SERVICE_SET_VACATION_DAYS)
             hass.services.async_remove(DOMAIN, SERVICE_CONFIGURE_TOU)
             hass.services.async_remove(DOMAIN, SERVICE_REQUEST_TOU)
+            hass.services.async_remove(DOMAIN, SERVICE_ENABLE_DEMAND_RESPONSE)
+            hass.services.async_remove(DOMAIN, SERVICE_DISABLE_DEMAND_RESPONSE)
+            hass.services.async_remove(DOMAIN, SERVICE_RESET_AIR_FILTER)
+            hass.services.async_remove(DOMAIN, SERVICE_SET_RECIRCULATION_MODE)
+            hass.services.async_remove(DOMAIN, SERVICE_TRIGGER_RECIRCULATION)
 
     return unload_ok

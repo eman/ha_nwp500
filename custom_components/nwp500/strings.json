@@ -502,6 +502,10 @@
         "device_id": {
           "name": "Device",
           "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },
@@ -512,6 +516,10 @@
         "device_id": {
           "name": "Device",
           "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },
@@ -522,6 +530,10 @@
         "device_id": {
           "name": "Device",
           "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },
@@ -532,6 +544,10 @@
         "device_id": {
           "name": "Device",
           "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         },
         "days": {
           "name": "Days",
@@ -547,9 +563,13 @@
           "name": "Device",
           "description": "The target NWP500 water heater device"
         },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
+        },
         "mode": {
           "name": "Mode",
-          "description": "Recirculation mode (1-4)"
+          "description": "Recirculation pump operation mode: 1=Always On, 2=Button/On Demand, 3=Schedule, 4=Temperature Triggered"
         }
       }
     },
@@ -560,6 +580,10 @@
         "device_id": {
           "name": "Device",
           "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },

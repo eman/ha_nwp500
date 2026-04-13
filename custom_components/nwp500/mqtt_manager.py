@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 import asyncio
 import logging
 import time
@@ -69,14 +70,13 @@ class NWP500MqttManager:
         self._last_reconnect_time: float = 0.0
 
         # Connection state tracking for diagnostics
-        self._connection_interruptions: list[dict[str, Any]] = []
-        self._max_interruption_history: int = 20
+        self._connection_interruptions: deque[dict[str, Any]] = deque(maxlen=20)
 
         # Track subscribed scheduling response topics to avoid duplicates.
         # Topics are per (device_type, client_id), not per device MAC, so
         # we subscribe once and broadcast responses to all known devices.
         self._subscribed_scheduling_topics: set[str] = set()
-        self._tracked_mac_addresses: list[str] = []
+        self._tracked_mac_addresses: set[str] = set()
 
     async def __aenter__(self) -> NWP500MqttManager:
         """Async context manager entry - set up MQTT connection."""
@@ -97,6 +97,11 @@ class NWP500MqttManager:
         """Return True if MQTT is connected."""
         return self.mqtt_client is not None and self.mqtt_client.is_connected
 
+    @property
+    def last_reconnect_time(self) -> float:
+        """Return the timestamp of the last reconnection attempt."""
+        return self._last_reconnect_time
+
     def get_connection_diagnostics(self) -> dict[str, Any]:
         """Get connection state diagnostics.
 
@@ -110,7 +115,7 @@ class NWP500MqttManager:
             "reconnection_in_progress": self.reconnection_in_progress,
             "reconnect_attempts": self._reconnect_attempts,
             "last_reconnect_time": self._last_reconnect_time,
-            "connection_interruptions": self._connection_interruptions,
+            "connection_interruptions": list(self._connection_interruptions),
         }
 
     async def setup(self) -> bool:
@@ -301,7 +306,7 @@ class NWP500MqttManager:
 
         mac_address = device.device_info.mac_address
         if mac_address not in self._tracked_mac_addresses:
-            self._tracked_mac_addresses.append(mac_address)
+            self._tracked_mac_addresses.add(mac_address)
 
         device_type = str(device.device_info.device_type)
         client_id = self.mqtt_client.client_id
@@ -389,6 +394,7 @@ class NWP500MqttManager:
             return False
 
         try:
+            _LOGGER.debug("Sending command '%s' to device", command)
             match command:
                 case "set_power":
                     await self.mqtt_client.control.set_power(
@@ -455,6 +461,22 @@ class NWP500MqttManager:
                         await self.mqtt_client.control.set_dhw_mode(
                             device, 5, vacation_days=int(days)
                         )
+                case "enable_demand_response":
+                    await self.mqtt_client.control.enable_demand_response(device)
+                case "disable_demand_response":
+                    await self.mqtt_client.control.disable_demand_response(device)
+                case "reset_air_filter":
+                    await self.mqtt_client.control.reset_air_filter(device)
+                case "set_recirculation_mode":
+                    mode = kwargs.get("mode")
+                    if mode is not None:
+                        await self.mqtt_client.control.set_recirculation_mode(
+                            device, int(mode)
+                        )
+                case "trigger_recirculation":
+                    await self.mqtt_client.control.trigger_recirculation_hot_button(
+                        device
+                    )
                 case _:
                     _LOGGER.error("Unknown command: %s", command)
                     return False
@@ -654,16 +676,12 @@ class NWP500MqttManager:
 
     def _on_connection_interrupted(self, error: Exception) -> None:
         """Handle connection interruption event for diagnostics."""
-        # Record interruption in local history for diagnostics
         interruption_event: dict[str, Any] = {
             "timestamp": time.time(),
             "error_type": type(error).__name__,
             "error_message": str(error),
         }
         self._connection_interruptions.append(interruption_event)
-        # Keep only last 20 interruption events
-        if len(self._connection_interruptions) > self._max_interruption_history:
-            self._connection_interruptions.pop(0)
 
         if self.diagnostics:
             asyncio.run_coroutine_threadsafe(

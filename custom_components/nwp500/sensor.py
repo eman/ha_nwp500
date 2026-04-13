@@ -352,7 +352,8 @@ class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
     def native_value(self) -> int:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the total number of requests sent."""
         telemetry = self.coordinator.get_mqtt_telemetry()
-        return int(telemetry["total_requests_sent"])
+        value = telemetry.get("total_requests_sent")
+        return int(value) if value is not None else 0
 
 
 class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
@@ -378,7 +379,8 @@ class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
     def native_value(self) -> int:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the total number of responses received."""
         telemetry = self.coordinator.get_mqtt_telemetry()
-        return int(telemetry["total_responses_received"])
+        value = telemetry.get("total_responses_received")
+        return int(value) if value is not None else 0
 
 
 class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):

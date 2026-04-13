@@ -1,0 +1,114 @@
+blueprint:
+  name: NWP500 Solar Boost
+  description: >
+    Automatically switch your Navien NWP500 water heater to High Demand mode
+    when solar generation exceeds a configurable threshold, maximising free
+    solar energy for water heating. Reverts to Energy Saver (Eco) mode when
+    solar output drops below the threshold.
+  domain: automation
+  input:
+    nwp500_entity:
+      name: Water Heater
+      description: The NWP500 water heater entity to control.
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+
+    solar_sensor:
+      name: Solar Power Sensor
+      description: >
+        A sensor reporting current solar generation (or net grid export) in
+        Watts. The water heater switches to High Demand when this value exceeds
+        the threshold below.
+      selector:
+        entity:
+          device_class: power
+
+    boost_threshold:
+      name: Boost Threshold (W)
+      description: >
+        Minimum solar power (in Watts) required to activate High Demand mode.
+        A value slightly above your base household consumption is recommended.
+      default: 2000
+      selector:
+        number:
+          min: 100
+          max: 20000
+          step: 100
+          unit_of_measurement: W
+          mode: slider
+
+    drop_threshold:
+      name: Drop Threshold (W)
+      description: >
+        Solar power (in Watts) below which the water heater reverts to Energy
+        Saver mode. Set lower than the Boost Threshold to add hysteresis and
+        avoid rapid mode switching.
+      default: 1500
+      selector:
+        number:
+          min: 0
+          max: 20000
+          step: 100
+          unit_of_measurement: W
+          mode: slider
+
+    boost_mode:
+      name: Boost Operation Mode
+      description: Operation mode to use when solar generation is high.
+      default: high_demand
+      selector:
+        select:
+          options:
+            - label: High Demand
+              value: high_demand
+            - label: Electric Only
+              value: electric
+
+    eco_mode:
+      name: Eco Operation Mode
+      description: Operation mode to revert to when solar generation drops.
+      default: energy_saver
+      selector:
+        select:
+          options:
+            - label: Energy Saver (Eco)
+              value: energy_saver
+            - label: Heat Pump Only
+              value: heat_pump
+
+trigger:
+  - platform: numeric_state
+    entity_id: !input solar_sensor
+    above: !input boost_threshold
+    id: solar_high
+
+  - platform: numeric_state
+    entity_id: !input solar_sensor
+    below: !input drop_threshold
+    id: solar_low
+
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: solar_high
+        sequence:
+          - service: water_heater.set_operation_mode
+            target:
+              entity_id: !input nwp500_entity
+            data:
+              operation_mode: !input boost_mode
+
+      - conditions:
+          - condition: trigger
+            id: solar_low
+        sequence:
+          - service: water_heater.set_operation_mode
+            target:
+              entity_id: !input nwp500_entity
+            data:
+              operation_mode: !input eco_mode
+
+mode: single

@@ -21,10 +21,15 @@ from custom_components.nwp500 import (
     ATTR_TEMPERATURE,
     SERVICE_CLEAR_RESERVATIONS,
     SERVICE_CONFIGURE_TOU,
+    SERVICE_DISABLE_DEMAND_RESPONSE,
+    SERVICE_ENABLE_DEMAND_RESPONSE,
     SERVICE_REQUEST_RESERVATIONS,
     SERVICE_REQUEST_TOU,
+    SERVICE_RESET_AIR_FILTER,
+    SERVICE_SET_RECIRCULATION_MODE,
     SERVICE_SET_RESERVATION,
     SERVICE_SET_VACATION_DAYS,
+    SERVICE_TRIGGER_RECIRCULATION,
     SERVICE_UPDATE_RESERVATIONS,
     _async_setup_services,
     validate_reservation_temperature,
@@ -98,10 +103,10 @@ class TestReservationServices:
 
     @pytest.mark.asyncio
     async def test_setup_services_registers_all(self, mock_hass):
-        """Test that all 7 services are registered."""
+        """Test that all 12 services are registered."""
         await _async_setup_services(mock_hass)
 
-        assert mock_hass.services.async_register.call_count == 7
+        assert mock_hass.services.async_register.call_count == 12
 
         # Verify all expected services are registered
         registered_services = [
@@ -115,6 +120,11 @@ class TestReservationServices:
         assert SERVICE_SET_VACATION_DAYS in registered_services
         assert SERVICE_CONFIGURE_TOU in registered_services
         assert SERVICE_REQUEST_TOU in registered_services
+        assert SERVICE_ENABLE_DEMAND_RESPONSE in registered_services
+        assert SERVICE_DISABLE_DEMAND_RESPONSE in registered_services
+        assert SERVICE_RESET_AIR_FILTER in registered_services
+        assert SERVICE_SET_RECIRCULATION_MODE in registered_services
+        assert SERVICE_TRIGGER_RECIRCULATION in registered_services
 
     @pytest.mark.asyncio
     async def test_setup_services_skips_if_already_registered(self, mock_hass):
@@ -745,4 +755,231 @@ class TestTouAndVacationServices:
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_DEVICE_ID: "device_123"}
         with pytest.raises(HomeAssistantError, match="Failed to request TOU"):
+            await handler(call)
+
+
+class TestDemandResponseAndRecirculationServices:
+    """Tests for demand response and recirculation services."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, mock_hass, mock_device_registry):
+        """Set up common test fixtures."""
+        self.mock_hass = mock_hass
+        self.mock_device_registry = mock_device_registry
+        self.mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        self.mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_hass.data[DOMAIN]["entry_1"] = self.mock_coordinator
+
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+    @pytest.mark.asyncio
+    async def test_enable_demand_response_calls_coordinator(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test enable_demand_response calls coordinator."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_ENABLE_DEMAND_RESPONSE:
+                handler = call[0][2]
+                break
+
+        assert handler is not None
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF", "enable_demand_response"
+        )
+
+    @pytest.mark.asyncio
+    async def test_enable_demand_response_raises_on_failure(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test enable_demand_response raises HomeAssistantError on failure."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_ENABLE_DEMAND_RESPONSE:
+                handler = call[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        with pytest.raises(HomeAssistantError, match="Failed to enable demand response"):
+            await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_disable_demand_response_calls_coordinator(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test disable_demand_response calls coordinator."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_DISABLE_DEMAND_RESPONSE:
+                handler = call[0][2]
+                break
+
+        assert handler is not None
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF", "disable_demand_response"
+        )
+
+    @pytest.mark.asyncio
+    async def test_disable_demand_response_raises_on_failure(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test disable_demand_response raises HomeAssistantError on failure."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_DISABLE_DEMAND_RESPONSE:
+                handler = call[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        with pytest.raises(HomeAssistantError, match="Failed to disable demand response"):
+            await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_reset_air_filter_calls_coordinator(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test reset_air_filter calls coordinator."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_RESET_AIR_FILTER:
+                handler = call[0][2]
+                break
+
+        assert handler is not None
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF", "reset_air_filter"
+        )
+
+    @pytest.mark.asyncio
+    async def test_reset_air_filter_raises_on_failure(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test reset_air_filter raises HomeAssistantError on failure."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_RESET_AIR_FILTER:
+                handler = call[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        with pytest.raises(HomeAssistantError, match="Failed to reset air filter"):
+            await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_set_recirculation_mode_calls_coordinator(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test set_recirculation_mode calls coordinator with correct mode."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_SET_RECIRCULATION_MODE:
+                handler = call[0][2]
+                break
+
+        assert handler is not None
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", "mode": 2}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF", "set_recirculation_mode", mode=2
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_recirculation_mode_raises_on_failure(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test set_recirculation_mode raises HomeAssistantError on failure."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_SET_RECIRCULATION_MODE:
+                handler = call[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", "mode": 1}
+        with pytest.raises(HomeAssistantError, match="Failed to set recirculation mode"):
+            await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_trigger_recirculation_calls_coordinator(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test trigger_recirculation calls coordinator."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_TRIGGER_RECIRCULATION:
+                handler = call[0][2]
+                break
+
+        assert handler is not None
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_called_once_with(
+            "AA:BB:CC:DD:EE:FF", "trigger_recirculation"
+        )
+
+    @pytest.mark.asyncio
+    async def test_trigger_recirculation_raises_on_failure(
+        self, mock_hass, mock_device_registry
+    ):
+        """Test trigger_recirculation raises HomeAssistantError on failure."""
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
+        await _async_setup_services(mock_hass)
+
+        handler = None
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_TRIGGER_RECIRCULATION:
+                handler = call[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        with pytest.raises(HomeAssistantError, match="Failed to trigger recirculation"):
             await handler(call)
