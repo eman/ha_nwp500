@@ -696,7 +696,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.14.2...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.14.3...HEAD
+[0.14.3]: https://github.com/eman/ha_nwp500/compare/v0.14.2...v0.14.3
 [0.14.2]: https://github.com/eman/ha_nwp500/compare/v0.14.0...v0.14.2
 [0.14.0]: https://github.com/eman/ha_nwp500/compare/v0.3.0...v0.14.0
 [0.1.5]: https://github.com/eman/ha_nwp500/compare/v0.1.4...v0.1.5
