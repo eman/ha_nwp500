@@ -15,6 +15,14 @@
           "email": "Email",
           "password": "Password"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Navien NWP500",
+        "description": "Update the credentials for your Navien account.",
+        "data": {
+          "email": "Email",
+          "password": "Password"
+        }
       }
     },
     "error": {
@@ -25,7 +33,8 @@
     "abort": {
       "already_configured": "Account is already configured",
       "reauth_successful": "Re-authentication successful",
-      "reauth_failed": "Re-authentication failed. Please try removing and re-adding the integration."
+      "reauth_failed": "Re-authentication failed. Please try removing and re-adding the integration.",
+      "reconfigure_successful": "Reconfiguration successful"
     }
   },
   "options": {

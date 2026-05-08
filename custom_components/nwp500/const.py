@@ -489,6 +489,7 @@ SENSOR_CONFIGS: Final = {
         "unit": None,
         "state_class": "measurement",
         "enabled": True,
+        "enabled": True,
     },
     "tank_lower_temperature": {
         "attr": "tank_lower_temperature",
@@ -632,6 +633,7 @@ SENSOR_CONFIGS: Final = {
         "unit": "dBm",
         "state_class": "measurement",
         "enabled": False,
+        "entity_category": "diagnostic",
     },
     # Status and error codes
     "error_code": {
@@ -639,11 +641,13 @@ SENSOR_CONFIGS: Final = {
         "name": "Error Code",
         "special": "enum_name",
         "enabled": True,
+        "entity_category": "diagnostic",
     },
     "sub_error_code": {
         "attr": "sub_error_code",
         "name": "Sub Error Code",
         "enabled": False,
+        "entity_category": "diagnostic",
     },
     # Flow rate sensors
     "current_dhw_flow_rate": {
@@ -705,31 +709,37 @@ SENSOR_CONFIGS: Final = {
         "name": "EEV Step",
         "state_class": "measurement",
         "enabled": False,
+        "entity_category": "diagnostic",
     },
     "current_state_num": {
         "attr": "current_statenum",
         "name": "Current State Number",
         "enabled": False,
+        "entity_category": "diagnostic",
     },
     "smart_diagnostic": {
         "attr": "smart_diagnostic",
         "name": "Smart Diagnostic",
         "enabled": False,
+        "entity_category": "diagnostic",
     },
     "special_function_status": {
         "attr": "special_function_status",
         "name": "Special Function Status",
         "enabled": False,
+        "entity_category": "diagnostic",
     },
     "fault_status_1": {
         "attr": "fault_status1",
         "name": "Fault Status 1",
         "enabled": False,
+        "entity_category": "diagnostic",
     },
     "fault_status_2": {
         "attr": "fault_status2",
         "name": "Fault Status 2",
         "enabled": False,
+        "entity_category": "diagnostic",
     },
     # Operation mode sensors (these have custom value_fn handling)
     "operation_mode": {

@@ -22,6 +22,12 @@ if TYPE_CHECKING:
         MqttDiagnosticsCollector,
         NavienAuthClient,
         NavienMqttClient,
+        ReservationSchedule,
+        TOUReservationSchedule,
+    )
+    from nwp500.mqtt_events import (  # type: ignore[attr-defined]
+        ConnectionInterruptedEvent,
+        ConnectionResumedEvent,
     )
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,13 +78,6 @@ class NWP500MqttManager:
         # Connection state tracking for diagnostics
         self._connection_interruptions: deque[dict[str, Any]] = deque(maxlen=20)
 
-        # Lazily-resolved patched MQTT client class (set on first setup())
-        self._patched_client_cls: type | None = None
-
-        # Track subscribed scheduling response topics to avoid duplicates.
-        # Topics are per (device_type, client_id), not per device MAC, so
-        # we subscribe once and broadcast responses to all known devices.
-        self._subscribed_scheduling_topics: set[str] = set()
         self._tracked_mac_addresses: set[str] = set()
 
     async def __aenter__(self) -> NWP500MqttManager:
@@ -129,27 +128,21 @@ class NWP500MqttManager:
 
         try:
             from nwp500 import (  # type: ignore[attr-defined]
+                MqttConnectionConfig,
                 MqttDiagnosticsCollector,
                 NavienMqttClient,
             )
 
-            if self._patched_client_cls is None:
+            # Generate a stable client ID based on user sequence to improve connection persistence.
+            # Random client IDs can cause some brokers to reject rapid reconnects or
+            # treat each restart as a completely new session, losing queued messages.
+            user_seq = 0
+            if self.auth_client.current_user:
+                user_seq = self.auth_client.current_user.user_seq
 
-                class PatchedNavienMqttClient(NavienMqttClient):
-                    """Patched client to handle AWSIoT SDK callback changes."""
-
-                    def _on_connection_resumed_internal(
-                        self,
-                        return_code: Any,
-                        session_present: Any,
-                        **kwargs: Any,
-                    ) -> None:
-                        """Handle connection resumed with extra kwargs."""
-                        super()._on_connection_resumed_internal(
-                            return_code, session_present
-                        )
-
-                self._patched_client_cls = PatchedNavienMqttClient
+            client_id = f"navien-ha-{user_seq}" if user_seq else None
+            if client_id:
+                _LOGGER.debug("Using stable MQTT client ID: %s", client_id)
 
             # Initialize diagnostics collector
             self.diagnostics = MqttDiagnosticsCollector(
@@ -157,32 +150,25 @@ class NWP500MqttManager:
             )
 
             # Token validation deferred to connect() per nwp500-python 7.3.1+
-            self.mqtt_client = self._patched_client_cls(
+            self.mqtt_client = NavienMqttClient(
                 self.auth_client,
+                config=MqttConnectionConfig(client_id=client_id)
+                if client_id
+                else None,
                 unit_system=self.unit_system,  # type: ignore[arg-type]
             )
 
             # Set up event listeners
             if self.mqtt_client:
+                from nwp500.mqtt_events import MqttClientEvents  # type: ignore[attr-defined]
+
+                # Connection lifecycle events
                 self.mqtt_client.on(
-                    "device_status_update", self._on_device_status_event
-                )
-                self.mqtt_client.on(
-                    "device_feature_update", self._on_device_feature_event
-                )
-                self.mqtt_client.on("connection_lost", self._on_connection_lost)
-                self.mqtt_client.on(
-                    "connection_restored", self._on_connection_restored
-                )
-                self.mqtt_client.on(
-                    "reconnection_failed", self._on_reconnection_failed
-                )
-                self.mqtt_client.on(
-                    "connection_interrupted",
+                    MqttClientEvents.CONNECTION_INTERRUPTED,
                     self._on_connection_interrupted,
                 )
                 self.mqtt_client.on(
-                    "connection_resumed",
+                    MqttClientEvents.CONNECTION_RESUMED,
                     self._on_connection_resumed,
                 )
 
@@ -244,28 +230,15 @@ class NWP500MqttManager:
         """Disconnect from MQTT broker."""
         if self.mqtt_client:
             try:
+                from nwp500.mqtt_events import MqttClientEvents  # type: ignore[attr-defined]
+
                 # Remove listeners
                 self.mqtt_client.off(
-                    "device_status_update", self._on_device_status_event
-                )
-                self.mqtt_client.off(
-                    "device_feature_update", self._on_device_feature_event
-                )
-                self.mqtt_client.off(
-                    "connection_lost", self._on_connection_lost
-                )
-                self.mqtt_client.off(
-                    "connection_restored", self._on_connection_restored
-                )
-                self.mqtt_client.off(
-                    "reconnection_failed", self._on_reconnection_failed
-                )
-                self.mqtt_client.off(
-                    "connection_interrupted",
+                    MqttClientEvents.CONNECTION_INTERRUPTED,
                     self._on_connection_interrupted,
                 )
                 self.mqtt_client.off(
-                    "connection_resumed",
+                    MqttClientEvents.CONNECTION_RESUMED,
                     self._on_connection_resumed,
                 )
 
@@ -282,6 +255,10 @@ class NWP500MqttManager:
         if not self.mqtt_client:
             return
 
+        mac_address = device.device_info.mac_address
+        if mac_address not in self._tracked_mac_addresses:
+            self._tracked_mac_addresses.add(mac_address)
+
         try:
             await self.mqtt_client.subscribe_device_status(
                 device,
@@ -295,51 +272,26 @@ class NWP500MqttManager:
                     device, feature
                 ),
             )
-            # Subscribe to scheduling response topics
-            await self._subscribe_scheduling_responses(device)
+            # Subscribe to reservation responses using the typed API.
+            # The library handles topic construction and response parsing.
+            await self.mqtt_client.subscribe_reservation_response(
+                device,
+                lambda schedule: self._on_reservation_schedule(
+                    mac_address, schedule
+                ),
+            )
+            # Subscribe to TOU responses using the typed API (symmetric with
+            # subscribe_reservation_response). Added to nwp500-python via PR.
+            await self.mqtt_client.subscribe_tou_response(
+                device,
+                lambda tou: self._on_tou_schedule(mac_address, tou),
+            )
         except Exception as err:
             _LOGGER.warning(
                 "Failed to subscribe to device %s: %s",
-                device.device_info.mac_address,
+                mac_address,
                 err,
             )
-
-    async def _subscribe_scheduling_responses(self, device: Device) -> None:
-        """Subscribe to reservation and TOU response topics for a device.
-
-        Response topics are ``cmd/{device_type}/{client_id}/res/…`` — they are
-        shared across all devices of the same type.  We subscribe only once per
-        unique topic and broadcast incoming responses to every tracked device.
-        """
-        if not self.mqtt_client:
-            return
-
-        mac_address = device.device_info.mac_address
-        if mac_address not in self._tracked_mac_addresses:
-            self._tracked_mac_addresses.add(mac_address)
-
-        device_type = str(device.device_info.device_type)
-        client_id = self.mqtt_client.client_id
-
-        rsv_topic = f"cmd/{device_type}/{client_id}/res/rsv/rd"
-        if rsv_topic not in self._subscribed_scheduling_topics:
-            await self.mqtt_client.subscribe(
-                rsv_topic,
-                self._on_reservation_response,
-            )
-            self._subscribed_scheduling_topics.add(rsv_topic)
-            _LOGGER.debug(
-                "Subscribed to reservation responses on %s", rsv_topic
-            )
-
-        tou_topic = f"cmd/{device_type}/{client_id}/res/tou/rd"
-        if tou_topic not in self._subscribed_scheduling_topics:
-            await self.mqtt_client.subscribe(
-                tou_topic,
-                self._on_tou_response,
-            )
-            self._subscribed_scheduling_topics.add(tou_topic)
-            _LOGGER.debug("Subscribed to TOU responses on %s", tou_topic)
 
     async def start_periodic_requests(self, device: Device) -> None:
         """Start periodic status requests."""
@@ -379,7 +331,7 @@ class NWP500MqttManager:
             # Request fresh status from device
             # We use request_device_status to get a lightweight status update
             # This avoids the caching behavior of ensure_device_info_cached
-            await self.mqtt_client.control.request_device_status(device)
+            await self.mqtt_client.request_device_status(device)
             self.consecutive_timeouts = 0
             return True
         except Exception as err:
@@ -407,50 +359,50 @@ class NWP500MqttManager:
             _LOGGER.debug("Sending command '%s' to device", command)
             match command:
                 case "set_power":
-                    await self.mqtt_client.control.set_power(
+                    await self.mqtt_client.set_power(
                         device, kwargs.get("power_on", True)
                     )
                 case "set_temperature":
                     temp = kwargs.get("temperature")
                     if temp is not None:
-                        await self.mqtt_client.control.set_dhw_temperature(
+                        await self.mqtt_client.set_dhw_temperature(
                             device, float(temp)
                         )
                 case "set_dhw_mode":
                     mode = kwargs.get("mode")
                     if mode is not None:
-                        await self.mqtt_client.control.set_dhw_mode(
+                        await self.mqtt_client.set_dhw_mode(
                             device, int(mode)
                         )
                 case "set_tou_enabled":
                     enabled = kwargs.get("enabled", True)
-                    await self.mqtt_client.control.set_tou_enabled(
+                    await self.mqtt_client.set_tou_enabled(
                         device, enabled
                     )
                 case "enable_anti_legionella":
                     period_days = kwargs.get("period_days", 14)
-                    await self.mqtt_client.control.enable_anti_legionella(
+                    await self.mqtt_client.enable_anti_legionella(
                         device, period_days
                     )
                 case "disable_anti_legionella":
-                    await self.mqtt_client.control.disable_anti_legionella(
+                    await self.mqtt_client.disable_anti_legionella(
                         device
                     )
                 case "update_reservations":
                     reservations = kwargs.get("reservations", [])
                     enabled = kwargs.get("enabled", True)
-                    await self.mqtt_client.control.update_reservations(
+                    await self.mqtt_client.update_reservations(
                         device, reservations, enabled=enabled
                     )
                 case "request_reservations":
-                    await self.mqtt_client.control.request_reservations(device)
+                    await self.mqtt_client.request_reservations(device)
                 case "configure_tou_schedule":
                     controller_serial = kwargs.get(
                         "controller_serial_number", ""
                     )
                     periods = kwargs.get("periods", [])
                     enabled = kwargs.get("enabled", True)
-                    await self.mqtt_client.control.configure_tou_schedule(
+                    await self.mqtt_client.configure_tou_schedule(
                         device,
                         controller_serial_number=controller_serial,
                         periods=periods,
@@ -460,27 +412,26 @@ class NWP500MqttManager:
                     controller_serial = kwargs.get(
                         "controller_serial_number", ""
                     )
-                    await self.mqtt_client.control.request_tou_settings(
+                    await self.mqtt_client.request_tou_settings(
                         device,
                         controller_serial_number=controller_serial,
                     )
                 case "set_vacation_days":
                     days = kwargs.get("days")
                     if days is not None:
-                        # Mode 5 is vacation
-                        await self.mqtt_client.control.set_dhw_mode(
-                            device, 5, vacation_days=int(days)
+                        await self.mqtt_client.set_vacation_days(
+                            device, int(days)
                         )
                 case "enable_demand_response":
-                    await self.mqtt_client.control.enable_demand_response(
+                    await self.mqtt_client.enable_demand_response(
                         device
                     )
                 case "disable_demand_response":
-                    await self.mqtt_client.control.disable_demand_response(
+                    await self.mqtt_client.disable_demand_response(
                         device
                     )
                 case "reset_air_filter":
-                    await self.mqtt_client.control.reset_air_filter(device)
+                    await self.mqtt_client.reset_air_filter(device)
                 case "set_recirculation_mode":
                     mode = kwargs.get("mode")
                     if mode is None:
@@ -488,11 +439,11 @@ class NWP500MqttManager:
                             "set_recirculation_mode requires 'mode' kwarg but none was provided"
                         )
                         return False
-                    await self.mqtt_client.control.set_recirculation_mode(
+                    await self.mqtt_client.set_recirculation_mode(
                         device, int(mode)
                     )
                 case "trigger_recirculation":
-                    await self.mqtt_client.control.trigger_recirculation_hot_button(
+                    await self.mqtt_client.trigger_recirculation_hot_button(
                         device
                     )
                 case _:
@@ -501,7 +452,7 @@ class NWP500MqttManager:
 
             # Request update after command
             try:
-                await self.mqtt_client.control.request_device_status(device)
+                await self.mqtt_client.request_device_status(device)
             except Exception as err:
                 self._handle_aws_error(err, "post-command status request")
 
@@ -592,64 +543,45 @@ class NWP500MqttManager:
         _LOGGER.error("Error during %s: %s", context, err)
         return False
 
-    def _on_reservation_response(
-        self, topic: str, message: dict[str, Any]
+    def _on_reservation_schedule(
+        self, mac_address: str, schedule: ReservationSchedule
     ) -> None:
-        """Handle reservation response from device.
+        """Handle typed reservation schedule from device.
 
-        The response topic is shared across devices, so we broadcast to all
-        tracked MAC addresses.  The coordinator stores per-MAC — the last
-        writer wins, which is correct for single-device setups and acceptable
-        for multi-device until the protocol includes device identification.
+        Called by the library's subscribe_reservation_response() with a parsed
+        ReservationSchedule object. Converts to dict for coordinator storage.
         """
         try:
-            response = message.get("response", {})
-            _LOGGER.debug("Received reservation response on %s", topic)
+            _LOGGER.debug(
+                "Received reservation schedule for %s", mac_address
+            )
             if self._on_reservation_update_callback:
-                for mac in self._tracked_mac_addresses:
-                    self._on_reservation_update_callback(mac, response)
+                response = (
+                    schedule.model_dump()
+                    if hasattr(schedule, "model_dump")
+                    else {}
+                )
+                self._on_reservation_update_callback(mac_address, response)
         except Exception as err:
-            _LOGGER.error("Error handling reservation response: %s", err)
+            _LOGGER.error("Error handling reservation schedule: %s", err)
 
-    def _on_tou_response(self, topic: str, message: dict[str, Any]) -> None:
-        """Handle TOU response from device.
+    def _on_tou_schedule(self, mac_address: str, tou: TOUReservationSchedule) -> None:
+        """Handle typed TOU schedule from device.
 
-        See _on_reservation_response for broadcast rationale.
+        Called by subscribe_tou_response() with a parsed TOUReservationSchedule.
+        Converts to dict for coordinator storage, mirroring _on_reservation_schedule.
         """
         try:
-            response = message.get("response", {})
-            _LOGGER.debug("Received TOU response on %s", topic)
+            _LOGGER.debug("Received TOU schedule for %s", mac_address)
             if self._on_tou_update_callback:
-                for mac in self._tracked_mac_addresses:
-                    self._on_tou_update_callback(mac, response)
+                response = (
+                    tou.model_dump() if hasattr(tou, "model_dump") else {}
+                )
+                self._on_tou_update_callback(mac_address, response)
         except Exception as err:
-            _LOGGER.error("Error handling TOU response: %s", err)
+            _LOGGER.error("Error handling TOU schedule: %s", err)
 
     # Event Handlers
-    def _on_device_status_event(self, event_data: DeviceStatusEvent) -> None:
-        """Handle status event from emitter."""
-        try:
-            status = event_data.get("status")
-            device = event_data.get("device")
-
-            if status and device:
-                mac = device.device_info.mac_address
-                self._on_status_update_callback(mac, status)
-        except Exception as err:
-            _LOGGER.error("Error handling status event: %s", err)
-
-    def _on_device_feature_event(self, event_data: DeviceFeatureEvent) -> None:
-        """Handle feature event from emitter."""
-        try:
-            feature = event_data.get("feature")
-            device = event_data.get("device")
-
-            if feature and device:
-                mac = device.device_info.mac_address
-                self._on_feature_update_callback(mac, feature)
-        except Exception as err:
-            _LOGGER.error("Error handling feature event: %s", err)
-
     def _on_device_status_update_direct(
         self, device: Device, status: DeviceStatus
     ) -> None:
@@ -670,37 +602,12 @@ class NWP500MqttManager:
         except Exception as err:
             _LOGGER.error("Error handling direct feature update: %s", err)
 
-    def _on_connection_lost(self, event_data: dict[str, Any]) -> None:
-        self.connected_since = None
-        _LOGGER.error("MQTT connection lost: %s", event_data)
-
-    def _on_connection_restored(self, event_data: dict[str, Any]) -> None:
-        self.connected_since = time.time()
-        _LOGGER.info("MQTT connection restored: %s", event_data)
-
-    def _on_reconnection_failed(self, event_data: dict[str, Any] | int) -> None:
-        attempt = (
-            event_data.get("attempt_count", 0)
-            if isinstance(event_data, dict)
-            else event_data
-        )
-        _LOGGER.error(
-            "MQTT reconnection failed (attempt %d). Resetting...", attempt
-        )
-        if self.mqtt_client:
-            future = asyncio.run_coroutine_threadsafe(
-                self.mqtt_client.reset_reconnect(), self.loop
-            )
-            future.add_done_callback(
-                lambda f: (
-                    _LOGGER.error("reset_reconnect error: %s", f.exception())
-                    if not f.cancelled() and f.exception()
-                    else None
-                )
-            )
-
-    def _on_connection_interrupted(self, error: Exception) -> None:
+    def _on_connection_interrupted(
+        self, event: ConnectionInterruptedEvent
+    ) -> None:
         """Handle connection interruption event for diagnostics."""
+        self.connected_since = None
+        error = event.error
         interruption_event: dict[str, Any] = {
             "timestamp": time.time(),
             "error_type": type(error).__name__,
@@ -724,15 +631,16 @@ class NWP500MqttManager:
             )
 
     def _on_connection_resumed(
-        self, return_code: int, session_present: bool
+        self, event: ConnectionResumedEvent
     ) -> None:
         """Handle connection resume event for diagnostics."""
+        self.connected_since = time.time()
         if self.diagnostics:
             future = asyncio.run_coroutine_threadsafe(
                 self.diagnostics.record_connection_success(
                     event_type="resumed",
-                    session_present=session_present,
-                    return_code=return_code,
+                    session_present=event.session_present,
+                    return_code=event.return_code,
                 ),
                 self.loop,
             )

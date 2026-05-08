@@ -74,6 +74,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
+                email = user_input[CONF_EMAIL].lower()
+                await self.async_set_unique_id(email)
+                self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=info["title"], data=user_input
                 )
@@ -109,17 +112,11 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 errors["base"] = "unknown"
             else:
                 if self._reauth_entry:
-                    # Update existing entry with new credentials
-                    self.hass.config_entries.async_update_entry(
+                    return self.async_update_reload_and_abort(
                         self._reauth_entry,
                         data=user_input,
+                        reason="reauth_successful",
                     )
-                    await self.hass.config_entries.async_reload(
-                        self._reauth_entry.entry_id
-                    )
-                    return self.async_abort(reason="reauth_successful")
-
-                # This should not happen, but handle gracefully
                 return self.async_abort(reason="reauth_failed")
 
         return self.async_show_form(
@@ -131,6 +128,49 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 if self._reauth_entry
                 else "unknown"
             },
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Handle reconfiguration — allows updating email/password in-place."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                info = await validate_input(self.hass, user_input)
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:  # noqa: BLE001 - Config flow must not crash UI
+                _LOGGER.exception("Unexpected exception during reconfigure")
+                errors["base"] = "unknown"
+            else:
+                email = user_input[CONF_EMAIL].lower()
+                await self.async_set_unique_id(email)
+                self._abort_if_unique_id_configured(
+                    updates={"title": info["title"]}
+                )
+                return self.async_update_reload_and_abort(
+                    self._get_reconfigure_entry(),
+                    title=info["title"],
+                    data=user_input,
+                    reason="reconfigure_successful",
+                )
+
+        current_data = self._get_reconfigure_entry().data
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_EMAIL, default=current_data.get(CONF_EMAIL, "")
+                    ): str,
+                    vol.Required(CONF_PASSWORD): str,
+                }
+            ),
+            errors=errors,
         )
 
 
@@ -174,7 +214,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            "uv pip install nwp500-python==7.4.10 awsiotsdk>=1.28.2"
+            "uv pip install \"nwp500-python @ git+https://github.com/eman/nwp500-python.git@eval\" awsiotsdk>=1.29.0"
         )
         raise CannotConnect("nwp500-python library not available")
 
@@ -205,7 +245,7 @@ async def validate_input(
             device = devices[0]
             device_name = device.device_info.device_name or "NWP500"
 
-    except CannotConnect, InvalidAuth:
+    except (CannotConnect, InvalidAuth):
         # Re-raise our own exceptions
         raise
     except Exception as err:  # noqa: BLE001

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -63,6 +63,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             self._attr_device_info = self._build_device_info()
             self._last_feature_update = current_feature
 
+    @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         # Track data staleness for availability
@@ -84,6 +85,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         super()._handle_coordinator_update()
 
     @property
+    @override
     def available(self) -> bool:
         """Return True if entity is available.
 
@@ -186,7 +188,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
                     if volume_code in VOLUME_CODE_TEXT:
                         hw_version = VOLUME_CODE_TEXT[volume_code]
-                except ImportError, AttributeError, TypeError:
+                except (ImportError, AttributeError, TypeError):
                     pass
 
                 if hw_version is None:

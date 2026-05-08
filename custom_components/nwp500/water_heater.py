@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.water_heater import (
     STATE_ECO,
@@ -21,6 +21,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
     CURRENT_OPERATION_MODE_TO_HA,
@@ -61,7 +62,7 @@ async def async_setup_entry(
     async_add_entities(entities, True)
 
 
-class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 water heater entity."""
 
     _attr_supported_features = (
@@ -89,7 +90,25 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         ]
         self._pre_vacation_mode: str | None = None
 
+    async def async_added_to_hass(self) -> None:
+        """Restore pre-vacation mode from state on HA restart."""
+        await super().async_added_to_hass()
+        if last_state := await self.async_get_last_state():
+            self._pre_vacation_mode = last_state.attributes.get(
+                "pre_vacation_mode"
+            )
+
     @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes, including persisted vacation restore mode."""
+        attrs = super().extra_state_attributes or {}
+        if self._pre_vacation_mode is not None:
+            attrs = {**attrs, "pre_vacation_mode": self._pre_vacation_mode}
+        return attrs
+
+    @property
+    @override
     def min_temp(self) -> float:
         """Return the minimum temperature.
 
@@ -103,6 +122,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         )
 
     @property
+    @override
     def max_temp(self) -> float:
         """Return the maximum temperature.
 
@@ -116,6 +136,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         )
 
     @property
+    @override
     def temperature_unit(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return Home Assistant's configured temperature unit.
 
@@ -125,6 +146,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         return self.hass.config.units.temperature_unit
 
     @property
+    @override
     def current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the current DHW output temperature."""
         if not (status := self._status):
@@ -132,10 +154,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         try:
             temp = getattr(status, "dhw_temperature", None)
             return float(temp) if temp is not None else None
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             return None
 
     @property
+    @override
     def target_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the temperature we try to reach."""
         if not (status := self._status):
@@ -147,10 +170,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
             return float(target_temp) if target_temp is not None else None
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             return None
 
     @property
+    @override
     def current_operation(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return current operation mode based on dhwOperationSetting."""
         if not (status := self._status):
@@ -159,7 +183,6 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
-                # Use match/case for cleaner mode mapping (Python 3.10+)
                 match mode_value:
                     case 1:
                         return STATE_HEAT_PUMP
@@ -179,11 +202,12 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                         return DHW_OPERATION_SETTING_TO_HA.get(
                             mode_value, "unknown"
                         )
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             pass
         return "unknown"
 
     @property
+    @override
     def is_on(self) -> bool | None:
         """Return True if the water heater is on."""
         if not (status := self._status):
@@ -202,11 +226,12 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return get_enum_value(operation_mode) not in [0, 6]
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             pass
         return None
 
     @property
+    @override
     def is_away_mode_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return true if away mode (vacation mode) is on."""
         if not (status := self._status):
@@ -215,7 +240,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 return bool(get_enum_value(operation_setting) == 5)
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             pass
         return False
 
@@ -313,7 +338,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
                     else None,
                 }
             )
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             pass
 
         return attrs
@@ -331,6 +356,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             _LOGGER.error(error_message)
         return success
 
+    @override
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature.
 
@@ -357,6 +383,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             temperature=float(temperature),
         )
 
+    @override
     async def async_set_operation_mode(self, operation_mode: str) -> None:
         """Set new operation mode using DHW mode control."""
         dhw_mode_value = HA_TO_DHW_MODE.get(operation_mode)
@@ -379,10 +406,12 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             mode=dhw_mode_value,
         )
 
+    @override
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the water heater on by setting it to energy saver mode."""
         await self.async_set_operation_mode(STATE_ECO)
 
+    @override
     async def async_turn_away_mode_on(self) -> None:
         """Turn away mode on by setting vacation mode for 1 day.
 
@@ -395,6 +424,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
             days=1,
         )
 
+    @override
     async def async_turn_away_mode_off(self) -> None:
         """Turn away mode off by restoring the pre-vacation operation mode."""
         restore_mode = self._pre_vacation_mode or STATE_ECO
@@ -413,6 +443,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity):  # type: ignore[report
         await self.async_set_operation_mode(restore_mode)
         self._pre_vacation_mode = None
 
+    @override
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the water heater off by setting to power off mode."""
         # Use DHW mode 6 (POWER_OFF) instead of the uncertain set_power method

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, get_enum_value
@@ -80,7 +81,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return True
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             pass
         return None
 
@@ -106,6 +107,8 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
 class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 Time of Use (TOU) mode switch."""
 
+    _attr_entity_category = EntityCategory.CONFIG
+
     def __init__(
         self,
         coordinator: NWP500DataUpdateCoordinator,
@@ -127,7 +130,7 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
             tou_status = getattr(status, "tou_status", None)
             if tou_status is not None:
                 return bool(tou_status)
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             pass
         return None
 
@@ -153,6 +156,8 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
 class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 Anti-Legionella switch."""
 
+    _attr_entity_category = EntityCategory.CONFIG
+
     def __init__(
         self,
         coordinator: NWP500DataUpdateCoordinator,
@@ -174,7 +179,7 @@ class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[re
             anti_legionella_use = getattr(status, "anti_legionella_use", None)
             if anti_legionella_use is not None:
                 return bool(anti_legionella_use)
-        except AttributeError, TypeError:
+        except (AttributeError, TypeError):
             pass
         return None
 
