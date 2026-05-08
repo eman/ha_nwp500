@@ -260,17 +260,15 @@ class NWP500MqttManager:
             self._tracked_mac_addresses.add(mac_address)
 
         try:
+            # Library now injects mac_address into DeviceStatus/DeviceFeature,
+            # so direct method references work without device closures.
             await self.mqtt_client.subscribe_device_status(
                 device,
-                lambda status: self._on_device_status_update_direct(
-                    device, status
-                ),
+                self._on_device_status_update_direct,
             )
             await self.mqtt_client.subscribe_device_feature(
                 device,
-                lambda feature: self._on_device_feature_update_direct(
-                    device, feature
-                ),
+                self._on_device_feature_update_direct,
             )
             # Subscribe to reservation responses using the typed API.
             # The library handles topic construction and response parsing.
@@ -582,22 +580,36 @@ class NWP500MqttManager:
             _LOGGER.error("Error handling TOU schedule: %s", err)
 
     # Event Handlers
-    def _on_device_status_update_direct(
-        self, device: Device, status: DeviceStatus
-    ) -> None:
-        """Handle direct MQTT status update."""
+    def _on_device_status_update_direct(self, status: DeviceStatus) -> None:
+        """Handle direct MQTT status update.
+
+        The library injects mac_address into DeviceStatus as of v8.1.0, so no
+        device closure is needed for routing.
+        """
         try:
-            mac = device.device_info.mac_address
+            mac = status.mac_address or ""
+            if not mac:
+                _LOGGER.warning(
+                    "Status received without device MAC; discarding"
+                )
+                return
             self._on_status_update_callback(mac, status)
         except Exception as err:
             _LOGGER.error("Error handling direct status update: %s", err)
 
-    def _on_device_feature_update_direct(
-        self, device: Device, feature: DeviceFeature
-    ) -> None:
-        """Handle direct MQTT feature update."""
+    def _on_device_feature_update_direct(self, feature: DeviceFeature) -> None:
+        """Handle direct MQTT feature update.
+
+        The library injects mac_address into DeviceFeature as of v8.1.0, so no
+        device closure is needed for routing.
+        """
         try:
-            mac = device.device_info.mac_address
+            mac = feature.mac_address or ""
+            if not mac:
+                _LOGGER.warning(
+                    "Feature received without device MAC; discarding"
+                )
+                return
             self._on_feature_update_callback(mac, feature)
         except Exception as err:
             _LOGGER.error("Error handling direct feature update: %s", err)
