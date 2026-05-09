@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, get_enum_value
@@ -107,8 +106,6 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
 class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 Time of Use (TOU) mode switch."""
 
-    _attr_entity_category = EntityCategory.CONFIG
-
     def __init__(
         self,
         coordinator: NWP500DataUpdateCoordinator,
@@ -155,8 +152,6 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
 
 class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 Anti-Legionella switch."""
-
-    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
