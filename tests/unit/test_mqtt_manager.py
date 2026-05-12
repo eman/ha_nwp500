@@ -33,9 +33,10 @@ def mock_mqtt_client(monkeypatch):
     class MockFactory:
         """Factory that creates and tracks mock MQTT clients."""
 
-        def __init__(self, auth_client, unit_system=None):
+        def __init__(self, auth_client, config=None, unit_system=None):
             """Create a mock client and track it."""
             self.auth_client = auth_client
+            self.config = config
             self.unit_system = unit_system
             self.is_connected = True
             self.client_id = "test-client-id"
@@ -284,19 +285,14 @@ async def test_callbacks(manager, mock_mqtt_client):
     await manager.setup()
 
     # Verify callbacks are registered with the client
-    # Since we can't easily check 'on' calls without more mocking of the client's internal structure
-    # or inspecting the mock calls to 'on'.
-
-    # Check that 'on' was called for various events (now 7 events including diagnostics)
-    assert mock_mqtt_client.on.call_count >= 7
+    # The new nwp500-python registers only CONNECTION_INTERRUPTED and CONNECTION_RESUMED
+    # Check that 'on' was called for connection events
+    assert mock_mqtt_client.on.call_count >= 2
 
     # Verify specific event registrations
     calls = [c[0][0] for c in mock_mqtt_client.on.call_args_list]
-    assert "device_status_update" in calls
-    assert "device_feature_update" in calls
-    assert "connection_lost" in calls
-    assert "connection_restored" in calls
-    assert "reconnection_failed" in calls
+    assert "connection_interrupted" in calls or "CONNECTION_INTERRUPTED" in calls
+    assert "connection_resumed" in calls or "CONNECTION_RESUMED" in calls
     assert "connection_interrupted" in calls
     assert "connection_resumed" in calls
 

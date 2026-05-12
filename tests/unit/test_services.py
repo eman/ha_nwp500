@@ -140,11 +140,14 @@ class TestReservationServices:
         self, mock_hass, mock_device_registry
     ):
         """Test set_reservation builds a proper reservation entry."""
+        import asyncio
+        
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.reservation_schedules = {}  # Required for read-modify-write
+        mock_coordinator._reservation_lock = asyncio.Lock()  # Add lock for async context
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
@@ -367,6 +370,7 @@ class TestReservationServices:
     ):
         """Test set_reservation uses default temperature for vacation mode."""
         from homeassistant.const import UnitOfTemperature
+        import asyncio
 
         mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
 
@@ -375,6 +379,7 @@ class TestReservationServices:
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.reservation_schedules = {}  # Required for read-modify-write
+        mock_coordinator._reservation_lock = asyncio.Lock()  # Add lock for async context
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )

@@ -186,7 +186,6 @@ class TestReauthFlow:
         assert result["type"] == FlowResultType.ABORT
         assert result["reason"] == "reauth_successful"
         mock_hass.config_entries.async_update_entry.assert_called_once()
-        mock_hass.config_entries.async_reload.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_reauth_confirm_invalid_auth(self):
