@@ -298,21 +298,60 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.auth_client:
             await self._setup_clients()
 
-        # Check MQTT connection state before attempting requests
-        if self.mqtt_manager:
-            if not self.mqtt_manager.is_connected:
-                # Log at reduced frequency to avoid flooding during outages
-                if self._consecutive_timeouts == 0:
-                    _LOGGER.error(
-                        "MQTT client is not connected. Device status requests "
-                        "will fail. Connection may have been lost or failed "
-                        "to reconnect."
-                    )
-                else:
+        # Check MQTT connection state before attempting requests.
+        # When disconnected, return cached data immediately to avoid flooding
+        # the command queue with requests that cannot be delivered.
+        if self.mqtt_manager and not self.mqtt_manager.is_connected:
+            self._consecutive_timeouts += 1
+
+            # Log only on first disconnect; subsequent cycles use DEBUG
+            if self._consecutive_timeouts == 1:
+                _LOGGER.error(
+                    "MQTT client is not connected. Device status requests "
+                    "will fail. Connection may have been lost or failed "
+                    "to reconnect."
+                )
+            else:
+                _LOGGER.debug(
+                    "MQTT still disconnected (consecutive timeouts: %d)",
+                    self._consecutive_timeouts,
+                )
+
+            # After 3 consecutive disconnected cycles, trigger forced reconnection
+            if self._consecutive_timeouts >= 3:
+                elapsed = time.time() - self.mqtt_manager.last_reconnect_time
+                if elapsed < MIN_RECONNECT_INTERVAL:
                     _LOGGER.debug(
-                        "MQTT still disconnected (consecutive timeouts: %d)",
+                        "Skipping reconnection - last attempt %.0fs ago "
+                        "(min interval: %.0fs). Resetting timeout counter.",
+                        elapsed,
+                        MIN_RECONNECT_INTERVAL,
+                    )
+                    self._consecutive_timeouts = 0
+                else:
+                    _LOGGER.warning(
+                        "MQTT disconnected for %d consecutive updates. "
+                        "Attempting forced reconnection.",
                         self._consecutive_timeouts,
                     )
+                    self._consecutive_timeouts = 0
+                    if (
+                        self._reconnect_task
+                        and not self._reconnect_task.done()
+                    ):
+                        self._reconnect_task.cancel()
+                        try:
+                            await self._reconnect_task
+                        except asyncio.CancelledError:
+                            _LOGGER.debug(
+                                "Previous MQTT reconnection task was cancelled"
+                            )
+                    self._reconnect_task = asyncio.create_task(
+                        self.mqtt_manager.force_reconnect(self.devices)
+                    )
+
+            # Return cached data — no MQTT requests while disconnected
+            return dict(self.data) if self.data else {}
 
         try:
             # Reuse existing data structure to leverage Python 3.13's optimized
@@ -363,6 +402,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 f"MQTT status request failed for device "
                                 f"{mac_address}: internal client error"
                             )
+
+                        # Clear disconnect counter on successful request
+                        self._consecutive_timeouts = 0
 
                         _LOGGER.debug(
                             "Requested status update for device %s", mac_address
