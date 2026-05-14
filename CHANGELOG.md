@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.5] - 2026-05-13
+
 ### Changed
-- **Library Dependency: nwp500-python**: Switched to unreleased `eval` branch to prepare for version 8.0.0.
+- **Library Dependency: nwp500-python**: Upgraded from `eval` pre-release branch to v8.0.0 (stable release).
+  - **v8.0.0 (2026-05-13)**: Official stable release — see [release notes](https://github.com/eman/nwp500-python/releases/tag/v8.0.0)
 - **Library Dependency: awsiotsdk**: Upgraded to `>=1.29.0`.
 
 ## [0.14.4] - 2026-04-14

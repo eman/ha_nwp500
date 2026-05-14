@@ -54,10 +54,11 @@ MIN_SCAN_INTERVAL: Final = 10  # seconds (minimum to avoid server overload)
 MAX_SCAN_INTERVAL: Final = 300  # seconds (maximum 5 minutes)
 
 # Performance monitoring
-# MQTT request/response typically takes 2-4 seconds due to cloud roundtrip
-# Set threshold to 5 seconds to avoid false warnings during normal operation
+# MQTT request/response typically takes 2-4 seconds due to cloud roundtrip.
+# First-update latency can reach ~8s due to AWS IoT TLS/session establishment.
+# Set threshold to 15 seconds to suppress cold-start noise.
 SLOW_UPDATE_THRESHOLD: Final = (
-    5.0  # seconds - warn if update takes longer than this
+    15.0  # seconds - warn if update takes longer than this
 )
 
 # Reconnection backoff parameters
