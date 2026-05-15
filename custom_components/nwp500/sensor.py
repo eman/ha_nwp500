@@ -285,7 +285,7 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         ):
             try:
                 return description.value_fn(status)
-            except (AttributeError, TypeError):
+            except AttributeError, TypeError:
                 return None
         return None
 

@@ -154,7 +154,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
         try:
             temp = getattr(status, "dhw_temperature", None)
             return float(temp) if temp is not None else None
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             return None
 
     @property
@@ -170,7 +170,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
             return float(target_temp) if target_temp is not None else None
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             return None
 
     @property
@@ -202,7 +202,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                         return DHW_OPERATION_SETTING_TO_HA.get(
                             mode_value, "unknown"
                         )
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return "unknown"
 
@@ -226,7 +226,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return get_enum_value(operation_mode) not in [0, 6]
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return None
 
@@ -240,7 +240,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 return bool(get_enum_value(operation_setting) == 5)
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return False
 
@@ -338,7 +338,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                     else None,
                 }
             )
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
 
         return attrs

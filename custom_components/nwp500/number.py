@@ -140,7 +140,7 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
             if target_temp is None:
                 target_temp = getattr(status, "dhw_temperature_setting", None)
             return float(target_temp) if target_temp is not None else None
-        except (AttributeError, TypeError, ValueError):
+        except AttributeError, TypeError, ValueError:
             return None
 
     async def async_set_native_value(self, value: float) -> None:

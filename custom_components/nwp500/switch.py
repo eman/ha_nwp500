@@ -80,7 +80,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return True
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return None
 
@@ -127,7 +127,7 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
             tou_status = getattr(status, "tou_status", None)
             if tou_status is not None:
                 return bool(tou_status)
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return None
 
@@ -174,7 +174,7 @@ class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[re
             anti_legionella_use = getattr(status, "anti_legionella_use", None)
             if anti_legionella_use is not None:
                 return bool(anti_legionella_use)
-        except (AttributeError, TypeError):
+        except AttributeError, TypeError:
             pass
         return None
 

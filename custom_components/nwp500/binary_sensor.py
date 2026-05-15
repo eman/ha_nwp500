@@ -394,6 +394,6 @@ class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):  # type: ignore[repo
         if self.entity_description.value_fn:
             try:
                 return self.entity_description.value_fn(status)
-            except (AttributeError, TypeError):
+            except AttributeError, TypeError:
                 return None
         return None
