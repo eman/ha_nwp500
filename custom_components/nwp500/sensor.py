@@ -63,8 +63,16 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         "temperature": SensorDeviceClass.TEMPERATURE,
         "power": SensorDeviceClass.POWER,
         "energy": SensorDeviceClass.ENERGY,
+        "energy_storage": SensorDeviceClass.ENERGY_STORAGE,
         "signal_strength": SensorDeviceClass.SIGNAL_STRENGTH,
         "water": SensorDeviceClass.WATER,
+        "duration": SensorDeviceClass.DURATION,
+    }
+
+    # Entity category mapping
+    entity_category_map: dict[str, EntityCategory] = {
+        "diagnostic": EntityCategory.DIAGNOSTIC,
+        "config": EntityCategory.CONFIG,
     }
 
     # State class mapping
@@ -129,12 +137,23 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         else:
             native_unit = unit_map.get(str(unit), str(unit))
 
+        # Default precision by device class if not explicitly set
+        default_precision: dict[str, int] = {
+            "temperature": 1,
+            "power": 0,
+            "energy": 0,
+            "energy_storage": 0,
+        }
+        precision: int | None = config.get(
+            "precision",
+            default_precision.get(str(config.get("device_class", ""))),
+        )
+
         descriptions.append(
             NWP500SensorEntityDescription(
                 key=key,
                 attr_name=attr_name,
                 translation_key=key,
-                name=str(config["name"]),
                 device_class=device_class_map.get(
                     str(config.get("device_class", ""))
                 ),
@@ -144,6 +163,10 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
                 native_unit_of_measurement=native_unit,
                 entity_registry_enabled_default=bool(
                     config.get("enabled", False)
+                ),
+                suggested_display_precision=precision,
+                entity_category=entity_category_map.get(
+                    str(config.get("entity_category", ""))
                 ),
                 value_fn=value_fn,
             )

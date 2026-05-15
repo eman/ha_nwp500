@@ -10,7 +10,7 @@
   "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/eman/ha_nwp500/issues",
   "loggers": ["custom_components.nwp500"],
-  "quality_scale": "silver",
-  "requirements": ["nwp500-python==7.4.10", "awsiotsdk>=1.28.2"],
-  "version": "0.14.4"
+  "requirements": ["nwp500-python==8.0.0", "awsiotsdk>=1.29.0"],
+  "single_config_entry": true,
+  "version": "0.14.5"
 }

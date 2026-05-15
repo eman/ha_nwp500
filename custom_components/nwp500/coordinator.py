@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
+class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Class to manage fetching data from the NWP500 API."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -76,6 +76,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         self._unit_change_in_progress = (
             False  # Prevent operations during unit transitions
         )
+        self._reservation_lock = (
+            asyncio.Lock()
+        )  # Prevent reservation write race
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -110,6 +113,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=scan_interval),
         )
 
+        # Stored so async_shutdown can restore it, preventing handler stacking on reload.
+        self._original_exception_handler: Any = None
         # Install custom exception handler to suppress benign AWS CRT errors
         # Must be called after super().__init__() so self.hass.loop is available
         self._install_exception_handler()
@@ -124,10 +129,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         retrieved" errors in Home Assistant logs.
 
         This handler suppresses these benign errors while allowing other exceptions
-        to propagate normally.
+        to propagate normally. The original handler is stored and restored on shutdown
+        to avoid permanently altering the event loop for other integrations.
         """
         loop = self.hass.loop
-        original_handler = loop.get_exception_handler()
+        self._original_exception_handler = loop.get_exception_handler()
 
         def custom_exception_handler(
             loop: asyncio.AbstractEventLoop, context: dict[str, Any]
@@ -146,8 +152,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                     return
 
             # For all other exceptions, use the original handler or default
-            if original_handler:
-                original_handler(loop, context)
+            if self._original_exception_handler:
+                self._original_exception_handler(loop, context)
             else:
                 loop.default_exception_handler(context)
 
@@ -294,21 +300,57 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         if not self.auth_client:
             await self._setup_clients()
 
-        # Check MQTT connection state before attempting requests
-        if self.mqtt_manager:
-            if not self.mqtt_manager.is_connected:
-                # Log at reduced frequency to avoid flooding during outages
-                if self._consecutive_timeouts == 0:
-                    _LOGGER.error(
-                        "MQTT client is not connected. Device status requests "
-                        "will fail. Connection may have been lost or failed "
-                        "to reconnect."
-                    )
-                else:
+        # Check MQTT connection state before attempting requests.
+        # When disconnected, return cached data immediately to avoid flooding
+        # the command queue with requests that cannot be delivered.
+        if self.mqtt_manager and not self.mqtt_manager.is_connected:
+            self._consecutive_timeouts += 1
+
+            # Log only on first disconnect; subsequent cycles use DEBUG
+            if self._consecutive_timeouts == 1:
+                _LOGGER.error(
+                    "MQTT client is not connected. Device status requests "
+                    "will fail. Connection may have been lost or failed "
+                    "to reconnect."
+                )
+            else:
+                _LOGGER.debug(
+                    "MQTT still disconnected (consecutive timeouts: %d)",
+                    self._consecutive_timeouts,
+                )
+
+            # After 3 consecutive disconnected cycles, trigger forced reconnection
+            if self._consecutive_timeouts >= 3:
+                elapsed = time.time() - self.mqtt_manager.last_reconnect_time
+                if elapsed < MIN_RECONNECT_INTERVAL:
                     _LOGGER.debug(
-                        "MQTT still disconnected (consecutive timeouts: %d)",
+                        "Skipping reconnection - last attempt %.0fs ago "
+                        "(min interval: %.0fs). Resetting timeout counter.",
+                        elapsed,
+                        MIN_RECONNECT_INTERVAL,
+                    )
+                    self._consecutive_timeouts = 0
+                else:
+                    _LOGGER.warning(
+                        "MQTT disconnected for %d consecutive updates. "
+                        "Attempting forced reconnection.",
                         self._consecutive_timeouts,
                     )
+                    self._consecutive_timeouts = 0
+                    if self._reconnect_task and not self._reconnect_task.done():
+                        self._reconnect_task.cancel()
+                        try:
+                            await self._reconnect_task
+                        except asyncio.CancelledError:
+                            _LOGGER.debug(
+                                "Previous MQTT reconnection task was cancelled"
+                            )
+                    self._reconnect_task = asyncio.create_task(
+                        self.mqtt_manager.force_reconnect(self.devices)
+                    )
+
+            # Return cached data — no MQTT requests while disconnected
+            return dict(self.data) if self.data else {}
 
         try:
             # Reuse existing data structure to leverage Python 3.13's optimized
@@ -359,6 +401,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                                 f"MQTT status request failed for device "
                                 f"{mac_address}: internal client error"
                             )
+
+                        # Clear disconnect counter on successful request
+                        self._consecutive_timeouts = 0
 
                         _LOGGER.debug(
                             "Requested status update for device %s", mac_address
@@ -542,7 +587,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "uv pip install nwp500-python==7.4.10 awsiotsdk>=1.28.2"
+                'uv pip install "nwp500-python==8.0.0" awsiotsdk>=1.29.0'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -560,7 +605,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 try:
                     from nwp500.auth import AuthTokens
 
-                    stored_tokens = AuthTokens.from_dict(stored_token_data)
+                    stored_tokens = AuthTokens.model_validate(stored_token_data)
 
                     if not stored_tokens.is_expired:
                         _LOGGER.info(
@@ -855,7 +900,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
                 "nwp500_reservations_updated",
                 {
                     "mac_address": mac_address,
-                    "reservation_use": response.get("reservationUse", 0),
+                    "reservation_use": response.get("reservation_use", 0),
                     "reservations": response.get("reservation", []),
                 },
             )
@@ -1140,6 +1185,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator):
             self.auth_client = None
 
         self.api_client = None
+
+        # Restore the original event loop exception handler installed before ours,
+        # so handler chains don't stack up across integration reloads.
+        self.hass.loop.set_exception_handler(self._original_exception_handler)
 
         # Clear device features cache to prevent memory leaks
         self.device_features.clear()

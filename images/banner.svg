@@ -1,0 +1,35 @@
+<svg width="1200" height="240" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f1923"/>
+      <stop offset="100%" style="stop-color:#1a2f42"/>
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#41BDF5"/>
+      <stop offset="100%" style="stop-color:#0288d1"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1200" height="240" fill="url(#bgGrad)" rx="12"/>
+
+  <!-- Accent bar -->
+  <rect x="0" y="0" width="8" height="240" fill="url(#accentGrad)" rx="4"/>
+
+  <!-- Decorative rings -->
+  <circle cx="1060" cy="120" r="160" fill="none" stroke="#41BDF5" stroke-width="1" opacity="0.07"/>
+  <circle cx="1060" cy="120" r="110" fill="none" stroke="#41BDF5" stroke-width="1" opacity="0.11"/>
+  <circle cx="1060" cy="120" r="62" fill="none" stroke="#41BDF5" stroke-width="1.5" opacity="0.17"/>
+
+  <!-- Water drop -->
+  <path d="M1060 78 Q1093 108 1093 130 A33 33 0 0 1 1027 130 Q1027 108 1060 78Z"
+        fill="#41BDF5" opacity="0.22"/>
+
+  <!-- Title -->
+  <text x="68" y="110" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
+        font-size="60" font-weight="700" fill="#ffffff" letter-spacing="-0.5">Navien NWP500</text>
+
+  <!-- Subtitle -->
+  <text x="70" y="155" font-family="'Segoe UI','Helvetica Neue',Arial,sans-serif"
+        font-size="26" font-weight="400" fill="#41BDF5">Home Assistant Integration</text>
+</svg>

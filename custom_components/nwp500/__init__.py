@@ -467,22 +467,23 @@ class NWP500ServiceHandler:
         )
 
         # Read-modify-write: append to existing schedule instead of replacing
-        existing_schedule = coordinator.reservation_schedules.get(
-            mac_address, {}
-        )
-        existing_entries = list(existing_schedule.get("reservation", []))
-        if not existing_schedule:
-            _LOGGER.warning(
-                "No cached reservation schedule for %s. Call "
-                "request_reservations first to avoid overwriting device "
-                "reservations that have not yet been fetched.",
-                mac_address,
+        async with coordinator._reservation_lock:
+            existing_schedule = coordinator.reservation_schedules.get(
+                mac_address, {}
             )
-        existing_entries.append(reservation)
+            existing_entries = list(existing_schedule.get("reservation", []))
+            if not existing_schedule:
+                _LOGGER.warning(
+                    "No cached reservation schedule for %s. Call "
+                    "request_reservations first to avoid overwriting device "
+                    "reservations that have not yet been fetched.",
+                    mac_address,
+                )
+            existing_entries.append(reservation)
 
-        success = await coordinator.async_update_reservations(
-            mac_address, existing_entries, enabled=True
-        )
+            success = await coordinator.async_update_reservations(
+                mac_address, existing_entries, enabled=True
+            )
 
         if not success:
             raise HomeAssistantError("Failed to set reservation")

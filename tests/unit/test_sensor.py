@@ -199,6 +199,85 @@ class TestNWP500Sensor:
             == f"{mac_address}_diagnostic_mqtt_status"
         )
 
+        # Test extra_state_attributes with active connection
+        attrs = connected_sensor.extra_state_attributes
+        assert "connected_since" in attrs
+        assert "connected_duration_seconds" in attrs
+
+        # Test extra_state_attributes without connection
+        mock_coordinator.get_mqtt_telemetry.return_value = {
+            **mock_coordinator.get_mqtt_telemetry.return_value,
+            "mqtt_connected": False,
+            "mqtt_connected_since": None,
+        }
+        attrs_disconnected = connected_sensor.extra_state_attributes
+        assert "connected_since" not in attrs_disconnected
+
+    def test_request_response_count_sensors(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Test MQTT request and response count sensors."""
+        from custom_components.nwp500.sensor import (
+            NWP500MQTTRequestCountSensor,
+            NWP500MQTTResponseCountSensor,
+        )
+
+        mock_coordinator.get_mqtt_telemetry.return_value = {
+            "total_requests_sent": 42,
+            "total_responses_received": 38,
+        }
+
+        mac_address = mock_device.device_info.mac_address
+
+        request_sensor = NWP500MQTTRequestCountSensor(
+            mock_coordinator, mac_address, mock_device
+        )
+        assert request_sensor.native_value == 42
+
+        response_sensor = NWP500MQTTResponseCountSensor(
+            mock_coordinator, mac_address, mock_device
+        )
+        assert response_sensor.native_value == 38
+
+    def test_last_response_time_sensor(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Test last response time sensor."""
+        from custom_components.nwp500.sensor import NWP500LastResponseTimeSensor
+
+        mac_address = mock_device.device_info.mac_address
+
+        # With a valid timestamp
+        mock_coordinator.get_mqtt_telemetry.return_value = {
+            "last_response_time": 1000.0,
+            "last_request_id": "req1",
+            "last_response_id": "rsp1",
+            "last_request_time": 999.0,
+        }
+        sensor = NWP500LastResponseTimeSensor(
+            mock_coordinator, mac_address, mock_device
+        )
+        assert sensor.native_value is not None
+        attrs = sensor.extra_state_attributes
+        assert attrs["last_request_id"] == "req1"
+        assert attrs["last_response_id"] == "rsp1"
+        assert "response_latency" in attrs
+
+        # Without a timestamp
+        mock_coordinator.get_mqtt_telemetry.return_value = {
+            "last_response_time": None,
+            "last_request_id": None,
+            "last_response_id": None,
+            "last_request_time": None,
+        }
+        assert sensor.native_value is None
+        attrs_none = sensor.extra_state_attributes
+        assert "response_latency" not in attrs_none
+
     def test_sensor_get_field_unit_integration(
         self,
         mock_coordinator: MagicMock,
@@ -346,3 +425,63 @@ class TestNWP500Sensor:
         mock_coordinator.get_field_unit_safe.assert_called_once_with(
             mock_device_status, "recirc_temperature"
         )
+
+    def test_sensor_unit_fallback_when_no_status(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Test that unit falls back to description when no device status."""
+        from homeassistant.const import UnitOfTemperature
+
+        from custom_components.nwp500.sensor import (
+            NWP500Sensor,
+            NWP500SensorEntityDescription,
+        )
+
+        desc = NWP500SensorEntityDescription(
+            key="dhw_temperature",
+            name="DHW Temperature",
+            native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+        )
+
+        # No data in coordinator means no status
+        mock_coordinator.data = {}
+
+        mac_address = mock_device.device_info.mac_address
+        sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
+
+        assert sensor.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT
+
+    def test_sensor_value_fn_exception_returns_none(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test that value_fn raising AttributeError/TypeError returns None."""
+        from custom_components.nwp500.sensor import (
+            NWP500Sensor,
+            NWP500SensorEntityDescription,
+        )
+
+        def bad_value_fn(status: object) -> str:
+            raise AttributeError("no such attribute")
+
+        desc = NWP500SensorEntityDescription(
+            key="dhw_temperature",
+            name="DHW Temperature",
+            value_fn=bad_value_fn,
+        )
+
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+
+        mac_address = mock_device.device_info.mac_address
+        sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
+
+        assert sensor.native_value is None

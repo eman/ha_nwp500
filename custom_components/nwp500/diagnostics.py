@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
@@ -17,6 +19,30 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# Fields whose values are always redacted in diagnostic output.
+_TO_REDACT = {"password", "token", "access_token", "refresh_token", "secret"}
+
+_MAC_RE = re.compile(
+    r"[0-9a-fA-F]{2}(?:[:\-][0-9a-fA-F]{2}){5}"  # colon/dash-delimited: AA:BB:CC:DD:EE:FF
+    r"|[0-9a-fA-F]{12}",  # bare 12-hex: AABBCCDDEEFF
+    re.IGNORECASE,
+)
+
+
+def _redact_macs(obj: Any) -> Any:
+    """Recursively replace MAC addresses with '**REDACTED**'.
+
+    Handles both bare (AABBCCDDEEFF) and delimited (AA:BB:CC:DD:EE:FF /
+    AA-BB-CC-DD-EE-FF) formats, case-insensitively.
+    """
+    if isinstance(obj, str):
+        return _MAC_RE.sub("**REDACTED**", obj)
+    if isinstance(obj, dict):
+        return {k: _redact_macs(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_macs(v) for v in obj]
+    return obj
+
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant,
@@ -24,8 +50,8 @@ async def async_get_config_entry_diagnostics(
 ) -> dict[str, Any]:
     """Return diagnostics for config entry.
 
-    Provides MQTT diagnostics data from the coordinator's diagnostics
-    collector, if available.
+    Sensitive data (passwords, tokens, MAC addresses) is redacted before
+    returning, in accordance with HA diagnostics requirements.
     """
     coordinator: NWP500DataUpdateCoordinator | None = hass.data.get(
         DOMAIN, {}
@@ -76,4 +102,5 @@ async def async_get_config_entry_diagnostics(
     # Add performance statistics
     diagnostics_data["performance_stats"] = coordinator.get_performance_stats()
 
-    return diagnostics_data
+    # Redact credentials and MAC addresses before returning
+    return _redact_macs(async_redact_data(diagnostics_data, _TO_REDACT))
