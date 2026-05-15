@@ -371,23 +371,17 @@ class NWP500MqttManager:
                 case "set_dhw_mode":
                     mode = kwargs.get("mode")
                     if mode is not None:
-                        await self.mqtt_client.set_dhw_mode(
-                            device, int(mode)
-                        )
+                        await self.mqtt_client.set_dhw_mode(device, int(mode))
                 case "set_tou_enabled":
                     enabled = kwargs.get("enabled", True)
-                    await self.mqtt_client.set_tou_enabled(
-                        device, enabled
-                    )
+                    await self.mqtt_client.set_tou_enabled(device, enabled)
                 case "enable_anti_legionella":
                     period_days = kwargs.get("period_days", 14)
                     await self.mqtt_client.enable_anti_legionella(
                         device, period_days
                     )
                 case "disable_anti_legionella":
-                    await self.mqtt_client.disable_anti_legionella(
-                        device
-                    )
+                    await self.mqtt_client.disable_anti_legionella(device)
                 case "update_reservations":
                     reservations = kwargs.get("reservations", [])
                     enabled = kwargs.get("enabled", True)
@@ -423,13 +417,9 @@ class NWP500MqttManager:
                             device, int(days)
                         )
                 case "enable_demand_response":
-                    await self.mqtt_client.enable_demand_response(
-                        device
-                    )
+                    await self.mqtt_client.enable_demand_response(device)
                 case "disable_demand_response":
-                    await self.mqtt_client.disable_demand_response(
-                        device
-                    )
+                    await self.mqtt_client.disable_demand_response(device)
                 case "reset_air_filter":
                     await self.mqtt_client.reset_air_filter(device)
                 case "set_recirculation_mode":
@@ -552,9 +542,7 @@ class NWP500MqttManager:
         ReservationSchedule object. Converts to dict for coordinator storage.
         """
         try:
-            _LOGGER.debug(
-                "Received reservation schedule for %s", mac_address
-            )
+            _LOGGER.debug("Received reservation schedule for %s", mac_address)
             if self._on_reservation_update_callback:
                 response = (
                     schedule.model_dump()
@@ -565,7 +553,9 @@ class NWP500MqttManager:
         except Exception as err:
             _LOGGER.error("Error handling reservation schedule: %s", err)
 
-    def _on_tou_schedule(self, mac_address: str, tou: TOUReservationSchedule) -> None:
+    def _on_tou_schedule(
+        self, mac_address: str, tou: TOUReservationSchedule
+    ) -> None:
         """Handle typed TOU schedule from device.
 
         Called by subscribe_tou_response() with a parsed TOUReservationSchedule.
@@ -644,9 +634,7 @@ class NWP500MqttManager:
                 )
             )
 
-    def _on_connection_resumed(
-        self, event: ConnectionResumedEvent
-    ) -> None:
+    def _on_connection_resumed(self, event: ConnectionResumedEvent) -> None:
         """Handle connection resume event for diagnostics."""
         self.connected_since = time.time()
         if self.diagnostics:

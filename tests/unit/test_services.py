@@ -147,7 +147,9 @@ class TestReservationServices:
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.reservation_schedules = {}  # Required for read-modify-write
-        mock_coordinator._reservation_lock = asyncio.Lock()  # Add lock for async context
+        mock_coordinator._reservation_lock = (
+            asyncio.Lock()
+        )  # Add lock for async context
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
@@ -380,7 +382,9 @@ class TestReservationServices:
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
         mock_coordinator.reservation_schedules = {}  # Required for read-modify-write
-        mock_coordinator._reservation_lock = asyncio.Lock()  # Add lock for async context
+        mock_coordinator._reservation_lock = (
+            asyncio.Lock()
+        )  # Add lock for async context
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )

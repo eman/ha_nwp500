@@ -76,7 +76,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unit_change_in_progress = (
             False  # Prevent operations during unit transitions
         )
-        self._reservation_lock = asyncio.Lock()  # Prevent reservation write race
+        self._reservation_lock = (
+            asyncio.Lock()
+        )  # Prevent reservation write race
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -335,10 +337,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         self._consecutive_timeouts,
                     )
                     self._consecutive_timeouts = 0
-                    if (
-                        self._reconnect_task
-                        and not self._reconnect_task.done()
-                    ):
+                    if self._reconnect_task and not self._reconnect_task.done():
                         self._reconnect_task.cancel()
                         try:
                             await self._reconnect_task
@@ -588,7 +587,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                "uv pip install \"nwp500-python==8.0.0\" awsiotsdk>=1.29.0"
+                'uv pip install "nwp500-python==8.0.0" awsiotsdk>=1.29.0'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"

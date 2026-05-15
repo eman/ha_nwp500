@@ -188,9 +188,7 @@ async def test_send_command_success(manager, mock_mqtt_client, mock_device):
 
     assert result is True
     mock_mqtt_client.set_power.assert_called_with(mock_device, True)
-    mock_mqtt_client.request_device_status.assert_called_with(
-        mock_device
-    )
+    mock_mqtt_client.request_device_status.assert_called_with(mock_device)
 
 
 @pytest.mark.asyncio
@@ -294,9 +292,7 @@ async def test_callbacks(manager, mock_mqtt_client):
     assert any(
         c in ("connection_interrupted", "CONNECTION_INTERRUPTED") for c in calls
     )
-    assert any(
-        c in ("connection_resumed", "CONNECTION_RESUMED") for c in calls
-    )
+    assert any(c in ("connection_resumed", "CONNECTION_RESUMED") for c in calls)
 
 
 @pytest.mark.asyncio
@@ -312,9 +308,7 @@ async def test_request_status_consecutive_timeouts(
     assert manager.consecutive_timeouts == 0
 
     # 2. Failure should increment counter
-    mock_mqtt_client.request_device_status.side_effect = RuntimeError(
-        "Timeout"
-    )
+    mock_mqtt_client.request_device_status.side_effect = RuntimeError("Timeout")
     await manager.request_status(mock_device)
     assert manager.consecutive_timeouts == 1
 
@@ -362,9 +356,7 @@ async def test_send_command_request_reservations(
     result = await manager.send_command(mock_device, "request_reservations")
 
     assert result is True
-    mock_mqtt_client.request_reservations.assert_called_once_with(
-        mock_device
-    )
+    mock_mqtt_client.request_reservations.assert_called_once_with(mock_device)
 
 
 def test_get_aws_error_name_with_awscrterror():
@@ -459,4 +451,3 @@ async def test_setup_ensures_valid_token(manager, mock_mqtt_client):
     # Verify MQTT client was created and connected after token refresh
     assert manager.mqtt_client is not None
     mock_mqtt_client.connect.assert_called_once()
-

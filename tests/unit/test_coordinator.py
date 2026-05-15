@@ -34,7 +34,9 @@ def coordinator(mock_hass, mock_entry):
         return coordinator
 
 
-def _make_disconnected_mqtt_manager(last_reconnect_offset: float = -9999.0) -> MagicMock:
+def _make_disconnected_mqtt_manager(
+    last_reconnect_offset: float = -9999.0,
+) -> MagicMock:
     """Return a mock mqtt_manager that reports as disconnected."""
     mgr = MagicMock()
     mgr.is_connected = False
@@ -141,7 +143,13 @@ async def test_async_update_returns_cached_data_when_mqtt_disconnected(
     coordinator, mock_hass
 ):
     """When MQTT is not connected, cached data is returned without sending requests."""
-    cached = {"mac1": {"device": MagicMock(), "status": MagicMock(), "last_update": 1.0}}
+    cached = {
+        "mac1": {
+            "device": MagicMock(),
+            "status": MagicMock(),
+            "last_update": 1.0,
+        }
+    }
     coordinator.data = cached
     coordinator.auth_client = AsyncMock()
     coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
@@ -185,7 +193,9 @@ async def test_async_update_triggers_force_reconnect_after_threshold(
     coordinator.data = {}
     coordinator.auth_client = AsyncMock()
     # last_reconnect far in the past so interval guard passes
-    coordinator.mqtt_manager = _make_disconnected_mqtt_manager(last_reconnect_offset=-9999.0)
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager(
+        last_reconnect_offset=-9999.0
+    )
     coordinator._consecutive_timeouts = 2  # one more will hit threshold
     coordinator._reconnect_task = None
 
@@ -208,7 +218,9 @@ async def test_async_update_skips_reconnect_within_min_interval(
     coordinator.data = {}
     coordinator.auth_client = AsyncMock()
     # Simulate a reconnect that happened just 5 seconds ago
-    coordinator.mqtt_manager = _make_disconnected_mqtt_manager(last_reconnect_offset=-5.0)
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager(
+        last_reconnect_offset=-5.0
+    )
     coordinator._consecutive_timeouts = 2
     coordinator._reconnect_task = None
 
