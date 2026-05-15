@@ -48,6 +48,14 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
 1. Copy `custom_components/nwp500` to your `config/custom_components/` directory.
 2. Restart Home Assistant.
 
+### Or use this button
+
+<p align="center">
+  <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=nwp500">
+    <img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Add to Home Assistant" />
+  </a>
+</p>
+
 ## Configuration
 
 1. Go to **Settings** > **Devices & Services** > **Add Integration**.
