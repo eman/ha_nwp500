@@ -141,7 +141,7 @@ class TestReservationServices:
     ):
         """Test set_reservation builds a proper reservation entry."""
         import asyncio
-        
+
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
@@ -369,8 +369,9 @@ class TestReservationServices:
         self, mock_hass, mock_device_registry
     ):
         """Test set_reservation uses default temperature for vacation mode."""
-        from homeassistant.const import UnitOfTemperature
         import asyncio
+
+        from homeassistant.const import UnitOfTemperature
 
         mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
 

@@ -12,8 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 from awscrt.exceptions import AwsCrtError
 
-from .const import DeviceFeatureEvent, DeviceStatusEvent
-
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
         Device,
@@ -160,7 +158,9 @@ class NWP500MqttManager:
 
             # Set up event listeners
             if self.mqtt_client:
-                from nwp500.mqtt_events import MqttClientEvents  # type: ignore[attr-defined]
+                from nwp500.mqtt_events import (
+                    MqttClientEvents,  # type: ignore[attr-defined]
+                )
 
                 # Connection lifecycle events
                 self.mqtt_client.on(
@@ -230,7 +230,9 @@ class NWP500MqttManager:
         """Disconnect from MQTT broker."""
         if self.mqtt_client:
             try:
-                from nwp500.mqtt_events import MqttClientEvents  # type: ignore[attr-defined]
+                from nwp500.mqtt_events import (
+                    MqttClientEvents,  # type: ignore[attr-defined]
+                )
 
                 # Remove listeners
                 self.mqtt_client.off(
@@ -583,7 +585,7 @@ class NWP500MqttManager:
     def _on_device_status_update_direct(self, status: DeviceStatus) -> None:
         """Handle direct MQTT status update.
 
-        The library injects mac_address into DeviceStatus as of v8.1.0, so no
+        The library injects mac_address into DeviceStatus as of v8.0.0, so no
         device closure is needed for routing.
         """
         try:
@@ -600,7 +602,7 @@ class NWP500MqttManager:
     def _on_device_feature_update_direct(self, feature: DeviceFeature) -> None:
         """Handle direct MQTT feature update.
 
-        The library injects mac_address into DeviceFeature as of v8.1.0, so no
+        The library injects mac_address into DeviceFeature as of v8.0.0, so no
         device closure is needed for routing.
         """
         try:

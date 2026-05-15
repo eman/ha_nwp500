@@ -291,10 +291,12 @@ async def test_callbacks(manager, mock_mqtt_client):
 
     # Verify specific event registrations
     calls = [c[0][0] for c in mock_mqtt_client.on.call_args_list]
-    assert "connection_interrupted" in calls or "CONNECTION_INTERRUPTED" in calls
-    assert "connection_resumed" in calls or "CONNECTION_RESUMED" in calls
-    assert "connection_interrupted" in calls
-    assert "connection_resumed" in calls
+    assert any(
+        c in ("connection_interrupted", "CONNECTION_INTERRUPTED") for c in calls
+    )
+    assert any(
+        c in ("connection_resumed", "CONNECTION_RESUMED") for c in calls
+    )
 
 
 @pytest.mark.asyncio

@@ -22,11 +22,19 @@ _LOGGER = logging.getLogger(__name__)
 # Fields whose values are always redacted in diagnostic output.
 _TO_REDACT = {"password", "token", "access_token", "refresh_token", "secret"}
 
-_MAC_RE = re.compile(r"[0-9a-fA-F]{12}")
+_MAC_RE = re.compile(
+    r"[0-9a-fA-F]{2}(?:[:\-][0-9a-fA-F]{2}){5}"  # colon/dash-delimited: AA:BB:CC:DD:EE:FF
+    r"|[0-9a-fA-F]{12}",  # bare 12-hex: AABBCCDDEEFF
+    re.IGNORECASE,
+)
 
 
 def _redact_macs(obj: Any) -> Any:
-    """Recursively replace 12-hex-digit MAC addresses with '**REDACTED**'."""
+    """Recursively replace MAC addresses with '**REDACTED**'.
+
+    Handles both bare (AABBCCDDEEFF) and delimited (AA:BB:CC:DD:EE:FF /
+    AA-BB-CC-DD-EE-FF) formats, case-insensitively.
+    """
     if isinstance(obj, str):
         return _MAC_RE.sub("**REDACTED**", obj)
     if isinstance(obj, dict):

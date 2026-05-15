@@ -490,7 +490,6 @@ SENSOR_CONFIGS: Final = {
         "unit": None,
         "state_class": "measurement",
         "enabled": True,
-        "enabled": True,
     },
     "tank_lower_temperature": {
         "attr": "tank_lower_temperature",

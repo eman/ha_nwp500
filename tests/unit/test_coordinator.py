@@ -1,13 +1,11 @@
 """Tests for NWP500DataUpdateCoordinator."""
 
-import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
-from custom_components.nwp500.const import MIN_RECONNECT_INTERVAL
 
 
 @pytest.fixture
