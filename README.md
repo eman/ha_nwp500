@@ -50,7 +50,7 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
 
 ### Or use this button
 
-<p align="center">
+<p align="left">
   <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=nwp500">
     <img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Add to Home Assistant" />
   </a>
