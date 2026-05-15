@@ -10,12 +10,6 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-<p align="center">
-  <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=nwp500">
-    <img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Add to Home Assistant" />
-  </a>
-</p>
-
 A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. Connects to the Navien cloud API and subscribes to MQTT for real-time updates.
 
 ## Table of Contents
@@ -53,6 +47,14 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
 
 1. Copy `custom_components/nwp500` to your `config/custom_components/` directory.
 2. Restart Home Assistant.
+
+### Or use this button
+
+<p align="center">
+  <a href="https://my.home-assistant.io/redirect/config_flow_start/?domain=nwp500">
+    <img src="https://my.home-assistant.io/badges/config_flow_start.svg" alt="Add to Home Assistant" />
+  </a>
+</p>
 
 ## Configuration
 
