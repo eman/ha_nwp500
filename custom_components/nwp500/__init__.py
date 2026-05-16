@@ -704,10 +704,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except UpdateFailed as err:
-        # Coordinator raises UpdateFailed for all setup errors
+    except ConfigEntryNotReady as err:
         _LOGGER.error("Failed to connect to NWP500: %s", err)
-        raise ConfigEntryNotReady from err
+        raise
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 

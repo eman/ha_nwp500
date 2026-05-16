@@ -491,9 +491,10 @@ class NWP500MqttManager:
                 self.consecutive_timeouts = 0
                 self._reconnect_attempts = 0  # Reset backoff on success
 
-                # Re-subscribe to all devices
+                # Re-subscribe to all devices and restart periodic tasks
                 for device in devices:
                     await self.subscribe_device(device)
+                    await self.start_periodic_requests(device)
                 return True
 
             # Failed - increment attempt counter for next backoff

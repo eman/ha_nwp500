@@ -61,9 +61,7 @@ class TestModeMapping:
 
 @pytest.mark.asyncio
 async def test_async_setup_entry_update_failed():
-    """Test setup entry handles UpdateFailed correctly."""
-    from homeassistant.helpers.update_coordinator import UpdateFailed
-
+    """Test setup entry re-raises ConfigEntryNotReady from first refresh."""
     mock_hass = MagicMock()
     mock_hass.data = {}
     mock_hass.services.has_service = MagicMock(return_value=False)
@@ -72,13 +70,13 @@ async def test_async_setup_entry_update_failed():
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
-    # Mock coordinator that raises UpdateFailed
+    # async_config_entry_first_refresh always raises ConfigEntryNotReady (never UpdateFailed)
     with patch(
         "custom_components.nwp500.NWP500DataUpdateCoordinator"
     ) as mock_coordinator_class:
         mock_coordinator = MagicMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock(
-            side_effect=UpdateFailed("Connection failed")
+            side_effect=ConfigEntryNotReady("Connection failed")
         )
         mock_coordinator_class.return_value = mock_coordinator
 

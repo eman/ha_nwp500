@@ -204,7 +204,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                         )
         except AttributeError, TypeError:
             pass
-        return "unknown"
+        return None
 
     @property
     @override

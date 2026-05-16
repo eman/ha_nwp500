@@ -643,8 +643,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 stored_tokens=stored_tokens,
                 unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
-            if self.auth_client is None:
-                raise UpdateFailed("Failed to initialize authentication client")
             await self.auth_client.__aenter__()  # Authenticate or restore
 
             # Save tokens after successful authentication
@@ -655,8 +653,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 auth_client=self.auth_client,
                 unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
-            if self.api_client is None:
-                raise UpdateFailed("Failed to initialize API client")
 
             # Get devices
             self.devices = await self.api_client.list_devices()
