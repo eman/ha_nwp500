@@ -18,26 +18,27 @@ jobs:
 
       - name: Extract version from tag
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
-      - name: Extract changelog
-        id: changelog
+      - name: Extract release notes from changelog
         run: |
-          # Extract changelog for this version
           VERSION="${{ steps.version.outputs.version }}"
-          
-          # Get the changelog content between version headers
-          CHANGELOG=$(awk "/## \[$VERSION\]/,/## \[/" CHANGELOG.md | sed '$d' | tail -n +2)
-          
-          # Save to file for multiline handling
-          echo "$CHANGELOG" > /tmp/changelog.txt
-          
-          # Set output using file to handle multiline content properly
-          {
-            echo 'notes<<EOF'
-            cat /tmp/changelog.txt
-            echo EOF
-          } >> $GITHUB_OUTPUT
+
+          if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
+            echo "No changelog header found for version $VERSION in CHANGELOG.md"
+            exit 1
+          fi
+
+          awk -v version="$VERSION" '
+            $0 ~ "^## \\[" version "\\]" { in_section=1; next }
+            in_section && $0 ~ "^## \\[" { exit }
+            in_section { print }
+          ' CHANGELOG.md > /tmp/release-notes.md
+
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "- No changelog details were provided for this release." \
+              > /tmp/release-notes.md
+          fi
 
       - name: Create integration archive
         run: |
@@ -47,7 +48,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
-          body: ${{ steps.changelog.outputs.notes }}
+          body_path: /tmp/release-notes.md
           files: nwp500-${{ steps.version.outputs.version }}.zip
           draft: false
           prerelease: false
