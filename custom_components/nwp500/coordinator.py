@@ -300,6 +300,21 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.auth_client:
             await self._setup_clients()
 
+        # Always ensure device entries exist in data dict so that:
+        # 1. Platform setup can create entities (iterates coordinator.data)
+        # 2. MQTT callbacks can store status updates (checks mac in self.data)
+        device_data = dict(self.data) if self.data else {}
+        for device in self.devices:
+            mac_address = device.device_info.mac_address
+            if mac_address not in device_data:
+                device_data[mac_address] = {
+                    "device": device,
+                    "status": None,
+                    "last_update": None,
+                }
+            else:
+                device_data[mac_address]["device"] = device
+
         # Check MQTT connection state before attempting requests.
         # When disconnected, return cached data immediately to avoid flooding
         # the command queue with requests that cannot be delivered.
@@ -349,27 +364,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         self.mqtt_manager.force_reconnect(self.devices)
                     )
 
-            # Return cached data — no MQTT requests while disconnected
-            return dict(self.data) if self.data else {}
+            # Return data with device entries but no new MQTT requests
+            return device_data
 
         try:
-            # Reuse existing data structure to leverage Python 3.13's optimized
-            # dictionary operations. Only create new dict on first update.
-            device_data = dict(self.data) if self.data else {}
-
             for device in self.devices:
                 mac_address = device.device_info.mac_address
-
-                # Initialize device entry if missing, otherwise reuse existing
-                if mac_address not in device_data:
-                    device_data[mac_address] = {
-                        "device": device,
-                        "status": None,  # Will be updated via MQTT
-                        "last_update": None,
-                    }
-                else:
-                    # Just update the device reference
-                    device_data[mac_address]["device"] = device
 
                 # Request fresh status via MQTT (async, will update)
                 if self.mqtt_manager:
@@ -830,9 +830,25 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 time_since_request,
             )
 
-            if self.data and mac_address in self.data:
-                self.data[mac_address]["status"] = status
-                self.data[mac_address]["last_update"] = time.time()
+            if self.data is not None:
+                if mac_address not in self.data:
+                    # Create device entry if device is known but not in data
+                    device = self._devices_by_mac.get(mac_address)
+                    if device:
+                        self.data[mac_address] = {
+                            "device": device,
+                            "status": status,
+                            "last_update": time.time(),
+                        }
+                    else:
+                        _LOGGER.debug(
+                            "Ignoring status update for unknown device %s",
+                            mac_address,
+                        )
+                        return
+                else:
+                    self.data[mac_address]["status"] = status
+                    self.data[mac_address]["last_update"] = time.time()
 
                 # Notify all listeners that data has changed
                 self.async_update_listeners()
