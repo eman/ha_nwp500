@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded from v8.0.0 to v8.1.0.
+  - **v8.1.0 (2026-05-16)**: Multiple bug fixes — see [release notes](https://github.com/eman/nwp500-python/releases/tag/v8.1.0)
+
 ## [0.15.0] - 2026-05-15
 
 ## [0.14.5] - 2026-05-13
@@ -331,6 +335,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Library Dependency: nwp500-python
 
 This section tracks changes in the nwp500-python library that this integration depends on.
+
+### v8.1.0 (2026-05-16)
+
+#### Fixed
+- **MQTT connection flapping after reconnect**: Old `MqttConnection` was never closed before creating a replacement, eventually causing two connections on the same client ID — AWS IoT would kick one off, triggering an infinite reconnect loop. Fixed by adding `MqttConnection.close()` and calling it in both `_active_reconnect()` and `_deep_reconnect()`.
+- **Thread-safety race in `ensure_device_info_cached`**: `future.done()` check and `future.set_result()` were running on the AWS SDK thread without synchronisation. Both operations now execute atomically inside a `call_soon_threadsafe` callback.
+- **ZeroDivisionError when `deep_reconnect_threshold` is 0**: Config validation now clamps the threshold to a minimum of 1.
+- **Reconnect counter never incremented**: `total_reconnect_attempts` always reported 0; counter is now incremented on each `on_connection_interrupted` event.
+- **`shortest_session_seconds` not JSON-serialisable**: `float('inf')` initial value replaced with `None` so diagnostics serialise correctly before any session completes.
+- **`wait_for()` future not bound to running loop**: Used `asyncio.get_running_loop().create_future()` instead of bare `asyncio.Future()`.
+- **Reservation temperature validation was US-only**: Validation now uses the active unit system — 35–65 °C in metric mode, 95–150 °F in US mode. Celsius users no longer receive spurious `ValueError` rejections.
+- **Malformed reservation data silently dropped**: `build_reservation_entry` now logs a warning when reservation hex data contains unexpected trailing bytes.
+- **Unknown `PeriodicRequestType` silently ignored**: Handler now logs an error and breaks instead of silently doing nothing.
+- **Memory leak in device info cache**: `get_all_cached()` now evicts expired entries from the cache dictionary instead of only filtering them from the return value.
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v8.1.0
 
 ### v7.3.4 (2026-01-27)
 
