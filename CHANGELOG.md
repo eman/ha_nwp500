@@ -338,6 +338,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This section tracks changes in the nwp500-python library that this integration depends on.
 
+### v8.1.1 (2026-05-18)
+
+#### Fixed
+- **MQTT reconnection storm**: Two race conditions caused dozens of concurrent
+  `_active_reconnect` calls within milliseconds, each tearing down the
+  connection the previous one just established.
+  - Stale `on_connection_interrupted` callbacks queued via
+    `run_coroutine_threadsafe` could fire after `on_connection_resumed`
+    cancelled `_reconnect_task` (setting it to `None`), bypassing the
+    task-existence guard and spawning a new backoff loop against a healthy
+    connection. Both `on_connection_interrupted` and `_start_reconnect_task`
+    now check `is_connected()` before starting any reconnection.
+  - Closing the old connection inside `_active_reconnect` / `_deep_reconnect`
+    fired `_on_connection_interrupted_internal` from a background thread,
+    queuing another reconnect that would tear down the brand-new connection.
+    A boolean `_actively_reconnecting` flag (always cleared in `finally`)
+    suppresses the reconnection-handler delegation during intentional teardown.
+
+**Full release notes**: https://github.com/eman/nwp500-python/releases/tag/v8.1.1
+
 ### v8.1.0 (2026-05-16)
 
 #### Fixed
