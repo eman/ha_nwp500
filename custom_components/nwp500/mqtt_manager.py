@@ -54,6 +54,7 @@ class NWP500MqttManager:
         | None = None,
         on_tou_update: Callable[[str, dict[str, Any]], None] | None = None,
         unit_system: str | None = None,
+        on_reconnected: Callable[[], None] | None = None,
     ) -> None:
         """Initialize the MQTT manager."""
         self.loop = hass_loop
@@ -64,6 +65,7 @@ class NWP500MqttManager:
         self._on_feature_update_callback = on_feature_update
         self._on_reservation_update_callback = on_reservation_update
         self._on_tou_update_callback = on_tou_update
+        self._on_reconnected_callback = on_reconnected
         self.unit_system = unit_system
 
         # Connection tracking
@@ -638,6 +640,8 @@ class NWP500MqttManager:
     def _on_connection_resumed(self, event: ConnectionResumedEvent) -> None:
         """Handle connection resume event for diagnostics."""
         self.connected_since = time.time()
+        if self._on_reconnected_callback:
+            self.loop.call_soon_threadsafe(self._on_reconnected_callback)
         if self.diagnostics:
             future = asyncio.run_coroutine_threadsafe(
                 self.diagnostics.record_connection_success(

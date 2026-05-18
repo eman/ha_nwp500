@@ -97,7 +97,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._total_responses_received: int = 0
         self._mqtt_connected_since: float | None = None
         self._consecutive_timeouts: int = 0
-        self._reconnection_in_progress: bool = False
         # Use deque for efficient circular buffer (automatic maxlen enforcement)
         self._timeout_history: deque[dict[str, Any]] = deque(maxlen=20)
 
@@ -676,6 +675,19 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("Found %d devices", len(self.devices))
 
             # Setup MQTT Manager
+            def _on_mqtt_reconnected() -> None:
+                """Schedule an immediate coordinator refresh after reconnection.
+
+                Called (on the event loop) when the library fires
+                CONNECTION_RESUMED.  Using async_create_task instead of
+                async_request_refresh directly because this runs synchronously
+                on the loop via call_soon_threadsafe.
+                """
+                _LOGGER.debug(
+                    "MQTT reconnected – scheduling immediate coordinator refresh"
+                )
+                self.hass.async_create_task(self.async_request_refresh())
+
             self.mqtt_manager = NWP500MqttManager(
                 self.hass.loop,
                 self.auth_client,
@@ -684,6 +696,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 on_reservation_update=self._on_reservation_update,
                 on_tou_update=self._on_tou_update,
                 unit_system=self.unit_system,
+                on_reconnected=_on_mqtt_reconnected,
             )
 
             # Connect to MQTT
