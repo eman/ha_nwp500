@@ -451,3 +451,65 @@ async def test_setup_ensures_valid_token(manager, mock_mqtt_client):
     # Verify MQTT client was created and connected after token refresh
     assert manager.mqtt_client is not None
     mock_mqtt_client.connect.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_setup_client_id_includes_ha_instance_id(
+    mock_auth_client, mock_mqtt_client
+):
+    """Client ID must embed both user_seq and ha_instance_id for per-installation uniqueness."""
+    mock_auth_client.current_user = MagicMock()
+    mock_auth_client.current_user.user_seq = 36283
+
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        ha_instance_id="abcd1234ef567890",
+    )
+    await manager.setup()
+
+    assert mock_mqtt_client.config is not None
+    assert mock_mqtt_client.config.client_id == "navien-ha-36283-abcd1234"
+    assert mock_mqtt_client.config.clean_session is False
+
+
+@pytest.mark.asyncio
+async def test_setup_client_id_falls_back_without_ha_instance_id(
+    mock_auth_client, mock_mqtt_client
+):
+    """Client ID falls back to user_seq only when ha_instance_id is not supplied."""
+    mock_auth_client.current_user = MagicMock()
+    mock_auth_client.current_user.user_seq = 36283
+
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+    )
+    await manager.setup()
+
+    assert mock_mqtt_client.config is not None
+    assert mock_mqtt_client.config.client_id == "navien-ha-36283"
+    assert mock_mqtt_client.config.clean_session is False
+
+
+@pytest.mark.asyncio
+async def test_setup_clean_session_false_without_user_seq(
+    mock_auth_client, mock_mqtt_client
+):
+    """clean_session=False must be set even when no user info is available."""
+    mock_auth_client.current_user = None
+
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+    )
+    await manager.setup()
+
+    assert mock_mqtt_client.config is not None
+    assert mock_mqtt_client.config.clean_session is False
