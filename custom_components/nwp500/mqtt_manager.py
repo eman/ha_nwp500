@@ -55,10 +55,12 @@ class NWP500MqttManager:
         on_tou_update: Callable[[str, dict[str, Any]], None] | None = None,
         unit_system: str | None = None,
         on_reconnected: Callable[[], None] | None = None,
+        ha_instance_id: str | None = None,
     ) -> None:
         """Initialize the MQTT manager."""
         self.loop = hass_loop
         self.auth_client = auth_client
+        self._ha_instance_id = ha_instance_id
         self.mqtt_client: NavienMqttClient | None = None
         self.diagnostics: MqttDiagnosticsCollector | None = None
         self._on_status_update_callback = on_status_update
@@ -133,14 +135,27 @@ class NWP500MqttManager:
                 NavienMqttClient,
             )
 
-            # Generate a stable client ID based on user sequence to improve connection persistence.
-            # Random client IDs can cause some brokers to reject rapid reconnects or
-            # treat each restart as a completely new session, losing queued messages.
+            # Build a stable, per-installation client ID.
+            # Format: navien-ha-{user_seq}-{ha_instance_id[:8]}
+            #
+            # user_seq alone is not sufficient — all HA instances authenticated
+            # with the same Navien account share the same user_seq, causing
+            # AWS IoT Core to kick each instance off as soon as another connects
+            # (one active connection per client ID).  The HA instance ID is
+            # generated once per installation and stored persistently, making
+            # the combined client ID both stable across restarts and unique
+            # per installation.
             user_seq = 0
             if self.auth_client.current_user:
                 user_seq = self.auth_client.current_user.user_seq
 
-            client_id = f"navien-ha-{user_seq}" if user_seq else None
+            if user_seq and self._ha_instance_id:
+                client_id = f"navien-ha-{user_seq}-{self._ha_instance_id[:8]}"
+            elif user_seq:
+                client_id = f"navien-ha-{user_seq}"
+            else:
+                client_id = None
+
             if client_id:
                 _LOGGER.debug("Using stable MQTT client ID: %s", client_id)
 

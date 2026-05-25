@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
+from homeassistant.helpers import instance_id as ha_instance_id
 
 from nwp500.exceptions import (
     AuthenticationError,
@@ -688,6 +689,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 self.hass.async_create_task(self.async_request_refresh())
 
+            ha_id = await ha_instance_id.async_get(self.hass)
+
             self.mqtt_manager = NWP500MqttManager(
                 self.hass.loop,
                 self.auth_client,
@@ -697,6 +700,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 on_tou_update=self._on_tou_update,
                 unit_system=self.unit_system,
                 on_reconnected=_on_mqtt_reconnected,
+                ha_instance_id=ha_id,
             )
 
             # Connect to MQTT
