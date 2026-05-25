@@ -150,11 +150,20 @@ class NWP500MqttManager:
             )
 
             # Token validation deferred to connect() per nwp500-python 7.3.1+
+            # Use clean_session=False so the broker preserves subscriptions
+            # across reconnections.  Combined with the stable client_id above,
+            # this means a reconnect resumes the existing broker-side session
+            # (session_present=True) and subscriptions are never lost, avoiding
+            # the AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION errors that occur
+            # when the broker discards a clean-session on every reconnect.
             self.mqtt_client = NavienMqttClient(
                 self.auth_client,
-                config=MqttConnectionConfig(client_id=client_id)
+                config=MqttConnectionConfig(
+                    client_id=client_id,
+                    clean_session=False,
+                )
                 if client_id
-                else None,
+                else MqttConnectionConfig(clean_session=False),
                 unit_system=self.unit_system,  # type: ignore[arg-type]
             )
 
