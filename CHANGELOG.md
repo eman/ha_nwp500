@@ -1,11 +1,16 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
 ## [Unreleased]
+
+## [0.15.3] - 2026-05-25
+
+### Fixed
+- **MQTT client ID conflict**: All HA instances authenticated with the same Navien account previously shared the same MQTT client ID (`navien-ha-{user_seq}`). AWS IoT Core only allows one active connection per client ID, so running more than one instance (e.g. production + local dev) caused a continuous ping-pong of disconnections. The client ID now incorporates the HA installation's unique instance UUID: `navien-ha-{user_seq}-{ha_uuid[:8]}`, making it stable across restarts and unique per installation.
+- **MQTT subscriptions lost after auto-reconnect**: When the AWS IoT SDK reconnected internally before the integration's own reconnect logic fired, `session_present=False` was reported but no `resubscribe_all()` was called — leaving the client connected but with zero active topic subscriptions. Device status updates stopped flowing silently until a forced full reconnect occurred. Fix pending release in `nwp500-python` (see [fix/mqtt-resubscribe-on-session-lost](https://github.com/eman/nwp500-python/tree/fix/mqtt-resubscribe-on-session-lost)).
+- **Persistent MQTT session**: Changed `clean_session` from `True` (library default) to `False`. Combined with the now-unique stable client ID, the AWS IoT broker resumes the existing session on reconnect (`session_present=True`), so subscriptions are preserved server-side and `AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION` errors are eliminated.
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 8.1.2
 
 ## [0.15.2] - 2026-05-18
 

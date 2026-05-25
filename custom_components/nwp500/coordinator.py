@@ -13,6 +13,7 @@ from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import instance_id as ha_instance_id
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
@@ -586,7 +587,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                'uv pip install "nwp500-python==8.1.1" awsiotsdk>=1.29.0'
+                'uv pip install "nwp500-python==8.1.2" awsiotsdk>=1.29.0'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -688,6 +689,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 self.hass.async_create_task(self.async_request_refresh())
 
+            ha_id = await ha_instance_id.async_get(self.hass)
+
             self.mqtt_manager = NWP500MqttManager(
                 self.hass.loop,
                 self.auth_client,
@@ -697,6 +700,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 on_tou_update=self._on_tou_update,
                 unit_system=self.unit_system,
                 on_reconnected=_on_mqtt_reconnected,
+                ha_instance_id=ha_id,
             )
 
             # Connect to MQTT
