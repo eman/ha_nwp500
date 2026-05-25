@@ -18,7 +18,7 @@
     "custom_components.nwp500"
   ],
   "requirements": [
-    "nwp500-python==8.1.1",
+    "nwp500-python==8.1.2",
     "awsiotsdk>=1.29.0"
   ],
   "single_config_entry": true,
