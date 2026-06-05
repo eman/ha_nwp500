@@ -291,7 +291,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 from nwp500.unit_system import set_unit_system
 
                 set_unit_system(self.unit_system)  # type: ignore[arg-type]
-            except (ImportError, AttributeError):
+            except ImportError, AttributeError:
                 pass
 
         # Track performance metrics
@@ -441,7 +441,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                     mac_address,
                                 )
 
-                    except (TimeoutError, MqttError):
+                    except TimeoutError, MqttError:
                         self._consecutive_timeouts += 1
 
                         # Record timeout event in history
@@ -1287,7 +1287,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     from nwp500.unit_system import set_unit_system
 
                     set_unit_system(self.unit_system)  # type: ignore[arg-type]
-                except (ImportError, AttributeError):
+                except ImportError, AttributeError:
                     pass
 
             # Step 4: CRITICAL - Clear all cached data to prevent mixed-unit states
