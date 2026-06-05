@@ -4,6 +4,8 @@
 
 ## [0.15.4] - 2026-06-05
 
+## [0.15.4] - 2026-06-05
+
 ### Fixed
 - **MQTT reconnection recovery loop**: The `force_reconnect` method was updating `_last_reconnect_time` before attempting setup, which prevented the integration from retrying failed reconnections. If setup failed, the rate-limiting check in the coordinator would see the recent timestamp and block further attempts for 30 seconds, keeping the device stuck in a disconnected state. Now `_last_reconnect_time` is updated only after successful setup, allowing retries on failed attempts while still preventing excessive reconnect attempts on success.
 
@@ -769,7 +771,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.15.2...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.15.4...HEAD
+[0.15.4]: https://github.com/eman/ha_nwp500/compare/v0.15.3...v0.15.4
 [0.15.2]: https://github.com/eman/ha_nwp500/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/eman/ha_nwp500/compare/v0.15.0...v0.15.1
 [0.15.0]: https://github.com/eman/ha_nwp500/compare/v0.14.5...v0.15.0
