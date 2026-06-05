@@ -1242,11 +1242,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if unit and isinstance(unit, str):
                 return unit.strip()
         except (
-           AttributeError,
-           TypeError,
-           KeyError,
-           ValueError,
-           ImportError,
+            AttributeError,
+            TypeError,
+            KeyError,
+            ValueError,
+            ImportError,
         ):
             # Standardized exception handling across all entities
             pass
