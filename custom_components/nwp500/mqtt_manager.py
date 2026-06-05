@@ -506,10 +506,12 @@ class NWP500MqttManager:
             # Wait with exponential backoff before reconnecting
             await asyncio.sleep(backoff_delay)
 
-            self._last_reconnect_time = time.time()
-
             # Re-initialize and connect (connect() will refresh auth tokens)
             if await self.setup():
+                # Only update timestamp on successful reconnection
+                # This prevents rate-limiting from blocking retries on failed attempts
+                self._last_reconnect_time = time.time()
+
                 _LOGGER.info(
                     "Reconnection successful after %d attempt(s)",
                     self._reconnect_attempts + 1,
