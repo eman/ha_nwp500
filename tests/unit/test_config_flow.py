@@ -167,7 +167,7 @@ class TestReauthFlow:
             return_value=mock_entry
         )
         mock_hass.config_entries.async_update_entry = MagicMock()
-        mock_hass.config_entries.async_reload = AsyncMock()
+        mock_hass.config_entries.async_reload = AsyncMock(return_value=True)
         flow.hass = mock_hass
         flow._reauth_entry = mock_entry
 
@@ -176,16 +176,23 @@ class TestReauthFlow:
             "custom_components.nwp500.config_flow.validate_input",
             return_value={"title": "Test NWP500"},
         ):
-            result = await flow.async_step_reauth_confirm(
-                user_input={
-                    CONF_EMAIL: "test@example.com",
-                    CONF_PASSWORD: "new_password",
+            with patch.object(
+                flow, "async_update_reload_and_abort"
+            ) as mock_update:
+                mock_update.return_value = {
+                    "type": FlowResultType.ABORT,
+                    "reason": "reauth_successful",
                 }
-            )
+                result = await flow.async_step_reauth_confirm(
+                    user_input={
+                        CONF_EMAIL: "test@example.com",
+                        CONF_PASSWORD: "new_password",
+                    }
+                )
 
         assert result["type"] == FlowResultType.ABORT
         assert result["reason"] == "reauth_successful"
-        mock_hass.config_entries.async_update_entry.assert_called_once()
+        mock_hass.config_entries.async_update_entry.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_reauth_confirm_invalid_auth(self):
