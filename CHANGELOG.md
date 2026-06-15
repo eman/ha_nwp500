@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.15.5] - 2026-06-15
+
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 8.1.3. Fixes a
   thread-safety bug in `on_connection_resumed` where `Task.cancel()` was called
@@ -781,7 +783,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.15.4...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.15.5...HEAD
+[0.15.5]: https://github.com/eman/ha_nwp500/compare/v0.15.4...v0.15.5
 [0.15.4]: https://github.com/eman/ha_nwp500/compare/v0.15.3...v0.15.4
 [0.15.2]: https://github.com/eman/ha_nwp500/compare/v0.15.1...v0.15.2
 [0.15.1]: https://github.com/eman/ha_nwp500/compare/v0.15.0...v0.15.1
