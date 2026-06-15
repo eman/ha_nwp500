@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 8.1.3. Fixes a
+  thread-safety bug in `on_connection_resumed` where `Task.cancel()` was called
+  directly from an AWS IoT SDK background thread. When the event loop was busy,
+  the cancellation could be silently dropped, leaving a stale
+  `_reconnect_with_backoff` task that would complete its sleep and tear down an
+  otherwise healthy connection — restarting the
+  disconnect → reconnect → `AWS_ERROR_MQTT_UNEXPECTED_HANGUP` cycle. See
+  [nwp500-python PR #89](https://github.com/eman/nwp500-python/pull/89).
+
 ## [0.15.4] - 2026-06-05
 
 ## [0.15.4] - 2026-06-05
