@@ -22,16 +22,17 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from nwp500.enums import CurrentOperationMode, DhwOperationSetting
 
 from .const import (
-    CURRENT_OPERATION_MODE_TO_HA,
-    DHW_OPERATION_SETTING_TO_HA,
     DOMAIN,
     HA_TO_DHW_MODE,
     MAX_TEMPERATURE_C,
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
+    get_current_operation_mode_state,
+    get_dhw_operation_setting_state,
     get_enum_value,
 )
 from .coordinator import NWP500DataUpdateCoordinator
@@ -183,25 +184,13 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
-                match mode_value:
-                    case 1:
-                        return STATE_HEAT_PUMP
-                    case 2:
-                        return STATE_ELECTRIC
-                    case 3:
-                        return STATE_ECO
-                    case 4:
-                        return STATE_HIGH_DEMAND
-                    case 5:
-                        # Vacation mode: show the mode that was active before
-                        # vacation so the UI reflects what will be restored.
-                        return self._pre_vacation_mode or STATE_ECO
-                    case 6:
-                        return STATE_OFF
-                    case _:
-                        return DHW_OPERATION_SETTING_TO_HA.get(
-                            mode_value, "unknown"
-                        )
+                if mode_value == DhwOperationSetting.VACATION:
+                    # Vacation mode: show the mode that was active before
+                    # vacation so the UI reflects what will be restored.
+                    return self._pre_vacation_mode or STATE_ECO
+                return get_dhw_operation_setting_state(
+                    operation_setting, default="unknown"
+                )
         except AttributeError, TypeError:
             pass
         return None
@@ -216,7 +205,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
-                return mode_value not in [0, 6]
+                return mode_value not in {
+                    CurrentOperationMode.STANDBY,
+                    DhwOperationSetting.POWER_OFF,
+                }
             dhw_use = getattr(status, "dhw_use", None)
             comp_use = getattr(status, "comp_use", None)
             heat_upper = getattr(status, "heat_upper_use", None)
@@ -225,7 +217,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                 return True
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
-                return get_enum_value(operation_mode) not in [0, 6]
+                return get_enum_value(operation_mode) not in {
+                    CurrentOperationMode.STANDBY,
+                    DhwOperationSetting.POWER_OFF,
+                }
         except AttributeError, TypeError:
             pass
         return None
@@ -239,7 +234,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
         try:
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
-                return bool(get_enum_value(operation_setting) == 5)
+                return bool(
+                    get_enum_value(operation_setting)
+                    == DhwOperationSetting.VACATION
+                )
         except AttributeError, TypeError:
             pass
         return False
@@ -267,17 +265,15 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             # Use CURRENT_OPERATION_MODE_TO_HA for operationMode
             # (current actual state)
             if operation_mode is not None:
-                current_operation_name = CURRENT_OPERATION_MODE_TO_HA.get(
-                    get_enum_value(operation_mode),
-                    f"mode_{get_enum_value(operation_mode)}",
+                current_operation_name = get_current_operation_mode_state(
+                    operation_mode
                 )
 
             # Use DHW_OPERATION_SETTING_TO_HA for dhwOperationSetting
             # (user configured mode)
             if dhw_operation_setting is not None:
-                dhw_value = get_enum_value(dhw_operation_setting)
-                dhw_setting_name = DHW_OPERATION_SETTING_TO_HA.get(
-                    dhw_value, f"mode_{dhw_value}"
+                dhw_setting_name = get_dhw_operation_setting_state(
+                    dhw_operation_setting
                 )
 
             # Performance optimization: Batch fetch multiple status attributes.
@@ -451,5 +447,5 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
         await self._control_device(
             "set_dhw_mode",
             "Failed to set water heater to power off mode",
-            mode=6,  # POWER_OFF mode
+            mode=DhwOperationSetting.POWER_OFF,
         )

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from nwp500.enums import CurrentOperationMode, DhwOperationSetting
+
 from custom_components.nwp500.const import (
     CURRENT_OPERATION_MODE_TO_HA,
     DHW_OPERATION_SETTING_TO_HA,
@@ -48,21 +50,35 @@ def test_get_enum_value_without_value_attribute():
 
 def test_current_operation_mode_mapping():
     """Test CurrentOperationMode to HA state mapping."""
-    assert CURRENT_OPERATION_MODE_TO_HA[0] == "standby"
-    assert CURRENT_OPERATION_MODE_TO_HA[32] == "heat_pump"
-    assert CURRENT_OPERATION_MODE_TO_HA[64] == "eco"
-    assert CURRENT_OPERATION_MODE_TO_HA[96] == "high_demand"
+    assert CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode.STANDBY] == "standby"
+    assert (
+        CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode.HEAT_PUMP_MODE]
+        == "heat_pump"
+    )
+    assert (
+        CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode.HYBRID_EFFICIENCY_MODE]
+        == "eco"
+    )
+    assert (
+        CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode.HYBRID_BOOST_MODE]
+        == "high_demand"
+    )
     # Electric mode is in DHW settings, not current operation mode
 
 
 def test_dhw_operation_setting_mapping():
     """Test DHW operation setting to HA state mapping."""
-    assert DHW_OPERATION_SETTING_TO_HA[1] == "heat_pump"
-    assert DHW_OPERATION_SETTING_TO_HA[2] == "electric"
-    assert DHW_OPERATION_SETTING_TO_HA[3] == "eco"
-    assert DHW_OPERATION_SETTING_TO_HA[4] == "high_demand"
-    assert DHW_OPERATION_SETTING_TO_HA[5] == "vacation"
-    assert DHW_OPERATION_SETTING_TO_HA[6] == "off"
+    assert DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.HEAT_PUMP] == "heat_pump"
+    assert DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.ELECTRIC] == "electric"
+    assert (
+        DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.ENERGY_SAVER] == "eco"
+    )
+    assert (
+        DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.HIGH_DEMAND]
+        == "high_demand"
+    )
+    assert DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.VACATION] == "vacation"
+    assert DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.POWER_OFF] == "off"
 
 
 def test_ha_to_dhw_mode_mapping():

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+from nwp500.enums import DhwOperationSetting
 import pytest
 from homeassistant.core import HomeAssistant
 
@@ -74,7 +75,9 @@ class TestNWP500PowerSwitch:
     ):
         """Test switch is_on when powered off."""
         # Set device to power off mode (6)
-        mock_device_status.dhw_operation_setting.value = 6
+        mock_device_status.dhw_operation_setting.value = (
+            DhwOperationSetting.POWER_OFF
+        )
 
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)

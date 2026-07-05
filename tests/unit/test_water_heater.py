@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+from nwp500.enums import DhwOperationSetting
 import pytest
 from homeassistant.components.water_heater import (
     STATE_ECO,
@@ -14,6 +15,7 @@ from homeassistant.components.water_heater import (
 from homeassistant.const import STATE_OFF, UnitOfTemperature
 
 from custom_components.nwp500.const import (
+    DHW_OPERATION_SETTING_TO_HA,
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_F,
 )
@@ -97,7 +99,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.HEAT_PUMP
 
         assert heater.current_operation == STATE_HEAT_PUMP
 
@@ -113,7 +115,9 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 3  # ENERGY_SAVER
+        mock_device_status.dhw_operation_setting.value = (
+            DhwOperationSetting.ENERGY_SAVER
+        )
 
         assert heater.current_operation == STATE_ECO
 
@@ -129,7 +133,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 5  # VACATION
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.VACATION
 
         # No pre-vacation mode stored: fall back to eco
         assert heater.current_operation == STATE_ECO
@@ -150,9 +154,66 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 6  # POWER_OFF
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.POWER_OFF
 
         assert heater.current_operation == STATE_OFF
+
+    @pytest.mark.parametrize(
+        ("dhw_setting", "expected_state"),
+        [
+            (DhwOperationSetting.HEAT_PUMP, STATE_HEAT_PUMP),
+            (DhwOperationSetting.ELECTRIC, STATE_ELECTRIC),
+            (DhwOperationSetting.ENERGY_SAVER, STATE_ECO),
+            (DhwOperationSetting.HIGH_DEMAND, STATE_HIGH_DEMAND),
+            (DhwOperationSetting.VACATION, STATE_ECO),
+            (DhwOperationSetting.POWER_OFF, STATE_OFF),
+        ],
+    )
+    def test_current_operation_uses_dhw_mapping_for_all_modes(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        mock_hass: MagicMock,
+        dhw_setting: DhwOperationSetting,
+        expected_state: str,
+    ):
+        """Test current_operation for every DhwOperationSetting value."""
+        mock_device_status.dhw_operation_setting = dhw_setting
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+
+        assert heater.current_operation == expected_state
+
+    @pytest.mark.parametrize(
+        "dhw_setting",
+        [
+            DhwOperationSetting.HEAT_PUMP,
+            DhwOperationSetting.ELECTRIC,
+            DhwOperationSetting.ENERGY_SAVER,
+            DhwOperationSetting.HIGH_DEMAND,
+            DhwOperationSetting.POWER_OFF,
+        ],
+    )
+    def test_current_operation_matches_dhw_mode_setting_for_non_vacation_modes(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        mock_hass: MagicMock,
+        dhw_setting: DhwOperationSetting,
+    ):
+        """Test current_operation and dhw_mode_setting share the same base mapping."""
+        mock_device_status.dhw_operation_setting = dhw_setting
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+
+        attrs = heater.extra_state_attributes
+
+        assert attrs["dhw_mode_setting"] == DHW_OPERATION_SETTING_TO_HA[dhw_setting]
+        assert heater.current_operation == attrs["dhw_mode_setting"]
 
     def test_operation_list(
         self,
@@ -188,7 +249,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.HEAT_PUMP
 
         assert heater.is_on is True
 
@@ -204,7 +265,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 6  # POWER_OFF
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.POWER_OFF
 
         assert heater.is_on is False
 
@@ -220,7 +281,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 5  # VACATION
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.VACATION
 
         assert heater.is_away_mode_on is True
 
@@ -236,7 +297,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.HEAT_PUMP
 
         assert heater.is_away_mode_on is False
 
@@ -440,7 +501,9 @@ class TestNWP500WaterHeater:
 
         # Turn off sets to POWER_OFF mode (mode=6)
         mock_coordinator.async_control_device.assert_called_once_with(
-            mac_address, "set_dhw_mode", mode=6
+            mac_address,
+            "set_dhw_mode",
+            mode=DhwOperationSetting.POWER_OFF,
         )
         mock_coordinator.async_request_refresh.assert_called_once()
 
@@ -457,7 +520,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        mock_device_status.dhw_operation_setting.value = 1  # HEAT_PUMP
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.HEAT_PUMP
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
 
@@ -512,7 +575,7 @@ class TestNWP500WaterHeater:
         heater.hass = mock_hass
 
         # Device is in vacation mode with no pre-vacation mode stored
-        mock_device_status.dhw_operation_setting.value = 5  # VACATION
+        mock_device_status.dhw_operation_setting.value = DhwOperationSetting.VACATION
 
         mock_coordinator.async_control_device = AsyncMock(return_value=True)
         mock_coordinator.async_request_refresh = AsyncMock()
