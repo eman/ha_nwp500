@@ -323,6 +323,8 @@ async def test_async_update_triggers_force_reconnect_after_request_timeouts(
     coordinator.auth_client = AsyncMock()
     coordinator.mqtt_manager = MagicMock()
     coordinator.mqtt_manager.is_connected = True
+    coordinator.mqtt_manager.connected_since = 1000.0
+    coordinator._mqtt_connected_since = 1000.0
     coordinator.mqtt_manager.last_reconnect_time = time.time() - 9999.0
     coordinator.mqtt_manager.request_status = AsyncMock(
         side_effect=TimeoutError
@@ -354,6 +356,8 @@ async def test_async_update_skips_force_reconnect_within_min_interval(
     coordinator.auth_client = AsyncMock()
     coordinator.mqtt_manager = MagicMock()
     coordinator.mqtt_manager.is_connected = True
+    coordinator.mqtt_manager.connected_since = 1000.0
+    coordinator._mqtt_connected_since = 1000.0
     coordinator.mqtt_manager.last_reconnect_time = time.time() - 5.0
     coordinator.mqtt_manager.request_status = AsyncMock(
         side_effect=TimeoutError
@@ -371,6 +375,54 @@ async def test_async_update_skips_force_reconnect_within_min_interval(
 
     coordinator.mqtt_manager.force_reconnect.assert_not_called()
     assert coordinator._consecutive_timeouts == 0
+
+
+@pytest.mark.asyncio
+async def test_async_update_resets_timeouts_on_new_mqtt_connection(
+    coordinator, mock_hass
+):
+    """A single timeout right after reconnecting should not force-reconnect.
+
+    If the coordinator accumulated a stale consecutive-timeout count while
+    disconnected, a new MQTT session (detected via a changed
+    ``connected_since`` value) must reset that counter before any new
+    request timeouts count toward the forced-reconnect threshold.
+    """
+    device = MagicMock()
+    device.device_info.mac_address = "aabbcc001122"
+    coordinator.devices = [device]
+    coordinator.data = {}
+    coordinator.auth_client = AsyncMock()
+
+    # Simulate a prior prolonged disconnect that pushed the counter to the
+    # forced-reconnect threshold, and no connection observed yet.
+    coordinator._consecutive_timeouts = 3
+    coordinator._mqtt_connected_since = None
+
+    coordinator.mqtt_manager = MagicMock()
+    coordinator.mqtt_manager.is_connected = True
+    # New connection session established (different from what we last saw).
+    coordinator.mqtt_manager.connected_since = 2000.0
+    coordinator.mqtt_manager.last_reconnect_time = time.time() - 9999.0
+    coordinator.mqtt_manager.request_status = AsyncMock(
+        side_effect=TimeoutError
+    )
+    coordinator.mqtt_manager.request_device_info = AsyncMock()
+    coordinator.mqtt_manager.force_reconnect = AsyncMock(return_value=True)
+    coordinator._reconnect_task = None
+
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    with patch("nwp500.unit_system.set_unit_system"):
+        await coordinator._async_update_data()
+
+    # The stale counter should have been reset on the new connection, so a
+    # single subsequent timeout leaves the count at 1, not 4, and does not
+    # trigger a forced reconnect.
+    coordinator.mqtt_manager.force_reconnect.assert_not_called()
+    assert coordinator._consecutive_timeouts == 1
+    assert coordinator._mqtt_connected_since == 2000.0
 
 
 @pytest.mark.asyncio
