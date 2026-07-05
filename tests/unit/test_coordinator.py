@@ -4,6 +4,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
 
@@ -186,17 +187,44 @@ async def test_async_update_increments_consecutive_timeouts_when_disconnected(
 
 
 @pytest.mark.asyncio
-async def test_async_update_triggers_force_reconnect_after_threshold(
+async def test_async_update_does_not_force_reconnect_while_library_disconnected(
     coordinator, mock_hass
 ):
-    """After 3 consecutive disconnected cycles, force_reconnect is triggered."""
+    """Disconnected cycles rely on the library's internal reconnect loop."""
     coordinator.data = {}
     coordinator.auth_client = AsyncMock()
-    # last_reconnect far in the past so interval guard passes
     coordinator.mqtt_manager = _make_disconnected_mqtt_manager(
         last_reconnect_offset=-9999.0
     )
-    coordinator._consecutive_timeouts = 2  # one more will hit threshold
+    coordinator._consecutive_timeouts = 2
+
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    with patch("nwp500.unit_system.set_unit_system"):
+        await coordinator._async_update_data()
+
+    coordinator.mqtt_manager.force_reconnect.assert_not_called()
+    assert coordinator._consecutive_timeouts == 3
+
+
+@pytest.mark.asyncio
+async def test_async_update_triggers_force_reconnect_after_request_timeouts(
+    coordinator, mock_hass
+):
+    """Repeated request timeouts still trigger a forced reconnect."""
+    device = MagicMock()
+    device.device_info.mac_address = "aabbcc001122"
+    coordinator.devices = [device]
+    coordinator.data = {}
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = MagicMock()
+    coordinator.mqtt_manager.is_connected = True
+    coordinator.mqtt_manager.last_reconnect_time = time.time() - 9999.0
+    coordinator.mqtt_manager.request_status = AsyncMock(side_effect=TimeoutError)
+    coordinator.mqtt_manager.request_device_info = AsyncMock()
+    coordinator.mqtt_manager.force_reconnect = AsyncMock(return_value=True)
+    coordinator._consecutive_timeouts = 2
     coordinator._reconnect_task = None
 
     mock_hass.config.units.temperature_unit = "°F"
@@ -206,21 +234,25 @@ async def test_async_update_triggers_force_reconnect_after_threshold(
         await coordinator._async_update_data()
 
     coordinator.mqtt_manager.force_reconnect.assert_called_once()
-    # Counter resets after triggering reconnect
     assert coordinator._consecutive_timeouts == 0
 
 
 @pytest.mark.asyncio
-async def test_async_update_skips_reconnect_within_min_interval(
+async def test_async_update_skips_force_reconnect_within_min_interval(
     coordinator, mock_hass
 ):
-    """force_reconnect is skipped when last attempt was within MIN_RECONNECT_INTERVAL."""
+    """Recent forced reconnect attempts still rate-limit timeout escalation."""
+    device = MagicMock()
+    device.device_info.mac_address = "aabbcc001122"
+    coordinator.devices = [device]
     coordinator.data = {}
     coordinator.auth_client = AsyncMock()
-    # Simulate a reconnect that happened just 5 seconds ago
-    coordinator.mqtt_manager = _make_disconnected_mqtt_manager(
-        last_reconnect_offset=-5.0
-    )
+    coordinator.mqtt_manager = MagicMock()
+    coordinator.mqtt_manager.is_connected = True
+    coordinator.mqtt_manager.last_reconnect_time = time.time() - 5.0
+    coordinator.mqtt_manager.request_status = AsyncMock(side_effect=TimeoutError)
+    coordinator.mqtt_manager.request_device_info = AsyncMock()
+    coordinator.mqtt_manager.force_reconnect = AsyncMock(return_value=True)
     coordinator._consecutive_timeouts = 2
     coordinator._reconnect_task = None
 
@@ -231,7 +263,6 @@ async def test_async_update_skips_reconnect_within_min_interval(
         await coordinator._async_update_data()
 
     coordinator.mqtt_manager.force_reconnect.assert_not_called()
-    # Counter resets to prevent immediate re-trigger
     assert coordinator._consecutive_timeouts == 0
 
 
@@ -260,3 +291,26 @@ async def test_async_update_resets_consecutive_timeouts_on_successful_request(
         await coordinator._async_update_data()
 
     assert coordinator._consecutive_timeouts == 0
+
+
+@pytest.mark.asyncio
+async def test_async_update_starts_reauth_after_library_reconnect_failure(
+    coordinator, mock_hass
+):
+    """Library reconnection_failed is surfaced through UpdateFailed + reauth."""
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
+    coordinator.entry.async_start_reauth = MagicMock()
+    coordinator._mqtt_reconnection_failed_attempts = 4
+
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    with (
+        patch("nwp500.unit_system.set_unit_system"),
+        pytest.raises(UpdateFailed),
+    ):
+        await coordinator._async_update_data()
+
+    coordinator.entry.async_start_reauth.assert_called_once_with(mock_hass)
+    assert coordinator._mqtt_reconnection_failed_attempts is None

@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- **MQTT reconnect alignment with `nwp500-python` v9.0.0**: The coordinator no
+  longer tears down the MQTT client after three disconnected update cycles while
+  the library's own hardened internal reconnect loop is already running. Forced
+  reconnect remains as a last-resort escape hatch only for repeated
+  coordinator-level request timeouts on a connection that still appears up, and
+  the integration now listens for the library's `reconnection_failed` event to
+  trigger Home Assistant reauth when the internal loop stops permanently.
+
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 9.0.0 (BREAKING). This
   is a major version bump on the library side that trims its public API

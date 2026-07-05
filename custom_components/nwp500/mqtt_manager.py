@@ -32,6 +32,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Reconnection backoff delays (seconds): 2s, 5s, 15s, 30s, 60s cap
 _RECONNECT_BACKOFF_DELAYS: list[float] = [2.0, 5.0, 15.0, 30.0, 60.0]
+_RECONNECTION_FAILED_EVENT = "reconnection_failed"
 
 
 def get_aws_error_name(exception: Any) -> str:
@@ -55,6 +56,7 @@ class NWP500MqttManager:
         on_tou_update: Callable[[str, dict[str, Any]], None] | None = None,
         unit_system: str | None = None,
         on_reconnected: Callable[[], None] | None = None,
+        on_reconnection_failed: Callable[[int], None] | None = None,
         ha_instance_id: str | None = None,
     ) -> None:
         """Initialize the MQTT manager."""
@@ -68,6 +70,7 @@ class NWP500MqttManager:
         self._on_reservation_update_callback = on_reservation_update
         self._on_tou_update_callback = on_tou_update
         self._on_reconnected_callback = on_reconnected
+        self._on_reconnection_failed_callback = on_reconnection_failed
         self.unit_system = unit_system
 
         # Connection tracking
@@ -197,6 +200,10 @@ class NWP500MqttManager:
                     MqttClientEvents.CONNECTION_RESUMED,
                     self._on_connection_resumed,
                 )
+                self.mqtt_client.on(
+                    _RECONNECTION_FAILED_EVENT,
+                    self._on_reconnection_failed,
+                )
 
             return await self.connect()
 
@@ -268,6 +275,10 @@ class NWP500MqttManager:
                 self.mqtt_client.off(
                     MqttClientEvents.CONNECTION_RESUMED,
                     self._on_connection_resumed,
+                )
+                self.mqtt_client.off(
+                    _RECONNECTION_FAILED_EVENT,
+                    self._on_reconnection_failed,
                 )
 
                 await self.mqtt_client.stop_all_periodic_tasks()
@@ -685,4 +696,16 @@ class NWP500MqttManager:
                     if not f.cancelled() and f.exception()
                     else None
                 )
+            )
+
+    def _on_reconnection_failed(self, attempts: int) -> None:
+        """Handle fatal failure of the library's internal reconnect loop."""
+        self.connected_since = None
+        _LOGGER.error(
+            "Library MQTT reconnection loop stopped after %d attempt(s)",
+            attempts,
+        )
+        if self._on_reconnection_failed_callback:
+            self.loop.call_soon_threadsafe(
+                self._on_reconnection_failed_callback, attempts
             )
