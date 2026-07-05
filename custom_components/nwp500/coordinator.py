@@ -156,7 +156,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         acknowledgement futures instead of leaking them to asyncio's global
         exception handler. Tracked upstream: https://github.com/eman/nwp500-python/issues/97
         """
-        global _SHARED_EXCEPTION_HANDLER_REFCOUNT, _SHARED_PREVIOUS_EXCEPTION_HANDLER
+        global \
+            _SHARED_EXCEPTION_HANDLER_REFCOUNT, \
+            _SHARED_PREVIOUS_EXCEPTION_HANDLER
 
         loop = self.hass.loop
         if loop.get_exception_handler() is _nwp500_exception_handler:
@@ -187,7 +189,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _restore_exception_handler(self) -> None:
         """Restore the previous loop exception handler when the last entry unloads."""
-        global _SHARED_EXCEPTION_HANDLER_REFCOUNT, _SHARED_PREVIOUS_EXCEPTION_HANDLER
+        global \
+            _SHARED_EXCEPTION_HANDLER_REFCOUNT, \
+            _SHARED_PREVIOUS_EXCEPTION_HANDLER
 
         if not self._exception_handler_installed:
             return

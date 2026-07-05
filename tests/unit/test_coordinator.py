@@ -79,13 +79,17 @@ def _make_loop_with_handler(
     return loop, handler_updates
 
 
-def _mock_data_update_coordinator_init(self, hass, logger, name, update_interval):
+def _mock_data_update_coordinator_init(
+    self, hass, logger, name, update_interval
+):
     """Stub DataUpdateCoordinator.__init__ for unit tests."""
     self.hass = hass
 
 
 @pytest.mark.asyncio
-async def test_exception_handler_suppresses_clean_session_error(mock_hass, mock_entry):
+async def test_exception_handler_suppresses_clean_session_error(
+    mock_hass, mock_entry
+):
     """The workaround suppresses the known benign AWS CRT clean-session error."""
     original_handler = MagicMock()
     loop, _ = _make_loop_with_handler(original_handler)
@@ -134,7 +138,10 @@ async def test_exception_handler_restores_previous_handler_after_last_unload(
     assert handler_updates == [coordinator_module._nwp500_exception_handler]
 
     await coordinator_one.async_shutdown()
-    assert mock_hass.loop.get_exception_handler() is coordinator_module._nwp500_exception_handler
+    assert (
+        mock_hass.loop.get_exception_handler()
+        is coordinator_module._nwp500_exception_handler
+    )
 
     await coordinator_two.async_shutdown()
     assert handler_updates[-1] is original_handler
