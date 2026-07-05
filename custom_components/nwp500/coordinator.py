@@ -1,7 +1,5 @@
 """DataUpdateCoordinator for the Navien NWP500 integration."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import time
@@ -162,6 +160,22 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         loop = self.hass.loop
         if loop.get_exception_handler() is _nwp500_exception_handler:
+            _SHARED_EXCEPTION_HANDLER_REFCOUNT += 1
+            self._exception_handler_installed = True
+            return
+
+        if _SHARED_EXCEPTION_HANDLER_REFCOUNT > 0:
+            # Another active coordinator instance already installed the
+            # handler and is tracked in the shared refcount, but something
+            # external replaced the loop's exception handler afterward.
+            # Re-install ours without resetting the refcount, so restore()
+            # still waits for every active instance to unload before
+            # restoring the original handler.
+            _LOGGER.warning(
+                "NWP500 asyncio exception handler was replaced externally; "
+                "reinstalling it without resetting the shared refcount"
+            )
+            loop.set_exception_handler(_nwp500_exception_handler)
             _SHARED_EXCEPTION_HANDLER_REFCOUNT += 1
             self._exception_handler_installed = True
             return
@@ -675,6 +689,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 stored_tokens=stored_tokens,
                 unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
+            # nwp500-python 9.0.0 exposes close() for teardown but still has no
+            # public connect()/open() API for this longer-lived auth client
+            # lifecycle (issue #87), so setup remains blocked on upstream.
             await self.auth_client.__aenter__()  # Authenticate or restore
 
             # Save tokens after successful authentication
@@ -799,8 +816,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             AuthenticationError,
         ) as err:
             # Token or authentication errors - check if retriable
-            # Network errors are marked as retriable in nwp500-python 7.2.3+
-            # Only non-retriable errors should trigger reauth
+            # nwp500-python marks transient network auth/refresh failures as
+            # retriable, so only non-retriable errors should trigger reauth.
             if err.retriable:
                 # Network error during auth/token refresh - will retry
                 _LOGGER.warning(
@@ -1239,7 +1256,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if self.auth_client:
             try:
-                await self.auth_client.__aexit__(None, None, None)
+                await self.auth_client.close()
             except (RuntimeError, OSError) as err:
                 _LOGGER.debug("Error closing auth client: %s", err)
             self.auth_client = None

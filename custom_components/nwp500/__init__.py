@@ -1,9 +1,7 @@
 """The Navien NWP500 integration.
 
-Requires Home Assistant 2025.1+ (Python 3.13-3.14).
+Requires Home Assistant 2025.1+ (Python 3.14).
 """
-
-from __future__ import annotations
 
 import logging
 from pathlib import Path

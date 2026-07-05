@@ -1,7 +1,5 @@
 """Binary sensor platform for Navien NWP500 integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -254,17 +252,6 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Device Recently Reloaded",
             entity_registry_enabled_default=False,
             value_fn=lambda status: getattr(status, "did_reload", None),
-        )
-    )
-
-    descriptions.append(
-        NWP500BinarySensorEntityDescription(
-            key="recirculation_use",
-            translation_key="recirculation_use",
-            name="Recirculation Active",
-            device_class=BinarySensorDeviceClass.RUNNING,
-            entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "recirc_use", None),
         )
     )
 
