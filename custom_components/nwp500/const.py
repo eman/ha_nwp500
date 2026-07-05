@@ -1,7 +1,5 @@
 """Constants for the Navien NWP500 integration."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 from homeassistant.components.water_heater import (
