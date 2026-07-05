@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Fixed
+- **AWS CRT clean-session warning workaround**: Kept the coordinator's temporary
+  asyncio exception-handler suppression for
+  `AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION`, but documented it as an
+  upstream-library workaround, linked the follow-up
+  [nwp500-python issue #97](https://github.com/eman/nwp500-python/issues/97),
+  and hardened handler install/restore so multiple config entries do not leave a
+  stale global loop handler behind on unload.
+
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 9.0.0 (BREAKING). This
   is a major version bump on the library side that trims its public API

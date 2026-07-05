@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from collections import deque
+from collections.abc import Callable
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -46,6 +47,34 @@ if TYPE_CHECKING:
     )
 
 _LOGGER = logging.getLogger(__name__)
+
+LoopExceptionHandler = Callable[
+    [asyncio.AbstractEventLoop, dict[str, Any]], None
+]
+
+_SHARED_EXCEPTION_HANDLER_REFCOUNT = 0
+_SHARED_PREVIOUS_EXCEPTION_HANDLER: LoopExceptionHandler | None = None
+
+
+def _nwp500_exception_handler(
+    loop: asyncio.AbstractEventLoop, context: dict[str, Any]
+) -> None:
+    """Suppress the known benign AWS CRT clean-session cancellation warning."""
+    exception = context.get("exception")
+
+    if isinstance(exception, AwsCrtError):
+        error_name = get_aws_error_name(exception)
+        if error_name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
+            _LOGGER.debug(
+                "Suppressed benign AWS CRT error during MQTT reconnection: %s",
+                exception,
+            )
+            return
+
+    if _SHARED_PREVIOUS_EXCEPTION_HANDLER:
+        _SHARED_PREVIOUS_EXCEPTION_HANDLER(loop, context)
+    else:
+        loop.default_exception_handler(context)
 
 
 class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -112,10 +141,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=scan_interval),
         )
 
-        # Stored so async_shutdown can restore it, preventing handler stacking on reload.
-        self._original_exception_handler: Any = None
-        # Install custom exception handler to suppress benign AWS CRT errors
-        # Must be called after super().__init__() so self.hass.loop is available
+        self._exception_handler_installed = False
+        # Temporary library workaround; remove after nwp500-python fixes issue #97.
         self._install_exception_handler()
 
     def _install_exception_handler(self) -> None:
@@ -127,36 +154,42 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         after our await/timeout handling, causing "Future exception was never
         retrieved" errors in Home Assistant logs.
 
-        This handler suppresses these benign errors while allowing other exceptions
-        to propagate normally. The original handler is stored and restored on shutdown
-        to avoid permanently altering the event loop for other integrations.
+        This is still needed until the library consumes its own internal MQTT
+        acknowledgement futures instead of leaking them to asyncio's global
+        exception handler. Tracked upstream: https://github.com/eman/nwp500-python/issues/97
         """
+        global _SHARED_EXCEPTION_HANDLER_REFCOUNT, _SHARED_PREVIOUS_EXCEPTION_HANDLER
+
         loop = self.hass.loop
-        self._original_exception_handler = loop.get_exception_handler()
+        if loop.get_exception_handler() is _nwp500_exception_handler:
+            _SHARED_EXCEPTION_HANDLER_REFCOUNT += 1
+            self._exception_handler_installed = True
+            return
 
-        def custom_exception_handler(
-            loop: asyncio.AbstractEventLoop, context: dict[str, Any]
-        ) -> None:
-            """Handle uncaught exceptions in the event loop."""
-            exception = context.get("exception")
+        _SHARED_PREVIOUS_EXCEPTION_HANDLER = loop.get_exception_handler()
+        loop.set_exception_handler(_nwp500_exception_handler)
+        _SHARED_EXCEPTION_HANDLER_REFCOUNT = 1
+        self._exception_handler_installed = True
 
-            # Suppress AWS CRT clean session errors - these are benign
-            if isinstance(exception, AwsCrtError):
-                error_name = get_aws_error_name(exception)
-                if error_name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
-                    _LOGGER.debug(
-                        "Suppressed benign AWS CRT error during MQTT reconnection: %s",
-                        exception,
-                    )
-                    return
+    def _restore_exception_handler(self) -> None:
+        """Restore the previous loop exception handler when the last entry unloads."""
+        global _SHARED_EXCEPTION_HANDLER_REFCOUNT, _SHARED_PREVIOUS_EXCEPTION_HANDLER
 
-            # For all other exceptions, use the original handler or default
-            if self._original_exception_handler:
-                self._original_exception_handler(loop, context)
-            else:
-                loop.default_exception_handler(context)
+        if not self._exception_handler_installed:
+            return
 
-        loop.set_exception_handler(custom_exception_handler)
+        self._exception_handler_installed = False
+        if _SHARED_EXCEPTION_HANDLER_REFCOUNT > 0:
+            _SHARED_EXCEPTION_HANDLER_REFCOUNT -= 1
+
+        if _SHARED_EXCEPTION_HANDLER_REFCOUNT != 0:
+            return
+
+        loop = self.hass.loop
+        if loop.get_exception_handler() is _nwp500_exception_handler:
+            loop.set_exception_handler(_SHARED_PREVIOUS_EXCEPTION_HANDLER)
+
+        _SHARED_PREVIOUS_EXCEPTION_HANDLER = None
 
     def _update_device_cache(self) -> None:
         """Update the devices-by-MAC lookup cache for O(1) access.
@@ -1213,9 +1246,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self.api_client = None
 
-        # Restore the original event loop exception handler installed before ours,
-        # so handler chains don't stack up across integration reloads.
-        self.hass.loop.set_exception_handler(self._original_exception_handler)
+        self._restore_exception_handler()
 
         # Clear device features cache to prevent memory leaks
         self.device_features.clear()
