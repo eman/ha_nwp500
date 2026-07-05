@@ -1,7 +1,5 @@
 """Binary sensor platform for Navien NWP500 integration."""
 
-from __future__ import annotations
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
