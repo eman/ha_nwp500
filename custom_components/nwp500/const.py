@@ -11,6 +11,8 @@ from homeassistant.components.water_heater import (
     STATE_HIGH_DEMAND,
 )
 
+from nwp500.enums import CurrentOperationMode, DhwOperationSetting
+
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
         Device,
@@ -94,21 +96,21 @@ def get_enum_value(obj: Any) -> Any:
 # CurrentOperationMode mapping for Home Assistant water heater entity
 # Maps nwp500.enums.CurrentOperationMode enum values to HA water heater states
 CURRENT_OPERATION_MODE_TO_HA: Final = {
-    0: "standby",  # STANDBY
-    32: STATE_HEAT_PUMP,  # HEAT_PUMP_MODE (operational state)
-    64: STATE_ECO,  # HYBRID_EFFICIENCY_MODE (operational state)
-    96: STATE_HIGH_DEMAND,  # HYBRID_BOOST_MODE (operational state)
+    CurrentOperationMode.STANDBY: "standby",
+    CurrentOperationMode.HEAT_PUMP_MODE: STATE_HEAT_PUMP,
+    CurrentOperationMode.HYBRID_EFFICIENCY_MODE: STATE_ECO,
+    CurrentOperationMode.HYBRID_BOOST_MODE: STATE_HIGH_DEMAND,
 }
 
 # DhwOperationSetting mapping for Home Assistant water heater entity
 # Maps nwp500.enums.DhwOperationSetting enum values to HA water heater states
 DHW_OPERATION_SETTING_TO_HA: Final = {
-    1: STATE_HEAT_PUMP,  # HEAT_PUMP -> "heat_pump"
-    2: STATE_ELECTRIC,  # ELECTRIC -> "electric"
-    3: STATE_ECO,  # ENERGY_SAVER -> "eco"
-    4: STATE_HIGH_DEMAND,  # HIGH_DEMAND -> "high_demand"
-    5: "vacation",  # VACATION
-    6: "off",  # POWER_OFF
+    DhwOperationSetting.HEAT_PUMP: STATE_HEAT_PUMP,
+    DhwOperationSetting.ELECTRIC: STATE_ELECTRIC,
+    DhwOperationSetting.ENERGY_SAVER: STATE_ECO,
+    DhwOperationSetting.HIGH_DEMAND: STATE_HIGH_DEMAND,
+    DhwOperationSetting.VACATION: "vacation",
+    DhwOperationSetting.POWER_OFF: "off",
 }
 
 # Reverse mapping for setting DHW operation modes
@@ -135,6 +137,33 @@ HA_TO_DHW_OPERATION_SETTING: Final = {
 
 # Alias for consistency
 DHW_MODE_TO_HA: Final = DHW_OPERATION_SETTING_TO_HA
+
+
+def get_current_operation_mode_state(
+    value: Any, default: str | None = None
+) -> str:
+    """Map a CurrentOperationMode value to a Home Assistant state string."""
+    raw_value = get_enum_value(value)
+    fallback = f"mode_{raw_value}" if default is None else default
+
+    try:
+        return CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode(raw_value)]
+    except TypeError, ValueError, KeyError:
+        return fallback
+
+
+def get_dhw_operation_setting_state(
+    value: Any, default: str | None = None
+) -> str:
+    """Map a DhwOperationSetting value to a Home Assistant state string."""
+    raw_value = get_enum_value(value)
+    fallback = f"mode_{raw_value}" if default is None else default
+
+    try:
+        return DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting(raw_value)]
+    except TypeError, ValueError, KeyError:
+        return fallback
+
 
 # Mapping for reservation service calls (friendly mode names to DHW mode IDs)
 # Used by set_reservation and related services

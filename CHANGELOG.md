@@ -34,6 +34,11 @@
     `build_reservation_entry`/`build_tou_period`, since it already imports
     them from `nwp500.encoding` rather than the removed top-level
     re-exports.
+- **Water heater mode enums**: Replaced duplicated magic-number protocol values
+  with `nwp500.enums.CurrentOperationMode` / `DhwOperationSetting` members and
+  consolidated DHW mode-to-state translation so the water heater entity and its
+  extra state attributes share one base mapping while preserving the vacation
+  restore behavior.
 
 ## [0.15.5] - 2026-06-15
 
