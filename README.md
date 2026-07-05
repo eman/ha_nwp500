@@ -178,7 +178,7 @@ action:
 
 ## Library Version
 
-Uses **[nwp500-python v8.1.3](https://github.com/eman/nwp500-python/releases/tag/v8.1.3)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
+Uses **[nwp500-python v9.0.0](https://github.com/eman/nwp500-python/releases/tag/v9.0.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
 
 ## License
 
