@@ -50,13 +50,17 @@ def test_get_enum_value_without_value_attribute():
 
 def test_current_operation_mode_mapping():
     """Test CurrentOperationMode to HA state mapping."""
-    assert CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode.STANDBY] == "standby"
+    assert (
+        CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode.STANDBY] == "standby"
+    )
     assert (
         CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode.HEAT_PUMP_MODE]
         == "heat_pump"
     )
     assert (
-        CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode.HYBRID_EFFICIENCY_MODE]
+        CURRENT_OPERATION_MODE_TO_HA[
+            CurrentOperationMode.HYBRID_EFFICIENCY_MODE
+        ]
         == "eco"
     )
     assert (
@@ -68,8 +72,13 @@ def test_current_operation_mode_mapping():
 
 def test_dhw_operation_setting_mapping():
     """Test DHW operation setting to HA state mapping."""
-    assert DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.HEAT_PUMP] == "heat_pump"
-    assert DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.ELECTRIC] == "electric"
+    assert (
+        DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.HEAT_PUMP]
+        == "heat_pump"
+    )
+    assert (
+        DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.ELECTRIC] == "electric"
+    )
     assert (
         DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.ENERGY_SAVER] == "eco"
     )
@@ -77,7 +86,9 @@ def test_dhw_operation_setting_mapping():
         DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.HIGH_DEMAND]
         == "high_demand"
     )
-    assert DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.VACATION] == "vacation"
+    assert (
+        DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.VACATION] == "vacation"
+    )
     assert DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting.POWER_OFF] == "off"
 
 

@@ -22,6 +22,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+
 from nwp500.enums import CurrentOperationMode, DhwOperationSetting
 
 from .const import (
@@ -214,7 +215,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                 return True
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
-                return get_enum_value(operation_mode) != CurrentOperationMode.STANDBY
+                return (
+                    get_enum_value(operation_mode)
+                    != CurrentOperationMode.STANDBY
+                )
         except AttributeError, TypeError:
             pass
         return None

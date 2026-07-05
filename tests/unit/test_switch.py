@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
-from nwp500.enums import DhwOperationSetting
 import pytest
 from homeassistant.core import HomeAssistant
+from nwp500.enums import DhwOperationSetting
 
 from custom_components.nwp500.switch import (
     NWP500AntiLegionellaSwitch,

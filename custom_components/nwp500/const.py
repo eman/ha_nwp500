@@ -10,6 +10,7 @@ from homeassistant.components.water_heater import (
     STATE_HEAT_PUMP,
     STATE_HIGH_DEMAND,
 )
+
 from nwp500.enums import CurrentOperationMode, DhwOperationSetting
 
 if TYPE_CHECKING:
@@ -138,26 +139,31 @@ HA_TO_DHW_OPERATION_SETTING: Final = {
 DHW_MODE_TO_HA: Final = DHW_OPERATION_SETTING_TO_HA
 
 
-def get_current_operation_mode_state(value: Any, default: str | None = None) -> str:
+def get_current_operation_mode_state(
+    value: Any, default: str | None = None
+) -> str:
     """Map a CurrentOperationMode value to a Home Assistant state string."""
     raw_value = get_enum_value(value)
     fallback = f"mode_{raw_value}" if default is None else default
 
     try:
         return CURRENT_OPERATION_MODE_TO_HA[CurrentOperationMode(raw_value)]
-    except (TypeError, ValueError, KeyError):
+    except TypeError, ValueError, KeyError:
         return fallback
 
 
-def get_dhw_operation_setting_state(value: Any, default: str | None = None) -> str:
+def get_dhw_operation_setting_state(
+    value: Any, default: str | None = None
+) -> str:
     """Map a DhwOperationSetting value to a Home Assistant state string."""
     raw_value = get_enum_value(value)
     fallback = f"mode_{raw_value}" if default is None else default
 
     try:
         return DHW_OPERATION_SETTING_TO_HA[DhwOperationSetting(raw_value)]
-    except (TypeError, ValueError, KeyError):
+    except TypeError, ValueError, KeyError:
         return fallback
+
 
 # Mapping for reservation service calls (friendly mode names to DHW mode IDs)
 # Used by set_reservation and related services
