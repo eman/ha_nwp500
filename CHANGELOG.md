@@ -3,10 +3,11 @@
 ## [Unreleased]
 
 ### Fixed
-- **Recirculation Active binary sensor**: Corrected the entity to read
-  `DeviceStatus.recirc_operation_busy` instead of the nonexistent `recirc_use`
-  field, so it now reflects whether recirculation is currently running instead
-  of remaining permanently unknown.
+- **Recirculation Active binary sensor**: Removed the redundant "Recirculation
+  Active" binary sensor (`recirculation_use`), which read the same
+  `DeviceStatus.recirc_operation_busy` field as the existing "Recirculation
+  Operation Busy" sensor and duplicated it with a nonexistent `recirc_use`
+  fallback. Use the existing "Recirculation Operation Busy" sensor instead.
 
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 9.0.0 (BREAKING). This

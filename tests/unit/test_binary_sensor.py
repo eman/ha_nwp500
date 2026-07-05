@@ -95,20 +95,20 @@ class TestNWP500BinarySensor:
 
         assert sensor.is_on is False
 
-    def test_binary_sensor_recirculation_active(
+    def test_binary_sensor_recirculation_operation_busy(
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
     ):
-        """Test recirculation active binary sensor uses operation busy status."""
+        """Test recirculation operation busy binary sensor."""
         from custom_components.nwp500.binary_sensor import (
             create_binary_sensor_descriptions,
         )
 
         descriptions = create_binary_sensor_descriptions()
         recirculation_desc = next(
-            d for d in descriptions if d.key == "recirculation_use"
+            d for d in descriptions if d.key == "recirculation_operation_busy"
         )
 
         mac_address = mock_device.device_info.mac_address
@@ -122,7 +122,12 @@ class TestNWP500BinarySensor:
         mock_device_status.recirc_operation_busy = False
         assert sensor.is_on is False
 
-        delattr(mock_device_status, "recirc_operation_busy")
+        # Simulate the field being absent by setting it to None, since the
+        # production code treats missing and None as equally "unknown" via
+        # getattr(..., None). Using delattr on a MagicMock does not reliably
+        # simulate a missing attribute, since getattr would just create a new
+        # child mock rather than returning the default.
+        mock_device_status.recirc_operation_busy = None
         assert sensor.is_on is None
 
     def test_binary_sensor_missing_value(
