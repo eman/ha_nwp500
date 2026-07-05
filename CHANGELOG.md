@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Fixed
+- **MQTT reconnect alignment with `nwp500-python` v9.0.0**: The coordinator no
+  longer tears down the MQTT client after three disconnected update cycles while
+  the library's own hardened internal reconnect loop is already running. Forced
+  reconnect remains as a last-resort escape hatch only for repeated
+  coordinator-level request timeouts on a connection that still appears up, and
+  the integration now listens for the library's `reconnection_failed` event to
+  trigger Home Assistant reauth when the internal loop stops permanently.
 - **AWS CRT clean-session warning workaround**: Kept the coordinator's temporary
   asyncio exception-handler suppression for
   `AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION`, but documented it as an

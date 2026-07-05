@@ -140,6 +140,12 @@ def manager(mock_auth_client, mock_mqtt_client):
     return manager
 
 
+@pytest.fixture
+def reconnection_failed_callback():
+    """Mock callback for fatal library reconnect failures."""
+    return MagicMock()
+
+
 @pytest.mark.asyncio
 async def test_setup_and_connect(manager, mock_mqtt_client):
     """Test setup and connection."""
@@ -283,9 +289,7 @@ async def test_callbacks(manager, mock_mqtt_client):
     await manager.setup()
 
     # Verify callbacks are registered with the client
-    # The new nwp500-python registers only CONNECTION_INTERRUPTED and CONNECTION_RESUMED
-    # Check that 'on' was called for connection events
-    assert mock_mqtt_client.on.call_count >= 2
+    assert mock_mqtt_client.on.call_count >= 3
 
     # Verify specific event registrations
     calls = [c[0][0] for c in mock_mqtt_client.on.call_args_list]
@@ -293,6 +297,26 @@ async def test_callbacks(manager, mock_mqtt_client):
         c in ("connection_interrupted", "CONNECTION_INTERRUPTED") for c in calls
     )
     assert any(c in ("connection_resumed", "CONNECTION_RESUMED") for c in calls)
+    assert "reconnection_failed" in calls
+
+
+def test_reconnection_failed_callback_is_scheduled(
+    mock_auth_client, mock_mqtt_client, reconnection_failed_callback
+):
+    """Fatal library reconnect failures are forwarded to the coordinator."""
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_reconnection_failed=reconnection_failed_callback,
+    )
+
+    manager._on_reconnection_failed(4)
+
+    manager.loop.call_soon_threadsafe.assert_called_once_with(
+        reconnection_failed_callback, 4
+    )
 
 
 @pytest.mark.asyncio
