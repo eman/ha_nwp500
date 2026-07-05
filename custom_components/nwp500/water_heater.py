@@ -205,10 +205,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
-                return mode_value not in {
-                    CurrentOperationMode.STANDBY,
-                    DhwOperationSetting.POWER_OFF,
-                }
+                return mode_value != DhwOperationSetting.POWER_OFF
             dhw_use = getattr(status, "dhw_use", None)
             comp_use = getattr(status, "comp_use", None)
             heat_upper = getattr(status, "heat_upper_use", None)
@@ -217,10 +214,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                 return True
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
-                return get_enum_value(operation_mode) not in {
-                    CurrentOperationMode.STANDBY,
-                    DhwOperationSetting.POWER_OFF,
-                }
+                return get_enum_value(operation_mode) != CurrentOperationMode.STANDBY
         except AttributeError, TypeError:
             pass
         return None
