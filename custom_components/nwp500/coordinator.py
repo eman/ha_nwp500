@@ -23,7 +23,6 @@ from nwp500.exceptions import (
     AuthenticationError,
     InvalidCredentialsError,
     MqttError,
-    TokenExpiredError,
     TokenRefreshError,
 )
 
@@ -587,7 +586,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                'uv pip install "nwp500-python==8.1.3" awsiotsdk>=1.29.0'
+                'uv pip install "nwp500-python==9.0.0" awsiotsdk>=1.29.0'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -764,7 +763,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ) from err
         except (
             TokenRefreshError,
-            TokenExpiredError,
             AuthenticationError,
         ) as err:
             # Token or authentication errors - check if retriable

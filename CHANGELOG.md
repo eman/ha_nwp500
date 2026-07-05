@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 9.0.0 (BREAKING). This
+  is a major version bump on the library side that trims its public API
+  surface and removes dead code; see the
+  [full release notes](https://github.com/eman/nwp500-python/releases/tag/v9.0.0)
+  for the complete list. Notable changes affecting this integration:
+  - Removed the never-raised `TokenExpiredError` exception. The coordinator's
+    authentication error handling no longer imports or catches it (the
+    remaining `TokenRefreshError`/`AuthenticationError` handling is
+    unaffected, since the library never actually raised this class).
+  - Numerous bug fixes relevant to this integration's stability: queued
+    control commands are now preserved in order and expire after a
+    configurable age instead of replaying stale commands after long
+    outages; MQTT message dispatch now runs on the event loop instead of
+    the AWS CRT network thread, fixing a potential
+    `RuntimeError: dictionary changed size during iteration` during
+    reconnects; the reconnection loop now survives all library errors
+    instead of dying silently on auth/token errors during an outage;
+    `error_detected` events are now emitted when the error code changes
+    between two non-zero values; and sub-zero Fahrenheit temperature
+    conversions are now rounded correctly.
+  - No changes were required to this integration's own use of
+    `build_reservation_entry`/`build_tou_period`, since it already imports
+    them from `nwp500.encoding` rather than the removed top-level
+    re-exports.
+
 ## [0.15.5] - 2026-06-15
 
 ### Changed
