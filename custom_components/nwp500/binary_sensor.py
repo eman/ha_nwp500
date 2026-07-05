@@ -264,7 +264,11 @@ def create_binary_sensor_descriptions() -> tuple[
             name="Recirculation Active",
             device_class=BinarySensorDeviceClass.RUNNING,
             entity_registry_enabled_default=False,
-            value_fn=lambda status: getattr(status, "recirc_use", None),
+            # "Active" is the currently running/busy state, not the static feature
+            # capability exposed separately via device attributes.
+            value_fn=lambda status: getattr(
+                status, "recirc_operation_busy", None
+            ),
         )
     )
 

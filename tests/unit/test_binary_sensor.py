@@ -95,6 +95,36 @@ class TestNWP500BinarySensor:
 
         assert sensor.is_on is False
 
+    def test_binary_sensor_recirculation_active(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test recirculation active binary sensor uses operation busy status."""
+        from custom_components.nwp500.binary_sensor import (
+            create_binary_sensor_descriptions,
+        )
+
+        descriptions = create_binary_sensor_descriptions()
+        recirculation_desc = next(
+            d for d in descriptions if d.key == "recirculation_use"
+        )
+
+        mac_address = mock_device.device_info.mac_address
+        sensor = NWP500BinarySensor(
+            mock_coordinator, mac_address, mock_device, recirculation_desc
+        )
+
+        mock_device_status.recirc_operation_busy = True
+        assert sensor.is_on is True
+
+        mock_device_status.recirc_operation_busy = False
+        assert sensor.is_on is False
+
+        delattr(mock_device_status, "recirc_operation_busy")
+        assert sensor.is_on is None
+
     def test_binary_sensor_missing_value(
         self,
         mock_coordinator: MagicMock,
