@@ -10,8 +10,30 @@
   coordinator-level request timeouts on a connection that still appears up, and
   the integration now listens for the library's `reconnection_failed` event to
   trigger Home Assistant reauth when the internal loop stops permanently.
+- **AWS CRT clean-session warning workaround**: Kept the coordinator's temporary
+  asyncio exception-handler suppression for
+  `AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION`, but documented it as an
+  upstream-library workaround, linked the follow-up
+  [nwp500-python issue #97](https://github.com/eman/nwp500-python/issues/97),
+  and hardened handler install/restore so multiple config entries do not leave a
+  stale global loop handler behind on unload.
+- **Recirculation Active binary sensor**: Removed the redundant "Recirculation
+  Active" binary sensor (`recirculation_use`), which read the same
+  `DeviceStatus.recirc_operation_busy` field as the existing "Recirculation
+  Operation Busy" sensor and duplicated it with a nonexistent `recirc_use`
+  fallback. Use the existing "Recirculation Operation Busy" sensor instead.
 
 ### Changed
+- **Internal API cleanup / Python 3.14 modernization**: Removed redundant
+  `from __future__ import annotations` imports from all
+  `custom_components/nwp500/` modules now that this integration is
+  Python 3.14-only, updated stale `nwp500-python` version-pinned comments
+  to reflect current v9.0.0 behavior, and replaced the auth-client
+  shutdown dunder call with the library's public `close()` API. Initial
+  auth setup still relies on `NavienAuthClient.__aenter__()` because
+  `nwp500-python` 9.0.0 does not yet expose a matching public
+  connect/open lifecycle method for the coordinator's longer-lived auth
+  session.
 - **Library Dependency: nwp500-python**: Upgraded to 9.0.0 (BREAKING). This
   is a major version bump on the library side that trims its public API
   surface and removes dead code; see the
@@ -36,6 +58,11 @@
     `build_reservation_entry`/`build_tou_period`, since it already imports
     them from `nwp500.encoding` rather than the removed top-level
     re-exports.
+- **Water heater mode enums**: Replaced duplicated magic-number protocol values
+  with `nwp500.enums.CurrentOperationMode` / `DhwOperationSetting` members and
+  consolidated DHW mode-to-state translation so the water heater entity and its
+  extra state attributes share one base mapping while preserving the vacation
+  restore behavior.
 
 ## [0.15.5] - 2026-06-15
 

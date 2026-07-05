@@ -1,7 +1,5 @@
 """Switch platform for Navien NWP500 integration."""
 
-from __future__ import annotations
-
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -9,6 +7,8 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from nwp500.enums import DhwOperationSetting
 
 from .const import DOMAIN, get_enum_value
 from .coordinator import NWP500DataUpdateCoordinator
@@ -76,7 +76,7 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
             )
             if dhw_operation_setting is not None:
                 dhw_value = get_enum_value(dhw_operation_setting)
-                return bool(dhw_value != 6)
+                return bool(dhw_value != DhwOperationSetting.POWER_OFF)
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
                 return True

@@ -1,7 +1,5 @@
 """MQTT Manager for Navien NWP500 integration."""
 
-from __future__ import annotations
-
 import asyncio
 import logging
 import time
@@ -167,7 +165,8 @@ class NWP500MqttManager:
                 enable_verbose_logging=False
             )
 
-            # Token validation deferred to connect() per nwp500-python 7.3.1+
+            # Token validation is deferred to connect(), while construction
+            # focuses on MQTT session configuration.
             # Use clean_session=False so the broker preserves subscriptions
             # across reconnections.  Combined with the stable client_id above,
             # this means a reconnect resumes the existing broker-side session
