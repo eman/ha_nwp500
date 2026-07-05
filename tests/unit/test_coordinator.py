@@ -324,7 +324,9 @@ async def test_async_update_triggers_force_reconnect_after_request_timeouts(
     coordinator.mqtt_manager = MagicMock()
     coordinator.mqtt_manager.is_connected = True
     coordinator.mqtt_manager.last_reconnect_time = time.time() - 9999.0
-    coordinator.mqtt_manager.request_status = AsyncMock(side_effect=TimeoutError)
+    coordinator.mqtt_manager.request_status = AsyncMock(
+        side_effect=TimeoutError
+    )
     coordinator.mqtt_manager.request_device_info = AsyncMock()
     coordinator.mqtt_manager.force_reconnect = AsyncMock(return_value=True)
     coordinator._consecutive_timeouts = 2
@@ -353,7 +355,9 @@ async def test_async_update_skips_force_reconnect_within_min_interval(
     coordinator.mqtt_manager = MagicMock()
     coordinator.mqtt_manager.is_connected = True
     coordinator.mqtt_manager.last_reconnect_time = time.time() - 5.0
-    coordinator.mqtt_manager.request_status = AsyncMock(side_effect=TimeoutError)
+    coordinator.mqtt_manager.request_status = AsyncMock(
+        side_effect=TimeoutError
+    )
     coordinator.mqtt_manager.request_device_info = AsyncMock()
     coordinator.mqtt_manager.force_reconnect = AsyncMock(return_value=True)
     coordinator._consecutive_timeouts = 2
