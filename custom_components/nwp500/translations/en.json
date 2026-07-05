@@ -392,9 +392,6 @@
       "did_reload": {
         "name": "Device Recently Reloaded"
       },
-      "recirculation_use": {
-        "name": "Recirculation Active"
-      },
       "recirculation_pump_operation_status": {
         "name": "Recirculation Pump Running"
       },
