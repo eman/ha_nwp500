@@ -4,21 +4,9 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from awscrt.exceptions import AwsCrtError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.nwp500 import coordinator as coordinator_module
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
-
-
-@pytest.fixture(autouse=True)
-def reset_shared_exception_handler_state():
-    """Reset module-level exception handler state between tests."""
-    coordinator_module._SHARED_EXCEPTION_HANDLER_REFCOUNT = 0
-    coordinator_module._SHARED_PREVIOUS_EXCEPTION_HANDLER = None
-    yield
-    coordinator_module._SHARED_EXCEPTION_HANDLER_REFCOUNT = 0
-    coordinator_module._SHARED_PREVIOUS_EXCEPTION_HANDLER = None
 
 
 @pytest.fixture
@@ -33,13 +21,8 @@ def mock_entry():
 @pytest.fixture
 def coordinator(mock_hass, mock_entry):
     """Create NWP500DataUpdateCoordinator instance."""
-    with (
-        patch(
-            "custom_components.nwp500.coordinator.DataUpdateCoordinator.__init__"
-        ),
-        patch(
-            "custom_components.nwp500.coordinator.NWP500DataUpdateCoordinator._install_exception_handler"
-        ),
+    with patch(
+        "custom_components.nwp500.coordinator.DataUpdateCoordinator.__init__"
     ):
         coordinator = NWP500DataUpdateCoordinator(mock_hass, mock_entry)
         coordinator.hass = mock_hass
@@ -56,97 +39,6 @@ def _make_disconnected_mqtt_manager(
     mgr.last_reconnect_time = time.time() + last_reconnect_offset
     mgr.force_reconnect = AsyncMock(return_value=True)
     return mgr
-
-
-def _make_loop_with_handler(
-    handler: object | None,
-) -> tuple[MagicMock, list[object | None]]:
-    """Create a mock loop that tracks exception handler changes."""
-    current_handler = handler
-    handler_updates: list[object | None] = []
-    loop = MagicMock()
-    loop.default_exception_handler = MagicMock()
-
-    def get_exception_handler() -> object | None:
-        return current_handler
-
-    def set_exception_handler(new_handler: object | None) -> None:
-        nonlocal current_handler
-        current_handler = new_handler
-        handler_updates.append(new_handler)
-
-    loop.get_exception_handler.side_effect = get_exception_handler
-    loop.set_exception_handler.side_effect = set_exception_handler
-    return loop, handler_updates
-
-
-def _mock_data_update_coordinator_init(
-    self, hass, logger, name, update_interval
-):
-    """Stub DataUpdateCoordinator.__init__ for unit tests."""
-    self.hass = hass
-
-
-@pytest.mark.asyncio
-async def test_exception_handler_suppresses_clean_session_error(
-    mock_hass, mock_entry
-):
-    """The workaround suppresses the known benign AWS CRT clean-session error."""
-    original_handler = MagicMock()
-    loop, _ = _make_loop_with_handler(original_handler)
-    mock_hass.loop = loop
-
-    with patch(
-        "custom_components.nwp500.coordinator.DataUpdateCoordinator.__init__",
-        autospec=True,
-        side_effect=_mock_data_update_coordinator_init,
-    ):
-        coordinator = NWP500DataUpdateCoordinator(mock_hass, mock_entry)
-
-    error = AwsCrtError(
-        code=0,
-        name="AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION",
-        message="Clean session",
-    )
-    error.name = "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-    handler = mock_hass.loop.get_exception_handler()
-
-    handler(mock_hass.loop, {"exception": error})
-
-    original_handler.assert_not_called()
-    mock_hass.loop.default_exception_handler.assert_not_called()
-
-    await coordinator.async_shutdown()
-
-
-@pytest.mark.asyncio
-async def test_exception_handler_restores_previous_handler_after_last_unload(
-    mock_hass, mock_entry
-):
-    """The shared workaround restores the prior handler only after the last unload."""
-    original_handler = MagicMock()
-    loop, handler_updates = _make_loop_with_handler(original_handler)
-    mock_hass.loop = loop
-
-    with patch(
-        "custom_components.nwp500.coordinator.DataUpdateCoordinator.__init__",
-        autospec=True,
-        side_effect=_mock_data_update_coordinator_init,
-    ):
-        coordinator_one = NWP500DataUpdateCoordinator(mock_hass, mock_entry)
-        coordinator_two = NWP500DataUpdateCoordinator(mock_hass, mock_entry)
-
-    assert handler_updates == [coordinator_module._nwp500_exception_handler]
-
-    await coordinator_one.async_shutdown()
-    assert (
-        mock_hass.loop.get_exception_handler()
-        is coordinator_module._nwp500_exception_handler
-    )
-
-    await coordinator_two.async_shutdown()
-    assert handler_updates[-1] is original_handler
-    assert mock_hass.loop.get_exception_handler() is original_handler
 
 
 def test_on_device_status_update_schedules_loop_task(coordinator, mock_hass):

@@ -10,13 +10,16 @@
   coordinator-level request timeouts on a connection that still appears up, and
   the integration now listens for the library's `reconnection_failed` event to
   trigger Home Assistant reauth when the internal loop stops permanently.
-- **AWS CRT clean-session warning workaround**: Kept the coordinator's temporary
-  asyncio exception-handler suppression for
-  `AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION`, but documented it as an
-  upstream-library workaround, linked the follow-up
-  [nwp500-python issue #97](https://github.com/eman/nwp500-python/issues/97),
-  and hardened handler install/restore so multiple config entries do not leave a
-  stale global loop handler behind on unload.
+- **AWS CRT clean-session warning workaround removed**: `nwp500-python` v9.2.0
+  fixes [issue #97](https://github.com/eman/nwp500-python/issues/97) upstream:
+  `_await_ack()` and the subscribe/unsubscribe acknowledgement waits now
+  attach a done callback whenever a shielded AWS CRT future is abandoned, so
+  the eventual result/exception is always retrieved and logged at debug level
+  by the library instead of leaking to asyncio's global exception handler.
+  The coordinator's temporary global asyncio exception-handler
+  install/restore machinery (`_nwp500_exception_handler`,
+  `_install_exception_handler`, `_restore_exception_handler`, and the shared
+  refcount globals) is no longer needed and has been removed.
 - **Recirculation Active binary sensor**: Removed the redundant "Recirculation
   Active" binary sensor (`recirculation_use`), which read the same
   `DeviceStatus.recirc_operation_busy` field as the existing "Recirculation
@@ -34,6 +37,25 @@
   `nwp500-python` 9.0.0 does not yet expose a matching public
   connect/open lifecycle method for the coordinator's longer-lived auth
   session.
+- **Library Dependency: nwp500-python**: Upgraded to
+  [9.2.0](https://github.com/eman/nwp500-python/releases/tag/v9.2.0). No
+  breaking changes affecting this integration. Notable changes:
+  - Fixes [issue #97](https://github.com/eman/nwp500-python/issues/97):
+    `_await_ack()` in `mqtt/connection.py` and the subscribe/unsubscribe
+    acknowledgement waits in `mqtt/subscriptions.py` now attach a done
+    callback whenever a shielded AWS CRT future is abandoned due to a
+    timeout or cancellation, so its eventual result/exception is always
+    retrieved and logged at debug level instead of leaking as an unhandled
+    "Future exception was never retrieved" asyncio warning. This obsoletes
+    this integration's own global asyncio exception-handler workaround,
+    which has been removed (see "Fixed" above).
+  - Internal refactors with no behavior change: CLI formatting stacks
+    merged behind a single Rich renderer, `mqtt/client.py` slimmed via
+    mixins, event-name constants de-duplicated between `events.py` and
+    `mqtt_events.py`, and `awscrt` types (e.g. `mqtt.QoS`) wrapped behind a
+    library-owned `nwp500.QoS` enum on public MQTT signatures. This
+    integration does not use `awscrt.mqtt.QoS` directly, so no code changes
+    were required.
 - **Library Dependency: nwp500-python**: Upgraded to 9.0.0 (BREAKING). This
   is a major version bump on the library side that trims its public API
   surface and removes dead code; see the
