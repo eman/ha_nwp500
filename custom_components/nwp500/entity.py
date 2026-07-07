@@ -210,12 +210,6 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             f"https://app.naviensmartcontrol.com/device/{self.mac_address}"
         )
 
-        # Suggested area from location if available
-        if hasattr(self.device, "location") and self.device.location:
-            location = self.device.location
-            if location.city:
-                suggested_area = location.city
-
         # Create DeviceInfo
         return DeviceInfo(
             identifiers={(DOMAIN, self.mac_address)},
