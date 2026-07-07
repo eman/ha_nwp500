@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-07
+
 ### Fixed
 - **MQTT reconnect alignment with `nwp500-python` v9.0.0**: The coordinator no
   longer tears down the MQTT client after three disconnected update cycles while
@@ -866,7 +868,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.15.5...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/eman/ha_nwp500/compare/v0.15.5...v0.16.0
 [0.15.5]: https://github.com/eman/ha_nwp500/compare/v0.15.4...v0.15.5
 [0.15.4]: https://github.com/eman/ha_nwp500/compare/v0.15.3...v0.15.4
 [0.15.2]: https://github.com/eman/ha_nwp500/compare/v0.15.1...v0.15.2
