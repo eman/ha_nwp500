@@ -31,12 +31,11 @@
   `from __future__ import annotations` imports from all
   `custom_components/nwp500/` modules now that this integration is
   Python 3.14-only, updated stale `nwp500-python` version-pinned comments
-  to reflect current v9.0.0 behavior, and replaced the auth-client
+  to reflect current library behavior, and replaced the auth-client
   shutdown dunder call with the library's public `close()` API. Initial
   auth setup still relies on `NavienAuthClient.__aenter__()` because
-  `nwp500-python` 9.0.0 does not yet expose a matching public
-  connect/open lifecycle method for the coordinator's longer-lived auth
-  session.
+  `nwp500-python` does not yet expose a matching public connect/open
+  lifecycle method for the coordinator's longer-lived auth session.
 - **Library Dependency: nwp500-python**: Upgraded to
   [9.2.0](https://github.com/eman/nwp500-python/releases/tag/v9.2.0). No
   breaking changes affecting this integration. Notable changes:
