@@ -240,7 +240,7 @@ async def test_async_update_triggers_force_reconnect_after_request_timeouts(
 async def test_async_update_skips_force_reconnect_within_min_interval(
     coordinator, mock_hass
 ):
-    """Recent forced reconnect attempts still rate-limit timeout escalation."""
+    """Rate-limited reconnection attempts skip but don't reset timeout counter."""
     device = MagicMock()
     device.device_info.mac_address = "aabbcc001122"
     coordinator.devices = [device]
@@ -265,8 +265,10 @@ async def test_async_update_skips_force_reconnect_within_min_interval(
     with patch("nwp500.unit_system.set_unit_system"):
         await coordinator._async_update_data()
 
+    # Reconnection should not be attempted due to rate limiting (5s < 30s)
     coordinator.mqtt_manager.force_reconnect.assert_not_called()
-    assert coordinator._consecutive_timeouts == 0
+    # Counter should accumulate to 3 (not reset during rate limit)
+    assert coordinator._consecutive_timeouts == 3
 
 
 @pytest.mark.asyncio
