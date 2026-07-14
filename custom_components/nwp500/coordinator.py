@@ -423,14 +423,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             if elapsed < MIN_RECONNECT_INTERVAL:
                                 _LOGGER.debug(
                                     "Skipping reconnection - last attempt "
-                                    "%.0fs ago (min interval: %.0fs). "
-                                    "Resetting timeout counter.",
+                                    "%.0fs ago (min interval: %.0fs)",
                                     elapsed,
                                     MIN_RECONNECT_INTERVAL,
                                 )
-                                # Reset counter to prevent immediate
-                                # re-trigger on next cycle
-                                self._consecutive_timeouts = 0
                             else:
                                 _LOGGER.warning(
                                     "Detected %d consecutive MQTT timeouts. "
