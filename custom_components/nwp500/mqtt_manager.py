@@ -542,7 +542,7 @@ class NWP500MqttManager:
                             await self.start_periodic_requests(device)
                         return True
                 except Exception as err:
-                    _LOGGER.debug("Setup attempt failed: %s", err)
+                    _LOGGER.debug("Setup attempt failed: %s", err, exc_info=True)
 
                 # Failed - increment attempt counter for next backoff
                 self._reconnect_attempts += 1
