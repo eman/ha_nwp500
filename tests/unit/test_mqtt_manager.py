@@ -312,7 +312,9 @@ async def test_force_reconnect_retries_on_setup_failure(
             manager.force_reconnect([mock_device]), timeout=15
         )
         assert result is True, "force_reconnect should succeed after retry"
-        assert setup_call_count == 2, "Setup should be called twice (1 failure + 1 success)"
+        assert setup_call_count == 2, (
+            "Setup should be called twice (1 failure + 1 success)"
+        )
     finally:
         manager.setup = original_setup
 
@@ -363,9 +365,6 @@ async def test_force_reconnect_handles_cancellation(
             pass  # Expected
     finally:
         manager.setup = original_setup
-
-
-
 
     # Verify callbacks are registered with the client
     assert mock_mqtt_client.on.call_count >= 3
