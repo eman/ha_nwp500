@@ -541,6 +541,8 @@ class NWP500MqttManager:
                             await self.subscribe_device(device)
                             await self.start_periodic_requests(device)
                         return True
+                except asyncio.CancelledError:
+                    raise
                 except Exception as err:
                     _LOGGER.debug(
                         "Setup attempt failed: %s", err, exc_info=True

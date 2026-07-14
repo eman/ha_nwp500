@@ -292,7 +292,7 @@ async def test_force_reconnect_retries_on_setup_failure(
     await manager.setup()
     await manager.subscribe_device(mock_device)
 
-    # Simulate setup failures on first attempt, then success
+    # Simulate setup failures on first attempt, then delegate to real setup
     setup_call_count = 0
 
     async def setup_with_one_failure():
@@ -300,9 +300,10 @@ async def test_force_reconnect_retries_on_setup_failure(
         setup_call_count += 1
         if setup_call_count == 1:
             raise ConnectionError("Transient auth service failure")
-        return True
+        # Call the real setup to actually reconnect
+        return await original_setup()
 
-    # Mock setup to fail once then succeed
+    # Wrap setup to fail once then succeed with real reconnection
     original_setup = manager.setup
     manager.setup = setup_with_one_failure
 
@@ -314,6 +315,10 @@ async def test_force_reconnect_retries_on_setup_failure(
         assert result is True, "force_reconnect should succeed after retry"
         assert setup_call_count == 2, (
             "Setup should be called twice (1 failure + 1 success)"
+        )
+        # Verify MQTT client was actually reconnected
+        assert manager.mqtt_client is not None, (
+            "MQTT client should be connected"
         )
     finally:
         manager.setup = original_setup
@@ -341,11 +346,11 @@ async def test_force_reconnect_resets_backoff_on_success(
 async def test_force_reconnect_handles_cancellation(
     manager, mock_mqtt_client, mock_device
 ):
-    """Test that force_reconnect properly handles task cancellation."""
+    """Test that force_reconnect properly handles task cancellation from setup."""
     await manager.setup()
     await manager.subscribe_device(mock_device)
 
-    # Mock setup to hang indefinitely so we can cancel it
+    # Mock setup to hang indefinitely so we can cancel it during setup
     async def setup_hang():
         await asyncio.sleep(10)
         return True
@@ -355,14 +360,19 @@ async def test_force_reconnect_handles_cancellation(
 
     try:
         task = asyncio.create_task(manager.force_reconnect([mock_device]))
-        await asyncio.sleep(0.1)  # Let task start
-        task.cancel()
+        # Use patch to set backoff delays to 0 so task reaches setup() immediately
+        with patch(
+            "custom_components.nwp500.mqtt_manager._RECONNECT_BACKOFF_DELAYS",
+            [0, 0, 0, 0, 0],
+        ):
+            await asyncio.sleep(0.1)  # Let task reach setup()
+            task.cancel()
 
-        try:
-            await task
-            pytest.fail("Task should have been cancelled")
-        except asyncio.CancelledError:
-            pass  # Expected
+            try:
+                await task
+                pytest.fail("Task should have been cancelled")
+            except asyncio.CancelledError:
+                pass  # Expected - CancelledError should propagate
     finally:
         manager.setup = original_setup
 
