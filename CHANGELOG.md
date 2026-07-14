@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Fixed
+- **MQTT reconnection retry loop**: Fixed a critical bug where
+  `force_reconnect()` would fail to retry after a transient auth service or
+  network error. Previously, when reconnection failed during the initial
+  attempt, the method would return instead of rescheduling retries with
+  exponential backoff. This caused the integration to become permanently stuck
+  disconnected, requiring manual Home Assistant restart to recover. The fix
+  converts `force_reconnect()` to loop internally with exponential backoff
+  (2s, 5s, 15s, 30s, 60s cap), continuously retrying until successful
+  reconnection or task cancellation. This ensures automatic recovery from
+  transient auth/network failures. Fixes
+  [issue #100](https://github.com/eman/ha_nwp500/issues/100).
+
 ## [0.16.1] - 2026-07-14
 
 ### Fixed
