@@ -492,67 +492,73 @@ class NWP500MqttManager:
 
         Uses increasing delays between attempts: 2s, 5s, 15s, 30s, 60s (cap).
         Backoff resets on successful reconnection.
+        Retries indefinitely with exponential backoff until successful.
         """
         if self.reconnection_in_progress:
             return False
 
         self.reconnection_in_progress = True
         try:
-            # Calculate backoff delay based on attempt count
-            delay_index = min(
-                self._reconnect_attempts, len(_RECONNECT_BACKOFF_DELAYS) - 1
-            )
-            backoff_delay = _RECONNECT_BACKOFF_DELAYS[delay_index]
-
-            _LOGGER.warning(
-                "Forcing MQTT reconnection (attempt %d, backoff %.0fs)...",
-                self._reconnect_attempts + 1,
-                backoff_delay,
-            )
-
-            # Full teardown
-            await self.disconnect()
-
-            # Wait with exponential backoff before reconnecting
-            await asyncio.sleep(backoff_delay)
-
-            # Re-initialize and connect (connect() will refresh auth tokens)
-            if await self.setup():
-                # Only update timestamp on successful reconnection
-                # This prevents rate-limiting from blocking retries on failed attempts
-                self._last_reconnect_time = time.time()
-
-                _LOGGER.info(
-                    "Reconnection successful after %d attempt(s)",
-                    self._reconnect_attempts + 1,
+            while True:
+                # Calculate backoff delay based on attempt count
+                delay_index = min(
+                    self._reconnect_attempts, len(_RECONNECT_BACKOFF_DELAYS) - 1
                 )
-                self.consecutive_timeouts = 0
-                self._reconnect_attempts = 0  # Reset backoff on success
+                backoff_delay = _RECONNECT_BACKOFF_DELAYS[delay_index]
 
-                # Re-subscribe to all devices and restart periodic tasks
-                for device in devices:
-                    await self.subscribe_device(device)
-                    await self.start_periodic_requests(device)
-                return True
+                _LOGGER.warning(
+                    "Forcing MQTT reconnection (attempt %d, backoff %.0fs)...",
+                    self._reconnect_attempts + 1,
+                    backoff_delay,
+                )
 
-            # Failed - increment attempt counter for next backoff
-            self._reconnect_attempts += 1
-            _LOGGER.warning(
-                "Reconnection failed (attempt %d). Next backoff: %.0fs",
-                self._reconnect_attempts,
-                _RECONNECT_BACKOFF_DELAYS[
-                    min(
-                        self._reconnect_attempts,
-                        len(_RECONNECT_BACKOFF_DELAYS) - 1,
-                    )
-                ],
-            )
-            return False
+                # Full teardown
+                await self.disconnect()
 
-        except Exception as err:
-            self._reconnect_attempts += 1
-            _LOGGER.error("Error during forced reconnect: %s", err)
-            return False
+                # Wait with exponential backoff before reconnecting
+                try:
+                    await asyncio.sleep(backoff_delay)
+                except asyncio.CancelledError:
+                    _LOGGER.debug("MQTT reconnection task was cancelled")
+                    raise
+
+                try:
+                    # Re-initialize and connect (connect() will refresh auth tokens)
+                    if await self.setup():
+                        # Only update timestamp on successful reconnection
+                        # This prevents rate-limiting from blocking retries on failed attempts
+                        self._last_reconnect_time = time.time()
+
+                        _LOGGER.info(
+                            "Reconnection successful after %d attempt(s)",
+                            self._reconnect_attempts + 1,
+                        )
+                        self.consecutive_timeouts = 0
+                        self._reconnect_attempts = 0  # Reset backoff on success
+
+                        # Re-subscribe to all devices and restart periodic tasks
+                        for device in devices:
+                            await self.subscribe_device(device)
+                            await self.start_periodic_requests(device)
+                        return True
+                except Exception as err:
+                    _LOGGER.debug("Setup attempt failed: %s", err)
+
+                # Failed - increment attempt counter for next backoff
+                self._reconnect_attempts += 1
+                next_backoff_index = min(
+                    self._reconnect_attempts, len(_RECONNECT_BACKOFF_DELAYS) - 1
+                )
+                next_backoff = _RECONNECT_BACKOFF_DELAYS[next_backoff_index]
+                _LOGGER.warning(
+                    "Reconnection failed (attempt %d). Retrying in %.0fs...",
+                    self._reconnect_attempts,
+                    next_backoff,
+                )
+                # Loop continues - will retry after backoff
+
+        except asyncio.CancelledError:
+            raise
         finally:
             self.reconnection_in_progress = False
 
