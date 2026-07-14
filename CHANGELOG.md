@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-07-14
+
 ### Fixed
 - **MQTT reconnection rate-limiting bug**: Fixed a critical bug in the
   reconnection rate-limit logic that prevented the integration from recovering
@@ -880,7 +882,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.16.1...HEAD
+[0.16.1]: https://github.com/eman/ha_nwp500/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/eman/ha_nwp500/compare/v0.15.5...v0.16.0
 [0.15.5]: https://github.com/eman/ha_nwp500/compare/v0.15.4...v0.15.5
 [0.15.4]: https://github.com/eman/ha_nwp500/compare/v0.15.3...v0.15.4
