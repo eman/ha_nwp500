@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+- **MQTT reconnection rate-limiting bug**: Fixed a critical bug in the
+  reconnection rate-limit logic that prevented the integration from recovering
+  after MQTT connection failures. When a reconnection attempt was rate-limited
+  (< 30 seconds since the last attempt), the timeout counter was incorrectly
+  reset to 0, preventing the reconnection threshold from ever being reached
+  again. This caused the integration to remain disconnected indefinitely even
+  when the MQTT service became available. The fix removes the counter reset
+  from the rate-limit case, allowing the counter to accumulate normally so
+  reconnection proceeds once the rate-limit interval expires. Fixes
+  [issue #100](https://github.com/eman/ha_nwp500/issues/100).
+
 ## [0.16.0] - 2026-07-07
 
 ### Fixed
