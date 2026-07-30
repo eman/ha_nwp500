@@ -21,6 +21,7 @@ from custom_components.nwp500 import (
     ATTR_TEMPERATURE,
     SERVICE_CLEAR_RESERVATIONS,
     SERVICE_CONFIGURE_TOU,
+    SERVICE_CONFIGURE_TOU_SCHEMA,
     SERVICE_DISABLE_DEMAND_RESPONSE,
     SERVICE_ENABLE_DEMAND_RESPONSE,
     SERVICE_REQUEST_RESERVATIONS,
@@ -31,6 +32,7 @@ from custom_components.nwp500 import (
     SERVICE_SET_VACATION_DAYS,
     SERVICE_TRIGGER_RECIRCULATION,
     SERVICE_UPDATE_RESERVATIONS,
+    SERVICE_UPDATE_RESERVATIONS_SCHEMA,
     _async_setup_services,
     validate_reservation_temperature,
 )
@@ -1003,3 +1005,80 @@ class TestDemandResponseAndRecirculationServices:
             HomeAssistantError, match="Failed to trigger recirculation"
         ):
             await handler(call)
+
+
+class TestTOUWeekBitfieldValidation:
+    """Validate the configure_tou_schedule 'week' bitfield bounds.
+
+    The TOU 'week' field uses the same weekday bitfield as reservations --
+    Sun=bit7 (128) through Sat=bit1 (2) -- so Sunday-inclusive masks and the
+    every-day mask (254) must be accepted. See issue #106.
+    """
+
+    @staticmethod
+    def _period(week: int) -> dict[str, int]:
+        return {
+            "season": 4095,
+            "week": week,
+            "start_hour": 0,
+            "start_minute": 0,
+            "end_hour": 6,
+            "end_minute": 0,
+            "price_min": 10,
+            "price_max": 20,
+            "decimal_point": 2,
+        }
+
+    @pytest.mark.parametrize(
+        "week",
+        [
+            0,  # no days
+            2,  # Saturday only (bit 1)
+            128,  # Sunday only (bit 7) -- rejected before the fix
+            130,  # Sunday + Saturday
+            254,  # every day -- rejected before the fix
+        ],
+    )
+    def test_accepts_valid_week_bitfields(self, week):
+        """Sunday-inclusive and every-day masks must validate."""
+        result = SERVICE_CONFIGURE_TOU_SCHEMA(
+            {
+                ATTR_DEVICE_ID: "device_123",
+                ATTR_PERIODS: [self._period(week)],
+            }
+        )
+        assert result[ATTR_PERIODS][0]["week"] == week
+
+    @pytest.mark.parametrize("week", [-1, 255, 256])
+    def test_rejects_out_of_range_week(self, week):
+        """Values outside the 0-254 bitfield range are still rejected."""
+        with pytest.raises(vol.Invalid):
+            SERVICE_CONFIGURE_TOU_SCHEMA(
+                {
+                    ATTR_DEVICE_ID: "device_123",
+                    ATTR_PERIODS: [self._period(week)],
+                }
+            )
+
+    def test_reservation_and_tou_week_bounds_agree(self):
+        """Both services share one weekday bitfield, so bounds must match."""
+        reservation = {
+            "enable": 2,
+            "week": 254,
+            "hour": 6,
+            "min": 30,
+            "mode": 4,
+            "param": 120,
+        }
+        SERVICE_UPDATE_RESERVATIONS_SCHEMA(
+            {
+                ATTR_DEVICE_ID: "device_123",
+                ATTR_RESERVATIONS: [reservation],
+            }
+        )
+        SERVICE_CONFIGURE_TOU_SCHEMA(
+            {
+                ATTR_DEVICE_ID: "device_123",
+                ATTR_PERIODS: [self._period(254)],
+            }
+        )

@@ -236,7 +236,8 @@ SERVICE_CONFIGURE_TOU_SCHEMA = vol.All(
                             ),
                             vol.Required("week"): vol.All(
                                 vol.Coerce(int),
-                                vol.Range(min=0, max=127),
+                                vol.Range(min=0, max=254),
+                                msg="Week must be a bitfield (0-254, Sun=128..Sat=2)",
                             ),
                             vol.Required("start_hour"): vol.All(
                                 vol.Coerce(int),
