@@ -1,6 +1,6 @@
 """The Navien NWP500 integration.
 
-Requires Home Assistant 2025.1+ (Python 3.14).
+Requires Home Assistant 2026.3+ (Python 3.14).
 """
 
 import logging

@@ -12,6 +12,27 @@
   blocks as ```` ```text ```` so the formatter leaves the alignment alone, and
   raises the floor to `ruff>=0.16.0` so a local run cannot silently pass with an
   older ruff than CI uses.
+- **Declared Home Assistant floor raised to 2026.3.0**: `hacs.json` declared
+  `2025.1.0`, but the integration ships PEP 758 parenthesis-less multi-type
+  `except` clauses (e.g. `except CannotConnect, InvalidAuth:`) in nine modules.
+  That syntax is Python 3.14 only, which means Home Assistant 2026.3 or newer;
+  on anything older every one of those modules fails to import with a
+  `SyntaxError`, so users on 2025.x through 2026.2 would install a broken
+  integration from HACS. Raises the declared floor to `2026.3.0` and corrects
+  the contradictory "Requires Home Assistant 2025.1+ (Python 3.14)" module
+  docstring, the `homeassistant>=2025.1.0` development pin, and the stale
+  Python 3.12/3.13 references in the development and CI docs. Raised in
+  [hacs/default#6988](https://github.com/hacs/default/pull/6988).
+- **Dev container could not run the integration**: `.devcontainer/Dockerfile`
+  built on `python:3.13`, so the "Recommended" development path could not
+  import the integration's Python 3.14-only syntax at all. Bumped to
+  `python:3.14` and corrected the dev container's stale
+  `homeassistant>=2024.1.0` package list. Also aligned the `homeassistant`
+  floor in the mypy/basedpyright tox environments with the declared HACS
+  minimum, and corrected the CI/development docs, which described a
+  `tox -e pyright` environment that does not exist (the env and CI job are
+  both `basedpyright`) and listed a Python 3.12/3.13 job matrix that no longer
+  matches `.github/workflows/ci.yml`.
 
 ## [0.16.2] - 2026-07-14
 

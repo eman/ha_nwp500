@@ -25,7 +25,7 @@ pytest-homeassistant-custom-component>=0.13.0
 pytest-timeout>=2.1.0
 
 # Home Assistant
-homeassistant>=2025.1.0
+homeassistant>=2026.3.0
 
 # Test automation
 tox>=4.0.0

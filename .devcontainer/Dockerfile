@@ -1,5 +1,5 @@
 # Development container for Navien NWP500 Home Assistant Integration
-FROM mcr.microsoft.com/devcontainers/python:3.13
+FROM mcr.microsoft.com/devcontainers/python:3.14
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
