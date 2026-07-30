@@ -5,7 +5,7 @@ set_reservation:
   description: >-
     Create or update a single reservation schedule entry. Reservations allow
     automatic mode and temperature changes at scheduled times. The device
-    supports up to 7 reservation entries.
+    supports up to 16 reservation entries.
   fields:
     device_id:
       name: Device
@@ -129,7 +129,7 @@ update_reservations:
       name: Reservations
       description: >-
         List of reservation entries. Each entry should be a dictionary with keys:
-        enable (1=enabled, 2=disabled), week (day bitfield), hour (0-23),
+        enable (2=enabled, 1=disabled), week (day bitfield), hour (0-23),
         min (0-59), mode (1-6), param (temperature in half-degrees Celsius).
         Use the set_reservation service for a simpler interface.
       required: true
@@ -255,7 +255,7 @@ set_vacation_days:
   name: Set Vacation Days
   description: >-
     Configure vacation mode duration. Sets the device to vacation mode for
-    the specified number of days (1-365). Vacation mode reduces energy
+    the specified number of days (1-30). Vacation mode reduces energy
     consumption during extended absences.
   fields:
     device_id:
@@ -306,7 +306,9 @@ set_recirculation_mode:
           integration: nwp500
     mode:
       name: Mode
-      description: Recirculation pump operation mode
+      description: >-
+        Recirculation pump operation mode: 1=Always On, 2=Button/On Demand,
+        3=Schedule, 4=Temperature Triggered
       required: true
       selector:
         select:

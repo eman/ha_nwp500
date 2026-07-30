@@ -431,7 +431,7 @@
   "services": {
     "set_reservation": {
       "name": "Set Reservation",
-      "description": "Create or update a single reservation schedule entry. Reservations allow automatic mode and temperature changes at scheduled times. The device supports up to 7 reservation entries.",
+      "description": "Create or update a single reservation schedule entry. Reservations allow automatic mode and temperature changes at scheduled times. The device supports up to 16 reservation entries.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -460,6 +460,10 @@
         "temperature": {
           "name": "Temperature",
           "description": "Target temperature in Fahrenheit (80-150°F). Required for heating modes, ignored for vacation and power off modes."
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },
@@ -473,11 +477,15 @@
         },
         "reservations": {
           "name": "Reservations",
-          "description": "List of reservation entries. Each entry should be a dictionary with keys: enable (1=enabled, 2=disabled), week (day bitfield), hour (0-23), min (0-59), mode (1-6), param (temperature in half-degrees Celsius). Use the set_reservation service for a simpler interface."
+          "description": "List of reservation entries. Each entry should be a dictionary with keys: enable (2=enabled, 1=disabled), week (day bitfield), hour (0-23), min (0-59), mode (1-6), param (temperature in half-degrees Celsius). Use the set_reservation service for a simpler interface."
         },
         "enabled": {
           "name": "System Enabled",
           "description": "Whether the reservation system is enabled overall"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },
@@ -488,6 +496,10 @@
         "device_id": {
           "name": "Device",
           "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },
@@ -498,6 +510,10 @@
         "device_id": {
           "name": "Device",
           "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },
@@ -595,7 +611,7 @@
     },
     "configure_tou_schedule": {
       "name": "Configure TOU Schedule",
-      "description": "Configure the Time of Use (TOU) pricing schedule on the device. Up to 16 periods can be defined with seasonal, weekly, and time-based pricing information.",
+      "description": "Configure the Time of Use (TOU) pricing schedule on the device. Up to 16 periods can be defined with seasonal, weekly, and time-based pricing information. The device uses this to optimize heating based on electricity rates.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -603,21 +619,29 @@
         },
         "periods": {
           "name": "TOU Periods",
-          "description": "List of TOU period entries with season, week, time, and price fields."
+          "description": "List of TOU period entries (max 16). Each entry is a dictionary with keys: season (month bitfield 0-4095), week (day bitfield 0-254, Sun=128..Sat=2), start_hour (0-23), start_minute (0-59), end_hour (0-23), end_minute (0-59), price_min (encoded price), price_max (encoded price), decimal_point (decimal places for price)."
         },
         "enabled": {
           "name": "Enabled",
           "description": "Whether the TOU scheduling system is enabled"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     },
     "request_tou_settings": {
       "name": "Request TOU Settings",
-      "description": "Request the current Time of Use (TOU) schedule configuration from the device. The response will be stored and fired as a nwp500_tou_updated event.",
+      "description": "Request the current Time of Use (TOU) schedule configuration from the device. The response will be stored in the coordinator and fired as a nwp500_tou_updated event.",
       "fields": {
         "device_id": {
           "name": "Device",
           "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
     }
