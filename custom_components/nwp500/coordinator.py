@@ -1069,7 +1069,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             try:
                 await request(mac_address)
-            except (RuntimeError, OSError, MqttError) as err:
+            except (TimeoutError, RuntimeError, OSError, MqttError) as err:
+                # TimeoutError is caught deliberately: the caller's own
+                # handler treats it as a failed *status* request and starts
+                # counting toward a forced reconnect, so a slow schedule
+                # re-read must not be mistaken for a dead connection.
                 _LOGGER.debug(
                     "Periodic %s refresh failed for %s: %s",
                     label,

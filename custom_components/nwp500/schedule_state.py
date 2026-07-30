@@ -13,6 +13,7 @@ dicts the coordinator stores, which are `model_dump()` output rather than
 model instances.
 """
 
+import copy
 import hashlib
 import json
 from typing import Any
@@ -81,9 +82,14 @@ def schedule_hash(
 
 
 def reservation_entries(schedule: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return the raw reservation/TOU entries from a stored schedule."""
+    """Return the raw reservation/TOU entries from a stored schedule.
+
+    Deep-copied: `model_dump()` includes computed fields such as the `days`
+    list, so a shallow copy would still share those nested objects with the
+    coordinator's stored schedule and let an attribute reader corrupt it.
+    """
     entries = schedule.get("reservation") or []
-    return [dict(entry) for entry in entries]
+    return [copy.deepcopy(entry) for entry in entries]
 
 
 def is_enabled(schedule: dict[str, Any]) -> bool:

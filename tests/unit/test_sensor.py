@@ -629,6 +629,20 @@ class TestScheduleSensors:
 
         assert before != after
 
+    @pytest.mark.parametrize(
+        "cls",
+        [NWP500ReservationScheduleSensor, NWP500TOUScheduleSensor],
+    )
+    def test_no_state_class(self, mock_coordinator, mock_device, cls):
+        """An entry count is unitless, so it must not be a MEASUREMENT.
+
+        Home Assistant expects MEASUREMENT sensors to carry a unit and would
+        otherwise record meaningless long-term statistics.
+        """
+        sensor = self._sensor(mock_coordinator, mock_device, None, cls)
+
+        assert sensor.state_class is None
+
     def test_attributes_do_not_expose_coordinator_state(
         self, mock_coordinator, mock_device
     ):

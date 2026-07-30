@@ -484,9 +484,10 @@ class NWP500ScheduleSensor(NWP500DiagnosticSensor):
     to run a WebSocket request/event dance and could not simply poll. The
     state is the entry count and the program itself is in the attributes,
     including a canonical hash for cheap desired-vs-programmed comparison.
-    """
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    No state_class: the entry count is a unitless configuration value, not a
+    measurement, and long-term statistics over it would be meaningless.
+    """
 
     def __init__(
         self,

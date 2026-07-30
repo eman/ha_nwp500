@@ -172,3 +172,16 @@ class TestEntries:
 
     def test_missing_key_yields_empty_list(self):
         assert schedule_state.reservation_entries({}) == []
+
+    def test_deep_copies_nested_values(self):
+        """model_dump() adds a computed `days` list, which must not alias.
+
+        A shallow copy would hand callers the coordinator's own list.
+        """
+        original = _entry() | {"days": ["Monday", "Wednesday"]}
+        schedule = {"reservation": [original]}
+
+        returned = schedule_state.reservation_entries(schedule)
+        returned[0]["days"].append("Sunday")
+
+        assert original["days"] == ["Monday", "Wednesday"]
