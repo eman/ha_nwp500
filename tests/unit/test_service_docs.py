@@ -59,6 +59,24 @@ def test_descriptions_match(services_yaml, translations):
         assert actual == expected, f"description drift in service '{name}'"
 
 
+def test_same_fields_defined_everywhere(services_yaml, translations):
+    """Each service must document the same field names in both places.
+
+    Checked separately from the descriptions so a missing or extra field
+    reports which key drifted, rather than surfacing as a KeyError. Six
+    `entity_id` fields were missing from the strings files in issue #105,
+    and an extra field there would otherwise go unnoticed entirely.
+    """
+    for name, spec in services_yaml.items():
+        expected = set(spec.get("fields") or {})
+        actual = set(translations[name].get("fields") or {})
+        assert actual == expected, (
+            f"field drift in service '{name}': "
+            f"missing from strings {sorted(expected - actual)}, "
+            f"unexpected in strings {sorted(actual - expected)}"
+        )
+
+
 def test_field_descriptions_match(services_yaml, translations):
     """Each field's description must be identical in both places."""
     for name, spec in services_yaml.items():
@@ -67,7 +85,9 @@ def test_field_descriptions_match(services_yaml, translations):
                 continue
             expected = " ".join(fspec["description"].split())
             actual = " ".join(
-                translations[name]["fields"][field]["description"].split()
+                translations[name]["fields"][field]
+                .get("description", "")
+                .split()
             )
             assert actual == expected, f"description drift in '{name}.{field}'"
 
