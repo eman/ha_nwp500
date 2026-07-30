@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Fixed
+- **CI: ruff 0.16.0 format check**: The `ruff` tox environment declared
+  `ruff>=0.1.0`, so CI floated to whatever ruff had most recently released.
+  ruff 0.16.0 began formatting fenced code blocks inside Markdown, which broke
+  the `Lint (ruff)` job on every pull request: two ```` ```python ```` blocks in
+  `scripts/README.md` are illustrative listings of deprecated API names with
+  deliberately aligned trailing comments, not runnable code. Retags those two
+  blocks as ```` ```text ```` so the formatter leaves the alignment alone, and
+  raises the floor to `ruff>=0.16.0` so a local run cannot silently pass with an
+  older ruff than CI uses.
+
 ## [0.16.2] - 2026-07-14
 
 ### Fixed

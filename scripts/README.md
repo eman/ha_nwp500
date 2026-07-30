@@ -66,7 +66,7 @@ python3 scripts/check_deprecated_apis.py
 ### Examples
 
 **Will flag:**
-```python
+```text
 async_get_registry()          # Use specific registries
 get_registry()                # Use async_get instead
 ENTITY_ID_ALL_ATTRS          # Removed in 2022.2+
@@ -74,7 +74,7 @@ EntityComponent()             # Use entity platform instead
 ```
 
 **Will not flag (whitelisted):**
-```python
+```text
 async_add_entities()          # Standard platform method
 STATE_UNKNOWN                 # Valid state constants
 from homeassistant.const      # Standard imports
