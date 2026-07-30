@@ -24,10 +24,9 @@ The CI pipeline is defined in `.github/workflows/ci.yml` and runs automatically 
 - **Command**: `tox -e pyright`
 
 ### 3. Tests
-- **Purpose**: Run unit tests across Python versions
-- **Python Versions**: 3.12 and 3.13
-- **Command**: `tox -e py312` / `tox -e py313`
-- **Note**: Python 3.12 allowed to fail (optional)
+- **Purpose**: Run unit tests
+- **Python Versions**: 3.14 (the integration uses Python 3.14-only syntax)
+- **Command**: `tox -e py314`
 
 ### 4. Coverage
 - **Purpose**: Ensure test coverage meets requirements
@@ -66,7 +65,7 @@ tox
 # Or run individual checks
 tox -e mypy      # Type checking with mypy
 tox -e pyright   # Type checking with pyright
-tox -e py313     # Unit tests on Python 3.13
+tox -e py314     # Unit tests on Python 3.14
 tox -e coverage  # Tests with coverage validation
 ```
 
@@ -92,7 +91,7 @@ If coverage is below 80%:
 
 If unit tests fail:
 1. Review the test output in the CI log
-2. Run failing tests locally: `tox -e py313 -- tests/path/to/test.py`
+2. Run failing tests locally: `tox -e py314 -- tests/path/to/test.py`
 3. Fix the code or tests
 4. Verify all tests pass before pushing
 
@@ -116,7 +115,7 @@ This is configured in `.coveragerc`.
 All PRs must pass CI checks before merging:
 - mypy type checking
 - pyright type checking
-- Unit tests (Python 3.13)
+- Unit tests (Python 3.14)
 - Coverage ≥80%
 
 The "All Checks Passed" job provides a single status check that must be green.

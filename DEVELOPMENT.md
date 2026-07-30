@@ -42,8 +42,8 @@ Device Control: HA Command → MQTT Message → Device Response → Status Updat
 ## Setting Up Development
 
 ### Prerequisites
-- Python 3.13+
-- Home Assistant 2025.1.0+
+- Python 3.14+
+- Home Assistant 2026.3.0+
 - Virtual environment recommended
 
 ### Environment Setup
@@ -68,7 +68,7 @@ uv pip install -r requirements.txt
 tox
 
 # Specific environments
-tox -e py313            # Test on Python 3.13
+tox -e py314            # Test on Python 3.14
 tox -e coverage         # Test with coverage (requires 80%+)
 tox -e mypy             # Type check with mypy
 tox -e basedpyright     # Type check with basedpyright
@@ -152,9 +152,9 @@ python3 scripts/check_deprecated_apis.py
 1. `lint` - Automated linting and formatting (ruff)
 2. `hassfest` - Official Home Assistant validation
 3. `deprecated-apis` - No deprecated HA APIs
-4. `mypy` - Type check with mypy (Python 3.13)
-5. `pyright` - Type check with pyright (Python 3.13)
-6. `tests` - Tests on Python 3.13 + 3.14
+4. `mypy` - Type check with mypy (Python 3.14)
+5. `pyright` - Type check with pyright (Python 3.14)
+6. `tests` - Tests on Python 3.14
 7. `coverage` - 80%+ coverage enforced
 
 ## Releasing
