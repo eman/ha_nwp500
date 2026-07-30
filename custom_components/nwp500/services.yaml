@@ -3,9 +3,11 @@
 set_reservation:
   name: Set Reservation
   description: >-
-    Create or update a single reservation schedule entry. Reservations allow
-    automatic mode and temperature changes at scheduled times. The device
-    supports up to 16 reservation entries.
+    Create or update a single reservation schedule entry. An existing entry
+    scheduled for the same days and time is replaced, so repeating a call
+    updates it rather than adding a duplicate. Reservations allow automatic
+    mode and temperature changes at scheduled times. The device supports up
+    to 16 reservation entries.
   fields:
     device_id:
       name: Device

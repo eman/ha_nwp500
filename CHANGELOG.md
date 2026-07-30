@@ -19,6 +19,23 @@
   field-by-field key list. Adds tests pinning the three files together so they
   cannot drift again. Fixes
   [issue #105](https://github.com/eman/ha_nwp500/issues/105).
+- **`set_reservation` could wipe every reservation on the device**: the
+  service does a read-modify-write against the cached reservation schedule,
+  but the write is a full-list replacement at the protocol level. When the
+  schedule had never been fetched the cache was empty, and the handler only
+  logged a warning before pushing a single-entry list — replacing every
+  reservation the device held. It now fetches the schedule and waits for the
+  device's response first, and raises an error rather than writing if the
+  schedule cannot be read. Adds `NWP500DataUpdateCoordinator.async_fetch_reservations()`,
+  which requests the schedule and awaits the reply, since
+  `async_request_reservations()` only publishes the request.
+- **`set_reservation` was append-only despite its name**: documented as
+  "create or update", the handler only appended, so repeating a call — or
+  programming a different mode at a day and time already scheduled —
+  accumulated conflicting entries with no way to update one in place. An
+  entry occupying the same slot (same `week` bitfield, hour and minute) is
+  now replaced. Fixes
+  [issue #104](https://github.com/eman/ha_nwp500/issues/104).
 - **`configure_tou_schedule` rejected Sunday and every-day periods**: the
   service validated each period's `week` bitfield with `Range(min=0, max=127)`,
   which excludes bit 7 (Sunday = 128) and therefore every Sunday-inclusive
