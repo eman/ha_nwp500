@@ -34,6 +34,36 @@
   both `basedpyright`) and listed a Python 3.12/3.13 job matrix that no longer
   matches `.github/workflows/ci.yml`.
 
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to
+  [9.2.1](https://github.com/eman/nwp500-python/releases/tag/v9.2.1). No
+  breaking changes affecting this integration, and no code changes were
+  required. Notable changes:
+  - Demand response commands are now gated on the `dr_setting_use` capability
+    flag ([issue #114](https://github.com/eman/nwp500-python/issues/114)).
+    The `nwp500.enable_demand_response` / `nwp500.disable_demand_response`
+    services will now fail with "Failed to enable/disable demand response" on
+    devices that do not report DR support, instead of silently dispatching a
+    command the device ignores. This matches the behavior the integration
+    already had for every other capability-gated command (`set_power`,
+    `set_dhw_mode`, `set_tou_enabled`, recirculation), so no new handling was
+    needed.
+  - `set_freeze_protection_temperature` now validates against the device's
+    reported `freeze_protection_temp_min`/`freeze_protection_temp_max` and is
+    gated on the `freeze_protection_use` capability
+    ([issue #112](https://github.com/eman/nwp500-python/issues/112)). This
+    integration does not call that command, so there is no impact.
+  - Adds opt-in `update_reservations_confirmed()` /
+    `configure_tou_schedule_confirmed()` helpers that await the device's
+    `rsv/rd`/`tou/rd` echo and return the schedule the device actually holds,
+    plus `canonical()` comparison helpers
+    ([issue #111](https://github.com/eman/nwp500-python/issues/111)). The
+    `update_reservations` and `configure_tou_schedule` services still use the
+    fire-and-forget variants and report success once the write is published;
+    adopting the confirmed variants is tracked separately.
+  - Documentation fix to the `decode_reservation_hex` docstring
+    ([issue #113](https://github.com/eman/nwp500-python/issues/113)).
+
 ## [0.16.2] - 2026-07-14
 
 ### Fixed
