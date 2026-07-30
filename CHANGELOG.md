@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-07-30
+
 ### Added
 - **Programmed schedules readable as entity state**: the reservation and TOU
   schedules were only reachable as in-process coordinator dicts and one-shot
@@ -1041,7 +1043,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.16.2...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/eman/ha_nwp500/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/eman/ha_nwp500/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/eman/ha_nwp500/compare/v0.16.0...v0.16.1
 [0.16.0]: https://github.com/eman/ha_nwp500/compare/v0.15.5...v0.16.0
