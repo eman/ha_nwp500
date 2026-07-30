@@ -134,7 +134,23 @@ The integration maps nwp500-python operation modes to Home Assistant states:
 
 ### Updating nwp500-python Library Version
 
-When adopting a new version of the nwp500-python library (the primary dependency), update version references in the following files:
+**Use the script, not a manual edit:**
+
+```bash
+python scripts/update_nwp500_version.py <old_version> <new_version>
+```
+
+It rewrites every reference listed below in one pass. Editing by hand
+reliably misses one of the two install hints (`coordinator.py` and
+`config_flow.py`), which leaves the runtime error paths telling users to
+install different versions. After running it, verify with:
+
+```bash
+grep -rn "nwp500-python==" --include="*.py" --include="*.json" \
+  --include="*.txt" --include="*.ini" --include="*.md" .
+```
+
+The files it covers, for reference:
 
 #### 1. **`custom_components/nwp500/manifest.json`** (REQUIRED)
    - Update the `requirements` array: `"nwp500-python==X.Y.Z"`
@@ -147,7 +163,7 @@ When adopting a new version of the nwp500-python library (the primary dependency
 #### 3. **`tox.ini`** (CRITICAL - MUST UPDATE ALL 3 SECTIONS)
    - Update `[testenv]` deps section: `nwp500-python==X.Y.Z`
    - Update `[testenv:mypy]` deps section: `nwp500-python==X.Y.Z`
-   - Update `[testenv:pyright]` deps section: `nwp500-python==X.Y.Z`
+   - Update `[testenv:basedpyright]` deps section: `nwp500-python==X.Y.Z`
    - Search for all occurrences: `nwp500-python==`
    - **Important**: CI will fail if not all sections are updated!
 

@@ -159,55 +159,59 @@ python3 scripts/check_deprecated_apis.py
 
 ## Releasing
 
-### Using bump2version
+Releases are cut with `scripts/release.sh`, which handles the version bump,
+the changelog section and the git tag in one step.
 
-The recommended way to release is using `bump2version`, which automates version updates across all files.
+### Before you start
 
-**Setup** (one-time):
+Record what changed under `## [Unreleased]` in `CHANGELOG.md`. The release
+workflow publishes that section verbatim as the GitHub release notes, and it
+fails the build if no section exists for the version being tagged.
+
+### Cut the release
+
 ```bash
-source .venv/bin/activate
-pip install -r requirements.txt  # includes bump2version
+./scripts/release.sh patch    # 0.16.2 -> 0.16.3
+./scripts/release.sh minor    # 0.16.2 -> 0.17.0
+./scripts/release.sh major    # 0.16.2 -> 1.0.0
+./scripts/release.sh          # prompts for an explicit version
 ```
 
-**Create a release:**
+The script reads the current version from `manifest.json` -- there is no
+separate version file to keep in sync -- and then:
+
+1. Refuses to run with uncommitted changes, and warns if you are not on `main`
+2. Bumps `version` in `manifest.json`
+3. Rewrites `## [Unreleased]` into `## [Unreleased]` plus a dated
+   `## [X.Y.Z] - YYYY-MM-DD` heading, and adds the compare links at the
+   bottom of the changelog
+4. Runs `tox -e mypy`, aborting if type checking fails
+5. Shows the diff and asks for confirmation, rolling the files back if you
+   decline
+6. Creates the `chore: Release vX.Y.Z` commit and the `vX.Y.Z` tag
+
+It stops there. Nothing is pushed, so you can inspect the commit and tag --
+or delete them -- before publishing.
+
+### Publish
+
 ```bash
-# Preview changes (dry-run)
-bump2version --dry-run --verbose patch  # or minor/major
-
-# Bump patch version (0.2.0 → 0.2.1)
-bump2version patch
-
-# Bump minor version (0.2.0 → 0.3.0)
-bump2version minor
-
-# Bump major version (0.2.0 → 1.0.0)
-bump2version major
+git push && git push --tags
 ```
 
-This automatically:
-1. Updates `manifest.json` version
-2. Updates `CHANGELOG.md` with new section
-3. Updates `.bumpversion.cfg` current_version
-4. Commits all changes
-5. Creates and tags git commit (vX.Y.Z)
-6. Pushes commit and tag to origin
+Pushing the tag is what triggers the release. `.github/workflows/release.yml`
+extracts the `## [X.Y.Z]` changelog section, creates the GitHub release with
+those notes, and attaches a `nwp500-<version>.zip` of the integration.
 
-**Manual Release** (if not using bump2version):
+### Undoing an unpushed release
 
-### Checklist
-1. All tests passing: `tox`
-2. Update version in `manifest.json`
-3. Update `CHANGELOG.md` with date: `date +%Y-%m-%d`
-4. Commit: `git commit -m "Release vX.Y.Z"`
-5. Tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
-6. Push: `git push origin main && git push origin vX.Y.Z`
+```bash
+git tag -d vX.Y.Z
+git reset --hard HEAD~1
+```
 
-### Automated Workflow
-After pushing tag, GitHub Actions will:
-1. Extract changelog from `CHANGELOG.md`
-2. Create GitHub release with changelog
-3. Build and upload ZIP archive
-4. Attach to release
+Once the tag is pushed the release is public, so check the staged commit
+before pushing rather than after.
 
 ### CHANGELOG.md Format
 ```markdown
@@ -228,20 +232,32 @@ After pushing tag, GitHub Actions will:
 
 ## Updating nwp500-python Library
 
-When adopting a new version of the core library:
+Use `scripts/update_nwp500_version.py`, which rewrites every pinned
+reference in one pass:
 
-1. Update `manifest.json`: `"requirements": ["nwp500-python==X.Y.Z"]`
-2. Update `requirements.txt`: `nwp500-python==X.Y.Z`
-3. Update error messages in `coordinator.py` and `config_flow.py`
-4. Update `CHANGELOG.md` under "Library Dependency: nwp500-python"
-5. Update `README.md` version reference only (no detailed changelog)
-6. Update `.devcontainer/README.md` if present
-7. Update `.github/copilot-instructions.md`
-8. **Critical**: Update `tox.ini` - ALL occurrences of version
-9. Run type checking: `tox -e mypy --recreate`
-10. Commit and test in dev environment
+```bash
+python scripts/update_nwp500_version.py 9.2.0 9.2.1
+```
 
-See `.github/copilot-instructions.md` for comprehensive update checklist.
+It updates `manifest.json`, `requirements.txt`, `tox.ini` (all sections),
+the install hints in `coordinator.py` and `config_flow.py`, `README.md`,
+`.devcontainer/README.md`, `.github/copilot-instructions.md`, and adds or
+updates the "Library Dependency: nwp500-python" entry under
+`## [Unreleased]` in `CHANGELOG.md`.
+
+Doing this by hand is error-prone: the version appears in eight files, and
+the two install hints in `coordinator.py` and `config_flow.py` are easy to
+miss individually, which leaves the runtime error paths telling users to
+install different versions.
+
+Afterwards:
+
+1. Review the diff: `git diff`
+2. Confirm nothing was missed: `grep -rn "nwp500-python==" --include="*.py" \
+   --include="*.json" --include="*.txt" --include="*.ini" --include="*.md" .`
+3. Read the release notes for behavior changes that affect this integration,
+   and expand the CHANGELOG entry accordingly
+4. Run `tox -e mypy --recreate` and `tox`
 
 ## Docker Development
 
