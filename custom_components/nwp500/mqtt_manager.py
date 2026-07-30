@@ -558,7 +558,11 @@ class NWP500MqttManager:
             self.reconnection_in_progress = False
 
     def _handle_command_error(self, err: Exception, context: str) -> bool:
-        """Log a failed device command.
+        """Log a failed outbound MQTT request.
+
+        Covers every publish-backed call this manager makes: control commands,
+        status requests, device-info requests, and the post-command status
+        refresh. The caller passes `context` to identify which one failed.
 
         As of nwp500-python 9.2.0, NavienMqttClient.publish() no longer lets
         awscrt exceptions escape: a clean-session cancellation during
@@ -566,8 +570,12 @@ class NWP500MqttManager:
         normally, and any other AWS CRT failure is wrapped in MqttPublishError.
         So every exception reaching here is a genuine failure.
 
+        Args:
+            err: The exception raised by the library call.
+            context: Short description of the operation, used in the log line.
+
         Returns:
-            bool: Always False - the command did not succeed.
+            bool: Always False - the request did not succeed.
         """
         _LOGGER.error("Error during %s: %s", context, err)
         return False
