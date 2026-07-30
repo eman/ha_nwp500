@@ -1253,3 +1253,94 @@ class TestSetReservationRefusesUnfetchedWrite:
             await handler(self._call())
 
         coordinator.async_update_reservations.assert_not_called()
+
+
+class TestSetReservationPreservesGlobalSwitch:
+    """The device's global reservation switch is not this service's to change.
+
+    `set_reservation`'s `enabled` field is entry-level. The schedule-wide
+    switch is `reservation_use` (device bool: 2=on, 1=off), and the handler
+    used to force it on with a hardcoded `enabled=True`.
+    """
+
+    @staticmethod
+    def _coordinator(mock_hass, schedule):
+        import asyncio
+
+        coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        coordinator.hass = mock_hass
+        coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        coordinator.device_features = {}
+        coordinator.reservation_schedules = {"AA:BB:CC:DD:EE:FF": schedule}
+        coordinator._reservation_lock = asyncio.Lock()
+        coordinator.async_update_reservations = AsyncMock(return_value=True)
+        coordinator.async_request_reservations = AsyncMock(return_value=True)
+        coordinator.async_fetch_reservations = AsyncMock(return_value=schedule)
+        return coordinator
+
+    async def _run(self, mock_hass, mock_device_registry, schedule):
+        coordinator = self._coordinator(mock_hass, schedule)
+        mock_hass.data[DOMAIN]["entry_1"] = coordinator
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+        await _async_setup_services(mock_hass)
+        handler = None
+        for registered in mock_hass.services.async_register.call_args_list:
+            if registered[0][1] == SERVICE_SET_RESERVATION:
+                handler = registered[0][2]
+                break
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            ATTR_ENABLED: True,
+            ATTR_DAYS: ["Monday"],
+            ATTR_HOUR: 6,
+            ATTR_MINUTE: 30,
+            ATTR_OP_MODE: "energy_saver",
+            ATTR_TEMPERATURE: 140,
+        }
+        await handler(call)
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_keeps_the_switch_off_when_device_has_it_off(
+        self, mock_hass, mock_device_registry
+    ):
+        """A disabled reservation system stays disabled."""
+        coordinator = await self._run(
+            mock_hass,
+            mock_device_registry,
+            {"reservation": [], "reservation_use": 1},
+        )
+
+        _, kwargs = coordinator.async_update_reservations.call_args
+        assert kwargs["enabled"] is False
+
+    @pytest.mark.asyncio
+    async def test_keeps_the_switch_on_when_device_has_it_on(
+        self, mock_hass, mock_device_registry
+    ):
+        """An enabled reservation system stays enabled."""
+        coordinator = await self._run(
+            mock_hass,
+            mock_device_registry,
+            {"reservation": [], "reservation_use": 2},
+        )
+
+        _, kwargs = coordinator.async_update_reservations.call_args
+        assert kwargs["enabled"] is True
+
+    @pytest.mark.asyncio
+    async def test_enables_when_device_did_not_report_the_switch(
+        self, mock_hass, mock_device_registry
+    ):
+        """With no reported value there is nothing to preserve."""
+        coordinator = await self._run(
+            mock_hass, mock_device_registry, {"reservation": []}
+        )
+
+        _, kwargs = coordinator.async_update_reservations.call_args
+        assert kwargs["enabled"] is True

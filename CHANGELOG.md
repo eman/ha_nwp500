@@ -34,7 +34,13 @@
   programming a different mode at a day and time already scheduled —
   accumulated conflicting entries with no way to update one in place. An
   entry occupying the same slot (same `week` bitfield, hour and minute) is
-  now replaced. Fixes
+  now replaced.
+- **`set_reservation` forced the device's reservation system on**: the
+  handler passed a hardcoded `enabled=True` to the full-list write, so
+  adding or updating a single entry silently re-enabled the schedule-wide
+  reservation switch on a device where it had been turned off. That switch
+  (`reservation_use`) is separate from this service's entry-level `enabled`
+  field, and is now preserved from the device's own reported state. Fixes
   [issue #104](https://github.com/eman/ha_nwp500/issues/104).
 - **`configure_tou_schedule` rejected Sunday and every-day periods**: the
   service validated each period's `week` bitfield with `Range(min=0, max=127)`,

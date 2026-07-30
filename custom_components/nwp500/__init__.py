@@ -533,8 +533,18 @@ class NWP500ServiceHandler:
                 list(existing_schedule.get("reservation", [])), reservation
             )
 
+            # This service's `enabled` field is entry-level. The device's
+            # global reservation switch is separate, so preserve whatever it
+            # currently is instead of forcing it on. `reservation_use` uses
+            # the device bool convention (2=on, 1=off); if the device did not
+            # report it, fall back to enabling.
+            reservation_use = existing_schedule.get("reservation_use")
+            system_enabled = (
+                True if reservation_use is None else reservation_use == 2
+            )
+
             success = await coordinator.async_update_reservations(
-                mac_address, existing_entries, enabled=True
+                mac_address, existing_entries, enabled=system_enabled
             )
 
         if not success:

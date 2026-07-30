@@ -1061,15 +1061,19 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             if not await self.async_request_reservations(mac_address):
                 return None
-            return await asyncio.wait_for(waiter, timeout=timeout)
-        except TimeoutError:
-            _LOGGER.warning(
-                "Timed out after %.0fs waiting for the reservation schedule "
-                "of %s",
-                timeout,
-                mac_address,
-            )
-            return None
+            # Only the wait is guarded, so a TimeoutError raised anywhere
+            # else (e.g. inside the publish above) propagates instead of
+            # being reported as "the device did not answer in time".
+            try:
+                return await asyncio.wait_for(waiter, timeout=timeout)
+            except TimeoutError:
+                _LOGGER.warning(
+                    "Timed out after %.0fs waiting for the reservation "
+                    "schedule of %s",
+                    timeout,
+                    mac_address,
+                )
+                return None
         finally:
             pending = self._reservation_waiters.get(mac_address)
             if pending and waiter in pending:
