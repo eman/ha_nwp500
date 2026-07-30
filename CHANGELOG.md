@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Fixed
+- **`configure_tou_schedule` rejected Sunday and every-day periods**: the
+  service validated each period's `week` bitfield with `Range(min=0, max=127)`,
+  which excludes bit 7 (Sunday = 128) and therefore every Sunday-inclusive
+  mask, including "every day" = 254. TOU uses the same weekday bitfield as
+  reservations (`Sun=128..Sat=2`), and the reservation validator in the same
+  file already allowed `0-254`. Raised the TOU bound to match, added the same
+  explanatory message, and corrected the `services.yaml` field description,
+  which also documented `0-127`. Fixes
+  [issue #106](https://github.com/eman/ha_nwp500/issues/106).
 - **CI: ruff 0.16.0 format check**: The `ruff` tox environment declared
   `ruff>=0.1.0`, so CI floated to whatever ruff had most recently released.
   ruff 0.16.0 began formatting fenced code blocks inside Markdown, which broke

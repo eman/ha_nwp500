@@ -369,7 +369,8 @@ configure_tou_schedule:
       name: TOU Periods
       description: >-
         List of TOU period entries (max 16). Each entry is a dictionary with
-        keys: season (month bitfield 0-4095), week (day bitfield 0-127),
+        keys: season (month bitfield 0-4095), week (day bitfield 0-254,
+        Sun=128..Sat=2),
         start_hour (0-23), start_minute (0-59), end_hour (0-23),
         end_minute (0-59), price_min (encoded price), price_max (encoded price),
         decimal_point (decimal places for price).
