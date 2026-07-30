@@ -30,6 +30,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MIN_RECONNECT_INTERVAL,
+    SCHEDULE_REFRESH_CYCLES,
     SLOW_UPDATE_THRESHOLD,
 )
 from .mqtt_manager import NWP500MqttManager
@@ -87,6 +88,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
+        # Track periodic schedule re-reads. The device only reports its
+        # reservation/TOU program when asked, so without this the exposed
+        # schedule state would go stale after any change made outside Home
+        # Assistant (the app, the front panel).
+        self._schedule_request_counter: dict[str, int] = {}
 
         # Performance tracking
         self._update_count: int = 0
@@ -399,6 +405,20 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                     "for %s",
                                     mac_address,
                                 )
+
+                        # Periodically re-read the programmed schedules so
+                        # the exposed entity state reflects changes made
+                        # outside Home Assistant (the vendor app, the front
+                        # panel). The device only reports them when asked.
+                        schedule_counter = (
+                            self._schedule_request_counter.get(mac_address, 0)
+                            + 1
+                        ) % SCHEDULE_REFRESH_CYCLES
+                        self._schedule_request_counter[mac_address] = (
+                            schedule_counter
+                        )
+                        if schedule_counter == 0:
+                            await self._async_refresh_schedules(mac_address)
 
                     except TimeoutError, MqttError:
                         self._consecutive_timeouts += 1
@@ -1034,6 +1054,28 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return await self.mqtt_manager.send_command(
             device, "request_reservations"
         )
+
+    async def _async_refresh_schedules(self, mac_address: str) -> None:
+        """Re-read the programmed reservation and TOU schedules.
+
+        Fire-and-forget: the responses land in `reservation_schedules` /
+        `tou_schedules` through the MQTT callbacks, which is what the
+        schedule sensors read. Failures are logged and ignored so a schedule
+        refresh never breaks the status update cycle.
+        """
+        for label, request in (
+            ("reservations", self.async_request_reservations),
+            ("TOU settings", self.async_request_tou_settings),
+        ):
+            try:
+                await request(mac_address)
+            except (RuntimeError, OSError, MqttError) as err:
+                _LOGGER.debug(
+                    "Periodic %s refresh failed for %s: %s",
+                    label,
+                    mac_address,
+                    err,
+                )
 
     async def async_fetch_reservations(
         self, mac_address: str, timeout: float = 10.0

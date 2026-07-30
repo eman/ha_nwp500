@@ -23,6 +23,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from . import schedule_state
 from .const import DOMAIN, SENSOR_CONFIGS
 from .coordinator import NWP500DataUpdateCoordinator
 from .entity import NWP500Entity
@@ -196,6 +197,13 @@ async def async_setup_entry(
             entities.append(
                 NWP500Sensor(coordinator, mac_address, device, description)
             )
+        # Programmed schedules, readable per device
+        entities.append(
+            NWP500ReservationScheduleSensor(coordinator, mac_address, device)
+        )
+        entities.append(
+            NWP500TOUScheduleSensor(coordinator, mac_address, device)
+        )
 
     # Add diagnostic telemetry sensors (one per integration, not per device)
     if coordinator.data:
@@ -466,3 +474,104 @@ class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
         """Return the number of consecutive timeouts."""
         telemetry = self.coordinator.get_mqtt_telemetry()
         return int(telemetry.get("consecutive_timeouts", 0))
+
+
+class NWP500ScheduleSensor(NWP500DiagnosticSensor):
+    """Exposes a programmed schedule as readable entity state.
+
+    The reservation and TOU schedules were previously reachable only as
+    coordinator dicts and one-shot bus events, so an external scheduler had
+    to run a WebSocket request/event dance and could not simply poll. The
+    state is the entry count and the program itself is in the attributes,
+    including a canonical hash for cheap desired-vs-programmed comparison.
+    """
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Device,
+        key: str,
+        store: str,
+        canonical_fn: Callable[[dict[str, Any]], Any],
+    ) -> None:
+        """Initialize the schedule sensor."""
+        super().__init__(coordinator, mac_address, device, key)
+        self._store = store
+        self._canonical_fn = canonical_fn
+
+    def _schedule(self) -> dict[str, Any] | None:
+        """Return the stored schedule, or None if never fetched."""
+        store: dict[str, dict[str, Any]] = getattr(
+            self.coordinator, self._store
+        )
+        return store.get(self.mac_address)
+
+    @property
+    def native_value(self) -> int | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return the number of programmed entries.
+
+        None until the schedule has been read, so "not fetched yet" stays
+        distinguishable from "device has no entries".
+        """
+        schedule = self._schedule()
+        if schedule is None:
+            return None
+        return len(schedule_state.reservation_entries(schedule))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return the programmed entries and a hash of the program."""
+        schedule = self._schedule()
+        if schedule is None:
+            return {"entries": [], "enabled": None, "schedule_hash": None}
+
+        return {
+            "entries": schedule_state.reservation_entries(schedule),
+            "enabled": schedule_state.is_enabled(schedule),
+            "schedule_hash": schedule_state.schedule_hash(
+                self._canonical_fn(schedule)
+            ),
+        }
+
+
+class NWP500ReservationScheduleSensor(NWP500ScheduleSensor):
+    """The programmed reservation schedule."""
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Device,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(
+            coordinator,
+            mac_address,
+            device,
+            "reservation_schedule",
+            "reservation_schedules",
+            schedule_state.reservation_canonical,
+        )
+
+
+class NWP500TOUScheduleSensor(NWP500ScheduleSensor):
+    """The programmed Time of Use schedule."""
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Device,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(
+            coordinator,
+            mac_address,
+            device,
+            "tou_schedule",
+            "tou_schedules",
+            schedule_state.tou_canonical,
+        )

@@ -2,6 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+- **Programmed schedules readable as entity state**: the reservation and TOU
+  schedules were only reachable as in-process coordinator dicts and one-shot
+  `nwp500_reservations_updated` / `nwp500_tou_updated` bus events, so an
+  external scheduler had to run a WebSocket request/event dance and could not
+  poll them like normal state. Adds two diagnostic sensors per device,
+  **Reservation Schedule** and **TOU Schedule**, whose state is the number of
+  programmed entries and whose attributes carry the program itself:
+  - `entries` — the raw entries as the device reports them
+  - `enabled` — whether the schedule system is switched on at the device
+  - `schedule_hash` — a stable, order-independent hash of the program, so a
+    consumer can check desired-vs-programmed with one comparison instead of
+    diffing entries. Mirrors `ReservationSchedule.canonical()` in
+    nwp500-python.
+
+  The state is `None` until the schedule has been read, keeping "not fetched
+  yet" distinct from "device has no entries". The schedules are also
+  re-requested every `SCHEDULE_REFRESH_CYCLES` (40) coordinator updates —
+  roughly every 20 minutes at the default interval — so the exposed state
+  reflects changes made outside Home Assistant, in addition to the existing
+  refresh after each write. Implements
+  [issue #103](https://github.com/eman/ha_nwp500/issues/103).
+
 ### Fixed
 - **Reservation and vacation service documentation corrected**: three
   descriptions contradicted the code or the library. The `update_reservations`

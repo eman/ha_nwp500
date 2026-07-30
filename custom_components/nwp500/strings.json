@@ -329,6 +329,12 @@
       },
       "consecutive_timeouts": {
         "name": "Consecutive Timeouts"
+      },
+      "reservation_schedule": {
+        "name": "Reservation Schedule"
+      },
+      "tou_schedule": {
+        "name": "TOU Schedule"
       }
     },
     "binary_sensor": {
