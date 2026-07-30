@@ -11,34 +11,50 @@ The CI pipeline is defined in `.github/workflows/ci.yml` and runs automatically 
 
 ## CI Jobs
 
-### 1. Type Check (mypy)
+All jobs run on Python 3.14 unless noted — the integration uses Python
+3.14-only syntax and will not import on older interpreters.
+
+### 1. Lint (ruff)
+- **Purpose**: Linting and formatting checks
+- **Command**: `tox -e ruff`
+
+### 2. Hassfest Validation
+- **Purpose**: Official Home Assistant manifest/integration validation
+- **Runs**: `home-assistant/actions/hassfest` (no local tox env)
+
+### 3. Type Check (mypy)
 - **Purpose**: Validate type hints using mypy
 - **Requirement**: Must pass with 0 errors
-- **Python Version**: 3.12
 - **Command**: `tox -e mypy`
 
-### 2. Type Check (pyright)
-- **Purpose**: Validate type hints using pyright
-- **Requirement**: Must pass with 0 errors (warnings acceptable)
-- **Python Version**: 3.12
-- **Command**: `tox -e pyright`
+### 4. Check Deprecated APIs
+- **Purpose**: Flag deprecated Home Assistant API usage
+- **Python Version**: 3.13 (the script scans source text and does not import it)
+- **Command**: `python3 scripts/check_deprecated_apis.py`
 
-### 3. Tests
+### 5. Type Check (basedpyright)
+- **Purpose**: Validate type hints using basedpyright
+- **Requirement**: Must pass with 0 errors (warnings acceptable)
+- **Command**: `tox -e basedpyright`
+
+### 6. Tests
 - **Purpose**: Run unit tests
-- **Python Versions**: 3.14 (the integration uses Python 3.14-only syntax)
 - **Command**: `tox -e py314`
 
-### 4. Coverage
+### 7. Test Coverage
 - **Purpose**: Ensure test coverage meets requirements
 - **Requirement**: ≥80% overall coverage
-- **Python Version**: 3.13
 - **Command**: `tox -e coverage`
 - **Artifacts**:
   - Coverage report uploaded to Codecov
   - HTML coverage report saved as artifact (30-day retention)
   - XML coverage report for external tools
 
-### 5. All Checks Passed
+### 8. HACS Validation
+- **Purpose**: Validate the repository against HACS requirements
+- **Defined in**: `.github/workflows/hacs.yaml`
+
+### 9. All Checks Passed
 - **Purpose**: Summary job that requires all checks to pass
 - **Fails if**: Any of the above jobs fail
 
@@ -64,7 +80,7 @@ tox
 
 # Or run individual checks
 tox -e mypy      # Type checking with mypy
-tox -e pyright   # Type checking with pyright
+tox -e basedpyright  # Type checking with basedpyright
 tox -e py314     # Unit tests on Python 3.14
 tox -e coverage  # Tests with coverage validation
 ```
@@ -73,10 +89,10 @@ tox -e coverage  # Tests with coverage validation
 
 ### Type Checking Failures
 
-If mypy or pyright fails:
+If mypy or basedpyright fails:
 1. Review the error messages in the CI log
 2. Fix type hints in the reported files
-3. Run `tox -e mypy` and `tox -e pyright` locally to verify
+3. Run `tox -e mypy` and `tox -e basedpyright` locally to verify
 4. Commit and push the fixes
 
 ### Coverage Failures
@@ -114,7 +130,7 @@ This is configured in `.coveragerc`.
 
 All PRs must pass CI checks before merging:
 - mypy type checking
-- pyright type checking
+- basedpyright type checking
 - Unit tests (Python 3.14)
 - Coverage ≥80%
 

@@ -121,12 +121,12 @@ tox -e mypy
 
 ### Pyright
 ```bash
-tox -e pyright
+tox -e basedpyright
 ```
 - Fast, IDE-integrated type checker
 - Configuration in `pyrightconfig.json`
 - Set to `basic` mode for balanced strictness
-- Both mypy and pyright must pass in CI
+- Both mypy and basedpyright must pass in CI
 
 ### Type Hints
 - Use full type hints throughout (from `__future__ import annotations`)
@@ -153,7 +153,7 @@ python3 scripts/check_deprecated_apis.py
 2. `hassfest` - Official Home Assistant validation
 3. `deprecated-apis` - No deprecated HA APIs
 4. `mypy` - Type check with mypy (Python 3.14)
-5. `pyright` - Type check with pyright (Python 3.14)
+5. `basedpyright` - Type check with basedpyright (Python 3.14)
 6. `tests` - Tests on Python 3.14
 7. `coverage` - 80%+ coverage enforced
 
