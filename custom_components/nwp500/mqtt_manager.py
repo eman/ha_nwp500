@@ -8,8 +8,6 @@ from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from awscrt.exceptions import AwsCrtError
-
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
         Device,
@@ -31,13 +29,6 @@ _LOGGER = logging.getLogger(__name__)
 # Reconnection backoff delays (seconds): 2s, 5s, 15s, 30s, 60s cap
 _RECONNECT_BACKOFF_DELAYS: list[float] = [2.0, 5.0, 15.0, 30.0, 60.0]
 _RECONNECTION_FAILED_EVENT = "reconnection_failed"
-
-
-def get_aws_error_name(exception: Any) -> str:
-    """Extract the name from an AwsCrtError safely."""
-    if isinstance(exception, AwsCrtError):
-        return str(getattr(exception, "name", ""))
-    return ""
 
 
 class NWP500MqttManager:
@@ -372,7 +363,7 @@ class NWP500MqttManager:
             return True
         except Exception as err:
             self.consecutive_timeouts += 1
-            return self._handle_aws_error(err, "status request")
+            return self._handle_command_error(err, "status request")
 
     async def request_device_info(self, device: Device) -> None:
         """Request device info."""
@@ -382,7 +373,7 @@ class NWP500MqttManager:
         try:
             await self.mqtt_client.ensure_device_info_cached(device)
         except Exception as err:
-            self._handle_aws_error(err, "device info request")
+            self._handle_command_error(err, "device info request")
 
     async def send_command(
         self, device: Device, command: str, **kwargs: Any
@@ -480,12 +471,12 @@ class NWP500MqttManager:
             try:
                 await self.mqtt_client.request_device_status(device)
             except Exception as err:
-                self._handle_aws_error(err, "post-command status request")
+                self._handle_command_error(err, "post-command status request")
 
             return True
 
         except Exception as err:
-            return self._handle_aws_error(err, f"command {command}")
+            return self._handle_command_error(err, f"command {command}")
 
     async def force_reconnect(self, devices: list[Device]) -> bool:
         """Force reconnection with exponential backoff.
@@ -566,19 +557,18 @@ class NWP500MqttManager:
         finally:
             self.reconnection_in_progress = False
 
-    def _handle_aws_error(self, err: Exception, context: str) -> bool:
-        """Handle AWS CRT errors gracefully.
+    def _handle_command_error(self, err: Exception, context: str) -> bool:
+        """Log a failed device command.
+
+        As of nwp500-python 9.2.0, NavienMqttClient.publish() no longer lets
+        awscrt exceptions escape: a clean-session cancellation during
+        reconnection is enqueued in the library's command queue and returns
+        normally, and any other AWS CRT failure is wrapped in MqttPublishError.
+        So every exception reaching here is a genuine failure.
 
         Returns:
-            bool: True if error was handled gracefully (e.g. queued), False otherwise.
+            bool: Always False - the command did not succeed.
         """
-        if isinstance(err, AwsCrtError):
-            error_name = get_aws_error_name(err)
-            if error_name == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION":
-                _LOGGER.debug(
-                    "Operation '%s' queued due to reconnection", context
-                )
-                return True
         _LOGGER.error("Error during %s: %s", context, err)
         return False
 

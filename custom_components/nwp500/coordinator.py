@@ -32,7 +32,7 @@ from .const import (
     MIN_RECONNECT_INTERVAL,
     SLOW_UPDATE_THRESHOLD,
 )
-from .mqtt_manager import NWP500MqttManager, get_aws_error_name
+from .mqtt_manager import NWP500MqttManager
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -456,25 +456,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                         self.devices
                                     )
                                 )
-                    except AwsCrtError as err:
-                        # Handle clean session cancellation gracefully
-                        # This occurs during MQTT reconnection and is expected
-                        # The command will be queued and retried automatically
-                        if (
-                            get_aws_error_name(err)
-                            == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-                        ):
-                            _LOGGER.debug(
-                                "Status request queued due to MQTT "
-                                "reconnection for device %s",
-                                mac_address,
-                            )
-                        else:
-                            _LOGGER.error(
-                                "Failed to request status for device %s: %s",
-                                mac_address,
-                                err,
-                            )
                     except (RuntimeError, OSError) as err:
                         _LOGGER.error(
                             "Failed to request status for device %s: %s",

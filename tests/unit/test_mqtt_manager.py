@@ -6,12 +6,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from awscrt.exceptions import AwsCrtError
 
-from custom_components.nwp500.mqtt_manager import (
-    NWP500MqttManager,
-    get_aws_error_name,
-)
+from custom_components.nwp500.mqtt_manager import NWP500MqttManager
 
 
 @pytest.fixture
@@ -200,25 +196,38 @@ async def test_send_command_success(manager, mock_mqtt_client, mock_device):
 
 @pytest.mark.asyncio
 async def test_send_command_queued(manager, mock_mqtt_client, mock_device):
-    """Test sending a command that gets queued due to clean session."""
+    """Test a command queued by the library during reconnection.
+
+    Since nwp500-python 9.2.0, a clean-session cancellation is enqueued in the
+    library's command queue and publish() returns 0 instead of raising, so the
+    command is reported as accepted.
+    """
     await manager.setup()
 
-    # Simulate AwsCrtError for clean session
-    # We need to mock the exception object to have the name attribute
-    error = AwsCrtError(
-        code=0,
-        name="AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION",
-        message="Clean session",
-    )
-    # If name is not set by constructor (depends on version), force it
-    error.name = "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-
-    mock_mqtt_client.set_power.side_effect = error
+    mock_mqtt_client.set_power.return_value = 0  # 0 == queued by the library
 
     result = await manager.send_command(mock_device, "set_power", power_on=True)
 
-    assert result is True  # Should return True as it's queued
+    assert result is True
     mock_mqtt_client.set_power.assert_called_with(mock_device, True)
+
+
+@pytest.mark.asyncio
+async def test_send_command_publish_error(
+    manager, mock_mqtt_client, mock_device
+):
+    """Test that a wrapped MqttPublishError is reported as a failure."""
+    from nwp500 import MqttPublishError
+
+    await manager.setup()
+
+    mock_mqtt_client.set_power.side_effect = MqttPublishError(
+        "Failed to publish to MQTT topic", retriable=True
+    )
+
+    result = await manager.send_command(mock_device, "set_power", power_on=True)
+
+    assert result is False
 
 
 @pytest.mark.asyncio
@@ -469,29 +478,6 @@ async def test_send_command_request_reservations(
 
     assert result is True
     mock_mqtt_client.request_reservations.assert_called_once_with(mock_device)
-
-
-def test_get_aws_error_name_with_awscrterror():
-    """Test get_aws_error_name extracts name from AwsCrtError."""
-    error = AwsCrtError(
-        code=0,
-        name="AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION",
-        message="Test error",
-    )
-    error.name = "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-
-    result = get_aws_error_name(error)
-
-    assert result == "AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION"
-
-
-def test_get_aws_error_name_with_regular_exception():
-    """Test get_aws_error_name returns empty string for non-AWS errors."""
-    error = RuntimeError("Regular error")
-
-    result = get_aws_error_name(error)
-
-    assert result == ""
 
 
 @pytest.mark.asyncio
