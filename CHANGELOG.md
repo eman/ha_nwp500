@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Fixed
+- **Reservation and vacation service documentation corrected**: three
+  descriptions contradicted the code or the library. The `update_reservations`
+  `reservations` field documented `enable (1=enabled, 2=disabled)`, which is
+  inverted — the device bool convention is `2=on, 1=off`
+  (`ReservationEntry.enabled` is `enable == 2`), as the service's own
+  validation message already said. `set_reservation` claimed the device
+  supports "up to 7 reservation entries" while the library documents ~16.
+  `set_vacation_days` described a 1-365 day range while its own field
+  description, selector and validator all cap at 30, which is what the library
+  enforces. Also synchronized `services.yaml` with `strings.json` and
+  `translations/en.json`, which had drifted independently: six `entity_id`
+  fields were missing from the strings files entirely, two service
+  descriptions were truncated, and the TOU `periods` description had lost its
+  field-by-field key list. Adds tests pinning the three files together so they
+  cannot drift again. Fixes
+  [issue #105](https://github.com/eman/ha_nwp500/issues/105).
 - **`configure_tou_schedule` rejected Sunday and every-day periods**: the
   service validated each period's `week` bitfield with `Range(min=0, max=127)`,
   which excludes bit 7 (Sunday = 128) and therefore every Sunday-inclusive
