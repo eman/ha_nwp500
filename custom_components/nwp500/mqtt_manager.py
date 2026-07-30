@@ -242,6 +242,26 @@ class NWP500MqttManager:
                         error=Exception("Connection failed")
                     )
             return bool(connected)
+        except AttributeError as err:
+            # An AttributeError here almost always means the AWS SDK was
+            # upgraded while Home Assistant was already running: the process
+            # holds modules from the old version alongside modules imported
+            # after the upgrade, so new code reads attributes the old classes
+            # do not define. Nothing in this integration can recover from that
+            # in-process -- only a restart clears the stale modules -- so say
+            # so instead of surfacing a bare AttributeError.
+            _LOGGER.error(
+                "MQTT connection failed: %s. This usually means the AWS SDK "
+                "(awscrt/awsiotsdk) was upgraded while Home Assistant was "
+                "running, leaving a mix of old and new modules in this "
+                "process. Restart Home Assistant to resolve it. If the error "
+                "persists after a restart, please report it at "
+                "https://github.com/eman/ha_nwp500/issues",
+                err,
+            )
+            if self.diagnostics:
+                await self.diagnostics.record_connection_drop(error=err)
+            return False
         except Exception as err:
             _LOGGER.warning("MQTT connection failed: %s", err)
             # Record connection failure in diagnostics

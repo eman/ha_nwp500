@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -611,3 +612,75 @@ async def test_setup_clean_session_false_without_user_seq(
 
     assert mock_mqtt_client.config is not None
     assert mock_mqtt_client.config.clean_session is False
+
+
+class TestSdkUpgradedDuringStartup:
+    """An AttributeError from connect() means stale modules, not a bad config.
+
+    Home Assistant can install a newer awscrt/awsiotsdk while it is already
+    running. The process then holds the old modules alongside ones imported
+    after the upgrade, and new code reads attributes the old classes never
+    defined -- observed in the wild as:
+
+        'ClientTlsContext' object has no attribute '_certificate_source'
+
+    Only a restart clears it, so the log has to say that rather than surface
+    a bare AttributeError.
+    """
+
+    @staticmethod
+    def _patch_failing_client(monkeypatch, error):
+        """Patch the client factory so connect() raises `error`."""
+
+        class FailingClient:
+            def __init__(self, *args, **kwargs):
+                self.is_connected = False
+                self.client_id = "test-client-id"
+                self.on = MagicMock()
+                self.off = MagicMock()
+                self.connect = AsyncMock(side_effect=error)
+                self.disconnect = AsyncMock()
+
+        diagnostics = MagicMock()
+        diagnostics.record_connection_success = AsyncMock()
+        diagnostics.record_connection_drop = AsyncMock()
+
+        monkeypatch.setattr("nwp500.NavienMqttClient", FailingClient)
+        monkeypatch.setattr(
+            "nwp500.MqttDiagnosticsCollector",
+            MagicMock(return_value=diagnostics),
+        )
+
+    @pytest.mark.asyncio
+    async def test_reports_restart_guidance(self, manager, monkeypatch, caplog):
+        """The real-world failure is logged with an actionable message."""
+        self._patch_failing_client(
+            monkeypatch,
+            AttributeError(
+                "'ClientTlsContext' object has no attribute "
+                "'_certificate_source'"
+            ),
+        )
+
+        with caplog.at_level(logging.ERROR):
+            connected = await manager.setup()
+
+        assert connected is False
+        assert "Restart Home Assistant" in caplog.text
+        assert "awscrt/awsiotsdk" in caplog.text
+        # The underlying error is still reported, not swallowed
+        assert "_certificate_source" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_other_failures_keep_the_plain_warning(
+        self, manager, monkeypatch, caplog
+    ):
+        """A normal connection failure must not blame the SDK version."""
+        self._patch_failing_client(monkeypatch, RuntimeError("network down"))
+
+        with caplog.at_level(logging.WARNING):
+            connected = await manager.setup()
+
+        assert connected is False
+        assert "network down" in caplog.text
+        assert "Restart Home Assistant" not in caplog.text

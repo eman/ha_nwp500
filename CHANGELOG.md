@@ -3,6 +3,27 @@
 ## [Unreleased]
 
 ### Fixed
+- **MQTT failed to connect after Home Assistant upgraded the AWS SDK**:
+  `manifest.json` requested `awsiotsdk>=1.29.0`, so Home Assistant installed
+  whatever was newest. When `awsiotsdk` 1.31.0 was published (2026-07-24) it
+  was installed *during* a Home Assistant startup, seconds before the
+  integration connected. The process already held modules from the previous
+  `awscrt`, so newly imported code read attributes the old classes did not
+  define, and MQTT setup failed with:
+
+      MQTT connection failed: 'ClientTlsContext' object has no attribute
+      '_certificate_source'
+
+  The integration then silently dropped to API-only mode and stayed there
+  until Home Assistant was restarted. Pins `awsiotsdk==1.31.0`, which in turn
+  pins `awscrt==0.36.1` exactly, so the AWS SDK now only changes when this
+  integration changes it — never mid-session. No code changes were needed to
+  adopt 1.31.0; the integration does not use the `awsiotsdk` API directly.
+- **Unclear error when the AWS SDK is upgraded mid-session**: an
+  `AttributeError` raised while connecting is now reported as what it
+  actually is — a stale-module condition that only a restart clears — instead
+  of surfacing a bare attribute error with no indication of what to do.
+  Genuine connection failures keep their existing wording.
 - **Release tooling documentation pointed at a tool that cannot run**:
   `.bumpversion.cfg` declared `current_version = 0.2.2` while the published
   version was `0.16.2`, so `bump2version` computed the wrong next version and
