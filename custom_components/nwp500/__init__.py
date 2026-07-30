@@ -103,6 +103,45 @@ VALID_MODES = [
 ]
 
 
+def _reservation_slot(entry: dict[str, Any]) -> tuple[int, int, int]:
+    """Return the schedule slot an entry occupies: (week, hour, minute).
+
+    Two entries with the same days and time are the same reservation, so
+    writing one replaces the other rather than stacking a duplicate.
+    """
+    return (
+        int(entry.get("week", 0)),
+        int(entry.get("hour", 0)),
+        int(entry.get("min", 0)),
+    )
+
+
+def _merge_reservation_entry(
+    entries: list[dict[str, Any]], new_entry: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Insert `new_entry`, replacing any entry in the same slot.
+
+    `set_reservation` is documented as "create or update". Without this it
+    only appended, so repeating a call -- or scheduling a different mode at
+    a day/time already programmed -- accumulated conflicting entries with
+    no way to update one in place.
+
+    Returns a new list; `entries` is not modified.
+    """
+    slot = _reservation_slot(new_entry)
+    merged = [e for e in entries if _reservation_slot(e) != slot]
+    replaced = len(merged) != len(entries)
+
+    if replaced:
+        _LOGGER.debug(
+            "Replacing existing reservation in slot week=%d %02d:%02d",
+            *slot,
+        )
+
+    merged.append(new_entry)
+    return merged
+
+
 def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
     """Validate that temperature is provided for modes that require it."""
     mode = data.get(ATTR_OP_MODE)
@@ -464,23 +503,48 @@ class NWP500ServiceHandler:
             coordinator.hass.config.units.temperature_unit,
         )
 
-        # Read-modify-write: append to existing schedule instead of replacing
+        # Read-modify-write. The write is a full-list replacement at the
+        # protocol level, so the read must reflect what the device actually
+        # holds -- writing from an empty cache would wipe every existing
+        # reservation.
         async with coordinator._reservation_lock:
             existing_schedule = coordinator.reservation_schedules.get(
                 mac_address, {}
             )
-            existing_entries = list(existing_schedule.get("reservation", []))
             if not existing_schedule:
-                _LOGGER.warning(
-                    "No cached reservation schedule for %s. Call "
-                    "request_reservations first to avoid overwriting device "
-                    "reservations that have not yet been fetched.",
+                _LOGGER.debug(
+                    "No cached reservation schedule for %s; fetching before "
+                    "write",
                     mac_address,
                 )
-            existing_entries.append(reservation)
+                existing_schedule = (
+                    await coordinator.async_fetch_reservations(mac_address)
+                    or {}
+                )
+            if not existing_schedule:
+                raise HomeAssistantError(
+                    f"Could not read the current reservation schedule for "
+                    f"{mac_address}. Refusing to write, because doing so "
+                    f"would replace every reservation on the device. Check "
+                    f"that the device is online and try again."
+                )
+
+            existing_entries = _merge_reservation_entry(
+                list(existing_schedule.get("reservation", [])), reservation
+            )
+
+            # This service's `enabled` field is entry-level. The device's
+            # global reservation switch is separate, so preserve whatever it
+            # currently is instead of forcing it on. `reservation_use` uses
+            # the device bool convention (2=on, 1=off); if the device did not
+            # report it, fall back to enabling.
+            reservation_use = existing_schedule.get("reservation_use")
+            system_enabled = (
+                True if reservation_use is None else reservation_use == 2
+            )
 
             success = await coordinator.async_update_reservations(
-                mac_address, existing_entries, enabled=True
+                mac_address, existing_entries, enabled=system_enabled
             )
 
         if not success:

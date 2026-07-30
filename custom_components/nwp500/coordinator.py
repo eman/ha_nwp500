@@ -77,6 +77,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._reservation_lock = (
             asyncio.Lock()
         )  # Prevent reservation write race
+        # Futures awaiting a fresh rsv/rd response, keyed by MAC. Resolved by
+        # _handle_reservation_update_in_loop so a read-modify-write can wait
+        # for the device's actual schedule instead of guessing from an empty
+        # cache (see async_fetch_reservations).
+        self._reservation_waiters: dict[
+            str, list[asyncio.Future[dict[str, Any]]]
+        ] = {}
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -867,6 +874,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             self.reservation_schedules[mac_address] = response
 
+            # Wake anything waiting on a fresh read (async_fetch_reservations)
+            for waiter in self._reservation_waiters.pop(mac_address, []):
+                if not waiter.done():
+                    waiter.set_result(response)
+
             # Fire HA event so custom cards and automations can react
             self.hass.bus.async_fire(
                 "nwp500_reservations_updated",
@@ -1022,6 +1034,52 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return await self.mqtt_manager.send_command(
             device, "request_reservations"
         )
+
+    async def async_fetch_reservations(
+        self, mac_address: str, timeout: float = 10.0
+    ) -> dict[str, Any] | None:
+        """Request the reservation schedule and wait for the device's reply.
+
+        `async_request_reservations` only publishes the request; the reply
+        arrives asynchronously over MQTT. Callers that must not act on a
+        stale or empty cache -- notably the read-modify-write in
+        `set_reservation`, where writing is a full-list replacement -- need
+        the value itself, so this waits for the response.
+
+        Args:
+            mac_address: Device MAC address.
+            timeout: Seconds to wait for the device's response.
+
+        Returns:
+            The reservation schedule the device reported, or None if the
+            request could not be sent or no response arrived in time.
+        """
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, Any]] = loop.create_future()
+        self._reservation_waiters.setdefault(mac_address, []).append(waiter)
+
+        try:
+            if not await self.async_request_reservations(mac_address):
+                return None
+            # Only the wait is guarded, so a TimeoutError raised anywhere
+            # else (e.g. inside the publish above) propagates instead of
+            # being reported as "the device did not answer in time".
+            try:
+                return await asyncio.wait_for(waiter, timeout=timeout)
+            except TimeoutError:
+                _LOGGER.warning(
+                    "Timed out after %.0fs waiting for the reservation "
+                    "schedule of %s",
+                    timeout,
+                    mac_address,
+                )
+                return None
+        finally:
+            pending = self._reservation_waiters.get(mac_address)
+            if pending and waiter in pending:
+                pending.remove(waiter)
+            if pending is not None and not pending:
+                self._reservation_waiters.pop(mac_address, None)
 
     async def async_configure_tou_schedule(
         self,
