@@ -614,8 +614,24 @@ async def test_setup_clean_session_false_without_user_seq(
     assert mock_mqtt_client.config.clean_session is False
 
 
+def _error_from_module(module_name, exc):
+    """Return `exc` carrying a traceback raised from `module_name`.
+
+    The manager distinguishes an AWS SDK stale-module condition from an
+    ordinary bug by where the exception came from, so tests need a
+    realistic traceback rather than a bare exception object.
+    """
+    namespace = {"__name__": module_name, "_exc": exc}
+    exec("def _raise():\n    raise _exc", namespace)  # noqa: S102
+    try:
+        namespace["_raise"]()
+    except type(exc) as raised:
+        return raised
+    raise AssertionError("expected the exception to be raised")
+
+
 class TestSdkUpgradedDuringStartup:
-    """An AttributeError from connect() means stale modules, not a bad config.
+    """An AttributeError from awscrt means stale modules, not a bad config.
 
     Home Assistant can install a newer awscrt/awsiotsdk while it is already
     running. The process then holds the old modules alongside ones imported
@@ -656,9 +672,12 @@ class TestSdkUpgradedDuringStartup:
         """The real-world failure is logged with an actionable message."""
         self._patch_failing_client(
             monkeypatch,
-            AttributeError(
-                "'ClientTlsContext' object has no attribute "
-                "'_certificate_source'"
+            _error_from_module(
+                "awscrt.aws_iot_metrics",
+                AttributeError(
+                    "'ClientTlsContext' object has no attribute "
+                    "'_certificate_source'"
+                ),
             ),
         )
 
@@ -670,6 +689,50 @@ class TestSdkUpgradedDuringStartup:
         assert "awscrt/awsiotsdk" in caplog.text
         # The underlying error is still reported, not swallowed
         assert "_certificate_source" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_detects_a_different_sdk_attribute(
+        self, manager, monkeypatch, caplog
+    ):
+        """Detection is by origin, so a future SDK break is covered too."""
+        self._patch_failing_client(
+            monkeypatch,
+            _error_from_module(
+                "awsiot.mqtt_connection_builder",
+                AttributeError(
+                    "'Foo' object has no attribute '_something_new'"
+                ),
+            ),
+        )
+
+        with caplog.at_level(logging.ERROR):
+            connected = await manager.setup()
+
+        assert connected is False
+        assert "Restart Home Assistant" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_our_own_attribute_error_is_not_blamed_on_the_sdk(
+        self, manager, monkeypatch, caplog
+    ):
+        """An AttributeError from our code is a bug, not a stale module.
+
+        Telling users to restart would send them chasing the wrong thing.
+        """
+        self._patch_failing_client(
+            monkeypatch,
+            _error_from_module(
+                "custom_components.nwp500.mqtt_manager",
+                AttributeError("'NoneType' object has no attribute 'connect'"),
+            ),
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            connected = await manager.setup()
+
+        assert connected is False
+        assert "'NoneType' object has no attribute 'connect'" in caplog.text
+        assert "Restart Home Assistant" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_other_failures_keep_the_plain_warning(
