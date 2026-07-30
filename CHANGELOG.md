@@ -63,6 +63,17 @@
     adopting the confirmed variants is tracked separately.
   - Documentation fix to the `decode_reservation_hex` docstring
     ([issue #113](https://github.com/eman/nwp500-python/issues/113)).
+- **Removed unreachable AWS CRT error handling**: Since `nwp500-python` v9.2.0,
+  `NavienMqttClient.publish()` no longer lets `awscrt` exceptions escape — a
+  clean-session cancellation during reconnection is enqueued in the library's
+  command queue and returns normally, and any other AWS CRT failure is wrapped
+  in `MqttPublishError`. The integration's own
+  `AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION` special-casing on the command
+  path was therefore dead code and has been removed, along with the
+  `get_aws_error_name()` helper. `MqttPublishError` is already covered by the
+  existing `MqttError` handler. `AwsCrtError` handling is retained for the
+  connect/disconnect path, where the library still propagates it. No functional
+  change.
 
 ## [0.16.2] - 2026-07-14
 
