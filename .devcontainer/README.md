@@ -18,7 +18,7 @@ This directory contains the configuration for developing the Navien NWP500 Home 
 ## What's Included
 
 ### Base Environment
-- **Python 3.12**: Matches the project's Python version requirement
+- **Python 3.14**: Matches the project's Python version requirement
 - **Git**: For version control
 - **Docker-in-Docker**: Enables running docker-compose for Home Assistant testing
 
@@ -61,7 +61,7 @@ tox -e coverage
 
 # Run type checking
 tox -e mypy
-tox -e pyright
+tox -e basedpyright
 ```
 
 ### Type Checking
@@ -69,8 +69,8 @@ tox -e pyright
 # MyPy (enforced before commits)
 mypy --config-file mypy.ini custom_components/nwp500
 
-# Pyright (alternative type checker)
-pyright custom_components/nwp500
+# basedpyright (alternative type checker)
+basedpyright custom_components/nwp500
 ```
 
 ### Running Home Assistant
@@ -101,7 +101,7 @@ Home Assistant will be available at `http://localhost:8123`
 - Sets up post-creation commands
 
 ### Dockerfile
-- Based on Microsoft's official Python 3.12 devcontainer image
+- Based on Microsoft's official Python 3.14 devcontainer image
 - Installs system dependencies
 - Pre-installs all Python requirements
 - Sets up development tools
