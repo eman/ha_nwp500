@@ -9,9 +9,9 @@
   the `Lint (ruff)` job on every pull request: two ```` ```python ```` blocks in
   `scripts/README.md` are illustrative listings of deprecated API names with
   deliberately aligned trailing comments, not runnable code. Retags those two
-  blocks as ```` ```text ```` and pins the environment to `ruff>=0.16.0,<0.17.0`
-  so local and CI runs agree and a future ruff release cannot break unrelated
-  pull requests.
+  blocks as ```` ```text ```` so the formatter leaves the alignment alone, and
+  raises the floor to `ruff>=0.16.0` so a local run cannot silently pass with an
+  older ruff than CI uses.
 
 ## [0.16.2] - 2026-07-14
 
