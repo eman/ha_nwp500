@@ -31,6 +31,28 @@ _RECONNECT_BACKOFF_DELAYS: list[float] = [2.0, 5.0, 15.0, 30.0, 60.0]
 _RECONNECTION_FAILED_EVENT = "reconnection_failed"
 
 
+# Top-level packages of the AWS SDK the MQTT stack runs on.
+_AWS_SDK_PACKAGES = frozenset({"awscrt", "awsiot"})
+
+
+def _raised_inside_aws_sdk(err: BaseException) -> bool:
+    """Whether `err` was raised from awscrt/awsiot module code.
+
+    Used to tell an AWS SDK stale-module condition apart from an ordinary
+    bug in this integration. Walks the traceback rather than matching the
+    message, so it keeps working when a future SDK upgrade trips over a
+    different attribute than the one first seen in the wild
+    (`ClientTlsContext._certificate_source`).
+    """
+    tb = err.__traceback__
+    while tb is not None:
+        module = tb.tb_frame.f_globals.get("__name__", "")
+        if module.split(".", 1)[0] in _AWS_SDK_PACKAGES:
+            return True
+        tb = tb.tb_next
+    return False
+
+
 class NWP500MqttManager:
     """Class to manage MQTT connection and events."""
 
@@ -242,6 +264,32 @@ class NWP500MqttManager:
                         error=Exception("Connection failed")
                     )
             return bool(connected)
+        except AttributeError as err:
+            # An AttributeError raised from inside awscrt/awsiot means the AWS
+            # SDK was upgraded while Home Assistant was already running: the
+            # process holds modules from the old version alongside modules
+            # imported after the upgrade, so new code reads attributes the old
+            # classes do not define. Nothing here can recover from that
+            # in-process -- only a restart clears the stale modules -- so say
+            # so instead of surfacing a bare AttributeError.
+            #
+            # An AttributeError from our own code is an ordinary bug and must
+            # not send users off to restart, so it keeps the generic wording.
+            if _raised_inside_aws_sdk(err):
+                _LOGGER.error(
+                    "MQTT connection failed: %s. This usually means the AWS "
+                    "SDK (awscrt/awsiotsdk) was upgraded while Home Assistant "
+                    "was running, leaving a mix of old and new modules in "
+                    "this process. Restart Home Assistant to resolve it. If "
+                    "it persists after a restart, please report it at "
+                    "https://github.com/eman/ha_nwp500/issues",
+                    err,
+                )
+            else:
+                _LOGGER.warning("MQTT connection failed: %s", err)
+            if self.diagnostics:
+                await self.diagnostics.record_connection_drop(error=err)
+            return False
         except Exception as err:
             _LOGGER.warning("MQTT connection failed: %s", err)
             # Record connection failure in diagnostics

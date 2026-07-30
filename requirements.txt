@@ -6,7 +6,7 @@
 nwp500-python==9.2.1
 
 # AWS IoT SDK for MQTT communication
-awsiotsdk>=1.29.0
+awsiotsdk==1.31.0
 
 
 
