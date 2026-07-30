@@ -180,12 +180,16 @@ fails the build if no section exists for the version being tagged.
 The script reads the current version from `manifest.json` -- there is no
 separate version file to keep in sync -- and then:
 
-1. Refuses to run with uncommitted changes, and warns if you are not on `main`
+1. Refuses to run with uncommitted changes to tracked files
+   (`git diff-index`), and warns if you are not on `main`. Untracked
+   files do not block it
 2. Bumps `version` in `manifest.json`
 3. Rewrites `## [Unreleased]` into `## [Unreleased]` plus a dated
    `## [X.Y.Z] - YYYY-MM-DD` heading, and adds the compare links at the
    bottom of the changelog
-4. Runs `tox -e mypy`, aborting if type checking fails
+4. Runs `.venv/bin/tox -e mypy`, aborting if type checking fails. Note
+   the hardcoded path: the script requires a `.venv` in the repo root
+   and does not fall back to `tox` on `PATH`
 5. Shows the diff and asks for confirmation, rolling the files back if you
    decline
 6. Creates the `chore: Release vX.Y.Z` commit and the `vX.Y.Z` tag
@@ -210,7 +214,8 @@ git tag -d vX.Y.Z
 git reset --hard HEAD~1
 ```
 
-Once the tag is pushed the release is public, so check the staged commit
+The commit and tag already exist at this point -- nothing is left staged.
+Once the tag is pushed the release is public, so review the commit
 before pushing rather than after.
 
 ### CHANGELOG.md Format
