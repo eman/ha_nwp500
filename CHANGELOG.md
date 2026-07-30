@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-07-30
+
 ### Fixed
 - **MQTT failed to connect after Home Assistant upgraded the AWS SDK**:
   `manifest.json` requested `awsiotsdk>=1.29.0`, so Home Assistant installed
@@ -1090,7 +1092,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.17.1...HEAD
+[0.17.1]: https://github.com/eman/ha_nwp500/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/eman/ha_nwp500/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/eman/ha_nwp500/compare/v0.16.1...v0.16.2
 [0.16.1]: https://github.com/eman/ha_nwp500/compare/v0.16.0...v0.16.1
