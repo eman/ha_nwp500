@@ -8,7 +8,9 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.nwp500.sensor import (
+    NWP500ReservationScheduleSensor,
     NWP500Sensor,
+    NWP500TOUScheduleSensor,
     async_setup_entry,
 )
 
@@ -485,3 +487,174 @@ class TestNWP500Sensor:
         sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
 
         assert sensor.native_value is None
+
+
+class TestScheduleSensors:
+    """The programmed schedules are exposed as pollable entity state.
+
+    Before issue #103 they lived only in coordinator dicts and one-shot bus
+    events, so an external scheduler could not read back what is programmed
+    over the REST API.
+    """
+
+    @staticmethod
+    def _entry(**overrides):
+        entry = {
+            "enable": 2,
+            "week": 42,
+            "hour": 6,
+            "min": 30,
+            "mode": 3,
+            "param": 120,
+        }
+        entry.update(overrides)
+        return entry
+
+    def _sensor(self, mock_coordinator, mock_device, schedule, cls):
+        mock_coordinator.reservation_schedules = {}
+        mock_coordinator.tou_schedules = {}
+        if schedule is not None:
+            store = (
+                "reservation_schedules"
+                if cls is NWP500ReservationScheduleSensor
+                else "tou_schedules"
+            )
+            getattr(mock_coordinator, store)["AA:BB:CC:DD:EE:FF"] = schedule
+        return cls(mock_coordinator, "AA:BB:CC:DD:EE:FF", mock_device)
+
+    @pytest.mark.parametrize(
+        "cls",
+        [NWP500ReservationScheduleSensor, NWP500TOUScheduleSensor],
+    )
+    def test_state_is_none_before_the_schedule_is_read(
+        self, mock_coordinator, mock_device, cls
+    ):
+        """Unfetched must stay distinguishable from "device has none"."""
+        sensor = self._sensor(mock_coordinator, mock_device, None, cls)
+
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes["enabled"] is None
+        assert sensor.extra_state_attributes["schedule_hash"] is None
+
+    @pytest.mark.parametrize(
+        "cls",
+        [NWP500ReservationScheduleSensor, NWP500TOUScheduleSensor],
+    )
+    def test_state_is_zero_when_device_has_no_entries(
+        self, mock_coordinator, mock_device, cls
+    ):
+        """A fetched but empty program reports 0, not None."""
+        sensor = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {"reservation_use": 1, "reservation": []},
+            cls,
+        )
+
+        assert sensor.native_value == 0
+        assert sensor.extra_state_attributes["enabled"] is False
+
+    def test_state_counts_entries(self, mock_coordinator, mock_device):
+        """The state is the number of programmed entries."""
+        sensor = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {
+                "reservation_use": 2,
+                "reservation": [self._entry(hour=6), self._entry(hour=18)],
+            },
+            NWP500ReservationScheduleSensor,
+        )
+
+        assert sensor.native_value == 2
+
+    def test_attributes_expose_the_program(self, mock_coordinator, mock_device):
+        """The entries themselves are readable, with the enable flag."""
+        entries = [self._entry(hour=6), self._entry(hour=18)]
+        sensor = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {"reservation_use": 2, "reservation": entries},
+            NWP500ReservationScheduleSensor,
+        )
+
+        attrs = sensor.extra_state_attributes
+
+        assert attrs["entries"] == entries
+        assert attrs["enabled"] is True
+        assert attrs["schedule_hash"]
+
+    def test_hash_is_order_independent(self, mock_coordinator, mock_device):
+        """Same program, different report order, same hash."""
+        forward = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {
+                "reservation_use": 2,
+                "reservation": [self._entry(hour=6), self._entry(hour=18)],
+            },
+            NWP500ReservationScheduleSensor,
+        )
+        first = forward.extra_state_attributes["schedule_hash"]
+
+        reversed_ = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {
+                "reservation_use": 2,
+                "reservation": [self._entry(hour=18), self._entry(hour=6)],
+            },
+            NWP500ReservationScheduleSensor,
+        )
+
+        assert reversed_.extra_state_attributes["schedule_hash"] == first
+
+    def test_hash_changes_when_the_program_changes(
+        self, mock_coordinator, mock_device
+    ):
+        """A consumer can detect drift from the desired program."""
+        before = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {"reservation_use": 2, "reservation": [self._entry(mode=3)]},
+            NWP500ReservationScheduleSensor,
+        ).extra_state_attributes["schedule_hash"]
+
+        after = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {"reservation_use": 2, "reservation": [self._entry(mode=4)]},
+            NWP500ReservationScheduleSensor,
+        ).extra_state_attributes["schedule_hash"]
+
+        assert before != after
+
+    @pytest.mark.parametrize(
+        "cls",
+        [NWP500ReservationScheduleSensor, NWP500TOUScheduleSensor],
+    )
+    def test_no_state_class(self, mock_coordinator, mock_device, cls):
+        """An entry count is unitless, so it must not be a MEASUREMENT.
+
+        Home Assistant expects MEASUREMENT sensors to carry a unit and would
+        otherwise record meaningless long-term statistics.
+        """
+        sensor = self._sensor(mock_coordinator, mock_device, None, cls)
+
+        assert sensor.state_class is None
+
+    def test_attributes_do_not_expose_coordinator_state(
+        self, mock_coordinator, mock_device
+    ):
+        """Mutating the attributes must not corrupt the stored schedule."""
+        entry = self._entry()
+        sensor = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {"reservation_use": 2, "reservation": [entry]},
+            NWP500ReservationScheduleSensor,
+        )
+
+        sensor.extra_state_attributes["entries"][0]["hour"] = 23
+
+        assert entry["hour"] == 6

@@ -61,6 +61,12 @@ SLOW_UPDATE_THRESHOLD: Final = (
     15.0  # seconds - warn if update takes longer than this
 )
 
+# How many coordinator update cycles between re-reads of the programmed
+# reservation/TOU schedules. They change rarely and only on request, so this
+# is deliberately slower than the device-info fallback (every 10th cycle):
+# at the default 30s interval this is roughly every 20 minutes.
+SCHEDULE_REFRESH_CYCLES: Final = 40
+
 # Reconnection backoff parameters
 # Exponential backoff delays (seconds) for MQTT reconnection attempts
 RECONNECT_BACKOFF_DELAYS: Final = [2.0, 5.0, 15.0, 30.0, 60.0]
