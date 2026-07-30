@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Release tooling documentation pointed at a tool that cannot run**:
+  `.bumpversion.cfg` declared `current_version = 0.2.2` while the published
+  version was `0.16.2`, so `bump2version` computed the wrong next version and
+  then aborted with `VersionNotFoundException` because `"version": "0.2.2"`
+  no longer appears in `manifest.json`. Two of its three file rules were
+  broken independently of that: the `README.md` rule searched for a
+  `**Version**:` line that does not exist, and the `CHANGELOG.md` rule
+  renamed the previous release's heading instead of adding a new section —
+  the likely cause of the corrupted `## [## [0.2.2]] - 2026-02-08 -
+  2026-02-08` heading in this file. Meanwhile `DEVELOPMENT.md` presented
+  `bump2version` as "the recommended way to release" and never mentioned
+  `scripts/release.sh`, the script that actually performs releases. Removes
+  `.bumpversion.cfg` and the unused `bump2version` dependency, and rewrites
+  the release documentation around `scripts/release.sh`.
+- **Library upgrade documentation described a manual checklist**: adopting a
+  new `nwp500-python` version means editing eight files, and
+  `scripts/update_nwp500_version.py` already automates all of them. The docs
+  in `DEVELOPMENT.md` and `.github/copilot-instructions.md` listed the files
+  to edit by hand without mentioning the script, which is how the 9.2.1
+  adoption missed the install hint in `coordinator.py` and left the two
+  runtime error paths naming different versions. Both now lead with the
+  script. Also corrects a stale `[testenv:pyright]` reference to
+  `[testenv:basedpyright]`.
+- **Corrupted changelog headings**: repaired
+  `## [## [0.2.2]] - 2026-02-08 - 2026-02-08`, which is the v0.2.0 release
+  (published 2026-02-08), and removed a duplicated `## [0.15.4]` heading.
+
 ## [0.17.0] - 2026-07-30
 
 ### Added
@@ -276,8 +304,6 @@
 
 ## [0.15.4] - 2026-06-05
 
-## [0.15.4] - 2026-06-05
-
 ### Fixed
 - **MQTT reconnection recovery loop**: The `force_reconnect` method was updating `_last_reconnect_time` before attempting setup, which prevented the integration from retrying failed reconnections. If setup failed, the rate-limiting check in the coordinator would see the recent timestamp and block further attempts for 30 seconds, keeping the device stuck in a disconnected state. Now `_last_reconnect_time` is updated only after successful setup, allowing retries on failed attempts while still preventing excessive reconnect attempts on success.
 
@@ -440,7 +466,7 @@
 - **Raw enum serialization**: Water heater extra state attributes now serialize enum values to strings instead of storing raw enum objects.
 - **Timestamp precision**: Diagnostic sensor `connected_duration_seconds` now uses `time.time()` instead of `datetime.now().timestamp()` for correctness.
 
-## [## [0.2.2]] - 2026-02-08 - 2026-02-08
+## [0.2.0] - 2026-02-08
 
 ### Changed
 - **Unit System Synchronization**: Fixed temperature and flow rate unit conversions to properly respect Home Assistant's configured unit system
