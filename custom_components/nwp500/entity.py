@@ -249,19 +249,11 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                 }
             )
 
-            # Add location info if available
-            if hasattr(self.device, "location") and self.device.location:
-                location = self.device.location
-                if location.address:
-                    attrs["address"] = location.address
-                if location.city:
-                    attrs["city"] = location.city
-                if location.state:
-                    attrs["state_province"] = location.state
-                if location.latitude:
-                    attrs["latitude"] = location.latitude
-                if location.longitude:
-                    attrs["longitude"] = location.longitude
+            # Location (address/city/state/coordinates) is deliberately not
+            # exposed here. It is account metadata, not entity state: it never
+            # changes, so it would be duplicated across every entity and
+            # written to the recorder on each state change. See
+            # async_get_config_entry_diagnostics for the location payload.
 
             # Add device feature info if available (technical details
             # not in device info)

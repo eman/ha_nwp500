@@ -239,10 +239,17 @@ class TestNWP500Entity:
         assert attrs["install_type"] == "Indoor"
         assert attrs["country_code"] == "US"
 
-        # Verify location
-        assert attrs["address"] == "123 Main St"
-        assert attrs["latitude"] == 37.7749
-        assert attrs["longitude"] == -122.4194
+        # Location is account metadata and must never be exposed as entity
+        # state; it belongs in diagnostics. See _build_extra_state_attributes.
+        for key in (
+            "address",
+            "city",
+            "state_province",
+            "latitude",
+            "longitude",
+            "altitude",
+        ):
+            assert key not in attrs
 
     def test_device_data_none_coordinator(
         self,
