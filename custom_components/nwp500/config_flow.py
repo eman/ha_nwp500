@@ -212,7 +212,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            'uv pip install "nwp500-python==9.2.1" "awsiotsdk==1.31.0"'
+            'uv pip install "nwp500-python==9.3.0" "awsiotsdk==1.31.0"'
         )
         raise CannotConnect("nwp500-python library not available")
 
