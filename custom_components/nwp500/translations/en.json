@@ -123,11 +123,14 @@
       "current_inst_power": {
         "name": "Current Power"
       },
-      "total_energy_capacity": {
-        "name": "Total Energy Capacity"
+      "usable_energy": {
+        "name": "Usable Energy"
       },
-      "available_energy_capacity": {
-        "name": "Available Energy Capacity"
+      "energy_to_setpoint": {
+        "name": "Energy to Setpoint"
+      },
+      "full_recovery_energy": {
+        "name": "Full Recovery Energy"
       },
       "dhw_charge_per": {
         "name": "DHW Charge"

@@ -27,6 +27,21 @@ from custom_components.nwp500 import (
 from custom_components.nwp500.const import DOMAIN
 
 
+@pytest.fixture(autouse=True)
+def _no_registry_entries():
+    """Stub the entity registry lookup done during setup.
+
+    These tests drive ``async_setup_entry`` with a ``MagicMock`` hass, which
+    cannot back a real ``EntityRegistry``. Tests that care about the stale
+    entity cleanup patch this again with their own entries.
+    """
+    with patch(
+        "custom_components.nwp500.er.async_entries_for_config_entry",
+        return_value=[],
+    ):
+        yield
+
+
 class TestInit:
     """Tests for component initialization."""
 
@@ -110,6 +125,49 @@ async def test_async_setup_entry_stores_coordinator():
         assert DOMAIN in mock_hass.data
         assert mock_entry.entry_id in mock_hass.data[DOMAIN]
         assert mock_hass.data[DOMAIN][mock_entry.entry_id] == mock_coordinator
+
+
+def test_removes_energy_entities_dropped_in_9_3_0():
+    """Stale energy sensors are dropped from the registry, others are kept."""
+    from custom_components.nwp500 import _async_remove_stale_energy_entities
+
+    def entry(unique_id: str) -> MagicMock:
+        item = MagicMock()
+        item.unique_id = unique_id
+        item.entity_id = f"sensor.{unique_id}"
+        return item
+
+    stale = [
+        entry("AABBCCDDEEFF_total_energy_capacity"),
+        entry("AABBCCDDEEFF_available_energy_capacity"),
+    ]
+    kept = [
+        entry("AABBCCDDEEFF_usable_energy"),
+        entry("AABBCCDDEEFF_energy_to_setpoint"),
+        entry("AABBCCDDEEFF_full_recovery_energy"),
+        entry("AABBCCDDEEFF_current_inst_power"),
+    ]
+
+    mock_registry = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.entry_id = "test_entry"
+
+    with (
+        patch(
+            "custom_components.nwp500.er.async_get",
+            return_value=mock_registry,
+        ),
+        patch(
+            "custom_components.nwp500.er.async_entries_for_config_entry",
+            return_value=[*stale, *kept],
+        ),
+    ):
+        _async_remove_stale_energy_entities(MagicMock(), mock_entry)
+
+    removed = [
+        call.args[0] for call in mock_registry.async_remove.call_args_list
+    ]
+    assert removed == [e.entity_id for e in stale]
 
 
 @pytest.mark.asyncio

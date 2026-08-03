@@ -118,6 +118,12 @@ def mock_device_status() -> MagicMock:
     # Power and energy
     status.current_inst_power = 1200
     status.dhw_charge_per = 85
+    # nwp500-python 9.3.0 energy fields. Both are measured from the setpoint;
+    # usable_energy is their difference (full_recovery_energy -
+    # energy_to_setpoint), which is what the library computes.
+    status.full_recovery_energy = 9000.0
+    status.energy_to_setpoint = 2000.0
+    status.usable_energy = 7000.0
 
     # Error codes
     status.error_code = 0

@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Changed
+- **Upgraded `nwp500-python` from 9.2.1 to 9.3.0**, which corrected a unit-scale
+  error in the tank energy fields and renamed them to match what they actually
+  measure. Both old fields were removed outright rather than aliased, so the
+  entities built on them are replaced:
+
+  | Removed entity | Replacement | Meaning |
+  | --- | --- | --- |
+  | Total Energy Capacity | Full Recovery Energy | Energy to recover a fully depleted tank to the current setpoint |
+  | Available Energy Capacity | Energy to Setpoint | Energy needed to bring the tank from its current temperature up to the setpoint |
+  | — | Usable Energy *(new, enabled by default)* | Energy drawable from the tank as useful hot water |
+
+  **Reported values are now 2.5x smaller.** The previous numbers were wrong, not
+  the new ones. Any history, statistics, or energy dashboard configuration built
+  on the old entities is off by that factor; rescale it by 0.4 or discard it.
+
+  Only Usable Energy behaves like a state of charge. The other two are both
+  measured from the setpoint, so they move when the setpoint moves even though
+  the water in the tank does not — which is why the `energy_storage` device class
+  now applies to Usable Energy alone. Full Recovery Energy and Energy to Setpoint
+  remain disabled by default.
+- **Eight status flags can now report `Unknown` instead of `Off`**: `Operation
+  Busy`, `Compressor Running`, `Anti-Legionella Enabled`, `Anti-Legionella Cycle
+  Running`, `Upper Electric Heating Element`, `Lower Electric Heating Element`,
+  `Air Filter Alarm Enabled`, and `Recirculation Reservation Active`. The device
+  encodes these as unknown/off/on, and the library previously collapsed unknown
+  to off. Automations that treat these as strictly on/off should account for the
+  unknown state.
+
+### Fixed
+- **Stale energy entities are removed on upgrade**: the two entities whose
+  backing device fields no longer exist are deleted from the entity registry at
+  setup instead of lingering as permanently unavailable.
+
 ## [0.17.1] - 2026-07-30
 
 ### Fixed

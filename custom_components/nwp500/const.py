@@ -371,15 +371,21 @@ DEVICE_STATUS_SENSORS: Final = {
         "state_class": "total_increasing",
         "entity_registry_enabled_default": False,
     },
-    "total_energy_capacity": {
-        "name": "Total Energy Capacity",
-        "device_class": "energy",
+    "usable_energy": {
+        "name": "Usable Energy",
+        "device_class": "energy_storage",
+        "unit": "Wh",
+        "entity_registry_enabled_default": True,
+    },
+    "energy_to_setpoint": {
+        "name": "Energy to Setpoint",
+        "device_class": None,
         "unit": "Wh",
         "entity_registry_enabled_default": False,
     },
-    "available_energy_capacity": {
-        "name": "Available Energy Capacity",
-        "device_class": "energy",
+    "full_recovery_energy": {
+        "name": "Full Recovery Energy",
+        "device_class": None,
         "unit": "Wh",
         "entity_registry_enabled_default": False,
     },
@@ -621,20 +627,35 @@ SENSOR_CONFIGS: Final = {
         "state_class": "measurement",
         "enabled": True,
     },
-    "total_energy_capacity": {
-        "attr": "total_energy_capacity",
-        "name": "Total Energy Capacity",
+    # Energy drawable from the tank as useful hot water. This is the only one
+    # of the three that behaves like a state of charge: the other two are both
+    # measured from the setpoint, so they move when the setpoint moves even
+    # though the water in the tank does not.
+    "usable_energy": {
+        "attr": "usable_energy",
+        "name": "Usable Energy",
         "device_class": "energy_storage",
         "unit": "Wh",
         "state_class": "measurement",
+        "enabled": True,
+    },
+    # Energy needed to bring the tank from its current temperature up to the
+    # setpoint. No device_class: a deficit is not stored energy.
+    "energy_to_setpoint": {
+        "attr": "energy_to_setpoint",
+        "name": "Energy to Setpoint",
+        "unit": "Wh",
+        "state_class": "measurement",
+        "precision": 0,
         "enabled": False,
     },
-    "available_energy_capacity": {
-        "attr": "available_energy_capacity",
-        "name": "Available Energy Capacity",
-        "device_class": "energy_storage",
+    # Energy to recover a fully depleted tank to the current setpoint.
+    "full_recovery_energy": {
+        "attr": "full_recovery_energy",
+        "name": "Full Recovery Energy",
         "unit": "Wh",
         "state_class": "measurement",
+        "precision": 0,
         "enabled": False,
     },
     # Percentage sensors
