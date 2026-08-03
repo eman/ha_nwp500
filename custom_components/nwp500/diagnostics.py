@@ -121,13 +121,25 @@ async def async_get_config_entry_diagnostics(
         }
         location = getattr(device, "location", None)
         if location:
+            # Only include fields the cloud actually populated. Emitting
+            # every key unconditionally would redact each one to
+            # "**REDACTED**", making an unset field indistinguishable from
+            # a populated one and defeating the point of keeping the keys.
+            populated = {
+                key: getattr(location, key, None)
+                for key in (
+                    "address",
+                    "city",
+                    "state",
+                    "latitude",
+                    "longitude",
+                    "altitude",
+                )
+            }
             entry["location"] = {
-                "address": location.address,
-                "city": location.city,
-                "state": location.state,
-                "latitude": location.latitude,
-                "longitude": location.longitude,
-                "altitude": location.altitude,
+                key: value
+                for key, value in populated.items()
+                if value is not None
             }
         devices.append(entry)
     diagnostics_data["devices"] = devices

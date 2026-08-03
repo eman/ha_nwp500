@@ -71,6 +71,39 @@ async def test_diagnostics_reports_location_keys_but_redacts_values(
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_omits_unpopulated_location_fields(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    mock_coordinator: MagicMock,
+) -> None:
+    """Unset location fields are omitted, not redacted.
+
+    Redaction replaces values by key, so emitting every key unconditionally
+    would render an unset field indistinguishable from a populated one.
+    """
+    device = MagicMock()
+    device.device_info.device_name = "NWP500"
+    device.device_info.device_type = 52
+    device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
+    device.device_info.connected = True
+    device.location.address = None
+    device.location.city = "San Rafael"
+    device.location.state = "CA"
+    device.location.latitude = None
+    device.location.longitude = None
+    device.location.altitude = None
+
+    mock_coordinator.mqtt_manager = None
+    mock_coordinator.devices = [device]
+
+    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert set(result["devices"][0]["location"]) == {"city", "state"}
+
+
+@pytest.mark.asyncio
 async def test_async_get_config_entry_diagnostics_no_mqtt_manager(
     hass: HomeAssistant,
     mock_config_entry: ConfigEntry,
