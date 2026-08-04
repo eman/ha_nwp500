@@ -18,7 +18,21 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Fields whose values are always redacted in diagnostic output.
-_TO_REDACT = {"password", "token", "access_token", "refresh_token", "secret"}
+# Location fields are account PII: they identify where the user lives, so
+# they are reported as structure only, never as values.
+_TO_REDACT = {
+    "password",
+    "token",
+    "access_token",
+    "refresh_token",
+    "secret",
+    "address",
+    "city",
+    "state",
+    "latitude",
+    "longitude",
+    "altitude",
+}
 
 _MAC_RE = re.compile(
     r"[0-9a-fA-F]{2}(?:[:\-][0-9a-fA-F]{2}){5}"  # colon/dash-delimited: AA:BB:CC:DD:EE:FF
@@ -93,6 +107,42 @@ async def async_get_config_entry_diagnostics(
             )
     else:
         diagnostics_data["mqtt_manager_status"] = "MQTT manager not available"
+
+    # Per-device metadata, including the account location. Values that are
+    # PII are redacted below; the keys are retained so maintainers can see
+    # which fields the cloud actually populated.
+    devices: list[dict[str, Any]] = []
+    for device in coordinator.devices:
+        entry: dict[str, Any] = {
+            "device_name": device.device_info.device_name,
+            "device_type": device.device_info.device_type,
+            "mac_address": device.device_info.mac_address,
+            "connected": device.device_info.connected,
+        }
+        location = getattr(device, "location", None)
+        if location:
+            # Only include fields the cloud actually populated. Emitting
+            # every key unconditionally would redact each one to
+            # "**REDACTED**", making an unset field indistinguishable from
+            # a populated one and defeating the point of keeping the keys.
+            populated = {
+                key: getattr(location, key, None)
+                for key in (
+                    "address",
+                    "city",
+                    "state",
+                    "latitude",
+                    "longitude",
+                    "altitude",
+                )
+            }
+            entry["location"] = {
+                key: value
+                for key, value in populated.items()
+                if value is not None
+            }
+        devices.append(entry)
+    diagnostics_data["devices"] = devices
 
     # Add coordinator telemetry
     diagnostics_data["coordinator_telemetry"] = coordinator.get_mqtt_telemetry()
