@@ -5,7 +5,7 @@ Requires Home Assistant 2026.3+ (Python 3.14).
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
@@ -754,9 +754,42 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 
+# Sensor keys dropped in nwp500-python 9.3.0. The library removed the
+# underlying DeviceStatus fields outright rather than aliasing them, so these
+# entities can never produce a value again. Left in place they would sit in the
+# registry as permanently unavailable with no indication why — and their
+# recorded history is wrong regardless, having been captured at a unit scale
+# that was 2.5x too large.
+_REMOVED_SENSOR_KEYS: Final = (
+    "total_energy_capacity",
+    "available_energy_capacity",
+)
+
+
+def _async_remove_stale_energy_entities(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
+    """Remove energy sensors whose backing library fields no longer exist."""
+    entity_registry = er.async_get(hass)
+    suffixes = tuple(f"_{key}" for key in _REMOVED_SENSOR_KEYS)
+
+    for entity_entry in er.async_entries_for_config_entry(
+        entity_registry, entry.entry_id
+    ):
+        if entity_entry.unique_id.endswith(suffixes):
+            _LOGGER.info(
+                "Removing %s: its device field was removed in "
+                "nwp500-python 9.3.0",
+                entity_entry.entity_id,
+            )
+            entity_registry.async_remove(entity_entry.entity_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up NWP500 from a config entry."""
     hass.data.setdefault(DOMAIN, {})
+
+    _async_remove_stale_energy_entities(hass, entry)
 
     # Unit system is determined by the coordinator from the HA configuration
     # and passed into NavienAuthClient/NavienAPIClient/MQTT. No unit handling

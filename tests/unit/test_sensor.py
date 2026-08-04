@@ -78,6 +78,57 @@ class TestNWP500Sensor:
         # Value will be either the temperature or None if not available
         assert sensor.native_value is not None or sensor.native_value is None
 
+    def test_energy_sensors(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """Test the nwp500-python 9.3.0 energy sensors.
+
+        The pre-9.3.0 ``total_energy_capacity`` / ``available_energy_capacity``
+        fields no longer exist on ``DeviceStatus``, so entities keyed on them
+        would silently read ``None`` forever.
+        """
+        from homeassistant.components.sensor import SensorDeviceClass
+
+        from custom_components.nwp500.sensor import create_sensor_descriptions
+
+        by_key = {d.key: d for d in create_sensor_descriptions()}
+
+        assert "total_energy_capacity" not in by_key
+        assert "available_energy_capacity" not in by_key
+
+        mac_address = mock_device.device_info.mac_address
+        mock_coordinator.data = {
+            mac_address: {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+
+        expected = {
+            "usable_energy": 7000.0,
+            "energy_to_setpoint": 2000.0,
+            "full_recovery_energy": 9000.0,
+        }
+        for key, value in expected.items():
+            desc = by_key[key]
+            sensor = NWP500Sensor(
+                mock_coordinator, mac_address, mock_device, desc
+            )
+            assert sensor.native_value == value
+            assert desc.native_unit_of_measurement == "Wh"
+
+        # Only usable_energy is a state of charge; the other two are measured
+        # from the setpoint and move when the setpoint moves.
+        assert (
+            by_key["usable_energy"].device_class
+            == SensorDeviceClass.ENERGY_STORAGE
+        )
+        assert by_key["energy_to_setpoint"].device_class is None
+        assert by_key["full_recovery_energy"].device_class is None
+
     def test_sensor_missing_value(
         self,
         mock_coordinator: MagicMock,
