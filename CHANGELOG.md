@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-05
+
 ### Changed
 - **Upgraded `nwp500-python` from 9.2.1 to 9.3.0**, which corrected a unit-scale
   error in the tank energy fields and renamed them to match what they actually
@@ -1126,7 +1128,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.17.1...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/eman/ha_nwp500/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/eman/ha_nwp500/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/eman/ha_nwp500/compare/v0.16.2...v0.17.0
 [0.16.2]: https://github.com/eman/ha_nwp500/compare/v0.16.1...v0.16.2
