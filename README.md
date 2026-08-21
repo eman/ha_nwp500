@@ -1,13 +1,13 @@
 <p align="center">
-  <img src="images/banner.svg" alt="Navien NWP500 Home Assistant Integration" width="100%">
+  <img src="https://raw.githubusercontent.com/eman/ha_nwp500/main/images/banner.png" alt="Navien NWP500 Home Assistant Integration" width="100%">
 </p>
 
 [![GitHub Release](https://img.shields.io/github/v/release/eman/ha_nwp500)](https://github.com/eman/ha_nwp500/releases/latest)
 [![CI](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml/badge.svg)](https://github.com/eman/ha_nwp500/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-80%25-yellowgreen)](#)
-[![HACS](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
+[![HACS](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-2026.3.0%2B-41BDF5)](https://www.home-assistant.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/eman/ha_nwp500/blob/main/LICENSE)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. Connects to the Navien cloud API and subscribes to MQTT for real-time updates.
@@ -37,11 +37,26 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
 
 ### HACS (Recommended)
 
-1. Open HACS in Home Assistant.
-2. Go to **Integrations** > **⋮** > **Custom repositories**.
-3. Add `https://github.com/eman/ha_nwp500` with category **Integration**.
-4. Search for "Navien NWP500" and install.
-5. Restart Home Assistant.
+This integration is in the default HACS index, so no custom repository is needed.
+
+1. Open **HACS** in Home Assistant.
+2. Search for "Navien NWP500".
+3. Select it and choose **Download**.
+4. Restart Home Assistant.
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=eman&repository=ha_nwp500&category=integration)
+
+<details>
+<summary>Not showing up in HACS?</summary>
+
+If your HACS index is out of date, either refresh it (**HACS** > **⋮** > **Update information**) or add this repository manually:
+
+1. Go to **HACS** > **⋮** > **Custom repositories**.
+2. Add `https://github.com/eman/ha_nwp500` with category **Integration**.
+3. Search for "Navien NWP500" and download it.
+4. Restart Home Assistant.
+
+</details>
 
 ### Manual
 
@@ -182,4 +197,4 @@ Uses **[nwp500-python v9.2.1](https://github.com/eman/nwp500-python/releases/tag
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [MIT License](https://github.com/eman/ha_nwp500/blob/main/LICENSE).
