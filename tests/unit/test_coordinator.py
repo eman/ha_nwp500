@@ -336,7 +336,12 @@ async def test_async_update_resets_consecutive_timeouts_on_successful_request(
     mock_mqtt.is_connected = True
     mock_mqtt.request_status = AsyncMock(return_value=True)
     mock_mqtt.request_device_info = AsyncMock()
+    mock_mqtt.connected_since = 1000.0
     coordinator.mqtt_manager = mock_mqtt
+    # Pin the session marker so the "MQTT reconnected" reset earlier in the
+    # method does not fire. Without this the counter is already zero before
+    # the request loop runs, and this test passes for the wrong reason.
+    coordinator._mqtt_connected_since = 1000.0
 
     mock_hass.config.units.temperature_unit = "°F"
     coordinator.unit_system = "us_customary"
@@ -419,11 +424,16 @@ def wired(coordinator):
     ],
 )
 @pytest.mark.asyncio
-async def test_commands_fail_closed_without_mqtt(coordinator, method, args):
-    """Every device command refuses rather than raising when MQTT is absent."""
-    coordinator.mqtt_manager = None
+async def test_commands_fail_closed_without_mqtt(wired, method, args):
+    """Every device command refuses rather than raising when MQTT is absent.
 
-    assert await getattr(coordinator, method)(*args) is False
+    Uses a coordinator that *does* know the device, so the MQTT guard is the
+    only thing that can produce False here -- otherwise the unknown-device
+    guard would mask its removal.
+    """
+    wired.mqtt_manager = None
+
+    assert await getattr(wired, method)(*args) is False
 
 
 @pytest.mark.parametrize(
@@ -641,7 +651,10 @@ async def test_fetch_reservations_returns_none_when_request_fails(
     """A publish failure short-circuits instead of waiting out the timeout."""
     coordinator.async_request_reservations = AsyncMock(return_value=False)
 
-    assert await coordinator.async_fetch_reservations(MAC) is None
+    # The deadline is the assertion: the default 10s wait must never be
+    # entered when the request could not be published at all.
+    async with asyncio.timeout(1):
+        assert await coordinator.async_fetch_reservations(MAC) is None
     assert MAC not in coordinator._reservation_waiters
 
 
