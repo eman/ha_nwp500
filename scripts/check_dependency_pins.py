@@ -12,8 +12,19 @@ disagreement.
 
 Historical references are deliberately not checked: prose like "dropped in
 nwp500-python 9.3.0" documents when something happened and must not track
-the current pin. Only `package==X.Y.Z` pins and explicit "current version"
-markers are compared.
+the current pin. That is why bare `package X.Y.Z` prose is not compared --
+there is no way to tell the two apart.
+
+So documentation that wants to state the current version must use a
+package-qualified form this scanner recognises:
+
+    nwp500-python vX.Y.Z
+    https://github.com/eman/nwp500-python/releases/tag/vX.Y.Z
+
+Anything else is invisible to this check and will go stale silently, which
+is what happened to a "Current Version: 9.0.0" line in
+.github/copilot-instructions.md while the manifest pinned 9.3.0. Prefer
+pointing at manifest.json over restating the number at all.
 """
 
 from __future__ import annotations

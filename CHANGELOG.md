@@ -20,6 +20,13 @@
   Home Assistant discards that coordinator and retries with a fresh one, so
   each retry stranded a connection. `async_setup_entry` now shuts the
   coordinator down before re-raising.
+- **`.github/copilot-instructions.md` declared `Current Version: 9.0.0` while
+  the manifest pinned 9.3.0** — three minor releases stale, and invisible to
+  the new pin checker because the number was not package-qualified. The
+  duplicate is removed in favour of pointing at the manifest, and the checker
+  now documents the forms it can actually verify.
+- `.github/CI.md` still described the deprecated-API job as running Python 3.13
+  and did not mention the dependency-pin job at all.
 - **Frontend asset checks no longer block the event loop.** `async_setup`
   stat-ed three bundled card files inline; they are now checked in a single
   executor job. Each asset is also registered independently, so a missing
@@ -105,6 +112,12 @@
   branch filter alongside `pull_request`).
 
 ### Added
+- **Tests for the version tooling itself** (`tests/unit/test_version_tooling.py`),
+  covering every recognised reference form, the historical-prose exclusion, the
+  no-op and refusal paths, an `awsiotsdk`-only bump, and both CHANGELOG shapes.
+  Spot-checked by mutation: dropping the "refusing to record an upgrade"
+  guard, restoring the whole-file CHANGELOG search, and letting the rewriter
+  touch bare prose each fail at least one test.
 - **`scripts/check_dependency_pins.py`, run in CI, makes a missed version bump
   impossible.** `manifest.json` is now the declared single source of truth for
   pinned versions — it is what Home Assistant installs and what hassfest

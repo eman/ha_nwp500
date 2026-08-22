@@ -384,3 +384,74 @@ async def test_async_setup_stats_frontend_assets_off_the_event_loop():
     mock_hass.async_add_executor_job.assert_awaited_once()
     # Nothing present -> nothing registered.
     mock_hass.http.async_register_static_paths.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_setup_registers_assets_independently():
+    """A missing schedule card must not suppress the other frontend assets.
+
+    The previous shape nested every registration inside `if CARD_PATH.is_file()`,
+    so one absent file silently took the visual card and its image with it.
+    """
+    from custom_components.nwp500 import (
+        VISUAL_CARD_PATH,
+        VISUAL_CARD_URL,
+        VISUAL_IMAGE_PATH,
+        VISUAL_IMAGE_URL,
+        async_setup,
+    )
+
+    mock_hass = MagicMock()
+    # Schedule card absent; visual card and its image present.
+    mock_hass.async_add_executor_job = AsyncMock(
+        return_value=[
+            (VISUAL_CARD_URL, VISUAL_CARD_PATH, True),
+            (VISUAL_IMAGE_URL, VISUAL_IMAGE_PATH, False),
+        ]
+    )
+    mock_hass.http.async_register_static_paths = AsyncMock()
+
+    with patch("custom_components.nwp500.add_extra_js_url") as mock_add_js:
+        assert await async_setup(mock_hass, {}) is True
+
+    configs = mock_hass.http.async_register_static_paths.await_args[0][0]
+    assert [c.url_path for c in configs] == [
+        VISUAL_CARD_URL,
+        VISUAL_IMAGE_URL,
+    ]
+    # Only the JS asset is added to the frontend; the PNG is served, not loaded.
+    mock_add_js.assert_called_once_with(mock_hass, VISUAL_CARD_URL)
+
+
+@pytest.mark.asyncio
+async def test_async_setup_registers_every_asset_when_all_present():
+    """With all three files present, both JS assets reach the frontend."""
+    from custom_components.nwp500 import (
+        CARD_PATH,
+        CARD_URL,
+        VISUAL_CARD_PATH,
+        VISUAL_CARD_URL,
+        VISUAL_IMAGE_PATH,
+        VISUAL_IMAGE_URL,
+        async_setup,
+    )
+
+    mock_hass = MagicMock()
+    mock_hass.async_add_executor_job = AsyncMock(
+        return_value=[
+            (CARD_URL, CARD_PATH, True),
+            (VISUAL_CARD_URL, VISUAL_CARD_PATH, True),
+            (VISUAL_IMAGE_URL, VISUAL_IMAGE_PATH, False),
+        ]
+    )
+    mock_hass.http.async_register_static_paths = AsyncMock()
+
+    with patch("custom_components.nwp500.add_extra_js_url") as mock_add_js:
+        assert await async_setup(mock_hass, {}) is True
+
+    configs = mock_hass.http.async_register_static_paths.await_args[0][0]
+    assert len(configs) == 3
+    assert [c.args[1] for c in mock_add_js.call_args_list] == [
+        CARD_URL,
+        VISUAL_CARD_URL,
+    ]

@@ -29,7 +29,10 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **GitHub Repository**: https://github.com/eman/nwp500-python
   - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
   - **PyPI Package**: https://pypi.org/project/nwp500-python/
-  - **Current Version**: 9.0.0 (see `custom_components/nwp500/manifest.json`)
+  - **Current Version**: see `custom_components/nwp500/manifest.json` — do
+    not restate it here, it goes stale (this line said 9.0.0 while the pin
+    was 9.3.0). If a document must name the version, write it as
+    `nwp500-python v9.3.0` so `scripts/check_dependency_pins.py` can verify it
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
