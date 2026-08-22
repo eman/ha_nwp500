@@ -34,10 +34,8 @@
 ### Changed
 - **The coverage gate now measures the whole integration.** `coordinator.py`
   (the largest module) and `diagnostics.py` were excluded from coverage while
-  the gate claimed 80%, and `except Exception` was excluded line-wise. With
-  those removed the true figure is 71.33%, and the gate is set to 70% so the
-  number means something. `diagnostics.py` turned out to be at 100% — omitting
-  it was pure loss.
+  the gate claimed 80%, and `except Exception` was excluded line-wise.
+  `diagnostics.py` turned out to be at 100% — omitting it was pure loss.
 - **Coordinators now live on `entry.runtime_data`** instead of
   `hass.data[DOMAIN][entry.entry_id]`, with a typed `NWP500ConfigEntry` alias.
   This drops the multi-entry bookkeeping the integration no longer needs given
@@ -58,6 +56,30 @@
   build whose reported version did not match the release.
 - HACS validation no longer runs twice on every branch push (`on: push` had no
   branch filter alongside `pull_request`).
+
+### Added
+- **Coordinator test coverage raised from 38% to 95%** (90 new tests). Once
+  `coordinator.py` was no longer excluded from the coverage report, it was the
+  least-tested module in the integration despite being the largest. The new
+  tests cover the paths that decide user-visible behaviour:
+
+  - Retriable vs non-retriable authentication failures. `nwp500-python` marks
+    transient network failures retriable, and only non-retriable ones should
+    start a reauth flow — otherwise a brief outage nags the user to
+    re-authenticate.
+  - `async_shutdown` on a half-built coordinator, which is exactly the path
+    taken when a first refresh fails and the connection leak fix above runs.
+  - The `async_fetch_reservations` waiter lifecycle, including timeout and
+    cleanup. `set_reservation` does a read-modify-write against a full-list
+    replacement, so a stale or empty read corrupts the schedule.
+  - Stored-token restore: valid, expired, and corrupt token data.
+  - Unit-system transitions clearing every cache that holds scaled values, so
+    a water heater never mixes Celsius and Fahrenheit readings.
+  - Device command routing failing closed on an unknown MAC or absent MQTT,
+    and TOU commands refusing to send before a controller serial is known.
+
+  Integration-wide coverage is now 85.6%, and the gate is raised from 70% to
+  80%.
 
 ### Removed
 - `validate_hacs.py` and its `tox -e hacs` environment. It was scaffolding for
