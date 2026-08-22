@@ -1,6 +1,7 @@
-[build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+# Configuration only: this repository is a Home Assistant custom component,
+# not a distributable Python package. There is deliberately no [project] or
+# [build-system] table -- nothing here is ever built (tox sets skipsdist),
+# and Home Assistant loads custom_components/nwp500/ directly.
 
 # PEP 735 dependency groups. Development tooling only -- runtime pins live in
 # requirements.txt, mirroring custom_components/nwp500/manifest.json, which is

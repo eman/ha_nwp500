@@ -152,6 +152,12 @@
   nothing invoked the local script.
 - `custom_components/nwp500/images/navien-icon.png`, which was referenced
   nowhere and shipped to every user.
+- `uv.lock`, which was an empty stub — three lines declaring a version and a
+  Python floor, locking zero packages — and `pyproject.toml`'s `[build-system]`
+  table, which pointed setuptools at something never built (`skipsdist = True`,
+  no `[project]`). Both implied this repository is a distributable package; it
+  is a Home Assistant custom component that HA loads directly. `pyproject.toml`
+  is now purely configuration, which is all it ever was.
 - **`NWP500WaterHeater.is_on`**, which Home Assistant never read.
   `WaterHeaterEntity` has no `is_on` property and its `state` is `@final`,
   derived from `current_operation` — so there was no hook to attach it to. The
