@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-22
+
 ### Fixed
 - **Three CI jobs were passing without running anything.** The `[testenv]`
   section in `tox.ini` had no `commands`, so `tox -e py314`, `tox -e mypy` and
@@ -96,7 +98,9 @@
   of from a hardcoded list, handles the README link form, and can bump
   `awsiotsdk`. Its CHANGELOG update was also searching the whole file, so it
   matched a bullet from a past release and silently changed nothing while
-  reporting success; it is now scoped to `## [Unreleased]`.
+  reporting success; it is now scoped to `## [Unreleased]
+
+## [0.19.0] - 2026-08-22`.
 - Both CI jobs that execute `scripts/` ran on Python 3.13 while ruff formats
   that directory for 3.14. The existing script happened to still parse; a
   reformat would have broken it. Both jobs now run 3.14.
@@ -1313,7 +1317,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/eman/ha_nwp500/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/eman/ha_nwp500/compare/v0.17.1...v0.18.0
 [0.17.1]: https://github.com/eman/ha_nwp500/compare/v0.17.0...v0.17.1
 [0.17.0]: https://github.com/eman/ha_nwp500/compare/v0.16.2...v0.17.0
