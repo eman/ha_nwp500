@@ -267,77 +267,77 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Track performance metrics
         start_time = time.monotonic()
 
-        if not self.auth_client:
-            await self._setup_clients()
-
-        if self._mqtt_reconnection_failed_attempts is not None:
-            attempts = self._mqtt_reconnection_failed_attempts
-            self._mqtt_reconnection_failed_attempts = None
-            _LOGGER.error(
-                "MQTT library stopped reconnecting after %d attempt(s). "
-                "Starting reauth flow.",
-                attempts,
-            )
-            self.entry.async_start_reauth(self.hass)
-            raise UpdateFailed(
-                "MQTT reconnection failed permanently. Please re-authenticate "
-                "through Settings > Devices & Services."
-            )
-
-        # Always ensure device entries exist in data dict so that:
-        # 1. Platform setup can create entities (iterates coordinator.data)
-        # 2. MQTT callbacks can store status updates (checks mac in self.data)
-        device_data = dict(self.data) if self.data else {}
-        for device in self.devices:
-            mac_address = device.device_info.mac_address
-            if mac_address not in device_data:
-                device_data[mac_address] = {
-                    "device": device,
-                    "status": None,
-                    "last_update": None,
-                }
-            else:
-                device_data[mac_address]["device"] = device
-
-        # Check MQTT connection state before attempting requests.
-        # When disconnected, return cached data immediately to avoid flooding
-        # the command queue with requests that cannot be delivered.
-        if self.mqtt_manager and not self.mqtt_manager.is_connected:
-            self._consecutive_timeouts += 1
-
-            # Log only on first disconnect; subsequent cycles use DEBUG
-            if self._consecutive_timeouts == 1:
-                _LOGGER.error(
-                    "MQTT client is not connected. Device status requests "
-                    "will fail. Connection may have been lost or failed "
-                    "to reconnect."
-                )
-            else:
-                _LOGGER.debug(
-                    "MQTT still disconnected (consecutive timeouts: %d)",
-                    self._consecutive_timeouts,
-                )
-
-            # Return data with device entries but no new MQTT requests
-            return device_data
-
-        # If the MQTT connection has transitioned to a new session since we
-        # last checked (i.e. it just reconnected), reset the consecutive
-        # timeout counter. Otherwise a run of disconnected-cycle increments
-        # from the block above could leave the counter already near the
-        # forced-reconnect threshold, causing a single post-reconnect
-        # request timeout to immediately trigger another forced reconnect.
-        current_connected_since = (
-            self.mqtt_manager.connected_since if self.mqtt_manager else None
-        )
-        if (
-            current_connected_since is not None
-            and current_connected_since != self._mqtt_connected_since
-        ):
-            self._consecutive_timeouts = 0
-        self._mqtt_connected_since = current_connected_since
-
         try:
+            if not self.auth_client:
+                await self._setup_clients()
+
+            if self._mqtt_reconnection_failed_attempts is not None:
+                attempts = self._mqtt_reconnection_failed_attempts
+                self._mqtt_reconnection_failed_attempts = None
+                _LOGGER.error(
+                    "MQTT library stopped reconnecting after %d attempt(s). "
+                    "Starting reauth flow.",
+                    attempts,
+                )
+                self.entry.async_start_reauth(self.hass)
+                raise UpdateFailed(
+                    "MQTT reconnection failed permanently. Please re-authenticate "
+                    "through Settings > Devices & Services."
+                )
+
+            # Always ensure device entries exist in data dict so that:
+            # 1. Platform setup can create entities (iterates coordinator.data)
+            # 2. MQTT callbacks can store status updates (checks mac in self.data)
+            device_data = dict(self.data) if self.data else {}
+            for device in self.devices:
+                mac_address = device.device_info.mac_address
+                if mac_address not in device_data:
+                    device_data[mac_address] = {
+                        "device": device,
+                        "status": None,
+                        "last_update": None,
+                    }
+                else:
+                    device_data[mac_address]["device"] = device
+
+            # Check MQTT connection state before attempting requests.
+            # When disconnected, return cached data immediately to avoid flooding
+            # the command queue with requests that cannot be delivered.
+            if self.mqtt_manager and not self.mqtt_manager.is_connected:
+                self._consecutive_timeouts += 1
+
+                # Log only on first disconnect; subsequent cycles use DEBUG
+                if self._consecutive_timeouts == 1:
+                    _LOGGER.error(
+                        "MQTT client is not connected. Device status requests "
+                        "will fail. Connection may have been lost or failed "
+                        "to reconnect."
+                    )
+                else:
+                    _LOGGER.debug(
+                        "MQTT still disconnected (consecutive timeouts: %d)",
+                        self._consecutive_timeouts,
+                    )
+
+                # Return data with device entries but no new MQTT requests
+                return device_data
+
+            # If the MQTT connection has transitioned to a new session since we
+            # last checked (i.e. it just reconnected), reset the consecutive
+            # timeout counter. Otherwise a run of disconnected-cycle increments
+            # from the block above could leave the counter already near the
+            # forced-reconnect threshold, causing a single post-reconnect
+            # request timeout to immediately trigger another forced reconnect.
+            current_connected_since = (
+                self.mqtt_manager.connected_since if self.mqtt_manager else None
+            )
+            if (
+                current_connected_since is not None
+                and current_connected_since != self._mqtt_connected_since
+            ):
+                self._consecutive_timeouts = 0
+            self._mqtt_connected_since = current_connected_since
+
             for device in self.devices:
                 mac_address = device.device_info.mac_address
 
@@ -528,6 +528,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             return device_data
 
+        except UpdateFailed:
+            # Raised deliberately above (e.g. permanent MQTT reconnect
+            # failure) with a message meant for the user; re-wrapping it
+            # would bury that behind a generic transport error.
+            raise
         except Exception as err:
             # Track failed update time as well
             duration = time.monotonic() - start_time

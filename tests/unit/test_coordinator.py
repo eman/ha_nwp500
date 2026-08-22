@@ -1566,3 +1566,77 @@ def test_status_push_swallows_handler_errors(coordinator):
     coordinator._handle_status_update_in_loop(MAC, MagicMock())
 
     assert coordinator.data[MAC]["status"] is not None
+
+
+# ---------------------------------------------------------------------------
+# _async_update_data failure envelope
+#
+# Everything the update does, including client bootstrap, has to end up as
+# UpdateFailed for the HA layer -- while deliberate UpdateFailed messages
+# survive intact rather than being re-wrapped.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_setup_failure_during_update_becomes_update_failed(
+    coordinator, mock_hass
+):
+    """An unexpected error from client bootstrap is wrapped, not leaked.
+
+    _setup_clients() runs inside the update, so anything escaping it must
+    reach Home Assistant as UpdateFailed like any other update failure.
+    """
+    from homeassistant.const import UnitOfTemperature
+
+    mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    coordinator.unit_system = "metric"
+    coordinator.auth_client = None
+    coordinator._setup_clients = AsyncMock(
+        side_effect=ValueError("something odd")
+    )
+
+    with patch("nwp500.unit_system.set_unit_system"):
+        with pytest.raises(UpdateFailed, match="Error communicating with API"):
+            await coordinator._async_update_data()
+
+
+@pytest.mark.asyncio
+async def test_setup_clients_own_update_failed_is_not_rewrapped(
+    coordinator, mock_hass
+):
+    """_setup_clients already reports actionable failures; keep its wording."""
+    from homeassistant.const import UnitOfTemperature
+
+    mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    coordinator.unit_system = "metric"
+    coordinator.auth_client = None
+    coordinator._setup_clients = AsyncMock(
+        side_effect=UpdateFailed("No devices found for this account.")
+    )
+
+    with patch("nwp500.unit_system.set_unit_system"):
+        with pytest.raises(UpdateFailed) as excinfo:
+            await coordinator._async_update_data()
+
+    assert str(excinfo.value) == "No devices found for this account."
+
+
+@pytest.mark.asyncio
+async def test_permanent_reconnect_failure_keeps_its_reauth_message(
+    coordinator, mock_hass
+):
+    """The reauth instruction must not be buried under a transport error."""
+    from homeassistant.const import UnitOfTemperature
+
+    mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    coordinator.unit_system = "metric"
+    coordinator.auth_client = AsyncMock()
+    coordinator._mqtt_reconnection_failed_attempts = 5
+
+    with patch("nwp500.unit_system.set_unit_system"):
+        with pytest.raises(UpdateFailed, match="Please re-authenticate"):
+            await coordinator._async_update_data()
+
+    coordinator.entry.async_start_reauth.assert_called_once_with(
+        coordinator.hass
+    )
