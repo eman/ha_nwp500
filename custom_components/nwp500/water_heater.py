@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from nwp500.enums import CurrentOperationMode, DhwOperationSetting
+from nwp500.enums import DhwOperationSetting
 
 from .const import (
     HA_TO_DHW_MODE,
@@ -188,32 +188,6 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                     return self._pre_vacation_mode or STATE_ECO
                 return get_dhw_operation_setting_state(
                     operation_setting, default="unknown"
-                )
-        except AttributeError, TypeError:
-            pass
-        return None
-
-    @property
-    def is_on(self) -> bool | None:
-        """Return True if the water heater is on."""
-        if not (status := self._status):
-            return None
-        try:
-            operation_setting = getattr(status, "dhw_operation_setting", None)
-            if operation_setting is not None:
-                mode_value = get_enum_value(operation_setting)
-                return bool(mode_value != DhwOperationSetting.POWER_OFF)
-            dhw_use = getattr(status, "dhw_use", None)
-            comp_use = getattr(status, "comp_use", None)
-            heat_upper = getattr(status, "heat_upper_use", None)
-            heat_lower = getattr(status, "heat_lower_use", None)
-            if any([dhw_use, comp_use, heat_upper, heat_lower]):
-                return True
-            operation_mode = getattr(status, "operation_mode", None)
-            if operation_mode is not None:
-                return bool(
-                    get_enum_value(operation_mode)
-                    != CurrentOperationMode.STANDBY
                 )
         except AttributeError, TypeError:
             pass

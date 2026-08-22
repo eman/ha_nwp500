@@ -246,42 +246,6 @@ class TestNWP500WaterHeater:
         assert "vacation" not in operations
         assert STATE_OFF not in operations
 
-    def test_is_on_when_powered_on(
-        self,
-        mock_coordinator: MagicMock,
-        mock_device: MagicMock,
-        mock_device_status: MagicMock,
-        mock_hass: MagicMock,
-    ):
-        """Test is_on returns True when device is on."""
-        mac_address = mock_device.device_info.mac_address
-        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
-        heater.hass = mock_hass
-
-        mock_device_status.dhw_operation_setting.value = (
-            DhwOperationSetting.HEAT_PUMP
-        )
-
-        assert heater.is_on is True
-
-    def test_is_on_when_powered_off(
-        self,
-        mock_coordinator: MagicMock,
-        mock_device: MagicMock,
-        mock_device_status: MagicMock,
-        mock_hass: MagicMock,
-    ):
-        """Test is_on returns False when device is off."""
-        mac_address = mock_device.device_info.mac_address
-        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
-        heater.hass = mock_hass
-
-        mock_device_status.dhw_operation_setting.value = (
-            DhwOperationSetting.POWER_OFF
-        )
-
-        assert heater.is_on is False
-
     def test_is_away_mode_on_when_vacation(
         self,
         mock_coordinator: MagicMock,
@@ -653,49 +617,3 @@ class TestNWP500WaterHeater:
         heater.hass = mock_hass
 
         assert heater.current_operation == "unknown"
-
-    def test_is_on_fallback_to_component_status(
-        self,
-        mock_coordinator: MagicMock,
-        mock_device: MagicMock,
-        mock_device_status: MagicMock,
-        mock_hass: MagicMock,
-    ):
-        """Test is_on falls back to checking component status."""
-        # Remove dhw_operation_setting to trigger fallback
-        delattr(mock_device_status, "dhw_operation_setting")
-
-        # Set component statuses
-        mock_device_status.dhw_use = True
-
-        mac_address = mock_device.device_info.mac_address
-        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
-        heater.hass = mock_hass
-
-        assert heater.is_on is True
-
-    def test_is_on_fallback_to_operation_mode(
-        self,
-        mock_coordinator: MagicMock,
-        mock_device: MagicMock,
-        mock_device_status: MagicMock,
-        mock_hass: MagicMock,
-    ):
-        """Test is_on falls back to operationMode."""
-        # Remove dhw_operation_setting to trigger fallback
-        delattr(mock_device_status, "dhw_operation_setting")
-
-        # Set all component statuses to False
-        mock_device_status.dhw_use = False
-        mock_device_status.comp_use = False
-        mock_device_status.heat_upper_use = False
-        mock_device_status.heat_lower_use = False
-
-        # Keep operation_mode
-        mock_device_status.operation_mode.value = 32
-
-        mac_address = mock_device.device_info.mac_address
-        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
-        heater.hass = mock_hass
-
-        assert heater.is_on is True

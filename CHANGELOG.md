@@ -20,10 +20,6 @@
   Home Assistant discards that coordinator and retries with a fresh one, so
   each retry stranded a connection. `async_setup_entry` now shuts the
   coordinator down before re-raising.
-- **`is_on` on the water heater was marked `@override` but overrides nothing.**
-  `WaterHeaterEntity` has no such property, so the decorator was simply wrong
-  and has been removed. (The property itself is unused by Home Assistant — see
-  Notes below.)
 - **Frontend asset checks no longer block the event loop.** `async_setup`
   stat-ed three bundled card files inline; they are now checked in a single
   executor job. Each asset is also registered independently, so a missing
@@ -69,12 +65,18 @@
   nothing invoked the local script.
 - `custom_components/nwp500/images/navien-icon.png`, which was referenced
   nowhere and shipped to every user.
+- **`NWP500WaterHeater.is_on`**, which Home Assistant never read.
+  `WaterHeaterEntity` has no `is_on` property and its `state` is `@final`,
+  derived from `current_operation` — so there was no hook to attach it to. The
+  power state it computed is already reported correctly in three places:
+  `current_operation` maps `POWER_OFF` to `"off"`, `switch.<device>_power`
+  implements the same check where `is_on` is real API, and the component-status
+  fields it fell back on (`dhw_use`, `comp_use`, `heat_upper_use`,
+  `heat_lower_use`) are each already binary sensors.
 
-### Notes
-- `NWP500WaterHeater.is_on` is dead in production: Home Assistant's
-  `WaterHeaterEntity` has no `is_on` property, so nothing reads it and its four
-  tests are the only callers. It is left in place for now, but is a candidate
-  for removal.
+  Those fallbacks were also wrong on their own terms: they tested whether a
+  heating component was *currently running*, which is activity rather than
+  power state, so a powered-but-idle device would have reported `False`.
 
 ## [0.18.0] - 2026-08-05
 
