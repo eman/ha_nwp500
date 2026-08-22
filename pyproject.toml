@@ -23,11 +23,11 @@ test = [
     "pytest-timeout>=2.1.0",
 ]
 mypy = [
-    "homeassistant>=2026.3.0",
+    "homeassistant>=2026.8.2",
     "mypy>=1.0.0",
 ]
 basedpyright = [
-    "homeassistant>=2026.3.0",
+    "homeassistant>=2026.8.2",
     "basedpyright>=1.0.0",
 ]
 lint = [
