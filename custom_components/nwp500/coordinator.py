@@ -47,6 +47,11 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+# Typed config entry: the coordinator lives on entry.runtime_data, which HA
+# scopes to the entry's lifetime and tears down automatically on unload.
+type NWP500ConfigEntry = ConfigEntry["NWP500DataUpdateCoordinator"]
+
+
 class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Class to manage fetching data from the NWP500 API."""
 

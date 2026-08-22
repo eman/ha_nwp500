@@ -24,7 +24,6 @@ from custom_components.nwp500 import (
     async_setup_entry,
     async_unload_entry,
 )
-from custom_components.nwp500.const import DOMAIN
 
 
 @pytest.fixture(autouse=True)
@@ -93,15 +92,21 @@ async def test_async_setup_entry_update_failed():
         mock_coordinator.async_config_entry_first_refresh = AsyncMock(
             side_effect=ConfigEntryNotReady("Connection failed")
         )
+        mock_coordinator.async_shutdown = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator
 
         with pytest.raises(ConfigEntryNotReady):
             await async_setup_entry(mock_hass, mock_entry)
 
+        # A failed first refresh may already have opened an auth session and
+        # an MQTT connection; HA retries with a fresh coordinator, so this one
+        # must be torn down or every retry strands a live connection.
+        mock_coordinator.async_shutdown.assert_awaited_once()
+
 
 @pytest.mark.asyncio
 async def test_async_setup_entry_stores_coordinator():
-    """Test setup entry stores coordinator in hass.data."""
+    """Test setup entry stores the coordinator on entry.runtime_data."""
     mock_hass = MagicMock()
     mock_hass.data = {}
     mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
@@ -122,9 +127,7 @@ async def test_async_setup_entry_stores_coordinator():
         result = await async_setup_entry(mock_hass, mock_entry)
 
         assert result is True
-        assert DOMAIN in mock_hass.data
-        assert mock_entry.entry_id in mock_hass.data[DOMAIN]
-        assert mock_hass.data[DOMAIN][mock_entry.entry_id] == mock_coordinator
+        assert mock_entry.runtime_data is mock_coordinator
 
 
 def test_removes_energy_entities_dropped_in_9_3_0():
@@ -245,10 +248,9 @@ async def test_async_unload_entry_cleanup():
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
-    # Setup hass.data with mock coordinator
     mock_coordinator = MagicMock()
     mock_coordinator.async_shutdown = AsyncMock()
-    mock_hass.data = {DOMAIN: {mock_entry.entry_id: mock_coordinator}}
+    mock_entry.runtime_data = mock_coordinator
 
     # Mock successful platform unload
     mock_hass.config_entries.async_unload_platforms = AsyncMock(
@@ -259,9 +261,7 @@ async def test_async_unload_entry_cleanup():
 
     assert result is True
     # Verify coordinator was shut down
-    mock_coordinator.async_shutdown.assert_called_once()
-    # Verify coordinator was removed from hass.data
-    assert mock_entry.entry_id not in mock_hass.data[DOMAIN]
+    mock_coordinator.async_shutdown.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -271,10 +271,9 @@ async def test_async_unload_entry_removes_services_when_last():
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
-    # Setup hass.data with only one coordinator (last entry)
     mock_coordinator = MagicMock()
     mock_coordinator.async_shutdown = AsyncMock()
-    mock_hass.data = {DOMAIN: {mock_entry.entry_id: mock_coordinator}}
+    mock_entry.runtime_data = mock_coordinator
 
     mock_hass.config_entries.async_unload_platforms = AsyncMock(
         return_value=True

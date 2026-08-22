@@ -2,6 +2,68 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Three CI jobs were passing without running anything.** The `[testenv]`
+  section in `tox.ini` had no `commands`, so `tox -e py314`, `tox -e mypy` and
+  `tox -e basedpyright` installed their dependencies and exited successfully
+  having executed no test or type check. Tests only ever ran via the separate
+  coverage job; the type checkers had never run at all. All three now have
+  explicit commands.
+- **Per-module mypy settings had never been applied.** They were written as
+  `["tool.mypy-homeassistant.*"]`, which TOML parses as a quoted *top-level*
+  key rather than a mypy section, so mypy silently ignored all nine of them.
+  Rewritten as a single `[[tool.mypy.overrides]]` block. Enabling it (together
+  with the fix above) surfaced 10 real type errors, now resolved.
+- **A failed setup left a live MQTT session behind.** The coordinator's first
+  refresh runs `_setup_clients()`, which may already have opened an auth
+  session, connected MQTT and started periodic request tasks before failing.
+  Home Assistant discards that coordinator and retries with a fresh one, so
+  each retry stranded a connection. `async_setup_entry` now shuts the
+  coordinator down before re-raising.
+- **`is_on` on the water heater was marked `@override` but overrides nothing.**
+  `WaterHeaterEntity` has no such property, so the decorator was simply wrong
+  and has been removed. (The property itself is unused by Home Assistant — see
+  Notes below.)
+- **Both Dependabot ecosystems had been failing every week.** The `pip` entry
+  pointed at `/custom_components/nwp500` expecting to read `manifest.json`,
+  which Dependabot's pip ecosystem cannot parse (`dependency_file_not_found`);
+  it now points at the root `requirements.txt`. The `docker` entry pointed at
+  `/`, which holds no Dockerfile (`No Dockerfiles nor Kubernetes YAML found`);
+  it now points at `/.devcontainer`.
+
+### Changed
+- **The coverage gate now measures the whole integration.** `coordinator.py`
+  (the largest module) and `diagnostics.py` were excluded from coverage while
+  the gate claimed 80%, and `except Exception` was excluded line-wise. With
+  those removed the true figure is 71.33%, and the gate is set to 70% so the
+  number means something. `diagnostics.py` turned out to be at 100% — omitting
+  it was pure loss.
+- **Coordinators now live on `entry.runtime_data`** instead of
+  `hass.data[DOMAIN][entry.entry_id]`, with a typed `NWP500ConfigEntry` alias.
+  This drops the multi-entry bookkeeping the integration no longer needs given
+  `single_config_entry: true`, including the `isinstance` scan in the service
+  handler and the reference-counting guard around service teardown.
+- **Service registration and teardown are driven by one `_SERVICES` table**,
+  rather than twelve `async_register` calls mirrored by twelve
+  `async_remove` calls that could drift apart.
+- Coverage flags moved out of pytest's `addopts` and into tox's coverage env,
+  so running a single test file no longer fails the coverage gate.
+- HACS validation no longer runs twice on every branch push (`on: push` had no
+  branch filter alongside `pull_request`).
+
+### Removed
+- `validate_hacs.py` and its `tox -e hacs` environment. It was scaffolding for
+  getting into HACS; the authoritative `hacs/action` now runs in CI, and
+  nothing invoked the local script.
+- `custom_components/nwp500/images/navien-icon.png`, which was referenced
+  nowhere and shipped to every user.
+
+### Notes
+- `NWP500WaterHeater.is_on` is dead in production: Home Assistant's
+  `WaterHeaterEntity` has no `is_on` property, so nothing reads it and its four
+  tests are the only callers. It is left in place for now, but is a candidate
+  for removal.
+
 ## [0.18.0] - 2026-08-05
 
 ### Changed

@@ -3,9 +3,11 @@
 
 version: 2
 updates:
-  # Monitor Python dependencies in manifest.json
+  # Monitor Python dependencies in requirements.txt. Dependabot's pip
+  # ecosystem cannot read manifest.json, so runtime pins there are kept in
+  # sync via scripts/update_nwp500_version.py.
   - package-ecosystem: "pip"
-    directory: "/custom_components/nwp500"
+    directory: "/"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -47,9 +49,9 @@ updates:
       prefix: "ci"
       include: "scope"
 
-  # Monitor Docker dependencies in compose.yaml
+  # Monitor the devcontainer image (the only Dockerfile in the repo)
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/.devcontainer"
     schedule:
       interval: "weekly"
       day: "monday"

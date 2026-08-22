@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import voluptuous as vol
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 
@@ -44,13 +45,26 @@ from custom_components.nwp500.const import (
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
 
 
+def stage_coordinator(mock_hass, coordinator):
+    """Expose a coordinator the way a loaded config entry would.
+
+    The integration reads coordinators off entry.runtime_data via
+    hass.config_entries.async_entries(DOMAIN), so tests stage them there.
+    """
+    entry = MagicMock()
+    entry.state = ConfigEntryState.LOADED
+    entry.runtime_data = coordinator
+    mock_hass.config_entries.async_entries = MagicMock(return_value=[entry])
+    return entry
+
+
 @pytest.fixture
 def mock_hass():
     """Create a mock Home Assistant instance."""
     hass = MagicMock()
     hass.services.has_service = MagicMock(return_value=False)
     hass.services.async_register = MagicMock()
-    hass.data = {DOMAIN: {}}
+    hass.config_entries.async_entries = MagicMock(return_value=[])
     return hass
 
 
@@ -163,7 +177,7 @@ class TestReservationServices:
         mock_coordinator.async_request_reservations = AsyncMock(
             return_value=True
         )
-        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+        stage_coordinator(mock_hass, mock_coordinator)
 
         # Setup device registry
         device_entry = MagicMock()
@@ -244,7 +258,7 @@ class TestReservationServices:
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
-        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+        stage_coordinator(mock_hass, mock_coordinator)
 
         # Setup device registry
         device_entry = MagicMock()
@@ -310,7 +324,7 @@ class TestReservationServices:
         """Test set_reservation raises error for invalid mode."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+        stage_coordinator(mock_hass, mock_coordinator)
 
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
@@ -345,7 +359,7 @@ class TestReservationServices:
         """Test set_reservation requires temperature for heating modes."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+        stage_coordinator(mock_hass, mock_coordinator)
 
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
@@ -399,7 +413,7 @@ class TestReservationServices:
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
-        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+        stage_coordinator(mock_hass, mock_coordinator)
 
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
@@ -448,7 +462,7 @@ class TestReservationServices:
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
-        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+        stage_coordinator(mock_hass, mock_coordinator)
 
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
@@ -481,7 +495,7 @@ class TestReservationServices:
         mock_coordinator.async_request_reservations = AsyncMock(
             return_value=True
         )
-        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+        stage_coordinator(mock_hass, mock_coordinator)
 
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
@@ -514,7 +528,7 @@ class TestReservationServices:
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
         )
-        mock_hass.data[DOMAIN]["entry_1"] = mock_coordinator
+        stage_coordinator(mock_hass, mock_coordinator)
 
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
@@ -557,7 +571,7 @@ class TestReservationServices:
         self, mock_hass, mock_device_registry
     ):
         """Test service raises error when device not found."""
-        mock_hass.data[DOMAIN]["entry_1"] = MagicMock()
+        stage_coordinator(mock_hass, MagicMock())
 
         mock_device_registry.async_get = MagicMock(return_value=None)
 
@@ -586,7 +600,7 @@ class TestTouAndVacationServices:
         self.mock_device_registry = mock_device_registry
         self.mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         self.mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_hass.data[DOMAIN]["entry_1"] = self.mock_coordinator
+        stage_coordinator(mock_hass, self.mock_coordinator)
 
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
@@ -789,7 +803,7 @@ class TestDemandResponseAndRecirculationServices:
         self.mock_device_registry = mock_device_registry
         self.mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         self.mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_hass.data[DOMAIN]["entry_1"] = self.mock_coordinator
+        stage_coordinator(mock_hass, self.mock_coordinator)
 
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
@@ -1221,7 +1235,7 @@ class TestSetReservationRefusesUnfetchedWrite:
         coordinator = self._coordinator(
             mock_hass, fetch_result={"reservation": []}
         )
-        mock_hass.data[DOMAIN]["entry_1"] = coordinator
+        stage_coordinator(mock_hass, coordinator)
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
@@ -1242,7 +1256,7 @@ class TestSetReservationRefusesUnfetchedWrite:
         pushed as a full replacement, wiping the device's reservations.
         """
         coordinator = self._coordinator(mock_hass, fetch_result=None)
-        mock_hass.data[DOMAIN]["entry_1"] = coordinator
+        stage_coordinator(mock_hass, coordinator)
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
@@ -1280,7 +1294,7 @@ class TestSetReservationPreservesGlobalSwitch:
 
     async def _run(self, mock_hass, mock_device_registry, schedule):
         coordinator = self._coordinator(mock_hass, schedule)
-        mock_hass.data[DOMAIN]["entry_1"] = coordinator
+        stage_coordinator(mock_hass, coordinator)
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)

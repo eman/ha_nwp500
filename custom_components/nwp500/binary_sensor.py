@@ -9,12 +9,13 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
-from .coordinator import NWP500DataUpdateCoordinator
+from .coordinator import (
+    NWP500ConfigEntry,
+    NWP500DataUpdateCoordinator,
+)
 from .entity import NWP500Entity
 
 if TYPE_CHECKING:
@@ -335,13 +336,11 @@ BINARY_SENSOR_DESCRIPTIONS = create_binary_sensor_descriptions()
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: NWP500ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up binary sensor entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ]
+    coordinator = config_entry.runtime_data
 
     entities = []
     for mac_address, device_data in coordinator.data.items():

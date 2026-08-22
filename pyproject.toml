@@ -70,17 +70,14 @@ log_cli = false
 log_cli_level = "INFO"
 log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s"
 log_cli_date_format = "%Y-%m-%d %H:%M:%S"
+# Coverage flags intentionally live in tox's coverage env, not here, so an
+# ad-hoc `pytest tests/unit/test_sensor.py` does not fail the coverage gate.
 addopts = [
     "-v",
     "-l",
     "-ra",
     "-W",
     "default",
-    "--cov=custom_components.nwp500",
-    "--cov-report=term-missing",
-    "--cov-report=html",
-    "--cov-report=xml",
-    "--cov-fail-under=80",
 ]
 markers = [
     "unit: Unit tests that test individual components in isolation",
@@ -113,30 +110,17 @@ show_column_numbers = true
 show_error_context = true
 pretty = true
 
-["tool.mypy-homeassistant.*"]
+# Third-party packages without type stubs. Written as [[tool.mypy.overrides]]
+# because a bare ["tool.mypy-foo.*"] table is a quoted top-level key in TOML,
+# not a mypy section -- mypy silently ignores it.
+[[tool.mypy.overrides]]
+module = [
+    "awscrt.*",
+    "homeassistant.*",
+    "nwp500.*",
+    "voluptuous.*",
+]
 ignore_missing_imports = true
-
-["tool.mypy-nwp500.*"]
-ignore_missing_imports = true
-
-["tool.mypy-awsiotsdk.*"]
-ignore_missing_imports = true
-
-["tool.mypy-awscrt.*"]
-ignore_missing_imports = true
-
-["tool.mypy-voluptuous.*"]
-ignore_missing_imports = true
-
-["tool.mypy-custom_components.nwp500.const"]
-disallow_untyped_defs = true
-disallow_any_generics = true
-
-["tool.mypy-custom_components.nwp500.entity"]
-disallow_untyped_defs = true
-
-["tool.mypy-custom_components.nwp500.config_flow"]
-disallow_untyped_defs = true
 
 [tool.coverage.run]
 source = ["custom_components/nwp500"]
@@ -146,8 +130,6 @@ omit = [
     "*/__pycache__/*",
     "*/.tox/*",
     "*/.venv/*",
-    "*/coordinator.py",
-    "*/diagnostics.py",
 ]
 
 [tool.coverage.report]
@@ -161,7 +143,6 @@ exclude_lines = [
     "@abstractmethod",
     "@abc.abstractmethod",
     "if self\\.debug",
-    "except Exception",
     "\\.\\.\\.",
 ]
 precision = 2

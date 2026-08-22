@@ -11,7 +11,6 @@ from homeassistant.components.water_heater import (
     WaterHeaterEntity,
     WaterHeaterEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_TEMPERATURE,
     STATE_OFF,
@@ -24,7 +23,6 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from nwp500.enums import CurrentOperationMode, DhwOperationSetting
 
 from .const import (
-    DOMAIN,
     HA_TO_DHW_MODE,
     MAX_TEMPERATURE_C,
     MAX_TEMPERATURE_F,
@@ -34,7 +32,10 @@ from .const import (
     get_dhw_operation_setting_state,
     get_enum_value,
 )
-from .coordinator import NWP500DataUpdateCoordinator
+from .coordinator import (
+    NWP500ConfigEntry,
+    NWP500DataUpdateCoordinator,
+)
 from .entity import NWP500Entity
 
 if TYPE_CHECKING:
@@ -45,13 +46,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: NWP500ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up water heater entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ]
+    coordinator = config_entry.runtime_data
 
     entities = []
     for mac_address, device_data in coordinator.data.items():
@@ -102,7 +101,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
     @override
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes, including persisted vacation restore mode."""
-        attrs = super().extra_state_attributes or {}
+        attrs: dict[str, Any] = dict(super().extra_state_attributes or {})
         if self._pre_vacation_mode is not None:
             attrs = {**attrs, "pre_vacation_mode": self._pre_vacation_mode}
         return attrs
@@ -195,7 +194,6 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
         return None
 
     @property
-    @override
     def is_on(self) -> bool | None:
         """Return True if the water heater is on."""
         if not (status := self._status):
@@ -204,7 +202,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             operation_setting = getattr(status, "dhw_operation_setting", None)
             if operation_setting is not None:
                 mode_value = get_enum_value(operation_setting)
-                return mode_value != DhwOperationSetting.POWER_OFF
+                return bool(mode_value != DhwOperationSetting.POWER_OFF)
             dhw_use = getattr(status, "dhw_use", None)
             comp_use = getattr(status, "comp_use", None)
             heat_upper = getattr(status, "heat_upper_use", None)
@@ -213,7 +211,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                 return True
             operation_mode = getattr(status, "operation_mode", None)
             if operation_mode is not None:
-                return (
+                return bool(
                     get_enum_value(operation_mode)
                     != CurrentOperationMode.STANDBY
                 )

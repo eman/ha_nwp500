@@ -34,8 +34,7 @@ class TestNWP500BinarySensor:
             }
         }
 
-        # Mock hass.data
-        hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+        mock_config_entry.runtime_data = mock_coordinator
 
         entities_added = []
 

@@ -8,12 +8,8 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
-
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
-
-    from .coordinator import NWP500DataUpdateCoordinator
+    from .coordinator import NWP500ConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,16 +54,14 @@ def _redact_macs(obj: Any) -> Any:
 
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: NWP500ConfigEntry,
 ) -> dict[str, Any]:
     """Return diagnostics for config entry.
 
     Sensitive data (passwords, tokens, MAC addresses) is redacted before
     returning, in accordance with HA diagnostics requirements.
     """
-    coordinator: NWP500DataUpdateCoordinator | None = hass.data.get(
-        DOMAIN, {}
-    ).get(config_entry.entry_id)
+    coordinator = getattr(config_entry, "runtime_data", None)
 
     if not coordinator:
         return {"error": "Integration not initialized"}
@@ -151,4 +145,7 @@ async def async_get_config_entry_diagnostics(
     diagnostics_data["performance_stats"] = coordinator.get_performance_stats()
 
     # Redact credentials and MAC addresses before returning
-    return _redact_macs(async_redact_data(diagnostics_data, _TO_REDACT))
+    redacted: dict[str, Any] = _redact_macs(
+        async_redact_data(diagnostics_data, _TO_REDACT)
+    )
+    return redacted
