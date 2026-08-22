@@ -57,7 +57,7 @@ Device Control: HA Command → MQTT Message → Device Response → Status Updat
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install -r requirements.txt
+uv pip install -r requirements-dev.txt
 ```
 
 ## Testing
@@ -239,9 +239,10 @@ before pushing rather than after.
 
 `custom_components/nwp500/manifest.json` is the single source of truth for
 pinned dependency versions: it is what Home Assistant installs and what
-hassfest validates. Every other mention -- `requirements.txt`, the four
-`tox.ini` environments, the install hints in `coordinator.py` and
-`config_flow.py`, and both READMEs -- is a copy.
+hassfest validates. `requirements.txt` mirrors it for local installs, and
+`tox.ini` now installs from that file rather than repeating the pins. The
+remaining copies are the install hints in `coordinator.py` and
+`config_flow.py` and both READMEs.
 
 Bump them all with:
 
@@ -289,7 +290,7 @@ curl -H "Authorization: Bearer $(cat token.txt)" \
 ## Common Issues
 
 ### Import Errors
-- Ensure dependencies: `uv pip install -r requirements.txt`
+- Ensure dependencies: `uv pip install -r requirements-dev.txt`
 
 ### Type Checking Failures
 - Run `tox -e mypy --recreate` to reset cache

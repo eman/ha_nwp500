@@ -1,0 +1,25 @@
+# Development and test tooling. Not installed by Home Assistant.
+#
+# Runtime dependencies live in requirements.txt and are pinned to match
+# custom_components/nwp500/manifest.json.
+#
+# Usage: uv pip install -r requirements.txt -r requirements-dev.txt
+
+-r requirements.txt
+
+# Home Assistant
+homeassistant>=2026.3.0
+
+# Type checking
+mypy>=1.0.0
+basedpyright>=1.0.0
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.0.0
+pytest-homeassistant-custom-component>=0.13.0
+pytest-timeout>=2.1.0
+
+# Test automation
+tox>=4.0.0

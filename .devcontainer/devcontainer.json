@@ -64,7 +64,7 @@
       "onAutoForward": "notify"
     }
   },
-  "postCreateCommand": "uv pip install --system -r requirements.txt && uv pip install --system tox tox-uv",
+  "postCreateCommand": "uv pip install --system -r requirements-dev.txt && uv pip install --system tox tox-uv",
   "remoteUser": "vscode",
   "mounts": [
     "source=${localWorkspaceFolder}/custom_components,target=/workspaces/${localWorkspaceFolderBasename}/custom_components,type=bind,consistency=cached"

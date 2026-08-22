@@ -55,6 +55,25 @@
   `async_remove` calls that could drift apart.
 - Coverage flags moved out of pytest's `addopts` and into tox's coverage env,
   so running a single test file no longer fails the coverage gate.
+- **`requirements.txt` split into runtime and dev, halving the pin sites.** It
+  now holds only the two runtime pins mirroring `manifest.json`; tooling moved
+  to `requirements-dev.txt`, which pulls the runtime file in via its own `-r`.
+  `tox.ini` installs from those files instead of repeating the versions in
+  four environments, so it carries no pins at all. Counting both packages,
+  hand-maintained pin sites drop from 16 to 8 — the manifest, its
+  `requirements.txt` mirror, and the two user-facing "install this" error
+  strings.
+
+  `[testenv:coverage-html]` was also re-declaring `commands_pre` identically
+  to `[testenv]`, which it already inherits; removing the copy took two more
+  pin sites with it.
+
+  The base test environment previously installed `awsiotsdk` with
+  dependencies and `nwp500-python` with `--no-deps`. It now installs
+  `-r requirements.txt` in one step, which matches how Home Assistant installs
+  manifest requirements at runtime. Verified on a recreated environment: the
+  resolved versions of `aiohttp`, `pydantic`, `awscrt` and `awsiotsdk` are
+  unchanged, and all tests pass.
 - `scripts/update_nwp500_version.py` now discovers files by scanning instead
   of from a hardcoded list, handles the README link form, and can bump
   `awsiotsdk`. Its CHANGELOG update was also searching the whole file, so it

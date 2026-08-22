@@ -26,10 +26,11 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 WORKDIR /workspaces/ha_nwp500
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+# requirements-dev.txt pulls in requirements.txt via its own -r
+COPY requirements.txt requirements-dev.txt ./
 
 # Install Python dependencies and tools using uv
-RUN uv pip install --system -r requirements.txt \
+RUN uv pip install --system -r requirements-dev.txt \
     && uv pip install --system \
     tox \
     tox-uv \

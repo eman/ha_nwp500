@@ -3,9 +3,12 @@
 
 version: 2
 updates:
-  # Monitor Python dependencies in requirements.txt. Dependabot's pip
-  # ecosystem cannot read manifest.json, so runtime pins there are kept in
-  # sync via scripts/update_nwp500_version.py.
+  # Monitor requirements.txt (runtime) and requirements-dev.txt (tooling).
+  # Dependabot cannot edit manifest.json, which is the source of truth for
+  # runtime pins, so a PR bumping nwp500-python or awsiotsdk will fail the
+  # dependency-pins check by design. Redo those with
+  # `python scripts/update_nwp500_version.py <version>` rather than merging
+  # the raw bump.
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
