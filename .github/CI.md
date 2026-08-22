@@ -11,8 +11,9 @@ The CI pipeline is defined in `.github/workflows/ci.yml` and runs automatically 
 
 ## CI Jobs
 
-All jobs run on Python 3.14 unless noted — the integration uses Python
-3.14-only syntax and will not import on older interpreters.
+All jobs run on Python 3.14 — the integration uses Python 3.14-only syntax
+and will not import on older interpreters, and `scripts/` is formatted for
+3.14 as well.
 
 ### 1. Lint (ruff)
 - **Purpose**: Linting and formatting checks
@@ -29,19 +30,26 @@ All jobs run on Python 3.14 unless noted — the integration uses Python
 
 ### 4. Check Deprecated APIs
 - **Purpose**: Flag deprecated Home Assistant API usage
-- **Python Version**: 3.13 (the script scans source text and does not import it)
 - **Command**: `python3 scripts/check_deprecated_apis.py`
 
-### 5. Type Check (basedpyright)
+### 5. Dependency Pin Consistency
+- **Purpose**: Ensure every pinned dependency version in the repository
+  agrees with `custom_components/nwp500/manifest.json`, the single source of
+  truth for what Home Assistant installs
+- **Command**: `python3 scripts/check_dependency_pins.py`
+- **Note**: Scans all tracked files, so a new file that pins a version is
+  covered without changing the script
+
+### 6. Type Check (basedpyright)
 - **Purpose**: Validate type hints using basedpyright
 - **Requirement**: Must pass with 0 errors (warnings acceptable)
 - **Command**: `tox -e basedpyright`
 
-### 6. Tests
+### 7. Tests
 - **Purpose**: Run unit tests
 - **Command**: `tox -e py314`
 
-### 7. Test Coverage
+### 8. Test Coverage
 - **Purpose**: Ensure test coverage meets requirements
 - **Requirement**: ≥80% overall coverage
 - **Command**: `tox -e coverage`
@@ -50,11 +58,11 @@ All jobs run on Python 3.14 unless noted — the integration uses Python
   - HTML coverage report saved as artifact (30-day retention)
   - XML coverage report for external tools
 
-### 8. HACS Validation
+### 9. HACS Validation
 - **Purpose**: Validate the repository against HACS requirements
 - **Defined in**: `.github/workflows/hacs.yaml`
 
-### 9. All Checks Passed
+### 10. All Checks Passed
 - **Purpose**: Summary job that requires all checks to pass
 - **Fails if**: Any of the above jobs fail
 

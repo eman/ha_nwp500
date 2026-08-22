@@ -8,19 +8,20 @@ from homeassistant.components.number import (
     NumberEntity,
     NumberMode,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import (
-    DOMAIN,
     MAX_TEMPERATURE_C,
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
 )
-from .coordinator import NWP500DataUpdateCoordinator
+from .coordinator import (
+    NWP500ConfigEntry,
+    NWP500DataUpdateCoordinator,
+)
 from .entity import NWP500Entity
 
 if TYPE_CHECKING:
@@ -31,13 +32,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: NWP500ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up number entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ]
+    coordinator = config_entry.runtime_data
 
     entities = []
     for mac_address, device_data in coordinator.data.items():

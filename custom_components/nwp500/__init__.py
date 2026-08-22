@@ -9,7 +9,7 @@ from typing import Any, Final
 
 import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import (
     ATTR_DEVICE_ID,
     ATTR_ENTITY_ID,
@@ -21,6 +21,7 @@ from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     DEFAULT_TEMPERATURE_C,
@@ -32,7 +33,7 @@ from .const import (
     MIN_TEMPERATURE_F,
     MODE_TO_DHW_ID,
 )
-from .coordinator import NWP500DataUpdateCoordinator
+from .coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -376,10 +377,11 @@ class NWP500ServiceHandler:
             raise HomeAssistantError(f"Device {device_id} not found")
 
         # Find the coordinator for this device
-        for _entry_id, coordinator in self.hass.data[DOMAIN].items():
-            if not isinstance(coordinator, NWP500DataUpdateCoordinator):
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.state is not ConfigEntryState.LOADED:
                 continue
-            if not coordinator.data:
+            coordinator = entry.runtime_data
+            if not coordinator or not coordinator.data:
                 continue
             for mac_address in coordinator.data:
                 # Check if device identifiers match
@@ -720,37 +722,44 @@ class NWP500ServiceHandler:
             raise HomeAssistantError("Failed to trigger recirculation")
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the NWP500 integration domain (once, before any config entries)."""
     # Serve the bundled Lovelace card JS from the component's www/ directory.
     # This makes the custom card available without users needing to manually
     # register it as a Lovelace resource or install it separately via HACS.
-    if CARD_PATH.is_file():
-        from homeassistant.components.http import StaticPathConfig
+    from homeassistant.components.http import StaticPathConfig
 
-        configs = [StaticPathConfig(CARD_URL, str(CARD_PATH), False)]
+    # (url, path, serve_as_js). Stat-ing these touches the filesystem, so the
+    # whole batch is checked in one executor job rather than blocking the
+    # event loop once per asset.
+    assets: tuple[tuple[str, Path, bool], ...] = (
+        (CARD_URL, CARD_PATH, True),
+        (VISUAL_CARD_URL, VISUAL_CARD_PATH, True),
+        (VISUAL_IMAGE_URL, VISUAL_IMAGE_PATH, False),
+    )
 
-        if VISUAL_CARD_PATH.is_file():
-            configs.append(
-                StaticPathConfig(VISUAL_CARD_URL, str(VISUAL_CARD_PATH), False)
-            )
-            add_extra_js_url(hass, VISUAL_CARD_URL)
+    def _present() -> list[tuple[str, Path, bool]]:
+        return [asset for asset in assets if asset[1].is_file()]
 
-        if VISUAL_IMAGE_PATH.is_file():
-            configs.append(
-                StaticPathConfig(
-                    VISUAL_IMAGE_URL, str(VISUAL_IMAGE_PATH), False
-                )
-            )
+    present = await hass.async_add_executor_job(_present)
 
-        await hass.http.async_register_static_paths(configs)
-        add_extra_js_url(hass, CARD_URL)
-        _LOGGER.debug("Registered frontend assets")
-    else:
+    if not any(path == CARD_PATH for _url, path, _js in present):
         _LOGGER.warning(
             "Frontend card not found at %s — schedule card will not be available",
             CARD_PATH,
         )
+
+    if not present:
+        return True
+
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(url, str(path), False) for url, path, _js in present]
+    )
+    for url, _path, serve_as_js in present:
+        if serve_as_js:
+            add_extra_js_url(hass, url)
+
+    _LOGGER.debug("Registered %d frontend asset(s)", len(present))
     return True
 
 
@@ -785,12 +794,34 @@ def _async_remove_stale_energy_entities(
             entity_registry.async_remove(entity_entry.entity_id)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_migrate_entry(
+    hass: HomeAssistant, entry: NWP500ConfigEntry
+) -> bool:
+    """Migrate an existing config entry to the current schema version.
+
+    Home Assistant calls this whenever the stored entry's version does not
+    match the config flow's, including when it is *newer* (a downgrade), so
+    each step is guarded and unknown-but-newer entries are left untouched.
+    """
+    if entry.version > 1:
+        # Written by a newer release; nothing here knows how to touch it.
+        return False
+
+    if entry.minor_version < 2:
+        # Drop energy sensors whose backing DeviceStatus fields were removed
+        # outright in nwp500-python 9.3.0. This used to run on every setup;
+        # it only ever needed to happen once per entry.
+        _async_remove_stale_energy_entities(hass, entry)
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+        _LOGGER.debug("Migrated config entry to version 1.2")
+
+    return True
+
+
+async def async_setup_entry(
+    hass: HomeAssistant, entry: NWP500ConfigEntry
+) -> bool:
     """Set up NWP500 from a config entry."""
-    hass.data.setdefault(DOMAIN, {})
-
-    _async_remove_stale_energy_entities(hass, entry)
-
     # Unit system is determined by the coordinator from the HA configuration
     # and passed into NavienAuthClient/NavienAPIClient/MQTT. No unit handling
     # is configured directly in this setup function.
@@ -799,11 +830,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     try:
         await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryNotReady as err:
-        _LOGGER.error("Failed to connect to NWP500: %s", err)
+    except Exception as err:
+        # The first refresh runs _setup_clients(), which may already have
+        # opened an auth session, connected MQTT and started periodic request
+        # tasks before failing. HA discards this coordinator and retries with
+        # a fresh one, so without an explicit shutdown every retry would
+        # strand a live MQTT session.
+        await coordinator.async_shutdown()
+        if isinstance(err, ConfigEntryNotReady):
+            _LOGGER.error("Failed to connect to NWP500: %s", err)
         raise
 
-    hass.data[DOMAIN][entry.entry_id] = coordinator
+    entry.runtime_data = coordinator
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
@@ -821,124 +859,101 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
+# (service name, handler attribute, schema). One table drives both
+# registration and teardown so the two can no longer drift apart.
+_SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
+    (
+        SERVICE_SET_RESERVATION,
+        "async_set_reservation",
+        SERVICE_SET_RESERVATION_SCHEMA,
+    ),
+    (
+        SERVICE_UPDATE_RESERVATIONS,
+        "async_update_reservations",
+        SERVICE_UPDATE_RESERVATIONS_SCHEMA,
+    ),
+    (
+        SERVICE_CLEAR_RESERVATIONS,
+        "async_clear_reservations",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_REQUEST_RESERVATIONS,
+        "async_request_reservations",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_SET_VACATION_DAYS,
+        "async_set_vacation_days",
+        SERVICE_SET_VACATION_DAYS_SCHEMA,
+    ),
+    (
+        SERVICE_CONFIGURE_TOU,
+        "async_configure_tou_schedule",
+        SERVICE_CONFIGURE_TOU_SCHEMA,
+    ),
+    (
+        SERVICE_REQUEST_TOU,
+        "async_request_tou_settings",
+        SERVICE_REQUEST_TOU_SCHEMA,
+    ),
+    (
+        SERVICE_ENABLE_DEMAND_RESPONSE,
+        "async_enable_demand_response",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_DISABLE_DEMAND_RESPONSE,
+        "async_disable_demand_response",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_RESET_AIR_FILTER,
+        "async_reset_air_filter",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_SET_RECIRCULATION_MODE,
+        "async_set_recirculation_mode",
+        SERVICE_SET_RECIRCULATION_MODE_SCHEMA,
+    ),
+    (
+        SERVICE_TRIGGER_RECIRCULATION,
+        "async_trigger_recirculation",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+)
+
+
 async def _async_setup_services(hass: HomeAssistant) -> None:
     """Set up services for the NWP500 integration."""
     # Only register once
     if hass.services.has_service(DOMAIN, SERVICE_SET_RESERVATION):
         return
 
-    # Create service handler instance
     handler = NWP500ServiceHandler(hass)
 
-    # Register all services with schemas
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_RESERVATION,
-        handler.async_set_reservation,
-        schema=SERVICE_SET_RESERVATION_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_UPDATE_RESERVATIONS,
-        handler.async_update_reservations,
-        schema=SERVICE_UPDATE_RESERVATIONS_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_CLEAR_RESERVATIONS,
-        handler.async_clear_reservations,
-        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_REQUEST_RESERVATIONS,
-        handler.async_request_reservations,
-        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_VACATION_DAYS,
-        handler.async_set_vacation_days,
-        schema=SERVICE_SET_VACATION_DAYS_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_CONFIGURE_TOU,
-        handler.async_configure_tou_schedule,
-        schema=SERVICE_CONFIGURE_TOU_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_REQUEST_TOU,
-        handler.async_request_tou_settings,
-        schema=SERVICE_REQUEST_TOU_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_ENABLE_DEMAND_RESPONSE,
-        handler.async_enable_demand_response,
-        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_DISABLE_DEMAND_RESPONSE,
-        handler.async_disable_demand_response,
-        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_RESET_AIR_FILTER,
-        handler.async_reset_air_filter,
-        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SET_RECIRCULATION_MODE,
-        handler.async_set_recirculation_mode,
-        schema=SERVICE_SET_RECIRCULATION_MODE_SCHEMA,
-    )
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_TRIGGER_RECIRCULATION,
-        handler.async_trigger_recirculation,
-        schema=SERVICE_DEVICE_OR_ENTITY_SCHEMA,
-    )
+    for service_name, handler_attr, schema in _SERVICES:
+        hass.services.async_register(
+            DOMAIN,
+            service_name,
+            getattr(handler, handler_attr),
+            schema=schema,
+        )
 
     _LOGGER.debug("Registered NWP500 services")
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(
+    hass: HomeAssistant, entry: NWP500ConfigEntry
+) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(
         entry, PLATFORMS
     ):
-        coordinator = hass.data[DOMAIN].pop(entry.entry_id)
-        await coordinator.async_shutdown()
+        await entry.runtime_data.async_shutdown()
 
-        # Unregister services if no more entries
-        if not hass.data[DOMAIN]:
-            hass.services.async_remove(DOMAIN, SERVICE_SET_RESERVATION)
-            hass.services.async_remove(DOMAIN, SERVICE_UPDATE_RESERVATIONS)
-            hass.services.async_remove(DOMAIN, SERVICE_CLEAR_RESERVATIONS)
-            hass.services.async_remove(DOMAIN, SERVICE_REQUEST_RESERVATIONS)
-            hass.services.async_remove(DOMAIN, SERVICE_SET_VACATION_DAYS)
-            hass.services.async_remove(DOMAIN, SERVICE_CONFIGURE_TOU)
-            hass.services.async_remove(DOMAIN, SERVICE_REQUEST_TOU)
-            hass.services.async_remove(DOMAIN, SERVICE_ENABLE_DEMAND_RESPONSE)
-            hass.services.async_remove(DOMAIN, SERVICE_DISABLE_DEMAND_RESPONSE)
-            hass.services.async_remove(DOMAIN, SERVICE_RESET_AIR_FILTER)
-            hass.services.async_remove(DOMAIN, SERVICE_SET_RECIRCULATION_MODE)
-            hass.services.async_remove(DOMAIN, SERVICE_TRIGGER_RECIRCULATION)
+        for service_name, _handler_attr, _schema in _SERVICES:
+            hass.services.async_remove(DOMAIN, service_name)
 
     return unload_ok

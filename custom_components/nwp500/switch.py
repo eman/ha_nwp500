@@ -4,14 +4,16 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nwp500.enums import DhwOperationSetting
 
-from .const import DOMAIN, get_enum_value
-from .coordinator import NWP500DataUpdateCoordinator
+from .const import get_enum_value
+from .coordinator import (
+    NWP500ConfigEntry,
+    NWP500DataUpdateCoordinator,
+)
 from .entity import NWP500Entity
 
 if TYPE_CHECKING:
@@ -22,13 +24,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: NWP500ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up switch entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ]
+    coordinator = config_entry.runtime_data
 
     entities: list[SwitchEntity] = []
     for mac_address, device_data in coordinator.data.items():

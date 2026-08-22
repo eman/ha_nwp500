@@ -19,7 +19,7 @@ if TYPE_CHECKING:
         ReservationSchedule,
         TOUReservationSchedule,
     )
-    from nwp500.mqtt_events import (  # type: ignore[attr-defined]
+    from nwp500.mqtt_events import (
         ConnectionInterruptedEvent,
         ConnectionResumedEvent,
     )
@@ -194,13 +194,13 @@ class NWP500MqttManager:
                 )
                 if client_id
                 else MqttConnectionConfig(clean_session=False),
-                unit_system=self.unit_system,  # type: ignore[arg-type]
+                unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
 
             # Set up event listeners
             if self.mqtt_client:
                 from nwp500.mqtt_events import (
-                    MqttClientEvents,  # type: ignore[attr-defined]
+                    MqttClientEvents,
                 )
 
                 # Connection lifecycle events
@@ -302,7 +302,7 @@ class NWP500MqttManager:
         if self.mqtt_client:
             try:
                 from nwp500.mqtt_events import (
-                    MqttClientEvents,  # type: ignore[attr-defined]
+                    MqttClientEvents,
                 )
 
                 # Remove listeners

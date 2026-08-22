@@ -13,7 +13,6 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     PERCENTAGE,
     UnitOfEnergy,
@@ -24,8 +23,11 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import schedule_state
-from .const import DOMAIN, SENSOR_CONFIGS
-from .coordinator import NWP500DataUpdateCoordinator
+from .const import SENSOR_CONFIGS
+from .coordinator import (
+    NWP500ConfigEntry,
+    NWP500DataUpdateCoordinator,
+)
 from .entity import NWP500Entity
 
 if TYPE_CHECKING:
@@ -180,13 +182,11 @@ SENSOR_DESCRIPTIONS = create_sensor_descriptions()
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: NWP500ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensor entities from a config entry."""
-    coordinator: NWP500DataUpdateCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ]
+    coordinator = config_entry.runtime_data
 
     entities: list[SensorEntity] = []
 

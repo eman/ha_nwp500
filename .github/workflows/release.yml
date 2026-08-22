@@ -20,6 +20,21 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
+      - name: Verify manifest version matches tag
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          MANIFEST_VERSION=$(jq -r '.version' \
+            custom_components/nwp500/manifest.json)
+
+          if [ "$VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Tag v${VERSION} does not match manifest.json version" \
+              "${MANIFEST_VERSION}."
+            echo "HACS installs the manifest version, so releasing this" \
+              "would ship a mismatched build."
+            exit 1
+          fi
+          echo "Tag and manifest agree on ${VERSION}"
+
       - name: Extract release notes from changelog
         run: |
           VERSION="${{ steps.version.outputs.version }}"

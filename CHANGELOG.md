@@ -2,6 +2,191 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Three CI jobs were passing without running anything.** The `[testenv]`
+  section in `tox.ini` had no `commands`, so `tox -e py314`, `tox -e mypy` and
+  `tox -e basedpyright` installed their dependencies and exited successfully
+  having executed no test or type check. Tests only ever ran via the separate
+  coverage job; the type checkers had never run at all. All three now have
+  explicit commands.
+- **Per-module mypy settings had never been applied.** They were written as
+  `["tool.mypy-homeassistant.*"]`, which TOML parses as a quoted *top-level*
+  key rather than a mypy section, so mypy silently ignored all nine of them.
+  Rewritten as a single `[[tool.mypy.overrides]]` block. Enabling it (together
+  with the fix above) surfaced 10 real type errors, now resolved.
+- **A failed setup left a live MQTT session behind.** The coordinator's first
+  refresh runs `_setup_clients()`, which may already have opened an auth
+  session, connected MQTT and started periodic request tasks before failing.
+  Home Assistant discards that coordinator and retries with a fresh one, so
+  each retry stranded a connection. `async_setup_entry` now shuts the
+  coordinator down before re-raising.
+- **`.github/copilot-instructions.md` declared `Current Version: 9.0.0` while
+  the manifest pinned 9.3.0** — three minor releases stale, and invisible to
+  the new pin checker because the number was not package-qualified. The
+  duplicate is removed in favour of pointing at the manifest, and the checker
+  now documents the forms it can actually verify.
+- `.github/CI.md` still described the deprecated-API job as running Python 3.13
+  and did not mention the dependency-pin job at all.
+- **Frontend asset checks no longer block the event loop.** `async_setup`
+  stat-ed three bundled card files inline; they are now checked in a single
+  executor job. Each asset is also registered independently, so a missing
+  schedule card no longer suppresses the visual card and its image.
+- **README.md advertised nwp500-python v9.2.1 while the pin was 9.3.0.** The
+  update script listed `README.md` among the files it rewrites, but its
+  patterns only matched `nwp500-python==X.Y.Z`, never the README's
+  `[nwp500-python v9.2.1](...)` link form — so it reported "No changes" and
+  the reference drifted a full release behind.
+- **A mistyped version made the update script lie.** It took the old version
+  as an argument, so a typo matched nothing, rewrote no files, exited 0, and
+  still added a CHANGELOG entry announcing the upgrade. The current version
+  is now read from `manifest.json` and cannot be passed in.
+- **Both Dependabot ecosystems had been failing every week.** The `pip` entry
+  pointed at `/custom_components/nwp500` expecting to read `manifest.json`,
+  which Dependabot's pip ecosystem cannot parse (`dependency_file_not_found`);
+  it now points at the root `requirements.txt`. The `docker` entry pointed at
+  `/`, which holds no Dockerfile (`No Dockerfiles nor Kubernetes YAML found`);
+  it now points at `/.devcontainer`.
+
+### Changed
+- **The coverage gate now measures the whole integration.** `coordinator.py`
+  (the largest module) and `diagnostics.py` were excluded from coverage while
+  the gate claimed 80%, and `except Exception` was excluded line-wise.
+  `diagnostics.py` turned out to be at 100% — omitting it was pure loss.
+- **Coordinators now live on `entry.runtime_data`** instead of
+  `hass.data[DOMAIN][entry.entry_id]`, with a typed `NWP500ConfigEntry` alias.
+  This drops the multi-entry bookkeeping the integration no longer needs given
+  `single_config_entry: true`, including the `isinstance` scan in the service
+  handler and the reference-counting guard around service teardown.
+- **Service registration and teardown are driven by one `_SERVICES` table**,
+  rather than twelve `async_register` calls mirrored by twelve
+  `async_remove` calls that could drift apart.
+- Coverage flags moved out of pytest's `addopts` and into tox's coverage env,
+  so running a single test file no longer fails the coverage gate.
+- **`requirements.txt` now holds only runtime pins, halving the pin sites.** It
+  mirrors `manifest.json`; development tooling moved to PEP 735
+  `[dependency-groups]` in `pyproject.toml`, the current standard location.
+  `tox.ini` installs from those files instead of repeating the versions in
+  four environments, so it carries no pins at all. Counting both packages,
+  hand-maintained pin sites drop from 16 to 8 — the manifest, its
+  `requirements.txt` mirror, and the two user-facing "install this" error
+  strings.
+
+  `[testenv:coverage-html]` was also re-declaring `commands_pre` identically
+  to `[testenv]`, which it already inherits; removing the copy took two more
+  pin sites with it.
+
+  The groups mirror the tox environments rather than lumping everything into
+  one, so each still installs exactly what it did: the test env resolves Home
+  Assistant through `pytest-homeassistant-custom-component`, the type checkers
+  resolve it directly. Verified across recreated environments — Home Assistant
+  2026.8.3, nwp500-python 9.3.0, awscrt 0.36.1 and aiohttp 3.14.3 in every
+  one, unchanged.
+
+  `tox-uv` is now declared in the `dev` group instead of being installed ad
+  hoc by the devcontainer, since `runner = uv-venv` in `tox.ini` requires it.
+  A full local setup is `uv pip install -r requirements.txt --group dev`.
+
+  The base test environment previously installed `awsiotsdk` with
+  dependencies and `nwp500-python` with `--no-deps`. It now installs
+  `-r requirements.txt` in one step, which matches how Home Assistant installs
+  manifest requirements at runtime. Verified on a recreated environment: the
+  resolved versions of `aiohttp`, `pydantic`, `awscrt` and `awsiotsdk` are
+  unchanged, and all tests pass.
+- `scripts/update_nwp500_version.py` now discovers files by scanning instead
+  of from a hardcoded list, handles the README link form, and can bump
+  `awsiotsdk`. Its CHANGELOG update was also searching the whole file, so it
+  matched a bullet from a past release and silently changed nothing while
+  reporting success; it is now scoped to `## [Unreleased]`.
+- Both CI jobs that execute `scripts/` ran on Python 3.13 while ruff formats
+  that directory for 3.14. The existing script happened to still parse; a
+  reformat would have broken it. Both jobs now run 3.14.
+- **Removing the energy sensors dropped in nwp500-python 9.3.0 is now a config
+  entry migration** (`async_migrate_entry`, minor version 1 -> 2) instead of a
+  full entity-registry sweep on every single setup. Existing entries are swept
+  once on upgrade and then stamped; new installations never run it. Entries
+  written by a future major version are refused rather than modified.
+- **Releases now fail if the git tag and `manifest.json` disagree.** HACS
+  installs the manifest version, so a hand-cut tag could previously ship a
+  build whose reported version did not match the release.
+- HACS validation no longer runs twice on every branch push (`on: push` had no
+  branch filter alongside `pull_request`).
+
+### Added
+- **Tests for the version tooling itself** (`tests/unit/test_version_tooling.py`),
+  covering every recognised reference form, the historical-prose exclusion, the
+  no-op and refusal paths, an `awsiotsdk`-only bump, and both CHANGELOG shapes.
+  Spot-checked by mutation: dropping the "refusing to record an upgrade"
+  guard, restoring the whole-file CHANGELOG search, and letting the rewriter
+  touch bare prose each fail at least one test.
+- **`scripts/check_dependency_pins.py`, run in CI, makes a missed version bump
+  impossible.** `manifest.json` is now the declared single source of truth for
+  pinned versions — it is what Home Assistant installs and what hassfest
+  validates. The checker scans every tracked file and fails if any pin
+  disagrees with it.
+
+  It scans every file git does not ignore, tracked or not — listing only
+  tracked files made the check pass locally and fail in CI for a file that had
+  been created but not yet `git add`ed, which is the worst behaviour a guard
+  can have. Because it scans rather than working from a list, a new file that
+  pins a version is covered without touching the script, and it checks
+  `awsiotsdk` as well — which had 7 pin sites and no tooling at all.
+  Historical prose ("dropped in nwp500-python 9.3.0") records when something
+  happened and is deliberately not compared against the current pin.
+
+  `nwp500-python` was defined in 9 places and `awsiotsdk` in 7, kept in sync
+  by a script with a hardcoded file list, a prose list in `DEVELOPMENT.md`,
+  and a 12-step checklist in `.github/copilot-instructions.md` — four
+  hand-maintained copies of the same knowledge, all free to drift. All three
+  now point at the scan-based tooling instead of enumerating files.
+
+- **Coordinator test coverage raised from 38% to 95%** (90 new tests). Once
+  `coordinator.py` was no longer excluded from the coverage report, it was the
+  least-tested module in the integration despite being the largest. The new
+  tests cover the paths that decide user-visible behaviour:
+
+  - Retriable vs non-retriable authentication failures. `nwp500-python` marks
+    transient network failures retriable, and only non-retriable ones should
+    start a reauth flow — otherwise a brief outage nags the user to
+    re-authenticate.
+  - `async_shutdown` on a half-built coordinator, which is exactly the path
+    taken when a first refresh fails and the connection leak fix above runs.
+  - The `async_fetch_reservations` waiter lifecycle, including timeout and
+    cleanup. `set_reservation` does a read-modify-write against a full-list
+    replacement, so a stale or empty read corrupts the schedule.
+  - Stored-token restore: valid, expired, and corrupt token data.
+  - Unit-system transitions clearing every cache that holds scaled values, so
+    a water heater never mixes Celsius and Fahrenheit readings.
+  - Device command routing failing closed on an unknown MAC or absent MQTT,
+    and TOU commands refusing to send before a controller serial is known.
+
+  Integration-wide coverage is now 85.6%, and the gate is raised from 70% to
+  80%.
+
+### Removed
+- `validate_hacs.py` and its `tox -e hacs` environment. It was scaffolding for
+  getting into HACS; the authoritative `hacs/action` now runs in CI, and
+  nothing invoked the local script.
+- `custom_components/nwp500/images/navien-icon.png`, which was referenced
+  nowhere and shipped to every user.
+- `uv.lock`, which was an empty stub — three lines declaring a version and a
+  Python floor, locking zero packages — and `pyproject.toml`'s `[build-system]`
+  table, which pointed setuptools at something never built (`skipsdist = True`,
+  no `[project]`). Both implied this repository is a distributable package; it
+  is a Home Assistant custom component that HA loads directly. `pyproject.toml`
+  is now purely configuration, which is all it ever was.
+- **`NWP500WaterHeater.is_on`**, which Home Assistant never read.
+  `WaterHeaterEntity` has no `is_on` property and its `state` is `@final`,
+  derived from `current_operation` — so there was no hook to attach it to. The
+  power state it computed is already reported correctly in three places:
+  `current_operation` maps `POWER_OFF` to `"off"`, `switch.<device>_power`
+  implements the same check where `is_on` is real API, and the component-status
+  fields it fell back on (`dhw_use`, `comp_use`, `heat_upper_use`,
+  `heat_lower_use`) are each already binary sensors.
+
+  Those fallbacks were also wrong on their own terms: they tested whether a
+  heating component was *currently running*, which is activity rather than
+  power state, so a powered-but-idle device would have reported `False`.
+
 ## [0.18.0] - 2026-08-05
 
 ### Changed

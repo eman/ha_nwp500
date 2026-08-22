@@ -29,7 +29,10 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **GitHub Repository**: https://github.com/eman/nwp500-python
   - **Documentation**: https://nwp500-python.readthedocs.io/en/stable/
   - **PyPI Package**: https://pypi.org/project/nwp500-python/
-  - **Current Version**: 9.0.0 (see `custom_components/nwp500/manifest.json`)
+  - **Current Version**: see `custom_components/nwp500/manifest.json` — do
+    not restate it here, it goes stale (this line said 9.0.0 while the pin
+    was 9.3.0). If a document must name the version, write it as
+    `nwp500-python v9.3.0` so `scripts/check_dependency_pins.py` can verify it
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
@@ -134,108 +137,32 @@ The integration maps nwp500-python operation modes to Home Assistant states:
 
 ### Updating nwp500-python Library Version
 
-**Use the script, not a manual edit:**
+`custom_components/nwp500/manifest.json` is the single source of truth. Use
+the script; do not hand-edit and do not maintain a checklist of files:
 
 ```bash
-python scripts/update_nwp500_version.py <old_version> <new_version>
+python scripts/update_nwp500_version.py 9.4.0
+python scripts/update_nwp500_version.py --awsiotsdk 1.32.0   # if needed
 ```
 
-It rewrites every reference listed below in one pass. Editing by hand
-reliably misses one of the two install hints (`coordinator.py` and
-`config_flow.py`), which leaves the runtime error paths telling users to
-install different versions. After running it, verify with:
+The current version is read from the manifest, so it is not passed in. The
+script discovers references by scanning every tracked file, so there is no
+list to keep current. Historical prose ("dropped in nwp500-python 9.3.0")
+records when something happened and is intentionally left alone.
+
+Verify with the same check CI runs:
 
 ```bash
-grep -rn "nwp500-python==" --include="*.py" --include="*.json" \
-  --include="*.txt" --include="*.ini" --include="*.md" .
+python scripts/check_dependency_pins.py
 ```
 
-The files it covers, for reference:
+It fails if any pin disagrees with the manifest, so a missed bump cannot
+reach `main`. If it reports a mismatch, re-run the update script rather
+than patching the file it named -- a mismatch usually means several files
+drifted together.
 
-#### 1. **`custom_components/nwp500/manifest.json`** (REQUIRED)
-   - Update the `requirements` array: `"nwp500-python==X.Y.Z"`
-   - This is the authoritative version that Home Assistant uses
-
-#### 2. **`requirements.txt`** (REQUIRED)
-   - Update the version: `nwp500-python==X.Y.Z`
-   - Used for development environment setup
-
-#### 3. **`tox.ini`** (CRITICAL - MUST UPDATE ALL 3 SECTIONS)
-   - Update `[testenv]` deps section: `nwp500-python==X.Y.Z`
-   - Update `[testenv:mypy]` deps section: `nwp500-python==X.Y.Z`
-   - Update `[testenv:basedpyright]` deps section: `nwp500-python==X.Y.Z`
-   - Search for all occurrences: `nwp500-python==`
-   - **Important**: CI will fail if not all sections are updated!
-
-#### 4. **`custom_components/nwp500/coordinator.py`** (REQUIRED)
-   - Update the error message in the ImportError handler
-   - Search for: `"uv pip install nwp500-python=="`
-   - Update to new version (line ~316)
-
-#### 5. **`custom_components/nwp500/config_flow.py`** (REQUIRED)
-   - Update the error message in the library availability check
-   - Search for: `"uv pip install nwp500-python=="`
-   - Update to new version (line ~181)
-
-#### 6. **`CHANGELOG.md`** (REQUIRED)
-   - Add new entry in "Library Dependency: nwp500-python" section
-   - Document version number with date: `### vX.Y.Z (YYYY-MM-DD)`
-   - Include breaking changes, improvements, and migration notes
-   - Add link to GitHub release notes
-   - Check release notes: https://github.com/eman/nwp500-python/releases
-
-#### 7. **`README.md`** (REQUIRED)
-   - Update "Library Version" section: Change `nwp500-python vX.Y.Z`
-   - Update troubleshooting section if it mentions version
-   - DO NOT add detailed changelog information to README
-   - README should only show current version and link to CHANGELOG.md
-
-#### 8. **`.devcontainer/README.md`** (RECOMMENDED)
-   - Update version reference in the "Python Packages" section
-   - Search for: `nwp500-python==`
-
-#### 9. **`.github/copilot-instructions.md`** (THIS FILE)
-   - Update "Current Version" in the "Primary Library" section
-   - Update this version upgrade checklist if procedures have changed
-
-#### Workflow for Version Updates
-
-```bash
-# 1. Check for new versions
-uv pip index versions nwp500-python
-
-# 2. Check release notes
-curl -s https://api.github.com/repos/eman/nwp500-python/releases | jq '.[0]'
-
-# 3. Update all files listed above
-
-# 4. Run type checking (MANDATORY)
-.venv/bin/tox -e mypy
-
-# 5. Test in Docker container (if applicable)
-docker compose up -d
-```
-
-#### Version Update Checklist
-
-- [ ] Check PyPI for latest version
-- [ ] Review GitHub release notes for breaking changes
-- [ ] Update `manifest.json` requirements
-- [ ] Update `requirements.txt`
-- [ ] Update error messages in `coordinator.py`
-- [ ] Update error messages in `config_flow.py`
-- [ ] **Add entry to `CHANGELOG.md` under "Library Dependency: nwp500-python"**
-- [ ] Update `README.md` version number only (no detailed changelog)
-- [ ] Update `.devcontainer/README.md`
-- [ ] Update this file's "Current Version"
-- [ ] **Update `tox.ini` - ALL occurrences (CRITICAL for CI)**
-- [ ] Run `tox -e mypy --recreate` - must pass with zero errors
-- [ ] Test in development environment (optional but recommended)
-
-**Common Mistakes**: 
-- Forgetting to update `tox.ini` causes CI failures because type checkers cannot resolve the new library APIs
-- Adding detailed changelog to `README.md` instead of `CHANGELOG.md` - keep README clean and focused
-- Always search for ALL occurrences of `nwp500-python==` in the project
+Expand the `CHANGELOG.md` entry the script adds under `## [Unreleased]`
+with any behaviour changes from the library's release notes.
 
 ### Unit Corrections
 - Energy values from device are in **Wh** (watt-hours), not kWh

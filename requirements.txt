@@ -1,31 +1,14 @@
-# Python dependencies for Navien NWP500 Home Assistant Integration
-# These dependencies are also listed in custom_components/nwp500/manifest.json
+# Runtime dependencies for the Navien NWP500 Home Assistant integration.
+#
+# These must match custom_components/nwp500/manifest.json, which is the
+# single source of truth -- it is what Home Assistant installs. CI enforces
+# this via scripts/check_dependency_pins.py.
+#
+# Bump with: python scripts/update_nwp500_version.py <new-version>
+# Development tooling lives in requirements-dev.txt.
 
-# Usage: uv pip install -r requirements.txt
 # Core integration library
 nwp500-python==9.3.0
 
-# AWS IoT SDK for MQTT communication
+# AWS IoT SDK for MQTT communication (pulls awscrt)
 awsiotsdk==1.31.0
-
-
-
-# Development dependencies
-# These are used for testing and type checking but not required at runtime
-
-# Type checking
-mypy>=1.0.0
-basedpyright>=1.0.0
-
-# Testing
-pytest>=7.0.0
-pytest-asyncio>=0.21.0
-pytest-cov>=4.0.0
-pytest-homeassistant-custom-component>=0.13.0
-pytest-timeout>=2.1.0
-
-# Home Assistant
-homeassistant>=2026.3.0
-
-# Test automation
-tox>=4.0.0

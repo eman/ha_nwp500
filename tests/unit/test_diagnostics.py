@@ -49,7 +49,7 @@ async def test_diagnostics_reports_location_keys_but_redacts_values(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
 
-    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+    mock_config_entry.runtime_data = mock_coordinator
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -96,7 +96,7 @@ async def test_diagnostics_omits_unpopulated_location_fields(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
 
-    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+    mock_config_entry.runtime_data = mock_coordinator
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -112,7 +112,7 @@ async def test_async_get_config_entry_diagnostics_no_mqtt_manager(
     """Test diagnostics when MQTT manager not available."""
     mock_coordinator.mqtt_manager = None
 
-    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+    mock_config_entry.runtime_data = mock_coordinator
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -148,7 +148,7 @@ async def test_async_get_config_entry_diagnostics_with_mqtt_diagnostics(
         "error_count": 2,
     }
 
-    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+    mock_config_entry.runtime_data = mock_coordinator
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -180,7 +180,7 @@ async def test_async_get_config_entry_diagnostics_invalid_json(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+    mock_config_entry.runtime_data = mock_coordinator
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -206,7 +206,7 @@ async def test_async_get_config_entry_diagnostics_export_exception(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+    mock_config_entry.runtime_data = mock_coordinator
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -229,7 +229,7 @@ async def test_async_get_config_entry_diagnostics_no_diagnostics_collector(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    hass.data = {"nwp500": {mock_config_entry.entry_id: mock_coordinator}}
+    mock_config_entry.runtime_data = mock_coordinator
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 

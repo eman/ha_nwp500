@@ -57,7 +57,7 @@ Device Control: HA Command → MQTT Message → Device Response → Status Updat
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install -r requirements.txt
+uv pip install -r requirements.txt --group dev
 ```
 
 ## Testing
@@ -237,32 +237,41 @@ before pushing rather than after.
 
 ## Updating nwp500-python Library
 
-Use `scripts/update_nwp500_version.py`, which rewrites every pinned
-reference in one pass:
+`custom_components/nwp500/manifest.json` is the single source of truth for
+pinned dependency versions: it is what Home Assistant installs and what
+hassfest validates. `requirements.txt` mirrors it for local installs, and
+`tox.ini` now installs from that file rather than repeating the pins. The
+remaining copies are the install hints in `coordinator.py` and
+`config_flow.py` and both READMEs.
+
+Bump them all with:
 
 ```bash
-python scripts/update_nwp500_version.py 9.2.0 9.2.1
+python scripts/update_nwp500_version.py 9.4.0
+python scripts/update_nwp500_version.py --awsiotsdk 1.32.0   # if needed
 ```
 
-It updates `manifest.json`, `requirements.txt`, `tox.ini` (all sections),
-the install hints in `coordinator.py` and `config_flow.py`, `README.md`,
-`.devcontainer/README.md`, `.github/copilot-instructions.md`, and adds or
-updates the "Library Dependency: nwp500-python" entry under
-`## [Unreleased]` in `CHANGELOG.md`.
+The current version is read from `manifest.json`, so you do not pass it.
+The script finds references by scanning every tracked file rather than
+working from a hardcoded list, so a new file that pins a version is picked
+up without editing the script. Historical prose ("dropped in nwp500-python
+9.3.0") records when something happened and is deliberately left alone.
 
-Doing this by hand is error-prone: the version appears in eight files, and
-the two install hints in `coordinator.py` and `config_flow.py` are easy to
-miss individually, which leaves the runtime error paths telling users to
-install different versions.
+Nothing relies on remembering all of this. CI runs:
+
+```bash
+python scripts/check_dependency_pins.py
+```
+
+which scans the repository and fails if any pin disagrees with the
+manifest. A missed bump cannot reach `main`.
 
 Afterwards:
 
 1. Review the diff: `git diff`
-2. Confirm nothing was missed: `grep -rn "nwp500-python==" --include="*.py" \
-   --include="*.json" --include="*.txt" --include="*.ini" --include="*.md" .`
-3. Read the release notes for behavior changes that affect this integration,
-   and expand the CHANGELOG entry accordingly
-4. Run `tox -e mypy --recreate` and `tox`
+2. Read the library release notes for behaviour changes affecting this
+   integration, and expand the `CHANGELOG.md` entry accordingly
+3. Run `tox -e mypy --recreate` and `tox`
 
 ## Docker Development
 
@@ -281,7 +290,7 @@ curl -H "Authorization: Bearer $(cat token.txt)" \
 ## Common Issues
 
 ### Import Errors
-- Ensure dependencies: `uv pip install -r requirements.txt`
+- Ensure dependencies: `uv pip install -r requirements.txt --group dev`
 
 ### Type Checking Failures
 - Run `tox -e mypy --recreate` to reset cache
