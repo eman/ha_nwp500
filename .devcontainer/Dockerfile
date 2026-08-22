@@ -25,17 +25,15 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Set working directory
 WORKDIR /workspaces/ha_nwp500
 
-# Copy requirements first for better caching
-# requirements-dev.txt pulls in requirements.txt via its own -r
-COPY requirements.txt requirements-dev.txt ./
+# Copy dependency declarations first for better caching.
+# requirements.txt holds the runtime pins; the dev tooling lives in
+# pyproject.toml's [dependency-groups].
+COPY requirements.txt pyproject.toml ./
 
 # Install Python dependencies and tools using uv
-RUN uv pip install --system -r requirements-dev.txt \
+RUN uv pip install --system -r requirements.txt --group dev \
     && uv pip install --system \
-    tox \
-    tox-uv \
     black \
-    ruff \
     ipython
 
 # Create a directory for Home Assistant config (for docker-compose)

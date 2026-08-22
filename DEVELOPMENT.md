@@ -57,7 +57,7 @@ Device Control: HA Command → MQTT Message → Device Response → Status Updat
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install -r requirements-dev.txt
+uv pip install -r requirements.txt --group dev
 ```
 
 ## Testing
@@ -290,7 +290,7 @@ curl -H "Authorization: Bearer $(cat token.txt)" \
 ## Common Issues
 
 ### Import Errors
-- Ensure dependencies: `uv pip install -r requirements-dev.txt`
+- Ensure dependencies: `uv pip install -r requirements.txt --group dev`
 
 ### Type Checking Failures
 - Run `tox -e mypy --recreate` to reset cache

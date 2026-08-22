@@ -23,8 +23,8 @@ This directory contains the configuration for developing the Navien NWP500 Home 
 - **Docker-in-Docker**: Enables running docker-compose for Home Assistant testing
 
 ### Python Packages
-All packages from `requirements.txt` (runtime) and
-`requirements-dev.txt` (tooling) are pre-installed:
+All packages from `requirements.txt` (runtime pins) and the `dev`
+dependency group in `pyproject.toml` (tooling) are pre-installed:
 - `nwp500-python` - Core library for Navien device communication
 - `awsiotsdk` - AWS IoT SDK for MQTT
 - `homeassistant` - Home Assistant core
@@ -124,8 +124,8 @@ Edit `.devcontainer/devcontainer.json` and add extension IDs to the `extensions`
 
 ### Adding Python Packages
 Add runtime packages to `requirements.txt` (keeping them in step with
-`manifest.json`) or tooling to `requirements-dev.txt`, then rebuild the
-container:
+`manifest.json`) or tooling to the relevant group under
+`[dependency-groups]` in `pyproject.toml`, then rebuild the container:
 - Command Palette → `Dev Containers: Rebuild Container`
 
 ### Modifying Settings

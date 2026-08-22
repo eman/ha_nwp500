@@ -55,9 +55,9 @@
   `async_remove` calls that could drift apart.
 - Coverage flags moved out of pytest's `addopts` and into tox's coverage env,
   so running a single test file no longer fails the coverage gate.
-- **`requirements.txt` split into runtime and dev, halving the pin sites.** It
-  now holds only the two runtime pins mirroring `manifest.json`; tooling moved
-  to `requirements-dev.txt`, which pulls the runtime file in via its own `-r`.
+- **`requirements.txt` now holds only runtime pins, halving the pin sites.** It
+  mirrors `manifest.json`; development tooling moved to PEP 735
+  `[dependency-groups]` in `pyproject.toml`, the current standard location.
   `tox.ini` installs from those files instead of repeating the versions in
   four environments, so it carries no pins at all. Counting both packages,
   hand-maintained pin sites drop from 16 to 8 — the manifest, its
@@ -67,6 +67,17 @@
   `[testenv:coverage-html]` was also re-declaring `commands_pre` identically
   to `[testenv]`, which it already inherits; removing the copy took two more
   pin sites with it.
+
+  The groups mirror the tox environments rather than lumping everything into
+  one, so each still installs exactly what it did: the test env resolves Home
+  Assistant through `pytest-homeassistant-custom-component`, the type checkers
+  resolve it directly. Verified across recreated environments — Home Assistant
+  2026.8.3, nwp500-python 9.3.0, awscrt 0.36.1 and aiohttp 3.14.3 in every
+  one, unchanged.
+
+  `tox-uv` is now declared in the `dev` group instead of being installed ad
+  hoc by the devcontainer, since `runner = uv-venv` in `tox.ini` requires it.
+  A full local setup is `uv pip install -r requirements.txt --group dev`.
 
   The base test environment previously installed `awsiotsdk` with
   dependencies and `nwp500-python` with `--no-deps`. It now installs

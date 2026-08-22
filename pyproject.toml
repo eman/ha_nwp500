@@ -2,6 +2,45 @@
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# PEP 735 dependency groups. Development tooling only -- runtime pins live in
+# requirements.txt, mirroring custom_components/nwp500/manifest.json, which is
+# what Home Assistant actually installs.
+#
+# Groups mirror the tox environments so each one installs exactly what it
+# needs: the test env pins Home Assistant through
+# pytest-homeassistant-custom-component, while the type checkers resolve it
+# directly.
+#
+# Full local setup:
+#   uv pip install -r requirements.txt --group dev
+[dependency-groups]
+test = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-homeassistant-custom-component>=0.13.323",
+    "pytest-timeout>=2.1.0",
+]
+mypy = [
+    "homeassistant>=2026.3.0",
+    "mypy>=1.0.0",
+]
+basedpyright = [
+    "homeassistant>=2026.3.0",
+    "basedpyright>=1.0.0",
+]
+lint = [
+    "ruff>=0.16.0",
+]
+dev = [
+    {include-group = "test"},
+    {include-group = "mypy"},
+    {include-group = "basedpyright"},
+    {include-group = "lint"},
+    "tox>=4.0.0",
+    "tox-uv>=1.0.0",
+]
+
 [tool.ruff]
 line-length = 80
 target-version = "py314"

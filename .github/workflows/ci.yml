@@ -23,7 +23,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "requirements*.txt"
+          cache-dependency-glob: "requirements*.txt\npyproject.toml"
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -57,7 +57,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "requirements*.txt"
+          cache-dependency-glob: "requirements*.txt\npyproject.toml"
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -111,7 +111,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "requirements*.txt"
+          cache-dependency-glob: "requirements*.txt\npyproject.toml"
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -139,7 +139,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "requirements*.txt"
+          cache-dependency-glob: "requirements*.txt\npyproject.toml"
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
@@ -163,7 +163,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-          cache-dependency-glob: "requirements*.txt"
+          cache-dependency-glob: "requirements*.txt\npyproject.toml"
 
       - name: Set up Python
         uses: actions/setup-python@v7
