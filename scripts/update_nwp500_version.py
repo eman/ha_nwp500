@@ -1,195 +1,197 @@
 #!/usr/bin/env python3
-"""Update nwp500-python dependency version across all project files.
+"""Update pinned dependency versions across every tracked file.
 
-This script updates the nwp500-python version in all configuration files,
-requirements, error messages, and documentation.
+`manifest.json` is the source of truth, so the *current* version is read
+from it rather than supplied on the command line -- passing a stale or
+mistyped "old version" used to match nothing, change no files, and still
+exit 0 while writing a CHANGELOG entry announcing the upgrade.
+
+Files are discovered by scanning, using the same patterns and exclusions as
+`check_dependency_pins.py`, so the two can never disagree about where a
+version lives and adding a new file needs no change here.
 """
+
+from __future__ import annotations
 
 import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-def find_project_root() -> Path:
-    """Find the project root directory."""
-    current = Path.cwd()
-    while current != current.parent:
-        if (current / ".git").exists():
-            return current
-        current = current.parent
-    return Path.cwd()
+from check_dependency_pins import (  # noqa: E402
+    EXCLUDED,
+    MANIFEST,
+    load_expected,
+    tracked_files,
+)
 
-
-def update_file(file_path: Path, old_version: str, new_version: str) -> bool:
-    """Update version string in a file.
-
-    Args:
-        file_path: Path to file to update
-        old_version: Old version string (e.g., "7.3.4")
-        new_version: New version string (e.g., "7.4.5")
-
-    Returns:
-        True if file was modified, False otherwise
-    """
-    content = file_path.read_text()
-    original_content = content
-
-    # Replace nwp500-python==X.Y.Z
-    content = re.sub(
-        rf"nwp500-python=={re.escape(old_version)}",
-        f"nwp500-python=={new_version}",
-        content,
-    )
-
-    # Replace uv pip install nwp500-python==X.Y.Z in error messages
-    content = re.sub(
-        rf"uv pip install nwp500-python=={re.escape(old_version)}",
-        f"uv pip install nwp500-python=={new_version}",
-        content,
-    )
-
-    # Replace in CHANGELOG upgrade descriptions (e.g., "from 7.3.1 to 7.3.4")
-    # This handles "Upgraded from X to Y" patterns
-    pattern = rf"(?i)to\s+{re.escape(old_version)}"
-    content = re.sub(pattern, f"to {new_version}", content)
-
-    if content != original_content:
-        file_path.write_text(content)
-        return True
-    return False
+VERSION = re.compile(r"^\d+\.\d+\.\d+$")
 
 
-def update_changelog(file_path: Path, new_version: str) -> bool:
-    """Update CHANGELOG.md to reflect new nwp500-python version.
+def rewrite(path: Path, package: str, old: str, new: str) -> int:
+    """Rewrite this package's version references in one file.
 
-    Args:
-        file_path: Path to CHANGELOG.md
-        new_version: New nwp500-python version
+    Only pins (``pkg==X.Y.Z``), current-version references (``pkg vX.Y.Z``)
+    and release-tag links are touched. Prose such as "dropped in pkg 9.3.0"
+    records when something happened and is deliberately left alone.
 
     Returns:
-        True if file was modified, False otherwise
+        The number of references rewritten.
     """
-    content = file_path.read_text()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError, OSError:
+        return 0
 
-    # Check if there's an [Unreleased] section with nwp500-python
-    unreleased_pattern = (
-        r"## \[Unreleased\]\s*\n((?:[^#]|\n(?!##))*?)(?=\n##|\Z)"
+    pkg = re.escape(package)
+    old_v = re.escape(old)
+    updated = text
+    for pattern, replacement in (
+        (rf"{pkg}=={old_v}", f"{package}=={new}"),
+        (rf"{pkg} v{old_v}", f"{package} v{new}"),
+        (
+            rf"({pkg}/releases/tag/v){old_v}",
+            rf"\g<1>{new}",
+        ),
+    ):
+        updated = re.sub(pattern, replacement, updated)
+
+    if updated == text:
+        return 0
+
+    count = len(re.findall(rf"{pkg}[= v/][^\n]*?{re.escape(new)}", updated))
+    path.write_text(updated, encoding="utf-8")
+    return count
+
+
+def update_changelog(path: Path, package: str, new: str) -> bool:
+    """Record the upgrade under ``## [Unreleased]``.
+
+    Scoped to the Unreleased section on purpose: the same bullet text
+    appears in every past release, so searching the whole file would find a
+    historical entry and quietly do nothing.
+
+    Returns:
+        True only if the file actually changed.
+    """
+    content = path.read_text(encoding="utf-8")
+    match = re.search(
+        r"## \[Unreleased\]\n(?P<body>.*?)(?=\n## \[|\Z)",
+        content,
+        re.DOTALL,
     )
-    match = re.search(unreleased_pattern, content)
+    if not match:
+        return False
 
-    if match:
-        unreleased_section = match.group(0)
+    section = match.group("body")
+    marker = f"- **Library Dependency: {package}**: Upgraded to"
+    bullet = f"{marker} {new}"
 
-        # Check if nwp500-python is already mentioned in unreleased
-        if "nwp500-python" in unreleased_section:
-            # Update existing version reference
-            updated = re.sub(
-                r"(- \*\*Library Dependency: nwp500-python\*\*: Upgraded .*?to\s+)[\d.]+",
-                rf"\1{new_version}",
-                unreleased_section,
-                count=1,
-            )
-            if updated != unreleased_section:
-                content = content.replace(unreleased_section, updated)
-                file_path.write_text(content)
-                return True
-        else:
-            # Add nwp500-python entry to Unreleased section
-            entry = f"""## [Unreleased]
+    if marker in section:
+        # Replace the version that follows, on this line or the next, with
+        # or without a markdown link around it.
+        updated = re.sub(
+            rf"({re.escape(marker)})\s*\[?[\d.]+\]?"
+            r"(\([^)]*\))?",
+            rf"\g<1> {new}",
+            section,
+            count=1,
+        )
+    elif "### Changed" in section:
+        updated = section.replace(
+            "### Changed\n", f"### Changed\n{bullet}\n", 1
+        )
+    else:
+        updated = f"\n### Changed\n{bullet}\n{section}"
 
-### Changed
-- **Library Dependency: nwp500-python**: Upgraded to {new_version}
+    if updated == section:
+        return False
 
-"""
-            content = content.replace("## [Unreleased]\n\n", entry)
-
-            # If [Unreleased] didn't exist, add it at the top after the intro
-            if "## [Unreleased]" not in content:
-                intro_end = content.find("\n## [")
-                if intro_end != -1:
-                    content = (
-                        content[:intro_end]
-                        + f"\n\n{entry.strip()}"
-                        + content[intro_end:]
-                    )
-
-            file_path.write_text(content)
-            return True
-
-    return False
+    path.write_text(content.replace(section, updated, 1), encoding="utf-8")
+    return True
 
 
 def main() -> int:
-    """Main entry point."""
-    if len(sys.argv) < 3:
+    """Bump one or both pinned dependencies."""
+    args = sys.argv[1:]
+    if not args or args[0] in {"-h", "--help"}:
         print(
-            "Usage: python update_nwp500_version.py <old_version> <new_version>"
+            "Usage: update_nwp500_version.py <new-version> "
+            "[--awsiotsdk <new-version>]\n\n"
+            "The current version is read from manifest.json; do not pass it."
         )
-        print("Example: python update_nwp500_version.py 7.3.4 7.4.5")
+        return 0 if args else 1
+
+    targets: dict[str, str] = {}
+    if VERSION.match(args[0]):
+        targets["nwp500-python"] = args[0]
+        args = args[1:]
+    if args[:1] == ["--awsiotsdk"] and len(args) == 2:
+        if not VERSION.match(args[1]):
+            print(f"Invalid version: {args[1]}", file=sys.stderr)
+            return 1
+        targets["awsiotsdk"] = args[1]
+        args = []
+    if args or not targets:
+        print(
+            "Usage: update_nwp500_version.py <new-version> "
+            "[--awsiotsdk <new-version>]",
+            file=sys.stderr,
+        )
         return 1
 
-    old_version = sys.argv[1]
-    new_version = sys.argv[2]
-
-    # Validate version format
-    if not re.match(r"^\d+\.\d+\.\d+$", old_version):
-        print(f"Invalid old version format: {old_version}")
+    if not MANIFEST.is_file():
+        print(
+            f"Cannot find {MANIFEST}. Run from the repository root.",
+            file=sys.stderr,
+        )
         return 1
 
-    if not re.match(r"^\d+\.\d+\.\d+$", new_version):
-        print(f"Invalid new version format: {new_version}")
-        return 1
+    current = load_expected()
+    changed_any = False
 
-    project_root = find_project_root()
+    for package, new in targets.items():
+        old = current.get(package)
+        if old is None:
+            print(f"{package} is not pinned in manifest.json", file=sys.stderr)
+            return 1
+        if old == new:
+            print(f"- {package} is already at {new}; nothing to do")
+            continue
 
-    files_to_update = [
-        project_root / "custom_components/nwp500/manifest.json",
-        project_root / "requirements.txt",
-        project_root / "tox.ini",
-        project_root / "custom_components/nwp500/coordinator.py",
-        project_root / "custom_components/nwp500/config_flow.py",
-        project_root / "README.md",
-        project_root / ".devcontainer/README.md",
-        project_root / ".github/copilot-instructions.md",
-    ]
+        print(f"Updating {package} {old} -> {new}")
+        touched = []
+        for path in tracked_files():
+            if path.as_posix() in EXCLUDED:
+                continue
+            if rewrite(path, package, old, new):
+                touched.append(path)
+                print(f"  updated {path}")
 
-    changelog = project_root / "CHANGELOG.md"
+        if not touched:
+            print(
+                f"  no references to {package}=={old} were found -- "
+                "refusing to record an upgrade that did not happen",
+                file=sys.stderr,
+            )
+            return 1
 
-    print(f"Updating nwp500-python from {old_version} to {new_version}...")
-    print(f"Project root: {project_root}\n")
+        changelog = Path("CHANGELOG.md")
+        if changelog.is_file() and update_changelog(changelog, package, new):
+            print("  updated CHANGELOG.md")
+        changed_any = True
 
-    updated_files = []
+    if not changed_any:
+        return 0
 
-    # Update regular files
-    for file_path in files_to_update:
-        if file_path.exists():
-            if update_file(file_path, old_version, new_version):
-                updated_files.append(file_path.relative_to(project_root))
-                print(f"✓ Updated: {file_path.relative_to(project_root)}")
-            else:
-                print(f"- No changes: {file_path.relative_to(project_root)}")
-        else:
-            print(f"⚠ File not found: {file_path.relative_to(project_root)}")
-
-    # Update CHANGELOG
-    print()
-    if changelog.exists():
-        if update_changelog(changelog, new_version):
-            print("✓ Updated CHANGELOG.md")
-        else:
-            print("- No changes to CHANGELOG.md")
-    else:
-        print("⚠ CHANGELOG.md not found")
-
-    print(f"\nCompleted: Updated {len(updated_files)} files")
-
-    if updated_files:
-        print("\nNext steps:")
-        print("1. Review the changes: git diff")
-        print("2. Run type checking: tox -e mypy")
-        print("3. Run tests: tox")
-        print("4. Commit changes")
-
+    print(
+        "\nNext steps:\n"
+        "  1. python scripts/check_dependency_pins.py\n"
+        "  2. Review the diff: git diff\n"
+        "  3. Expand the CHANGELOG entry with behaviour changes\n"
+        "  4. tox"
+    )
     return 0
 
 

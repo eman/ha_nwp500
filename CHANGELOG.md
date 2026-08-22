@@ -24,6 +24,15 @@
   stat-ed three bundled card files inline; they are now checked in a single
   executor job. Each asset is also registered independently, so a missing
   schedule card no longer suppresses the visual card and its image.
+- **README.md advertised nwp500-python v9.2.1 while the pin was 9.3.0.** The
+  update script listed `README.md` among the files it rewrites, but its
+  patterns only matched `nwp500-python==X.Y.Z`, never the README's
+  `[nwp500-python v9.2.1](...)` link form — so it reported "No changes" and
+  the reference drifted a full release behind.
+- **A mistyped version made the update script lie.** It took the old version
+  as an argument, so a typo matched nothing, rewrote no files, exited 0, and
+  still added a CHANGELOG entry announcing the upgrade. The current version
+  is now read from `manifest.json` and cannot be passed in.
 - **Both Dependabot ecosystems had been failing every week.** The `pip` entry
   pointed at `/custom_components/nwp500` expecting to read `manifest.json`,
   which Dependabot's pip ecosystem cannot parse (`dependency_file_not_found`);
@@ -46,6 +55,14 @@
   `async_remove` calls that could drift apart.
 - Coverage flags moved out of pytest's `addopts` and into tox's coverage env,
   so running a single test file no longer fails the coverage gate.
+- `scripts/update_nwp500_version.py` now discovers files by scanning instead
+  of from a hardcoded list, handles the README link form, and can bump
+  `awsiotsdk`. Its CHANGELOG update was also searching the whole file, so it
+  matched a bullet from a past release and silently changed nothing while
+  reporting success; it is now scoped to `## [Unreleased]`.
+- Both CI jobs that execute `scripts/` ran on Python 3.13 while ruff formats
+  that directory for 3.14. The existing script happened to still parse; a
+  reformat would have broken it. Both jobs now run 3.14.
 - **Removing the energy sensors dropped in nwp500-python 9.3.0 is now a config
   entry migration** (`async_migrate_entry`, minor version 1 -> 2) instead of a
   full entity-registry sweep on every single setup. Existing entries are swept
@@ -58,6 +75,24 @@
   branch filter alongside `pull_request`).
 
 ### Added
+- **`scripts/check_dependency_pins.py`, run in CI, makes a missed version bump
+  impossible.** `manifest.json` is now the declared single source of truth for
+  pinned versions — it is what Home Assistant installs and what hassfest
+  validates. The checker scans every tracked file and fails if any pin
+  disagrees with it.
+
+  It finds references by scanning rather than from a list, so a new file that
+  pins a version is covered without touching the script, and it checks
+  `awsiotsdk` as well — which had 7 pin sites and no tooling at all.
+  Historical prose ("dropped in nwp500-python 9.3.0") records when something
+  happened and is deliberately not compared against the current pin.
+
+  `nwp500-python` was defined in 9 places and `awsiotsdk` in 7, kept in sync
+  by a script with a hardcoded file list, a prose list in `DEVELOPMENT.md`,
+  and a 12-step checklist in `.github/copilot-instructions.md` — four
+  hand-maintained copies of the same knowledge, all free to drift. All three
+  now point at the scan-based tooling instead of enumerating files.
+
 - **Coordinator test coverage raised from 38% to 95%** (90 new tests). Once
   `coordinator.py` was no longer excluded from the coverage report, it was the
   least-tested module in the integration despite being the largest. The new
