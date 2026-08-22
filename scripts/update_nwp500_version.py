@@ -23,7 +23,7 @@ from check_dependency_pins import (  # noqa: E402
     EXCLUDED,
     MANIFEST,
     load_expected,
-    tracked_files,
+    repository_files,
 )
 
 VERSION = re.compile(r"^\d+\.\d+\.\d+$")
@@ -162,7 +162,7 @@ def main() -> int:
 
         print(f"Updating {package} {old} -> {new}")
         touched = []
-        for path in tracked_files():
+        for path in repository_files():
             if path.as_posix() in EXCLUDED:
                 continue
             if rewrite(path, package, old, new):

@@ -124,7 +124,10 @@
   validates. The checker scans every tracked file and fails if any pin
   disagrees with it.
 
-  It finds references by scanning rather than from a list, so a new file that
+  It scans every file git does not ignore, tracked or not — listing only
+  tracked files made the check pass locally and fail in CI for a file that had
+  been created but not yet `git add`ed, which is the worst behaviour a guard
+  can have. Because it scans rather than working from a list, a new file that
   pins a version is covered without touching the script, and it checks
   `awsiotsdk` as well — which had 7 pin sites and no tooling at all.
   Historical prose ("dropped in nwp500-python 9.3.0") records when something

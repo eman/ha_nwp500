@@ -40,9 +40,13 @@ MANIFEST = Path("custom_components/nwp500/manifest.json")
 
 # Files whose version mentions are historical or illustrative by nature.
 EXCLUDED = {
+    # Records what happened in past releases.
     "CHANGELOG.md",
+    # Contain the patterns themselves, and examples of each form.
     "scripts/check_dependency_pins.py",
     "scripts/update_nwp500_version.py",
+    # Fixture data: sample version strings fed to this scanner on purpose.
+    "tests/unit/test_version_tooling.py",
 }
 
 # A hard pin: nwp500-python==9.3.0
@@ -76,20 +80,28 @@ def load_expected() -> dict[str, str]:
     return expected
 
 
-def tracked_files() -> list[Path]:
-    """Return the repository's tracked files.
+def repository_files() -> list[Path]:
+    """Return every file in the repository that is not git-ignored.
 
-    Uses git rather than walking the tree so that ignored directories --
-    .venv, .tox, htmlcov -- stay out of the scan. They contain installed
-    package metadata whose pins are not ours to check.
+    Uses git rather than walking the tree so ignored directories -- .venv,
+    .tox, htmlcov -- stay out of the scan; they hold installed package
+    metadata whose pins are not ours to check.
+
+    Untracked-but-not-ignored files are included deliberately. Listing only
+    tracked files made this check pass locally and fail in CI for a file the
+    author had created but not yet `git add`ed, which is the worst possible
+    behaviour for a guard: green where you can fix it, red where you cannot.
     """
     git = shutil.which("git")
     if git is None:
-        raise SystemExit("git is required to enumerate tracked files")
+        raise SystemExit("git is required to enumerate repository files")
     result = subprocess.run(  # noqa: S603
-        [git, "ls-files"], capture_output=True, text=True, check=True
+        [git, "ls-files", "--cached", "--others", "--exclude-standard"],
+        capture_output=True,
+        text=True,
+        check=True,
     )
-    return [Path(line) for line in result.stdout.splitlines() if line]
+    return sorted({Path(line) for line in result.stdout.splitlines() if line})
 
 
 def scan(
@@ -126,7 +138,7 @@ def main() -> int:
     expected = load_expected()
     failures = []
 
-    for path in tracked_files():
+    for path in repository_files():
         if path.as_posix() in EXCLUDED:
             continue
         for line_no, package, found, kind in scan(path, expected):

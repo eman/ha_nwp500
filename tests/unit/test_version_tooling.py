@@ -311,17 +311,39 @@ def test_main_refuses_to_record_an_upgrade_it_did_not_make(
 ):
     """The old script rewrote nothing, exited 0, and still wrote a CHANGELOG.
 
-    Here nothing is tracked, so no file can be rewritten; that must be a
-    failure rather than a release note announcing a bump that never happened.
+    With nothing to rewrite, recording the bump would produce a release note
+    announcing a change that never landed. The guard is defensive -- normally
+    the manifest itself is always rewritten -- so the empty file set is
+    injected rather than contrived out of git state.
     """
-    root = _repo(tmp_path, track=False, **{"nwp500-python": "9.3.0"})
+    root = _repo(tmp_path, **{"nwp500-python": "9.3.0"})
     monkeypatch.chdir(root)
+    monkeypatch.setattr(update, "repository_files", list)
     monkeypatch.setattr(sys, "argv", ["prog", "9.4.0"])
 
     assert update.main() == 1
 
     assert "did not happen" in capsys.readouterr().err
     assert "Library Dependency" not in (root / "CHANGELOG.md").read_text()
+
+
+def test_repository_files_sees_untracked_work(tmp_path, monkeypatch):
+    """A file created but not yet `git add`ed must still be scanned.
+
+    Listing only tracked files made this check pass locally and fail in CI
+    for exactly that case -- green where you can fix it, red where you
+    cannot.
+    """
+    root = _repo(tmp_path, **{"nwp500-python": "9.3.0"})
+    (root / "scratch.txt").write_text("nwp500-python==1.0.0\n")
+    (root / ".gitignore").write_text("ignored.txt\n")
+    (root / "ignored.txt").write_text("nwp500-python==2.0.0\n")
+    monkeypatch.chdir(root)
+
+    names = {p.name for p in check.repository_files()}
+
+    assert "scratch.txt" in names
+    assert "ignored.txt" not in names
 
 
 def test_main_rejects_a_malformed_version(tmp_path, monkeypatch):
@@ -349,5 +371,5 @@ def test_main_bump_leaves_the_repo_consistent(tmp_path, monkeypatch):
 
     assert update.main() == 0
     assert check.load_expected()["nwp500-python"] == "9.4.0"
-    for path in check.tracked_files():
+    for path in check.repository_files():
         assert check.scan(path, check.load_expected()) == []
