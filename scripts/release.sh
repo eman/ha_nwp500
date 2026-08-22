@@ -114,6 +114,6 @@ git tag -a "v${NEW_VERSION}" -m "Release v${NEW_VERSION}"
 
 echo -e "${GREEN}✓ Release v${NEW_VERSION} created locally${NC}"
 echo -e "${YELLOW}To publish, run:${NC}"
-echo -e "  git push && git push --tags"
+echo -e "  git push && git push origin \"v${NEW_VERSION}\""
 echo -e ""
 echo -e "${YELLOW}Note: GitHub Actions will automatically create the release when the tag is pushed.${NC}"
