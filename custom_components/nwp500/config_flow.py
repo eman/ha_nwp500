@@ -42,6 +42,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
     """Handle a config flow for NWP500."""
 
     VERSION = 1
+    # Bumped to 2 in 0.19.0: entries created before then may still hold
+    # energy sensors whose backing library fields were removed in
+    # nwp500-python 9.3.0. See async_migrate_entry.
+    MINOR_VERSION = 2
 
     def __init__(self) -> None:
         """Initialize the config flow."""

@@ -24,6 +24,10 @@
   `WaterHeaterEntity` has no such property, so the decorator was simply wrong
   and has been removed. (The property itself is unused by Home Assistant — see
   Notes below.)
+- **Frontend asset checks no longer block the event loop.** `async_setup`
+  stat-ed three bundled card files inline; they are now checked in a single
+  executor job. Each asset is also registered independently, so a missing
+  schedule card no longer suppresses the visual card and its image.
 - **Both Dependabot ecosystems had been failing every week.** The `pip` entry
   pointed at `/custom_components/nwp500` expecting to read `manifest.json`,
   which Dependabot's pip ecosystem cannot parse (`dependency_file_not_found`);
@@ -48,6 +52,14 @@
   `async_remove` calls that could drift apart.
 - Coverage flags moved out of pytest's `addopts` and into tox's coverage env,
   so running a single test file no longer fails the coverage gate.
+- **Removing the energy sensors dropped in nwp500-python 9.3.0 is now a config
+  entry migration** (`async_migrate_entry`, minor version 1 -> 2) instead of a
+  full entity-registry sweep on every single setup. Existing entries are swept
+  once on upgrade and then stamped; new installations never run it. Entries
+  written by a future major version are refused rather than modified.
+- **Releases now fail if the git tag and `manifest.json` disagree.** HACS
+  installs the manifest version, so a hand-cut tag could previously ship a
+  build whose reported version did not match the release.
 - HACS validation no longer runs twice on every branch push (`on: push` had no
   branch filter alongside `pull_request`).
 

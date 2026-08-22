@@ -284,3 +284,103 @@ async def test_async_unload_entry_removes_services_when_last():
 
     # All 12 services should be removed
     assert mock_hass.services.async_remove.call_count == 12
+
+
+@pytest.mark.asyncio
+async def test_migrate_entry_runs_stale_sweep_once():
+    """A pre-1.2 entry gets the sweep, then is stamped so it never repeats."""
+    from custom_components.nwp500 import async_migrate_entry
+
+    mock_hass = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.version = 1
+    mock_entry.minor_version = 1
+
+    with patch(
+        "custom_components.nwp500._async_remove_stale_energy_entities"
+    ) as mock_sweep:
+        assert await async_migrate_entry(mock_hass, mock_entry) is True
+
+    mock_sweep.assert_called_once_with(mock_hass, mock_entry)
+    mock_hass.config_entries.async_update_entry.assert_called_once_with(
+        mock_entry, minor_version=2
+    )
+
+
+@pytest.mark.asyncio
+async def test_migrate_entry_is_a_noop_when_current():
+    """An already-migrated entry is left alone on every later start."""
+    from custom_components.nwp500 import async_migrate_entry
+
+    mock_hass = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.version = 1
+    mock_entry.minor_version = 2
+
+    with patch(
+        "custom_components.nwp500._async_remove_stale_energy_entities"
+    ) as mock_sweep:
+        assert await async_migrate_entry(mock_hass, mock_entry) is True
+
+    mock_sweep.assert_not_called()
+    mock_hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_migrate_entry_refuses_a_downgrade():
+    """An entry written by a newer major version is not touched."""
+    from custom_components.nwp500 import async_migrate_entry
+
+    mock_hass = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.version = 2
+    mock_entry.minor_version = 1
+
+    with patch(
+        "custom_components.nwp500._async_remove_stale_energy_entities"
+    ) as mock_sweep:
+        assert await async_migrate_entry(mock_hass, mock_entry) is False
+
+    mock_sweep.assert_not_called()
+    mock_hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_setup_entry_no_longer_sweeps_on_every_start():
+    """The stale sweep is migration work, not per-setup work."""
+    mock_hass = MagicMock()
+    mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
+    mock_hass.services.has_service = MagicMock(return_value=False)
+    mock_entry = MagicMock()
+
+    with (
+        patch(
+            "custom_components.nwp500.NWP500DataUpdateCoordinator"
+        ) as mock_coordinator_class,
+        patch(
+            "custom_components.nwp500._async_remove_stale_energy_entities"
+        ) as mock_sweep,
+    ):
+        mock_coordinator = MagicMock()
+        mock_coordinator.async_config_entry_first_refresh = AsyncMock()
+        mock_coordinator_class.return_value = mock_coordinator
+
+        assert await async_setup_entry(mock_hass, mock_entry) is True
+
+    mock_sweep.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_async_setup_stats_frontend_assets_off_the_event_loop():
+    """Asset existence is stat-ed in an executor, not on the event loop."""
+    from custom_components.nwp500 import async_setup
+
+    mock_hass = MagicMock()
+    mock_hass.async_add_executor_job = AsyncMock(return_value=[])
+    mock_hass.http.async_register_static_paths = AsyncMock()
+
+    assert await async_setup(mock_hass, {}) is True
+
+    mock_hass.async_add_executor_job.assert_awaited_once()
+    # Nothing present -> nothing registered.
+    mock_hass.http.async_register_static_paths.assert_not_called()

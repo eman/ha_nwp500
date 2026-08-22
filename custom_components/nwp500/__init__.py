@@ -727,32 +727,39 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Serve the bundled Lovelace card JS from the component's www/ directory.
     # This makes the custom card available without users needing to manually
     # register it as a Lovelace resource or install it separately via HACS.
-    if CARD_PATH.is_file():
-        from homeassistant.components.http import StaticPathConfig
+    from homeassistant.components.http import StaticPathConfig
 
-        configs = [StaticPathConfig(CARD_URL, str(CARD_PATH), False)]
+    # (url, path, serve_as_js). Stat-ing these touches the filesystem, so the
+    # whole batch is checked in one executor job rather than blocking the
+    # event loop once per asset.
+    assets: tuple[tuple[str, Path, bool], ...] = (
+        (CARD_URL, CARD_PATH, True),
+        (VISUAL_CARD_URL, VISUAL_CARD_PATH, True),
+        (VISUAL_IMAGE_URL, VISUAL_IMAGE_PATH, False),
+    )
 
-        if VISUAL_CARD_PATH.is_file():
-            configs.append(
-                StaticPathConfig(VISUAL_CARD_URL, str(VISUAL_CARD_PATH), False)
-            )
-            add_extra_js_url(hass, VISUAL_CARD_URL)
+    def _present() -> list[tuple[str, Path, bool]]:
+        return [asset for asset in assets if asset[1].is_file()]
 
-        if VISUAL_IMAGE_PATH.is_file():
-            configs.append(
-                StaticPathConfig(
-                    VISUAL_IMAGE_URL, str(VISUAL_IMAGE_PATH), False
-                )
-            )
+    present = await hass.async_add_executor_job(_present)
 
-        await hass.http.async_register_static_paths(configs)
-        add_extra_js_url(hass, CARD_URL)
-        _LOGGER.debug("Registered frontend assets")
-    else:
+    if not any(path == CARD_PATH for _url, path, _js in present):
         _LOGGER.warning(
             "Frontend card not found at %s — schedule card will not be available",
             CARD_PATH,
         )
+
+    if not present:
+        return True
+
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(url, str(path), False) for url, path, _js in present]
+    )
+    for url, _path, serve_as_js in present:
+        if serve_as_js:
+            add_extra_js_url(hass, url)
+
+    _LOGGER.debug("Registered %d frontend asset(s)", len(present))
     return True
 
 
@@ -787,12 +794,34 @@ def _async_remove_stale_energy_entities(
             entity_registry.async_remove(entity_entry.entity_id)
 
 
+async def async_migrate_entry(
+    hass: HomeAssistant, entry: NWP500ConfigEntry
+) -> bool:
+    """Migrate an existing config entry to the current schema version.
+
+    Home Assistant calls this whenever the stored entry's version does not
+    match the config flow's, including when it is *newer* (a downgrade), so
+    each step is guarded and unknown-but-newer entries are left untouched.
+    """
+    if entry.version > 1:
+        # Written by a newer release; nothing here knows how to touch it.
+        return False
+
+    if entry.minor_version < 2:
+        # Drop energy sensors whose backing DeviceStatus fields were removed
+        # outright in nwp500-python 9.3.0. This used to run on every setup;
+        # it only ever needed to happen once per entry.
+        _async_remove_stale_energy_entities(hass, entry)
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+        _LOGGER.debug("Migrated config entry to version 1.2")
+
+    return True
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: NWP500ConfigEntry
 ) -> bool:
     """Set up NWP500 from a config entry."""
-    _async_remove_stale_energy_entities(hass, entry)
-
     # Unit system is determined by the coordinator from the HA configuration
     # and passed into NavienAuthClient/NavienAPIClient/MQTT. No unit handling
     # is configured directly in this setup function.
