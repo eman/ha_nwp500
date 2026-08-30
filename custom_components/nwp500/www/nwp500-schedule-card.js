@@ -60,7 +60,21 @@ function encodeDays(dayIndices) {
   return week;
 }
 
-function pad(n) { return String(n).padStart(2, '0'); }
+/**
+ * Format a clock component as two digits.
+ *
+ * Validates rather than stringifies. `hour` and `min` come from the
+ * device's reservation payload, and the result is interpolated into a
+ * quoted `title` attribute, so a malformed entry carrying something like
+ * `" onmouseover="...` would otherwise break out of the attribute. Coercing
+ * through Number and rejecting anything non-finite means the return value
+ * can only ever be digits (or a dash), which no markup can hide in.
+ */
+function pad(n) {
+  const value = Number(n);
+  if (!Number.isFinite(value)) return '--';
+  return String(Math.trunc(value)).padStart(2, '0');
+}
 
 class NWP500ScheduleCard extends HTMLElement {
   constructor() {
@@ -304,8 +318,8 @@ class NWP500ScheduleCard extends HTMLElement {
       const mode = MODES[e.mode] || MODES[1];
       const tempDisplay = this._formatTemp(e.param);
       const opacity = 1;
-      return `<div class="timeline-block" style="left:${left}%;background:${mode.color};opacity:${opacity}" data-edit="${e._idx}" title="${esc(mode.name)} at ${pad(e.hour)}:${pad(e.min)} \u2014 ${esc(tempDisplay)}">
-        <ha-icon icon="${mode.icon}" style="--mdc-icon-size:14px;color:#fff"></ha-icon>
+      return `<div class="timeline-block" style="left:${left}%;background:${esc(mode.color)};opacity:${opacity}" data-edit="${e._idx}" title="${esc(mode.name)} at ${pad(e.hour)}:${pad(e.min)} \u2014 ${esc(tempDisplay)}">
+        <ha-icon icon="${esc(mode.icon)}" style="--mdc-icon-size:14px;color:#fff"></ha-icon>
       </div>`;
     }).join('');
     return `<div class="timeline"><div class="timeline-track">${markers}${blocks}</div></div>`;
@@ -323,12 +337,12 @@ class NWP500ScheduleCard extends HTMLElement {
       const tempDisplay = this._formatTemp(e.param);
       const days = decodeDays(e.week);
       return `<div class="entry-row">
-        <div class="entry-color" style="background:${mode.color}"></div>
+        <div class="entry-color" style="background:${esc(mode.color)}"></div>
         <div class="entry-info">
           <div class="entry-time">${pad(e.hour)}:${pad(e.min)}</div>
           <div class="entry-mode">
-            <ha-icon icon="${mode.icon}" style="--mdc-icon-size:16px;color:${mode.color}"></ha-icon>
-            <span>${mode.name}</span>
+            <ha-icon icon="${esc(mode.icon)}" style="--mdc-icon-size:16px;color:${esc(mode.color)}"></ha-icon>
+            <span>${esc(mode.name)}</span>
           </div>
         </div>
         <div class="entry-temp">${e.mode <= 4 ? esc(tempDisplay) : '\u2014'}</div>

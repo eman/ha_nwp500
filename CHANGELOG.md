@@ -90,7 +90,13 @@
   a transition cannot interleave.
 - **The bundled Lovelace cards escape interpolated values.** Entity names,
   states, units and card configuration were written straight into
-  `innerHTML`. All such values now go through an `esc()` helper.
+  `innerHTML`. All such values now go through an `esc()` helper. The
+  schedule card's `pad()` additionally validates: it formats the
+  device-supplied reservation `hour` and `min`, whose result lands inside a
+  quoted `title` attribute, so a malformed entry could otherwise have
+  broken out of the attribute. It now coerces through `Number` and renders
+  `--` for anything non-finite, which cannot carry markup at any call
+  site.
 
 - **Library Dependency: nwp500-python**: Upgraded to 9.3.1
 - **The `request_tou_settings` service now reads the plan over REST.**
