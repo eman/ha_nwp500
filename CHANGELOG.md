@@ -60,6 +60,21 @@
   newly registered one cannot be adopted without a reload. A failed, empty
   or malformed re-read changes nothing.
 
+- **On-demand energy usage report: the `nwp500.get_energy_usage` service.**
+  The device keeps daily energy totals split between the heat pump and the
+  resistive elements -- the split that matters, since element usage costs
+  roughly three times as much per unit of heat -- and reports them only
+  when asked. The service asks, waits for the reply, and returns it to the
+  caller as a report; nothing is recorded and no entity is created, so it
+  costs nothing when not in use. Defaults to the current month, accepts a
+  year and several months at once, and date-stamps each day (the protocol
+  numbers days only by their position in the month's list). The device
+  answers on a topic keyed by MQTT client rather than by device -- the
+  reply identifies neither the device nor the request -- so reports are
+  served one at a time and a reply is accepted only while a request for
+  that period is outstanding. A reply that arrives after its own request
+  gave up is discarded rather than handed to whoever asked next.
+
 ### Fixed
 - **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**
   With an empty `## [Unreleased]` section it fell back to

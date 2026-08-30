@@ -194,8 +194,8 @@ async def test_async_setup_entry_registers_services():
 
         await async_setup_entry(mock_hass, mock_entry)
 
-        # Verify all 12 services were registered
-        assert mock_hass.services.async_register.call_count == 12
+        # Verify all 13 services were registered
+        assert mock_hass.services.async_register.call_count == 13
 
         # Get all service names that were registered
         registered_services = [
@@ -282,8 +282,8 @@ async def test_async_unload_entry_removes_services_when_last():
 
     await async_unload_entry(mock_hass, mock_entry)
 
-    # All 12 services should be removed
-    assert mock_hass.services.async_remove.call_count == 12
+    # All 13 services should be removed
+    assert mock_hass.services.async_remove.call_count == 13
 
 
 @pytest.mark.asyncio

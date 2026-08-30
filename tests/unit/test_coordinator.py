@@ -1909,3 +1909,272 @@ def test_cloud_metadata_of_an_unknown_device_is_none(coordinator):
     """An unrecognised MAC reports nothing rather than raising."""
     assert coordinator.get_device_error("99:99:99:99:99:99") is None
     assert coordinator.get_device_descaling("99:99:99:99:99:99") is None
+
+
+# ---------------------------------------------------------------------------
+# async_fetch_energy_usage
+#
+# A report pulled on demand: the device answers only when asked, nothing is
+# cached, and no entity reads the result.
+# ---------------------------------------------------------------------------
+
+
+def _energy_response(year: int, months: list[int]) -> dict:
+    """A reply covering the given period."""
+    return {
+        "total": {"heat_pump_usage": 5},
+        "usage": [
+            {"year": year, "month": month, "data": []} for month in months
+        ],
+    }
+
+
+@pytest.mark.asyncio
+async def test_fetch_energy_usage_returns_the_devices_reply(coordinator):
+    """The response delivered over MQTT is handed back to the caller."""
+    response = _energy_response(2026, [8])
+
+    async def reply(mac, command, **kwargs):
+        assert command == "request_energy_usage"
+        assert kwargs == {"year": 2026, "months": [8]}
+        coordinator._handle_energy_usage_in_loop(mac, response)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) == response
+    )
+    assert coordinator._energy_request is None
+
+
+@pytest.mark.asyncio
+async def test_a_late_reply_is_not_handed_to_the_next_request(coordinator):
+    """A straggler from a timed-out request must not answer the next one.
+
+    The reply topic is shared, so the payload carries nothing tying it to
+    the request that produced it; the pending slot is cleared on timeout
+    precisely so a late arrival has nobody to be given to.
+    """
+    coordinator.async_send_command = AsyncMock(return_value=True)
+
+    # First request gives up.
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+
+    # Its reply arrives while a second request is outstanding.
+    late = _energy_response(2026, [7])
+
+    async def reply_late(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, late)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_late)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [8], timeout=0.01)
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_empty_late_reply_is_not_handed_to_the_next_request(
+    coordinator,
+):
+    """A reply carrying no months matches every request.
+
+    So once a request has gone unanswered it cannot be told apart from a
+    straggler -- and accepting it would hand back an all-zero report as
+    though the device had measured it.
+    """
+    coordinator.async_send_command = AsyncMock(return_value=True)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+
+    empty = {"total": {"heat_pump_usage": 0}, "usage": []}
+
+    async def reply_empty(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, empty)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [8], timeout=0.01)
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_empty_reply_answers_when_no_request_has_timed_out(
+    coordinator,
+):
+    """Nothing can be in flight yet, so an empty reply means no data.
+
+    A device asked about a month it has nothing recorded for answers
+    exactly this way, and reporting that as a failure would be wrong.
+    """
+    empty = {"total": {}, "usage": []}
+
+    async def reply_empty(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, empty)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
+
+    assert await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) == empty
+
+
+@pytest.mark.asyncio
+async def test_a_reply_for_another_period_is_ignored(coordinator):
+    """August's usage is not an answer to a question about September."""
+
+    async def wrong_period(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(
+            mac, _energy_response(2026, [8])
+        )
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=wrong_period)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [9], timeout=0.01)
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_reply_dispatched_under_another_mac_still_answers(coordinator):
+    """One reply is delivered to every subscribed device's callback.
+
+    The MAC a callback was registered under says nothing about which
+    device replied, so matching on it would drop the answer whenever the
+    other device's callback fired first.
+    """
+    response = _energy_response(2026, [8])
+
+    async def reply_as_other_device(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop("11:22:33:44:55:66", response)
+        return True
+
+    coordinator.async_send_command = AsyncMock(
+        side_effect=reply_as_other_device
+    )
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) == response
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_month_with_no_data_is_still_an_answer(coordinator):
+    """The device omits months it has nothing for; that is not a mismatch."""
+    response = _energy_response(2026, [7])
+
+    async def reply(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, response)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7, 8])
+        == response
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_energy_usage_returns_none_when_request_fails(coordinator):
+    """A publish failure short-circuits instead of waiting out the timeout."""
+    coordinator.async_send_command = AsyncMock(return_value=False)
+
+    async with asyncio.timeout(1):
+        assert (
+            await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) is None
+        )
+    assert coordinator._energy_request is None
+
+
+@pytest.mark.asyncio
+async def test_fetch_energy_usage_times_out_and_cleans_up(coordinator):
+    """A silent device yields None, and leaves no waiter behind."""
+    coordinator.async_send_command = AsyncMock(return_value=True)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [8], timeout=0.01)
+        is None
+    )
+    assert coordinator._energy_request is None
+
+
+@pytest.mark.asyncio
+async def test_energy_reports_are_answered_one_at_a_time(coordinator):
+    """The reply topic is keyed by client, not by device.
+
+    Two questions in flight at once could therefore be crossed, so the
+    second must wait for the first to be answered.
+    """
+    in_flight = 0
+    peak = 0
+
+    async def slow_request(mac, command, **kwargs):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0)
+        in_flight -= 1
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=slow_request)
+
+    await asyncio.gather(
+        coordinator.async_fetch_energy_usage(MAC, 2026, [8], timeout=0.01),
+        coordinator.async_fetch_energy_usage(MAC, 2026, [9], timeout=0.01),
+    )
+
+    assert peak == 1
+
+
+def test_energy_usage_is_not_cached(coordinator, mock_hass):
+    """Nothing subscribes to this, so nothing stores it either."""
+    coordinator.async_update_listeners = MagicMock()
+
+    coordinator._handle_energy_usage_in_loop(MAC, {"total": {}, "usage": []})
+
+    assert not hasattr(coordinator, "energy_usage")
+    mock_hass.bus.async_fire.assert_not_called()
+    coordinator.async_update_listeners.assert_not_called()
+
+
+def test_energy_usage_skips_an_already_resolved_waiter(coordinator):
+    """A waiter abandoned by a timeout must not be resolved twice."""
+    loop = asyncio.new_event_loop()
+    try:
+        done: asyncio.Future = loop.create_future()
+        done.set_result({"stale": True})
+        coordinator._energy_request = {
+            "mac_address": MAC,
+            "year": 2026,
+            "months": [8],
+            "future": done,
+        }
+
+        coordinator._handle_energy_usage_in_loop(MAC, {"total": {}})
+
+        assert done.result() == {"stale": True}
+    finally:
+        loop.close()
+
+
+def test_an_unsolicited_energy_reply_is_discarded(coordinator):
+    """Nothing outstanding means nothing to hand it to."""
+    coordinator._energy_request = None
+
+    coordinator._handle_energy_usage_in_loop(MAC, {"total": {}, "usage": []})
+
+    assert coordinator._energy_request is None

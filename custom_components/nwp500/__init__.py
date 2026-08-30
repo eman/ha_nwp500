@@ -16,13 +16,20 @@ from homeassistant.const import (
     Platform,
     UnitOfTemperature,
 )
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
 from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.util import dt as dt_util
 
+from . import energy_report
 from .const import (
     DEFAULT_TEMPERATURE_C,
     DEFAULT_TEMPERATURE_F,
@@ -70,6 +77,7 @@ SERVICE_DISABLE_DEMAND_RESPONSE = "disable_demand_response"
 SERVICE_RESET_AIR_FILTER = "reset_air_filter"
 SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
 SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
+SERVICE_GET_ENERGY_USAGE = "get_energy_usage"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -235,12 +243,35 @@ SERVICE_DEVICE_SCHEMA = vol.Schema(
     }
 )
 
+ATTR_YEAR = "year"
+ATTR_MONTHS = "months"
+
 # Schema for services that target a device but also accept entity_id
 SERVICE_DEVICE_OR_ENTITY_SCHEMA = vol.All(
     vol.Schema(
         {
             vol.Optional(ATTR_DEVICE_ID): cv.string,
             vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+# The device holds a couple of years of history, but a request that names
+# no period should mean "the month I am in".
+SERVICE_GET_ENERGY_USAGE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_YEAR): vol.All(
+                vol.Coerce(int), vol.Range(min=2000, max=2100)
+            ),
+            vol.Optional(ATTR_MONTHS): vol.All(
+                cv.ensure_list,
+                vol.Length(min=1, max=12),
+                [vol.All(vol.Coerce(int), vol.Range(min=1, max=12))],
+            ),
         }
     ),
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
@@ -673,6 +704,40 @@ class NWP500ServiceHandler:
         if not success:
             raise HomeAssistantError("Failed to request TOU settings")
 
+    async def async_get_energy_usage(
+        self, call: ServiceCall
+    ) -> ServiceResponse:
+        """Handle get_energy_usage service call.
+
+        A report pulled on demand: the device keeps daily totals split
+        between the heat pump and the resistive elements and reports them
+        only when asked, so this returns them to the caller rather than
+        recording anything.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        today = dt_util.now()
+        year = call.data.get(ATTR_YEAR, today.year)
+        months = call.data.get(ATTR_MONTHS, [today.month])
+
+        _LOGGER.info(
+            "Requesting energy usage for %s (year=%d, months=%s)",
+            mac_address,
+            year,
+            months,
+        )
+
+        response = await coordinator.async_fetch_energy_usage(
+            mac_address, year, months
+        )
+        if response is None:
+            raise HomeAssistantError(
+                "The device did not report its energy usage. It may be "
+                "offline, or the connection may be down."
+            )
+
+        return energy_report.build_report(response, mac_address=mac_address)
+
     async def async_enable_demand_response(self, call: ServiceCall) -> None:
         """Handle enable_demand_response service call."""
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
@@ -864,6 +929,12 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
+# Services that answer the caller instead of acting on the device. Home
+# Assistant refuses to return data from a service not registered this way.
+_RESPONSE_SERVICES: Final[frozenset[str]] = frozenset(
+    {SERVICE_GET_ENERGY_USAGE}
+)
+
 # (service name, handler attribute, schema). One table drives both
 # registration and teardown so the two can no longer drift apart.
 _SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
@@ -901,6 +972,11 @@ _SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
         SERVICE_REQUEST_TOU,
         "async_request_tou_settings",
         SERVICE_REQUEST_TOU_SCHEMA,
+    ),
+    (
+        SERVICE_GET_ENERGY_USAGE,
+        "async_get_energy_usage",
+        SERVICE_GET_ENERGY_USAGE_SCHEMA,
     ),
     (
         SERVICE_ENABLE_DEMAND_RESPONSE,
@@ -944,6 +1020,11 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             service_name,
             getattr(handler, handler_attr),
             schema=schema,
+            supports_response=(
+                SupportsResponse.ONLY
+                if service_name in _RESPONSE_SERVICES
+                else SupportsResponse.NONE
+            ),
         )
 
     _LOGGER.debug("Registered NWP500 services")

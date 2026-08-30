@@ -412,3 +412,71 @@ request_tou_settings:
         entity:
           domain: water_heater
           integration: nwp500
+
+get_energy_usage:
+  name: Get Energy Usage
+  description: >-
+    Ask the water heater for its recorded energy usage and return it as a
+    report. The device keeps daily totals split between the heat pump and
+    the electric heating elements; nothing is recorded in Home Assistant,
+    the data is returned to the caller. Defaults to the current month.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    year:
+      name: Year
+      description: Year to report on. Defaults to the current year.
+      required: false
+      selector:
+        number:
+          min: 2000
+          max: 2100
+          mode: box
+    months:
+      name: Months
+      description: >-
+        Months to report on. Several may be requested at once. Defaults to
+        the current month.
+      required: false
+      selector:
+        select:
+          multiple: true
+          mode: dropdown
+          options:
+            - label: January
+              value: "1"
+            - label: February
+              value: "2"
+            - label: March
+              value: "3"
+            - label: April
+              value: "4"
+            - label: May
+              value: "5"
+            - label: June
+              value: "6"
+            - label: July
+              value: "7"
+            - label: August
+              value: "8"
+            - label: September
+              value: "9"
+            - label: October
+              value: "10"
+            - label: November
+              value: "11"
+            - label: December
+              value: "12"
