@@ -630,6 +630,12 @@ class NWP500MqttManager:
                     raise
 
                 try:
+                    # Cleared per attempt: setup() can fail before connect()
+                    # is reached -- a missing library, a client that will
+                    # not construct -- and the previous attempt's verdict
+                    # must not be counted again as though this attempt had
+                    # been rejected too.
+                    self._last_failure_was_credentials = False
                     # Re-initialize and connect (connect() will refresh auth tokens)
                     if await self.setup():
                         # Only update timestamp on successful reconnection
@@ -642,6 +648,12 @@ class NWP500MqttManager:
                         )
                         self.consecutive_timeouts = 0
                         self._reconnect_attempts = 0  # Reset backoff on success
+                        # A working connection ends the run. Without this a
+                        # couple of rejections now, then a success, would
+                        # leave the count part-way to the threshold, so the
+                        # first rejection of some later outage would
+                        # escalate straight to reauth.
+                        self._consecutive_credential_failures = 0
 
                         # Re-subscribe to all devices and restart periodic tasks
                         for device in devices:

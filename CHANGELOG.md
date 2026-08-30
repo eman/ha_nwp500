@@ -72,7 +72,9 @@
 - **Every temperature-bearing call is serialized against a unit system
   change.** Only `set_reservation` checked; `update_reservations` and the
   water heater's `set_temperature` did not, despite carrying temperatures
-  that could be read in the wrong scale mid-transition. All three now hold
+  that could be read in the wrong scale mid-transition -- nor did the
+  target-temperature Number entity, which issues the same `set_temperature`
+  command. All four now hold
   the coordinator's new `unit_transition_guard` across validation *and*
   dispatch, rather than reaching into a private attribute with `getattr`
   and then yielding. Checking a flag first was not sufficient for the

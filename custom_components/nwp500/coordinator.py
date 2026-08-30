@@ -981,14 +981,19 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             await self.async_request_tou_settings(mac_address)
-        except (
-            APIError,
-            AuthenticationError,
-            OSError,
-            TimeoutError,
-            TypeError,
-            ValueError,
-        ) as err:
+        except Exception as err:  # noqa: BLE001 - best-effort boundary
+            # Deliberately broad. A narrower list does not hold the
+            # "nothing here may fail setup" guarantee above: the plan is
+            # decoded with `10.0 ** decimal_point`, so a nonsense
+            # `decimalPoint` from the cloud raises OverflowError, which is
+            # an ArithmeticError and not a ValueError, and a malformed API
+            # object raises AttributeError before the inner method's own
+            # handler is reached. Either would escape to
+            # _async_update_data, become UpdateFailed, and fail setup over
+            # a schedule read that the periodic refresh retries anyway.
+            #
+            # asyncio.CancelledError derives from BaseException, so
+            # shutdown still cancels this cleanly.
             _LOGGER.debug(
                 "Initial TOU read failed for %s: %s", mac_address, err
             )

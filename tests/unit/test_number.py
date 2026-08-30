@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.nwp500.number import (
     NWP500TargetTemperature,
@@ -174,3 +175,62 @@ class TestNWP500TargetTemperature:
 
         # Should not request refresh if control failed
         mock_coordinator.async_request_refresh.assert_not_called()
+
+
+class TestTargetTemperatureUnitGuard:
+    """The Number entity dispatches the same `set_temperature` command.
+
+    It is a temperature sender like the water heater, so it must serialize
+    against a unit-system transition too: the conversion to device units
+    happens inside the library, after the publish has awaited.
+    """
+
+    @staticmethod
+    def _entity(mock_coordinator, mock_device, mock_hass):
+        mac_address = mock_device.device_info.mac_address
+        entity = NWP500TargetTemperature(
+            mock_coordinator, mac_address, mock_device
+        )
+        entity.hass = mock_hass
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        return entity
+
+    @pytest.mark.asyncio
+    async def test_dispatches_when_no_transition_is_underway(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """The ordinary case still writes."""
+        entity = self._entity(mock_coordinator, mock_device, mock_hass)
+
+        await entity.async_set_native_value(125.0)
+
+        mock_coordinator.async_control_device.assert_awaited_once_with(
+            mock_device.device_info.mac_address,
+            "set_temperature",
+            temperature=125.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_refuses_during_unit_system_change(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+        raising_unit_guard,
+    ):
+        """A write mid-transition could be encoded in the wrong scale.
+
+        This path was missed when the guard was introduced: the water
+        heater held it but the Number entity issued the same command
+        without it.
+        """
+        entity = self._entity(mock_coordinator, mock_device, mock_hass)
+        mock_coordinator.unit_transition_guard = raising_unit_guard
+
+        with pytest.raises(HomeAssistantError):
+            await entity.async_set_native_value(125.0)
+
+        mock_coordinator.async_control_device.assert_not_called()

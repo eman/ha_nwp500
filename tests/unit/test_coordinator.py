@@ -2366,3 +2366,45 @@ async def test_unit_guard_blocks_a_transition_until_the_work_completes(
     await asyncio.gather(work(), transition())
 
     assert order == ["work-start", "work-end", "transition"]
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_survives_an_unlisted_exception(coordinator):
+    """The best-effort guarantee must not depend on an exception list.
+
+    The plan is decoded with `10.0 ** decimal_point`, so a nonsense
+    decimalPoint raises OverflowError -- an ArithmeticError, not a
+    ValueError -- and a malformed API object raises AttributeError. Either
+    escaping would become UpdateFailed and fail setup over a schedule read
+    the periodic refresh retries anyway.
+    """
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+
+    for err in (
+        OverflowError("Numerical result out of range"),
+        AttributeError("'NoneType' object has no attribute 'model_dump'"),
+        KeyError("season"),
+    ):
+        coordinator.async_request_tou_settings = AsyncMock(side_effect=err)
+        # Must not raise.
+        await coordinator._async_request_initial_tou(_device_with_mac())
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_still_propagates_cancellation(coordinator):
+    """Broad does not mean swallowing shutdown.
+
+    CancelledError derives from BaseException, so `except Exception` leaves
+    it alone and teardown stays prompt.
+    """
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    coordinator.async_request_tou_settings = AsyncMock(
+        side_effect=asyncio.CancelledError()
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._async_request_initial_tou(_device_with_mac())

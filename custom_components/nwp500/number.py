@@ -145,12 +145,23 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
 
         The library handles unit conversion, so the value sent should be
         in HA's configured unit (which the library already expects).
-        """
-        success = await self.coordinator.async_control_device(
-            self.mac_address,
-            "set_temperature",
-            temperature=float(value),
-        )
 
+        This is the same `set_temperature` dispatch the water heater entity
+        makes, so it takes the same guard: the conversion to device units
+        happens inside the library, after the publish has awaited, and a
+        unit-system transition starting in between would encode the value
+        in the other scale.
+        """
+        async with self.coordinator.unit_transition_guard(
+            "set the temperature"
+        ):
+            success = await self.coordinator.async_control_device(
+                self.mac_address,
+                "set_temperature",
+                temperature=float(value),
+            )
+
+        # Outside the guard: refreshing needs no unit context, and holding
+        # the lock across it would stall a pending transition for nothing.
         if success:
             await self.coordinator.async_request_refresh()

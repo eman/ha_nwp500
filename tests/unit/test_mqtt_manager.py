@@ -1011,3 +1011,89 @@ def test_credential_failures_are_told_from_transport_failures():
 
     assert _is_credential_failure(OSError("network unreachable")) is False
     assert _is_credential_failure(TimeoutError()) is False
+
+
+@pytest.mark.asyncio
+async def test_credential_run_does_not_survive_a_successful_reconnect(
+    manager, mock_mqtt_client, mock_device
+):
+    """A success ends the run; it must not carry into a later outage.
+
+    Two rejections then a success used to leave the count part-way to the
+    threshold, so the first rejection of some later outage escalated
+    straight to reauth.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+    original_setup = manager.setup
+
+    rejections = mm._MAX_CREDENTIAL_FAILURES - 1
+    calls = 0
+
+    async def reject_then_succeed():
+        nonlocal calls
+        calls += 1
+        if calls <= rejections:
+            manager._last_failure_was_credentials = True
+            return False
+        return await original_setup()
+
+    manager.setup = reject_then_succeed
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        assert await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    assert manager._consecutive_credential_failures == 0
+    failed.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_setup_failure_before_connect_is_not_counted_as_credentials(
+    manager, mock_mqtt_client, mock_device
+):
+    """setup() can fail before connect() ever classifies anything.
+
+    The previous attempt's verdict must not be reused, or a single real
+    rejection followed by unrelated setup failures would reach the
+    threshold and prompt for reauthentication.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+    original_setup = manager.setup
+
+    calls = 0
+
+    async def one_rejection_then_setup_failures():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            # A genuine credential rejection, classified by connect().
+            manager._last_failure_was_credentials = True
+            return False
+        if calls <= mm._MAX_CREDENTIAL_FAILURES * 2:
+            # setup() bailing out before connect(): it classifies nothing,
+            # so the flag must already have been cleared for this attempt.
+            return False
+        return await original_setup()
+
+    manager.setup = one_rejection_then_setup_failures
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        assert await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    failed.assert_not_called()
+    manager.loop.call_soon_threadsafe.assert_not_called()
