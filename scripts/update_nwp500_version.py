@@ -108,7 +108,11 @@ def update_changelog(path: Path, package: str, new: str) -> bool:
     if updated == section:
         return False
 
-    path.write_text(content.replace(section, updated, 1), encoding="utf-8")
+    # Rewrite the section by span rather than by value: an empty Unreleased
+    # section is the empty string, and `content.replace("", ...)` inserts at
+    # offset 0 -- putting the new bullet above the file's own title.
+    start, end = match.span("body")
+    path.write_text(content[:start] + updated + content[end:], encoding="utf-8")
     return True
 
 

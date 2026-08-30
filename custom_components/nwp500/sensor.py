@@ -204,6 +204,14 @@ async def async_setup_entry(
         entities.append(
             NWP500TOUScheduleSensor(coordinator, mac_address, device)
         )
+        # Cloud-recorded metadata, readable while the device is offline
+        entities.append(
+            NWP500CloudErrorSensor(coordinator, mac_address, device)
+        )
+        entities.extend(
+            NWP500DescalingSensor(coordinator, mac_address, device, field)
+            for field in ("descaling_start_time", "descaling_end_time")
+        )
 
     # Add diagnostic telemetry sensors (one per integration, not per device)
     if coordinator.data:
@@ -576,3 +584,73 @@ class NWP500TOUScheduleSensor(NWP500ScheduleSensor):
             "tou_schedules",
             schedule_state.tou_canonical,
         )
+
+
+class NWP500CloudErrorSensor(NWP500DiagnosticSensor):
+    """The device's last recorded fault, as the cloud reports it.
+
+    Distinct from the `error_code` sensor, which reflects the live MQTT
+    status and so goes unavailable with the device: the cloud keeps this
+    independently and still answers while the device is offline, reporting
+    the fault as of the last time the device was heard from.
+    """
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Device,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, mac_address, device, "cloud_error_code")
+
+    @property
+    def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return the recorded error code by name, or None if not reported."""
+        error = self.coordinator.get_device_error(self.mac_address)
+        code = getattr(error, "error_code", None) if error else None
+        if code is None:
+            return None
+        # An unknown code stays a plain int rather than an ErrorCode member.
+        return str(getattr(code, "name", code))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return when the recorded fault occurred."""
+        error = self.coordinator.get_device_error(self.mac_address)
+        return {
+            "occurred_at": getattr(error, "error_occurred_time", None)
+            if error
+            else None
+        }
+
+
+class NWP500DescalingSensor(NWP500DiagnosticSensor):
+    """One end of the descaling window the cloud records for the device.
+
+    Reported as the cloud sends it. Both ends are unset on a device with no
+    descaling scheduled or recorded, which is the common case, so these are
+    disabled by default.
+    """
+
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Device,
+        field: str,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, mac_address, device, field)
+        self._field = field
+
+    @property
+    def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return the recorded timestamp, or None if none is recorded."""
+        descaling = self.coordinator.get_device_descaling(self.mac_address)
+        if not descaling:
+            return None
+        value = getattr(descaling, self._field, None)
+        return str(value) if value is not None else None

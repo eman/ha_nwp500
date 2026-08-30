@@ -246,6 +246,12 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
                     "home_seq": device_info.home_seq,
                     "device_type": device_info.device_type,
                     "connected": device_info.connected,
+                    # Cloud-side model identifier, added to the model in
+                    # nwp500-python 9.3.1. None on accounts where the cloud
+                    # does not populate it.
+                    "model_type_code": getattr(
+                        device_info, "model_type_code", None
+                    ),
                 }
             )
 

@@ -67,6 +67,12 @@ SLOW_UPDATE_THRESHOLD: Final = (
 # at the default 30s interval this is roughly every 20 minutes.
 SCHEDULE_REFRESH_CYCLES: Final = 40
 
+# Coordinator cycles between REST re-reads of the device list, which carries
+# the cloud-recorded fault and descaling window. Cheap (one HTTP request for
+# the whole account) but not worth doing every cycle: at the default 30s
+# interval this is roughly every 10 minutes.
+DEVICE_METADATA_REFRESH_CYCLES: Final = 20
+
 # Reconnection backoff parameters
 # Exponential backoff delays (seconds) for MQTT reconnection attempts
 RECONNECT_BACKOFF_DELAYS: Final = [2.0, 5.0, 15.0, 30.0, 60.0]

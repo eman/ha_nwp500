@@ -401,11 +401,27 @@ def _device(mac: str) -> MagicMock:
 MAC = "AA:BB:CC:DD:EE:FF"
 
 
+def _api_client(tou_info: dict | None = None) -> MagicMock:
+    """A mock REST client whose TOU read returns a TOUInfo-shaped dump."""
+    api = MagicMock()
+    dump = MagicMock()
+    dump.model_dump.return_value = tou_info or {
+        "name": "EV Rate A",
+        "utility": "PG&E",
+        "zip_code": 94103,
+        "schedule": [],
+    }
+    api.get_tou_info = AsyncMock(return_value=dump)
+    return api
+
+
 @pytest.fixture
 def wired(coordinator):
     """A coordinator with one known device and a connected MQTT manager."""
     coordinator.mqtt_manager = _connected_mqtt_manager()
+    coordinator.api_client = _api_client()
     device = _device(MAC)
+    device.device_info.additional_value = "ADDL"
     coordinator.devices = [device]
     coordinator._update_device_cache()
     return coordinator
@@ -419,7 +435,6 @@ def wired(coordinator):
         ("async_update_reservations", (MAC, [])),
         ("async_request_reservations", (MAC,)),
         ("async_configure_tou_schedule", (MAC, [])),
-        ("async_request_tou_settings", (MAC,)),
         ("async_request_device_info", (MAC,)),
     ],
 )
@@ -505,6 +520,7 @@ async def test_tou_refuses_before_device_info_arrives(wired, method):
     args = (MAC, []) if "configure" in method else (MAC,)
     assert await getattr(wired, method)(*args) is False
     wired.mqtt_manager.send_command.assert_not_called()
+    wired.api_client.get_tou_info.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -520,6 +536,7 @@ async def test_tou_refuses_when_serial_is_blank(wired, method):
     args = (MAC, []) if "configure" in method else (MAC,)
     assert await getattr(wired, method)(*args) is False
     wired.mqtt_manager.send_command.assert_not_called()
+    wired.api_client.get_tou_info.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -542,19 +559,99 @@ async def test_configure_tou_sends_serial_periods_and_flag(wired):
 
 
 @pytest.mark.asyncio
-async def test_request_tou_settings_sends_serial(wired):
-    """Requesting TOU settings also carries the controller serial."""
+async def test_request_tou_settings_fails_closed_without_api_client(wired):
+    """The TOU read is REST, so it refuses when the API client is absent."""
+    wired.api_client = None
     features = MagicMock()
     features.controller_serial_number = "CTRL-123"
     wired.device_features[MAC] = features
 
+    assert await wired.async_request_tou_settings(MAC) is False
+
+
+@pytest.mark.asyncio
+async def test_request_tou_settings_reads_over_rest(wired, mock_hass):
+    """The plan is read over REST and published like an MQTT reply.
+
+    The device answers no MQTT read for its TOU schedule, so the plan comes
+    from `/device/tou`, keyed by the controller serial number.
+    """
+    features = MagicMock()
+    features.controller_serial_number = "CTRL-123"
+    wired.device_features[MAC] = features
+    wired.api_client = _api_client(
+        {
+            "name": "EV Rate A",
+            "utility": "PG&E",
+            "zip_code": 94103,
+            "schedule": [
+                {
+                    "season": 3087,
+                    "intervals": [
+                        {
+                            "week": 124,
+                            "startHour": 0,
+                            "startMinute": 0,
+                            "endHour": 6,
+                            "endMinute": 59,
+                            "priceMin": 31794,
+                            "priceMax": 31794,
+                            "decimalPoint": 5,
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+    status = MagicMock()
+    status.tou_status = 1
+    wired.data = {MAC: {"status": status}}
+    wired.async_update_listeners = MagicMock()
+
     assert await wired.async_request_tou_settings(MAC)
 
-    wired.mqtt_manager.send_command.assert_awaited_once_with(
-        wired._devices_by_mac[MAC],
-        "request_tou_settings",
-        controller_serial_number="CTRL-123",
+    wired.api_client.get_tou_info.assert_awaited_once_with(
+        mac_address=MAC,
+        additional_value="ADDL",
+        controller_id="CTRL-123",
     )
+    wired.mqtt_manager.send_command.assert_not_called()
+
+    stored = wired.tou_schedules[MAC]
+    assert stored["name"] == "EV Rate A"
+    assert stored["enabled"] is True
+    assert stored["reservation"] == [
+        {
+            "season": 3087,
+            "week": 124,
+            "start_hour": 0,
+            "start_min": 0,
+            "end_hour": 6,
+            "end_min": 59,
+            "price_min": 31794,
+            "price_max": 31794,
+            "decimal_point": 5,
+            "start_time": "00:00",
+            "end_time": "06:59",
+            "decoded_price_min": 0.31794,
+            "decoded_price_max": 0.31794,
+        }
+    ]
+    mock_hass.bus.async_fire.assert_called_once_with(
+        "nwp500_tou_updated", {"mac_address": MAC, "tou_data": stored}
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_tou_settings_reports_a_failed_read(wired):
+    """A REST failure is reported, not raised, and stores nothing."""
+    features = MagicMock()
+    features.controller_serial_number = "CTRL-123"
+    wired.device_features[MAC] = features
+    wired.api_client.get_tou_info = AsyncMock(side_effect=TimeoutError)
+
+    assert await wired.async_request_tou_settings(MAC) is False
+    assert MAC not in wired.tou_schedules
 
 
 # ---------------------------------------------------------------------------
@@ -1640,3 +1737,91 @@ async def test_permanent_reconnect_failure_keeps_its_reauth_message(
     coordinator.entry.async_start_reauth.assert_called_once_with(
         coordinator.hass
     )
+
+
+# ---------------------------------------------------------------------------
+# _async_refresh_device_metadata
+#
+# `/device/list` carries the cloud-recorded fault and descaling window, which
+# the device never sends over MQTT. It is otherwise read once, at setup.
+# ---------------------------------------------------------------------------
+
+
+def _metadata_coordinator(coordinator, devices=None):
+    coordinator.api_client = MagicMock()
+    coordinator.api_client.list_devices = AsyncMock(
+        return_value=devices if devices is not None else [_device(MAC)]
+    )
+    coordinator.devices = [_device(MAC)]
+    coordinator._update_device_cache()
+    return coordinator
+
+
+@pytest.mark.asyncio
+async def test_device_metadata_is_refreshed_on_its_own_cycle(coordinator):
+    """The re-read is periodic, not every update cycle."""
+    from custom_components.nwp500.const import DEVICE_METADATA_REFRESH_CYCLES
+
+    refreshed = _device(MAC)
+    coord = _metadata_coordinator(coordinator, [refreshed])
+
+    for _ in range(DEVICE_METADATA_REFRESH_CYCLES - 1):
+        await coord._async_refresh_device_metadata()
+    coord.api_client.list_devices.assert_not_called()
+
+    await coord._async_refresh_device_metadata()
+
+    coord.api_client.list_devices.assert_awaited_once()
+    assert coord.devices == [refreshed]
+    assert coord._devices_by_mac[MAC] is refreshed
+
+
+@pytest.mark.asyncio
+async def test_failed_metadata_refresh_keeps_the_known_devices(coordinator):
+    """A refresh failure must not empty the device list entities are keyed on."""
+    coord = _metadata_coordinator(coordinator)
+    known = coord.devices
+    coord.api_client.list_devices = AsyncMock(side_effect=TimeoutError)
+    coord._device_metadata_counter = -1
+
+    await coord._async_refresh_device_metadata()
+
+    assert coord.devices is known
+
+
+@pytest.mark.asyncio
+async def test_empty_metadata_refresh_keeps_the_known_devices(coordinator):
+    """An empty listing is treated as a bad answer, not as "no devices"."""
+    coord = _metadata_coordinator(coordinator, [])
+    known = coord.devices
+    coord._device_metadata_counter = -1
+
+    await coord._async_refresh_device_metadata()
+
+    assert coord.devices is known
+
+
+@pytest.mark.asyncio
+async def test_metadata_refresh_without_an_api_client_is_a_no_op(coordinator):
+    """Called before setup completes, it neither raises nor advances."""
+    coordinator.api_client = None
+
+    await coordinator._async_refresh_device_metadata()
+
+    assert coordinator._device_metadata_counter == 0
+
+
+def test_cloud_error_and_descaling_are_read_from_the_device(coordinator):
+    """The accessors read the REST blocks the sensors expose."""
+    device = _device(MAC)
+    coordinator.devices = [device]
+    coordinator._update_device_cache()
+
+    assert coordinator.get_device_error(MAC) is device.error
+    assert coordinator.get_device_descaling(MAC) is device.descaling
+
+
+def test_cloud_metadata_of_an_unknown_device_is_none(coordinator):
+    """An unrecognised MAC reports nothing rather than raising."""
+    assert coordinator.get_device_error("99:99:99:99:99:99") is None
+    assert coordinator.get_device_descaling("99:99:99:99:99:99") is None

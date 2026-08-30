@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 9.3.1
+- **The `request_tou_settings` service now reads the plan over REST.**
+  nwp500-python 9.3.1 removed `NavienMqttClient.request_tou_settings()`:
+  the device has no MQTT read for its TOU schedule -- `ctrl/tou/rd` is the
+  *write*, and the device answers on `res/tou/rd` only to confirm one -- so
+  the request this integration published never produced a schedule and, on
+  9.3.1, would have raised `AttributeError`. The service now reads the
+  stored plan from the cloud with `get_tou_info()` and publishes it exactly
+  as a device reply was published: into the coordinator's `tou_schedules`
+  and onto the bus as `nwp500_tou_updated`. The TOU Schedule sensor and
+  anything listening for that event are unaffected -- the REST plan is
+  flattened into the same shape the MQTT write confirmation arrives in --
+  and the periodic schedule refresh now actually populates it. Because the
+  read is REST, it also works while the device is offline. Writes
+  (`configure_tou_schedule`) and the TOU switch are unchanged.
+
+### Added
+- **The device's last recorded fault is now readable while it is offline.**
+  `/device/list` returns an `error` block that nwp500-python 9.3.1 models
+  for the first time. The cloud keeps it independently of the live MQTT
+  status, so the new **Last Reported Error** diagnostic sensor still
+  reports the fault -- and, in its `occurred_at` attribute, when it
+  happened -- at times when the existing Error Code sensor, which follows
+  the MQTT status, has gone unavailable. A code the library's enum does not
+  know is reported as its number rather than breaking the sensor.
+- **Descaling window sensors** (**Descaling Start** / **Descaling End**),
+  from the `descaling` block the same response carries. Both ends are unset
+  on a device with no descaling scheduled or recorded, which is the common
+  case, so these are disabled by default.
+- **`model_type_code` and `installer_id`.** `deviceInfo` gained both in the
+  cloud API and 9.3.1 models them. `model_type_code` is exposed as an entity
+  attribute; both appear in a diagnostics dump, with `installer_id` redacted
+  as it identifies another party.
+- The device list is re-read every 20 coordinator cycles (~10 minutes at the
+  default scan interval) so this cloud-side metadata stays current. It was
+  previously fetched once, at setup. A failed or empty re-read keeps the
+  devices already known rather than dropping them.
+
+### Fixed
+- **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**
+  With an empty `## [Unreleased]` section it fell back to
+  `content.replace(section, ...)` with `section` empty, which inserts at
+  offset 0 -- so the upgrade bullet landed before `# Changelog`. The
+  section is now rewritten by span.
+
 ## [0.19.0] - 2026-08-22
 
 ### Fixed
