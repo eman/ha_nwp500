@@ -322,3 +322,65 @@ class TestRefreshedDeviceMetadata:
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
 
         assert entity._build_extra_state_attributes()["home_seq"] == 1
+
+
+class TestDeviceModelId:
+    """The device family code belongs in `model_id`, beside the model name.
+
+    Home Assistant renders `model_id` next to `model` on the device card;
+    the device reports the code as `UnitType`, e.g. NPF for a heat pump
+    water heater.
+    """
+
+    def test_a_known_code_is_shown_by_name(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        from nwp500.enums import UnitType
+
+        mac_address = mock_device.device_info.mac_address
+        feature = MagicMock()
+        feature.model_type_code = UnitType.NPF
+        mock_coordinator.device_features.get.return_value = feature
+
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+        device_info = entity.device_info
+
+        assert device_info is not None
+        assert device_info["model_id"] == "NPF"
+        # The human-readable name is unchanged.
+        assert device_info["model"] == "NWP500"
+
+    def test_an_unknown_code_is_shown_as_its_number(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """The library types this `UnitType | int`, so an int can arrive."""
+        mac_address = mock_device.device_info.mac_address
+        feature = MagicMock()
+        feature.model_type_code = 999
+        mock_coordinator.device_features.get.return_value = feature
+
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+        device_info = entity.device_info
+
+        assert device_info is not None
+        assert device_info["model_id"] == "999"
+
+    def test_no_features_yet_leaves_it_unset(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Before the MQTT device-info response, there is no code to show."""
+        mock_coordinator.device_features.get.return_value = None
+
+        entity = NWP500Entity(
+            mock_coordinator, mock_device.device_info.mac_address, mock_device
+        )
+        device_info = entity.device_info
+
+        assert device_info is not None
+        assert device_info["model_id"] is None

@@ -44,6 +44,13 @@
   populate it. Entity attributes now read the device object the coordinator
   currently holds rather than the one captured at platform setup, so this
   and `connected` follow the periodic refresh instead of staying frozen.
+- **The device card now shows a model identifier.** Home Assistant renders
+  `model_id` beside the model name, and it was never set. It is filled from
+  the `model_type_code` the device reports over MQTT -- `NPF` on a heat pump
+  water heater -- with an unrecognised code shown as its number. (The
+  identically named REST field 9.3.1 adds is not used for this: the cloud
+  returns it as null, and the device's own report is both populated and
+  already available.)
 - The device list is re-read every 20 coordinator cycles (~10 minutes at the
   default scan interval) so this cloud-side metadata stays current. It was
   previously fetched once, at setup. A failed or empty re-read keeps the

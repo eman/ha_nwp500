@@ -138,6 +138,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         sw_version = None
         hw_version = None
         model_name = "NWP500"
+        model_id = None
         configuration_url = None
         suggested_area = "Utility Room"
 
@@ -197,9 +198,22 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
             _LOGGER.debug("Device capacity: volume_code=%s", volume_code)
 
+            # Model identifier: the device family code the device reports.
+            # `model` stays the human-readable name; Home Assistant shows
+            # `model_id` beside it, which is where a code belongs. Typed
+            # `UnitType | int` by the library, so an unknown code arrives as
+            # a plain int and is shown as its number.
+            model_type_code = getattr(device_feature, "model_type_code", None)
+            if model_type_code is not None:
+                model_id = str(
+                    getattr(model_type_code, "name", model_type_code)
+                )
+
             _LOGGER.debug(
-                "Final device info: model=%s sw_version=%s hw_version=%s serial=%s",
+                "Final device info: model=%s model_id=%s sw_version=%s "
+                "hw_version=%s serial=%s",
                 model_name,
+                model_id,
                 sw_version,
                 hw_version,
                 serial_number,
@@ -216,6 +230,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             name=device_name,
             manufacturer="Navien",
             model=model_name,
+            model_id=model_id,
             serial_number=serial_number,
             hw_version=hw_version,
             sw_version=sw_version,
