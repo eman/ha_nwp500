@@ -53,8 +53,12 @@
   already available.)
 - The device list is re-read every 20 coordinator cycles (~10 minutes at the
   default scan interval) so this cloud-side metadata stays current. It was
-  previously fetched once, at setup. A failed or empty re-read keeps the
-  devices already known rather than dropping them.
+  previously fetched once, at setup. The re-read refreshes the devices
+  already known, by MAC, rather than adopting the listing: entities and MQTT
+  subscriptions are created once at setup and keyed to the devices known
+  then, so a device the cloud momentarily omitted must not vanish, and a
+  newly registered one cannot be adopted without a reload. A failed, empty
+  or malformed re-read changes nothing.
 
 ### Fixed
 - **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**

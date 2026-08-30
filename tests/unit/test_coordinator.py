@@ -643,6 +643,32 @@ async def test_request_tou_settings_reads_over_rest(wired, mock_hass):
 
 
 @pytest.mark.asyncio
+async def test_request_tou_settings_survives_a_malformed_plan(wired):
+    """The library leaves each interval a raw dict, unvalidated.
+
+    A non-numeric protocol value therefore reaches the conversion. Left to
+    escape it would fail the whole update cycle through the periodic
+    refresh, which catches only transport errors.
+    """
+    features = MagicMock()
+    features.controller_serial_number = "CTRL-123"
+    wired.device_features[MAC] = features
+    wired.api_client = _api_client(
+        {
+            "schedule": [
+                {
+                    "season": 3087,
+                    "intervals": [{"startHour": "not-a-number"}],
+                }
+            ]
+        }
+    )
+
+    assert await wired.async_request_tou_settings(MAC) is False
+    assert MAC not in wired.tou_schedules
+
+
+@pytest.mark.asyncio
 async def test_request_tou_settings_reports_a_failed_read(wired):
     """A REST failure is reported, not raised, and stores nothing."""
     features = MagicMock()
@@ -1787,6 +1813,44 @@ async def test_failed_metadata_refresh_keeps_the_known_devices(coordinator):
     await coord._async_refresh_device_metadata()
 
     assert coord.devices is known
+
+
+@pytest.mark.asyncio
+async def test_metadata_refresh_keeps_a_device_the_cloud_omitted(coordinator):
+    """A device missing from one listing must not disappear.
+
+    Entities and MQTT subscriptions are keyed to the devices known at
+    setup, so dropping one here would break every service call for it
+    until the integration was reloaded.
+    """
+    other = _device("11:22:33:44:55:66")
+    coord = _metadata_coordinator(coordinator)
+    coord.devices = [coord.devices[0], other]
+    coord._update_device_cache()
+    # The listing comes back with only the first device.
+    coord.api_client.list_devices = AsyncMock(return_value=[_device(MAC)])
+    coord._device_metadata_counter = -1
+
+    await coord._async_refresh_device_metadata()
+
+    assert coord._devices_by_mac["11:22:33:44:55:66"] is other
+
+
+@pytest.mark.asyncio
+async def test_metadata_refresh_does_not_adopt_an_unknown_device(coordinator):
+    """A device new to the account has no entities and no subscription.
+
+    Adding it here would put it in the coordinator's data with neither,
+    so membership changes are left to a reload.
+    """
+    coord = _metadata_coordinator(
+        coordinator, [_device(MAC), _device("99:99:99:99:99:99")]
+    )
+    coord._device_metadata_counter = -1
+
+    await coord._async_refresh_device_metadata()
+
+    assert list(coord._devices_by_mac) == [MAC]
 
 
 @pytest.mark.asyncio

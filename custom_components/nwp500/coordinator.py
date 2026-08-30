@@ -190,7 +190,26 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("Device metadata refresh returned no devices")
             return
 
-        self.devices = devices
+        # Refresh the devices we already know, by MAC, rather than adopting
+        # the listing wholesale. Entities and MQTT subscriptions are created
+        # once, at setup, and keyed to the devices known then: adopting the
+        # listing would let a device the cloud momentarily omitted vanish
+        # from `_devices_by_mac` -- breaking every service call for it --
+        # and would add a newly registered device that has neither entities
+        # nor a subscription. Membership changes need a reload; this is a
+        # metadata refresh.
+        refreshed = {d.device_info.mac_address: d for d in devices}
+        for mac_address in refreshed.keys() - self._devices_by_mac.keys():
+            _LOGGER.debug(
+                "Device %s is new to this account; reload the integration "
+                "to add it",
+                mac_address,
+            )
+
+        self.devices = [
+            refreshed.get(device.device_info.mac_address, device)
+            for device in self.devices
+        ]
         self._update_device_cache()
 
     def get_device_error(self, mac_address: str) -> Any | None:
@@ -1300,29 +1319,40 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             return False
 
+        # Whether TOU is switched on is device status, not part of the plan.
+        status = (self.data or {}).get(mac_address, {}).get("status")
+        tou_status = getattr(status, "tou_status", None)
+        enabled = bool(tou_status) if tou_status is not None else None
+
         try:
             tou_info = await self.api_client.get_tou_info(
                 mac_address=mac_address,
                 additional_value=device.device_info.additional_value,
                 controller_id=controller_serial,
             )
-        except (APIError, AuthenticationError, OSError, TimeoutError) as err:
+            # Converting is guarded alongside the read. The library keeps
+            # each interval as a raw dict rather than validating its fields,
+            # so a non-numeric protocol value reaches the conversion and
+            # raises. Uncaught, that would escape the periodic refresh --
+            # which catches only transport errors -- and fail the whole
+            # update cycle rather than leaving the last plan in place.
+            schedule = schedule_state.tou_info_to_schedule(
+                tou_info.model_dump(), enabled=enabled
+            )
+        except (
+            APIError,
+            AuthenticationError,
+            OSError,
+            TimeoutError,
+            TypeError,
+            ValueError,
+        ) as err:
             _LOGGER.error(
                 "Failed to read TOU settings for %s: %s", mac_address, err
             )
             return False
 
-        # Whether TOU is switched on is device status, not part of the plan.
-        status = (self.data or {}).get(mac_address, {}).get("status")
-        tou_status = getattr(status, "tou_status", None)
-        enabled = bool(tou_status) if tou_status is not None else None
-
-        self._handle_tou_update_in_loop(
-            mac_address,
-            schedule_state.tou_info_to_schedule(
-                tou_info.model_dump(), enabled=enabled
-            ),
-        )
+        self._handle_tou_update_in_loop(mac_address, schedule)
         return True
 
     async def async_send_command(
