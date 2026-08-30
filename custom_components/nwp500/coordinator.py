@@ -93,6 +93,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._reservation_waiters: dict[
             str, list[asyncio.Future[dict[str, Any]]]
         ] = {}
+        # Futures awaiting an energy-usage reply. The device answers on a
+        # topic keyed by MQTT client rather than by device, so a report is
+        # attributed to whoever asked -- see async_fetch_energy_usage, which
+        # holds `_energy_lock` to keep one question in flight at a time.
+        self._energy_waiters: dict[
+            str, list[asyncio.Future[dict[str, Any]]]
+        ] = {}
+        self._energy_lock = asyncio.Lock()
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -769,6 +777,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._on_device_feature_update,
                 on_reservation_update=self._on_reservation_update,
                 on_tou_update=self._on_tou_update,
+                on_energy_usage=self._on_energy_usage,
                 unit_system=self.unit_system,
                 on_reconnected=_on_mqtt_reconnected,
                 on_reconnection_failed=_on_mqtt_reconnection_failed,
@@ -1014,6 +1023,31 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.error("Error handling reservation update: %s", err)
 
+    def _on_energy_usage(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Handle an energy usage response from the MQTT Manager."""
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_energy_usage_in_loop, mac_address, response
+        )
+
+    def _handle_energy_usage_in_loop(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Hand the response to whoever asked for it.
+
+        Nothing is cached: this is a report pulled on demand, and the device
+        only answers when asked. Entities do not read it, so there are no
+        listeners to notify either.
+        """
+        try:
+            _LOGGER.debug("Received energy usage for %s", mac_address)
+            for waiter in self._energy_waiters.pop(mac_address, []):
+                if not waiter.done():
+                    waiter.set_result(response)
+        except Exception as err:
+            _LOGGER.error("Error handling energy usage: %s", err)
+
     def _on_tou_update(
         self, mac_address: str, response: dict[str, Any]
     ) -> None:
@@ -1227,6 +1261,68 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 pending.remove(waiter)
             if pending is not None and not pending:
                 self._reservation_waiters.pop(mac_address, None)
+
+    async def async_fetch_energy_usage(
+        self,
+        mac_address: str,
+        year: int,
+        months: list[int],
+        timeout: float = 20.0,
+    ) -> dict[str, Any] | None:
+        """Ask the device for its energy history and wait for the answer.
+
+        The device keeps daily totals split between the heat pump and the
+        resistive elements, and reports them only when asked. This is a
+        pull, not a subscription: nothing is cached and no entity reads it.
+
+        The reply arrives on a topic keyed by MQTT client rather than by
+        device, so with more than one water heater on the account a
+        concurrent second question could be answered by the first device's
+        reply. `_energy_lock` therefore allows one report at a time.
+
+        Args:
+            mac_address: Device MAC address.
+            year: Year to query.
+            months: Months to query (1-12); the device accepts several.
+            timeout: Seconds to wait for the device's response.
+
+        Returns:
+            The raw response the device reported, or None if the request
+            could not be sent or no reply arrived in time.
+        """
+        async with self._energy_lock:
+            loop = asyncio.get_running_loop()
+            waiter: asyncio.Future[dict[str, Any]] = loop.create_future()
+            self._energy_waiters.setdefault(mac_address, []).append(waiter)
+
+            try:
+                sent = await self.async_send_command(
+                    mac_address,
+                    "request_energy_usage",
+                    year=year,
+                    months=months,
+                )
+                if not sent:
+                    return None
+                # Only the wait is guarded, so a TimeoutError from the
+                # publish itself propagates rather than being reported as
+                # "the device did not answer".
+                try:
+                    return await asyncio.wait_for(waiter, timeout=timeout)
+                except TimeoutError:
+                    _LOGGER.warning(
+                        "Timed out after %.0fs waiting for the energy usage "
+                        "of %s",
+                        timeout,
+                        mac_address,
+                    )
+                    return None
+            finally:
+                pending = self._energy_waiters.get(mac_address)
+                if pending and waiter in pending:
+                    pending.remove(waiter)
+                if pending is not None and not pending:
+                    self._energy_waiters.pop(mac_address, None)
 
     async def async_configure_tou_schedule(
         self,

@@ -13,6 +13,7 @@ if TYPE_CHECKING:
         Device,
         DeviceFeature,
         DeviceStatus,
+        EnergyUsageResponse,
         MqttDiagnosticsCollector,
         NavienAuthClient,
         NavienMqttClient,
@@ -65,6 +66,7 @@ class NWP500MqttManager:
         on_reservation_update: Callable[[str, dict[str, Any]], None]
         | None = None,
         on_tou_update: Callable[[str, dict[str, Any]], None] | None = None,
+        on_energy_usage: Callable[[str, dict[str, Any]], None] | None = None,
         unit_system: str | None = None,
         on_reconnected: Callable[[], None] | None = None,
         on_reconnection_failed: Callable[[int], None] | None = None,
@@ -80,6 +82,7 @@ class NWP500MqttManager:
         self._on_feature_update_callback = on_feature_update
         self._on_reservation_update_callback = on_reservation_update
         self._on_tou_update_callback = on_tou_update
+        self._on_energy_usage_callback = on_energy_usage
         self._on_reconnected_callback = on_reconnected
         self._on_reconnection_failed_callback = on_reconnection_failed
         self.unit_system = unit_system
@@ -361,6 +364,11 @@ class NWP500MqttManager:
                 device,
                 lambda tou: self._on_tou_schedule(mac_address, tou),
             )
+            # Energy usage history, answered only when asked for.
+            await self.mqtt_client.subscribe_energy_usage(
+                device,
+                lambda usage: self._on_energy_usage(mac_address, usage),
+            )
         except Exception as err:
             _LOGGER.warning(
                 "Failed to subscribe to device %s: %s",
@@ -476,6 +484,12 @@ class NWP500MqttManager:
                         controller_serial_number=controller_serial,
                         periods=periods,
                         enabled=enabled,
+                    )
+                case "request_energy_usage":
+                    await self.mqtt_client.request_energy_usage(
+                        device,
+                        year=int(kwargs["year"]),
+                        months=list(kwargs["months"]),
                     )
                 case "set_vacation_days":
                     days = kwargs.get("days")
@@ -657,6 +671,24 @@ class NWP500MqttManager:
                 self._on_tou_update_callback(mac_address, response)
         except Exception as err:
             _LOGGER.error("Error handling TOU schedule: %s", err)
+
+    def _on_energy_usage(
+        self, mac_address: str, usage: EnergyUsageResponse
+    ) -> None:
+        """Handle a typed energy usage response from the device.
+
+        Called by subscribe_energy_usage() with a parsed
+        EnergyUsageResponse, mirroring the reservation and TOU handlers.
+        """
+        try:
+            _LOGGER.debug("Received energy usage for %s", mac_address)
+            if self._on_energy_usage_callback:
+                response = (
+                    usage.model_dump() if hasattr(usage, "model_dump") else {}
+                )
+                self._on_energy_usage_callback(mac_address, response)
+        except Exception as err:
+            _LOGGER.error("Error handling energy usage: %s", err)
 
     # Event Handlers
     def _on_device_status_update_direct(self, status: DeviceStatus) -> None:

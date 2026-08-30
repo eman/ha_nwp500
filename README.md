@@ -29,7 +29,8 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
 
 - **Temperature & mode control** — Set target temperature, switch operation modes, and toggle power.
 - **Live status** — Current water temp, power draw, and device state updated via MQTT.
-- **Energy tracking** — Cumulative usage and current power consumption from the device.
+- **Energy tracking** — Cumulative usage and current power consumption from the device,
+  plus an on-demand report of the device's own daily history, split heat pump vs. element.
 - **Alerts** — Error codes, leak detection, and freeze/scald warnings via binary sensors.
 - **Scheduling** — Recurring mode and temperature changes via the reservation service.
 
@@ -118,6 +119,54 @@ data:
   mode: high_demand
   temperature: 140
 ```
+
+### Energy Usage Report
+
+The device keeps its own daily energy totals, split between the heat pump
+and the electric heating elements. Ask for them on demand with
+`nwp500.get_energy_usage`; nothing is recorded, the report is returned to
+the caller. Omit `year` and `months` for the current month.
+
+```yaml
+action: nwp500.get_energy_usage
+target:
+  device_id: your_device_id
+data:
+  year: 2026
+  months: [7, 8]
+response_variable: report
+```
+
+The report carries a total for everything requested, then a per-month total
+and a date-stamped day-by-day breakdown:
+
+```yaml
+mac_address: AA:BB:CC:DD:EE:FF
+total:
+  heat_pump_wh: 41200
+  heat_element_wh: 6800
+  total_wh: 48000
+  total_kwh: 48.0
+  heat_pump_percent: 85.8
+  heat_pump_hours: 412
+  heat_element_hours: 23
+months:
+  - year: 2026
+    month: 7
+    total: {...}
+    days:
+      - day: 1
+        date: "2026-07-01"
+        heat_pump_wh: 1400
+        heat_element_wh: 0
+        total_kwh: 1.4
+        heat_pump_percent: 100.0
+        ...
+```
+
+`heat_pump_percent` is the share that came from the heat pump; the
+remainder is resistive element usage, which costs roughly three times as
+much per unit of heat.
 
 ## Automation Examples
 

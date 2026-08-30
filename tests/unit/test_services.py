@@ -25,6 +25,7 @@ from custom_components.nwp500 import (
     SERVICE_CONFIGURE_TOU_SCHEMA,
     SERVICE_DISABLE_DEMAND_RESPONSE,
     SERVICE_ENABLE_DEMAND_RESPONSE,
+    SERVICE_GET_ENERGY_USAGE,
     SERVICE_REQUEST_RESERVATIONS,
     SERVICE_REQUEST_TOU,
     SERVICE_RESET_AIR_FILTER,
@@ -120,10 +121,10 @@ class TestReservationServices:
 
     @pytest.mark.asyncio
     async def test_setup_services_registers_all(self, mock_hass):
-        """Test that all 12 services are registered."""
+        """Test that all 13 services are registered."""
         await _async_setup_services(mock_hass)
 
-        assert mock_hass.services.async_register.call_count == 12
+        assert mock_hass.services.async_register.call_count == 13
 
         # Verify all expected services are registered
         registered_services = [
@@ -142,6 +143,7 @@ class TestReservationServices:
         assert SERVICE_RESET_AIR_FILTER in registered_services
         assert SERVICE_SET_RECIRCULATION_MODE in registered_services
         assert SERVICE_TRIGGER_RECIRCULATION in registered_services
+        assert SERVICE_GET_ENERGY_USAGE in registered_services
 
     @pytest.mark.asyncio
     async def test_setup_services_skips_if_already_registered(self, mock_hass):
@@ -1358,3 +1360,125 @@ class TestSetReservationPreservesGlobalSwitch:
 
         _, kwargs = coordinator.async_update_reservations.call_args
         assert kwargs["enabled"] is True
+
+
+class TestEnergyUsageService:
+    """The on-demand energy report.
+
+    Unlike every other service here it answers the caller instead of acting
+    on the device, so registration and the returned payload both matter.
+    """
+
+    @staticmethod
+    def _handler(mock_hass):
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_GET_ENERGY_USAGE:
+                return call[0][2]
+        return None
+
+    @staticmethod
+    def _coordinator(mock_hass, response):
+        coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        coordinator.hass = mock_hass
+        coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        coordinator.async_fetch_energy_usage = AsyncMock(return_value=response)
+        stage_coordinator(mock_hass, coordinator)
+        return coordinator
+
+    @pytest.mark.asyncio
+    async def test_registered_as_a_response_only_service(self, mock_hass):
+        """Home Assistant refuses to return data from a plain service."""
+        from homeassistant.core import SupportsResponse
+
+        await _async_setup_services(mock_hass)
+
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == SERVICE_GET_ENERGY_USAGE:
+                assert call[1]["supports_response"] is SupportsResponse.ONLY
+                break
+        else:  # pragma: no cover - the assertion above should have run
+            pytest.fail("get_energy_usage was not registered")
+
+    @pytest.mark.asyncio
+    async def test_returns_a_report_for_the_requested_period(
+        self, mock_hass, mock_device_registry
+    ):
+        coordinator = self._coordinator(
+            mock_hass,
+            {
+                "total": {"heat_pump_usage": 1000, "heat_element_usage": 0},
+                "usage": [
+                    {
+                        "year": 2026,
+                        "month": 3,
+                        "data": [
+                            {"heat_pump_usage": 1000, "heat_element_usage": 0}
+                        ],
+                    }
+                ],
+            },
+        )
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+        await _async_setup_services(mock_hass)
+        handler = self._handler(mock_hass)
+        assert handler is not None
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            "year": 2026,
+            "months": [3],
+        }
+        report = await handler(call)
+
+        coordinator.async_fetch_energy_usage.assert_awaited_once_with(
+            "AA:BB:CC:DD:EE:FF", 2026, [3]
+        )
+        assert report["total"]["heat_pump_kwh"] == 1.0
+        assert report["months"][0]["days"][0]["date"] == "2026-03-01"
+
+    @pytest.mark.asyncio
+    async def test_defaults_to_the_current_month(
+        self, mock_hass, mock_device_registry
+    ):
+        """A request naming no period means "the month I am in"."""
+        from homeassistant.util import dt as dt_util
+
+        coordinator = self._coordinator(mock_hass, {"total": {}, "usage": []})
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+        await _async_setup_services(mock_hass)
+        handler = self._handler(mock_hass)
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        await handler(call)
+
+        today = dt_util.now()
+        coordinator.async_fetch_energy_usage.assert_awaited_once_with(
+            "AA:BB:CC:DD:EE:FF", today.year, [today.month]
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_silent_device_is_an_error_not_an_empty_report(
+        self, mock_hass, mock_device_registry
+    ):
+        """An empty report would read as "you used nothing"."""
+        self._coordinator(mock_hass, None)
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+        await _async_setup_services(mock_hass)
+        handler = self._handler(mock_hass)
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+
+        with pytest.raises(HomeAssistantError, match="did not report"):
+            await handler(call)

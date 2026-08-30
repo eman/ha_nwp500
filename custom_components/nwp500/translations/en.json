@@ -662,6 +662,28 @@
           "description": "The entity ID of the water heater (alternative to Device ID)"
         }
       }
+    },
+    "get_energy_usage": {
+      "name": "Get Energy Usage",
+      "description": "Ask the water heater for its recorded energy usage and return it as a report. The device keeps daily totals split between the heat pump and the electric heating elements; nothing is recorded in Home Assistant, the data is returned to the caller. Defaults to the current month.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
+        },
+        "year": {
+          "name": "Year",
+          "description": "Year to report on. Defaults to the current year."
+        },
+        "months": {
+          "name": "Months",
+          "description": "Months to report on, 1-12. Several may be requested at once. Defaults to the current month."
+        }
+      }
     }
   }
 }
