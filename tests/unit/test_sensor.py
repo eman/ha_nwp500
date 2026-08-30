@@ -8,6 +8,8 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.nwp500.sensor import (
+    NWP500CloudErrorSensor,
+    NWP500DescalingSensor,
     NWP500ReservationScheduleSensor,
     NWP500Sensor,
     NWP500TOUScheduleSensor,
@@ -708,3 +710,127 @@ class TestScheduleSensors:
         sensor.extra_state_attributes["entries"][0]["hour"] = 23
 
         assert entry["hour"] == 6
+
+
+class TestCloudMetadataSensors:
+    """Sensors fed by the REST device list rather than by MQTT status.
+
+    The cloud keeps the last recorded fault and the descaling window
+    independently of the live status, so these stay readable while the
+    device is offline -- which is when the recorded fault matters most.
+    """
+
+    MAC = "AA:BB:CC:DD:EE:FF"
+
+    def _error_sensor(self, coordinator, device):
+        return NWP500CloudErrorSensor(coordinator, self.MAC, device)
+
+    def test_error_reports_the_recorded_code_by_name(
+        self, mock_coordinator, mock_device
+    ):
+        error = MagicMock()
+        error.error_code.name = "E015"
+        error.error_occurred_time = "2026-08-29 07:15:00"
+        mock_coordinator.get_device_error.return_value = error
+
+        sensor = self._error_sensor(mock_coordinator, mock_device)
+
+        assert sensor.native_value == "E015"
+        assert (
+            sensor.extra_state_attributes["occurred_at"]
+            == "2026-08-29 07:15:00"
+        )
+
+    def test_an_unknown_code_is_reported_as_its_number(
+        self, mock_coordinator, mock_device
+    ):
+        """A code the library's enum does not know stays a plain int."""
+        error = MagicMock()
+        error.error_code = 999
+        mock_coordinator.get_device_error.return_value = error
+
+        sensor = self._error_sensor(mock_coordinator, mock_device)
+
+        assert sensor.native_value == "999"
+
+    def test_no_error_block_reports_nothing(
+        self, mock_coordinator, mock_device
+    ):
+        """`/device/info` carries no error block, so it must stay optional."""
+        mock_coordinator.get_device_error.return_value = None
+
+        sensor = self._error_sensor(mock_coordinator, mock_device)
+
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes["occurred_at"] is None
+
+    @pytest.mark.parametrize(
+        "field", ["descaling_start_time", "descaling_end_time"]
+    )
+    def test_descaling_reports_the_recorded_timestamp(
+        self, mock_coordinator, mock_device, field
+    ):
+        descaling = MagicMock()
+        descaling.descaling_start_time = "2026-08-01 00:00:00"
+        descaling.descaling_end_time = "2026-08-01 02:00:00"
+        mock_coordinator.get_device_descaling.return_value = descaling
+
+        sensor = NWP500DescalingSensor(
+            mock_coordinator, self.MAC, mock_device, field
+        )
+
+        assert sensor.native_value == getattr(descaling, field)
+
+    def test_descaling_without_a_window_reports_nothing(
+        self, mock_coordinator, mock_device
+    ):
+        """The common case: no descaling scheduled or recorded."""
+        descaling = MagicMock()
+        descaling.descaling_start_time = None
+        mock_coordinator.get_device_descaling.return_value = descaling
+
+        sensor = NWP500DescalingSensor(
+            mock_coordinator, self.MAC, mock_device, "descaling_start_time"
+        )
+
+        assert sensor.native_value is None
+
+    def test_cloud_sensors_survive_the_device_going_offline(
+        self, mock_coordinator, mock_device
+    ):
+        """The whole point: these read the cloud, not the MQTT status.
+
+        `NWP500Entity.available` drops out after a few cycles without a
+        fresh device update, which is exactly when the cloud-recorded
+        fault is worth reading.
+        """
+        mock_coordinator.last_update_success = True
+        error = MagicMock()
+        error.error_code.name = "E015"
+        mock_coordinator.get_device_error.return_value = error
+
+        sensor = self._error_sensor(mock_coordinator, mock_device)
+        sensor._stale_count = 99
+
+        assert sensor.available is True
+        assert sensor.native_value == "E015"
+
+    def test_cloud_sensors_follow_the_coordinator(
+        self, mock_coordinator, mock_device
+    ):
+        """A coordinator that cannot reach the cloud at all is unavailable."""
+        mock_coordinator.last_update_success = False
+
+        sensor = self._error_sensor(mock_coordinator, mock_device)
+
+        assert sensor.available is False
+
+    def test_descaling_sensors_are_disabled_by_default(
+        self, mock_coordinator, mock_device
+    ):
+        """Mostly-empty diagnostics should not clutter every install."""
+        sensor = NWP500DescalingSensor(
+            mock_coordinator, self.MAC, mock_device, "descaling_start_time"
+        )
+
+        assert sensor.entity_registry_enabled_default is False

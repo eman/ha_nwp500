@@ -18,16 +18,19 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from nwp500.exceptions import (
+    APIError,
     AuthenticationError,
     InvalidCredentialsError,
     MqttError,
     TokenRefreshError,
 )
 
+from . import schedule_state
 from .const import (
     CONF_SCAN_INTERVAL,
     CONF_TOKEN_DATA,
     DEFAULT_SCAN_INTERVAL,
+    DEVICE_METADATA_REFRESH_CYCLES,
     DOMAIN,
     MIN_RECONNECT_INTERVAL,
     SCHEDULE_REFRESH_CYCLES,
@@ -98,6 +101,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # schedule state would go stale after any change made outside Home
         # Assistant (the app, the front panel).
         self._schedule_request_counter: dict[str, int] = {}
+        # Track periodic re-reads of the REST device list, which carries the
+        # cloud-recorded fault and descaling window (see
+        # _async_refresh_device_metadata).
+        self._device_metadata_counter: int = 0
 
         # Performance tracking
         self._update_count: int = 0
@@ -137,6 +144,83 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._devices_by_mac = {
             d.device_info.mac_address: d for d in self.devices
         }
+
+    async def _async_refresh_device_metadata(self) -> None:
+        """Re-read `/device/list` so the cloud device metadata stays current.
+
+        The device list is otherwise fetched once, at setup. It carries
+        fields the device never sends over MQTT -- the last recorded fault
+        (`error`) and the descaling window (`descaling`), both added to the
+        models in nwp500-python 9.3.1 -- so without a periodic re-read those
+        would be frozen at whatever they were when Home Assistant started.
+
+        Best-effort: a failed refresh leaves the previous device objects in
+        place and never fails the update cycle, which is driven by MQTT
+        status rather than by this call.
+        """
+        if not self.api_client:
+            return
+
+        self._device_metadata_counter = (
+            self._device_metadata_counter + 1
+        ) % DEVICE_METADATA_REFRESH_CYCLES
+        if self._device_metadata_counter != 0:
+            return
+
+        try:
+            devices = await self.api_client.list_devices()
+        except (
+            APIError,
+            AuthenticationError,
+            OSError,
+            TimeoutError,
+            # The library validates each row outside its own error wrapper,
+            # so a surprise in the payload arrives as pydantic's
+            # ValidationError or json's JSONDecodeError -- both ValueError.
+            # Left uncaught it would fail the whole update cycle, marking
+            # every entity unavailable over metadata nothing depends on.
+            ValueError,
+        ) as err:
+            _LOGGER.debug("Device metadata refresh failed: %s", err)
+            return
+
+        if not devices:
+            # An empty list is not a reason to forget the devices we have;
+            # the MQTT session and every entity are keyed off them.
+            _LOGGER.debug("Device metadata refresh returned no devices")
+            return
+
+        # Refresh the devices we already know, by MAC, rather than adopting
+        # the listing wholesale. Entities and MQTT subscriptions are created
+        # once, at setup, and keyed to the devices known then: adopting the
+        # listing would let a device the cloud momentarily omitted vanish
+        # from `_devices_by_mac` -- breaking every service call for it --
+        # and would add a newly registered device that has neither entities
+        # nor a subscription. Membership changes need a reload; this is a
+        # metadata refresh.
+        refreshed = {d.device_info.mac_address: d for d in devices}
+        for mac_address in refreshed.keys() - self._devices_by_mac.keys():
+            _LOGGER.debug(
+                "Device %s is new to this account; reload the integration "
+                "to add it",
+                mac_address,
+            )
+
+        self.devices = [
+            refreshed.get(device.device_info.mac_address, device)
+            for device in self.devices
+        ]
+        self._update_device_cache()
+
+    def get_device_error(self, mac_address: str) -> Any | None:
+        """Return the cloud's last recorded fault for a device, if any."""
+        device = self._devices_by_mac.get(mac_address)
+        return getattr(device, "error", None) if device else None
+
+    def get_device_descaling(self, mac_address: str) -> Any | None:
+        """Return the cloud's descaling window for a device, if any."""
+        device = self._devices_by_mac.get(mac_address)
+        return getattr(device, "descaling", None) if device else None
 
     async def _save_tokens(self) -> None:
         """Save current authentication tokens to entry.data.
@@ -284,6 +368,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "MQTT reconnection failed permanently. Please re-authenticate "
                     "through Settings > Devices & Services."
                 )
+
+            # Refresh the cloud's own view of each device periodically. It
+            # carries the last recorded fault and the descaling window, which
+            # the device does not report over MQTT, and it keeps being
+            # answered while the device is offline -- which is exactly when
+            # the recorded fault is worth reading.
+            await self._async_refresh_device_metadata()
 
             # Always ensure device entries exist in data dict so that:
             # 1. Platform setup can create entities (iterates coordinator.data)
@@ -553,7 +644,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                'uv pip install "nwp500-python==9.3.0" "awsiotsdk==1.31.0"'
+                'uv pip install "nwp500-python==9.3.1" "awsiotsdk==1.31.0"'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -1186,16 +1277,25 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def async_request_tou_settings(self, mac_address: str) -> bool:
-        """Request current TOU settings from a device.
+        """Read the programmed TOU plan and publish it like an MQTT reply.
+
+        The device has no MQTT read for its TOU schedule: `ctrl/tou/rd` is
+        the *write*, and the device answers on `res/tou/rd` only to confirm
+        one. The old MQTT request therefore never returned a schedule, and
+        nwp500-python 9.3.1 removed it (`request_tou_settings()`), so this
+        reads the stored plan over REST instead. The result lands in
+        `tou_schedules` and fires `nwp500_tou_updated`, exactly as a device
+        reply would, so consumers of that event and of the TOU schedule
+        sensor are unaffected.
 
         Args:
             mac_address: Device MAC address
 
         Returns:
-            True if request was sent successfully
+            True if the plan was read and published
         """
-        if not self.mqtt_manager:
-            _LOGGER.error("MQTT manager not available")
+        if not self.api_client:
+            _LOGGER.error("API client not available")
             return False
 
         device = self._devices_by_mac.get(mac_address)
@@ -1203,7 +1303,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.error("Device %s not found", mac_address)
             return False
 
-        # Get controller serial number from device features
+        # The REST read is keyed by the controller serial number, which only
+        # the MQTT device-info response publishes.
         features = self.device_features.get(mac_address)
         controller_serial = (
             getattr(features, "controller_serial_number", "")
@@ -1218,11 +1319,41 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             return False
 
-        return await self.mqtt_manager.send_command(
-            device,
-            "request_tou_settings",
-            controller_serial_number=controller_serial,
-        )
+        # Whether TOU is switched on is device status, not part of the plan.
+        status = (self.data or {}).get(mac_address, {}).get("status")
+        tou_status = getattr(status, "tou_status", None)
+        enabled = bool(tou_status) if tou_status is not None else None
+
+        try:
+            tou_info = await self.api_client.get_tou_info(
+                mac_address=mac_address,
+                additional_value=device.device_info.additional_value,
+                controller_id=controller_serial,
+            )
+            # Converting is guarded alongside the read. The library keeps
+            # each interval as a raw dict rather than validating its fields,
+            # so a non-numeric protocol value reaches the conversion and
+            # raises. Uncaught, that would escape the periodic refresh --
+            # which catches only transport errors -- and fail the whole
+            # update cycle rather than leaving the last plan in place.
+            schedule = schedule_state.tou_info_to_schedule(
+                tou_info.model_dump(), enabled=enabled
+            )
+        except (
+            APIError,
+            AuthenticationError,
+            OSError,
+            TimeoutError,
+            TypeError,
+            ValueError,
+        ) as err:
+            _LOGGER.error(
+                "Failed to read TOU settings for %s: %s", mac_address, err
+            )
+            return False
+
+        self._handle_tou_update_in_loop(mac_address, schedule)
+        return True
 
     async def async_send_command(
         self, mac_address: str, command: str, **kwargs: Any

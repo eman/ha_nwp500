@@ -2,6 +2,71 @@
 
 ## [Unreleased]
 
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 9.3.1
+- **The `request_tou_settings` service now reads the plan over REST.**
+  nwp500-python 9.3.1 removed `NavienMqttClient.request_tou_settings()`:
+  the device has no MQTT read for its TOU schedule -- `ctrl/tou/rd` is the
+  *write*, and the device answers on `res/tou/rd` only to confirm one -- so
+  the request this integration published never produced a schedule and, on
+  9.3.1, would have raised `AttributeError`. The service now reads the
+  stored plan from the cloud with `get_tou_info()` and publishes it exactly
+  as a device reply was published: into the coordinator's `tou_schedules`
+  and onto the bus as `nwp500_tou_updated`. The TOU Schedule sensor and
+  anything listening for that event are unaffected -- the REST plan is
+  flattened into the same shape the MQTT write confirmation arrives in --
+  and the periodic schedule refresh now actually populates it. The read
+  itself is pure REST, but it is keyed by the controller serial number,
+  which only the MQTT device-info response publishes: it therefore still
+  needs the device to have been heard from at least once since Home
+  Assistant started. Writes (`configure_tou_schedule`) and the TOU switch
+  are unchanged.
+
+### Added
+- **The device's last recorded fault is now readable while it is offline.**
+  `/device/list` returns an `error` block that nwp500-python 9.3.1 models
+  for the first time. The cloud keeps it independently of the live MQTT
+  status, so the new **Last Reported Error** diagnostic sensor still
+  reports the fault -- and, in its `occurred_at` attribute, when it
+  happened -- at times when the existing Error Code sensor, which follows
+  the MQTT status, has gone unavailable. Its availability deliberately
+  follows the coordinator rather than MQTT staleness, so it survives the
+  device going offline. A code the library's enum does not know is reported
+  as its number rather than breaking the sensor.
+- **Descaling window sensors** (**Descaling Start** / **Descaling End**),
+  from the `descaling` block the same response carries. Both ends are unset
+  on a device with no descaling scheduled or recorded, which is the common
+  case, so these are disabled by default.
+- **`model_type_code` and `installer_id`.** `deviceInfo` gained both in the
+  cloud API and 9.3.1 models them. `model_type_code` is exposed as an entity
+  attribute; both appear in a diagnostics dump, with `installer_id` redacted
+  as it identifies another party and omitted entirely when the cloud did not
+  populate it. Entity attributes now read the device object the coordinator
+  currently holds rather than the one captured at platform setup, so this
+  and `connected` follow the periodic refresh instead of staying frozen.
+- **The device card now shows a model identifier.** Home Assistant renders
+  `model_id` beside the model name, and it was never set. It is filled from
+  the `model_type_code` the device reports over MQTT -- `NPF` on a heat pump
+  water heater -- with an unrecognised code shown as its number. (The
+  identically named REST field 9.3.1 adds is not used for this: the cloud
+  returns it as null, and the device's own report is both populated and
+  already available.)
+- The device list is re-read every 20 coordinator cycles (~10 minutes at the
+  default scan interval) so this cloud-side metadata stays current. It was
+  previously fetched once, at setup. The re-read refreshes the devices
+  already known, by MAC, rather than adopting the listing: entities and MQTT
+  subscriptions are created once at setup and keyed to the devices known
+  then, so a device the cloud momentarily omitted must not vanish, and a
+  newly registered one cannot be adopted without a reload. A failed, empty
+  or malformed re-read changes nothing.
+
+### Fixed
+- **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**
+  With an empty `## [Unreleased]` section it fell back to
+  `content.replace(section, ...)` with `section` empty, which inserts at
+  offset 0 -- so the upgrade bullet landed before `# Changelog`. The
+  section is now rewritten by span.
+
 ## [0.19.0] - 2026-08-22
 
 ### Fixed

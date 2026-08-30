@@ -28,6 +28,9 @@ _TO_REDACT = {
     "latitude",
     "longitude",
     "altitude",
+    # The installer's account identifier: another party's identity, not the
+    # user's own device metadata.
+    "installer_id",
 }
 
 _MAC_RE = re.compile(
@@ -112,7 +115,36 @@ async def async_get_config_entry_diagnostics(
             "device_type": device.device_info.device_type,
             "mac_address": device.device_info.mac_address,
             "connected": device.device_info.connected,
+            "model_type_code": getattr(
+                device.device_info, "model_type_code", None
+            ),
         }
+
+        # Redaction rewrites by key, so emitting an unset installer_id would
+        # render it "**REDACTED**" and make it indistinguishable from a
+        # populated one -- the same trap the location block avoids below.
+        installer_id = getattr(device.device_info, "installer_id", None)
+        if installer_id is not None:
+            entry["installer_id"] = installer_id
+
+        # Cloud-recorded fault and descaling window. Both are absent on
+        # responses that do not carry them, so the keys are only emitted
+        # when the cloud actually populated the block.
+        error = getattr(device, "error", None)
+        if error is not None:
+            code = getattr(error, "error_code", None)
+            entry["error"] = {
+                "error_code": str(getattr(code, "name", code)),
+                "error_occurred_time": getattr(
+                    error, "error_occurred_time", None
+                ),
+            }
+        descaling = getattr(device, "descaling", None)
+        if descaling is not None:
+            entry["descaling"] = {
+                key: getattr(descaling, key, None)
+                for key in ("descaling_start_time", "descaling_end_time")
+            }
         location = getattr(device, "location", None)
         if location:
             # Only include fields the cloud actually populated. Emitting

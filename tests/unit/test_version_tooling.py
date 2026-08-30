@@ -247,6 +247,28 @@ def test_changelog_does_not_match_a_released_bullet(tmp_path):
     assert "[9.2.1]" in path.read_text().split("## [0.18.0]")[1]
 
 
+def test_changelog_entry_lands_inside_an_empty_unreleased_section(tmp_path):
+    """An empty section is the empty string, which `replace` matches at 0.
+
+    Rewriting by value therefore inserted the bullet above the file's own
+    title instead of under the heading it belongs to.
+    """
+    path = tmp_path / "CHANGELOG.md"
+    path.write_text(
+        "# Changelog\n\n## [Unreleased]\n\n## [0.18.0] - 2026-08-05\n"
+    )
+
+    assert update.update_changelog(path, "nwp500-python", "9.4.0") is True
+
+    content = path.read_text()
+    assert content.startswith("# Changelog\n")
+    unreleased = content.split("## [0.18.0]")[0]
+    assert "Upgraded to 9.4.0" in unreleased
+    assert unreleased.index("## [Unreleased]") < unreleased.index(
+        "Upgraded to 9.4.0"
+    )
+
+
 def test_changelog_without_an_unreleased_section(tmp_path):
     """Nothing to update means a truthful False, not a silent success."""
     path = tmp_path / "CHANGELOG.md"

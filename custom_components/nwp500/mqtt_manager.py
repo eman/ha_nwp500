@@ -477,14 +477,6 @@ class NWP500MqttManager:
                         periods=periods,
                         enabled=enabled,
                     )
-                case "request_tou_settings":
-                    controller_serial = kwargs.get(
-                        "controller_serial_number", ""
-                    )
-                    await self.mqtt_client.request_tou_settings(
-                        device,
-                        controller_serial_number=controller_serial,
-                    )
                 case "set_vacation_days":
                     days = kwargs.get("days")
                     if days is not None:

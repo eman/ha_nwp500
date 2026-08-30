@@ -658,7 +658,12 @@ class NWP500ServiceHandler:
             raise HomeAssistantError("Failed to configure TOU schedule")
 
     async def async_request_tou_settings(self, call: ServiceCall) -> None:
-        """Handle request_tou_settings service call."""
+        """Handle request_tou_settings service call.
+
+        Reads the plan from the cloud over REST: the device answers no MQTT
+        read for its TOU schedule. See
+        `NWP500DataUpdateCoordinator.async_request_tou_settings`.
+        """
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
         _LOGGER.info("Requesting TOU settings for %s", mac_address)

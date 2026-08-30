@@ -279,3 +279,108 @@ class TestNWP500Entity:
         # Test fallback when device_name is None
         mock_device.device_info.device_name = None
         assert entity.device_name == "NWP500"
+
+
+class TestRefreshedDeviceMetadata:
+    """Entity attributes must follow the coordinator's current device.
+
+    The device list is re-read periodically over REST; an entity that kept
+    reading the object captured at platform setup would report the cloud's
+    startup-time view forever.
+    """
+
+    def test_attributes_read_the_refreshed_device(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        mac_address = mock_device.device_info.mac_address
+        refreshed = MagicMock()
+        refreshed.device_info.home_seq = 42
+        refreshed.device_info.device_type = 52
+        refreshed.device_info.connected = False
+        refreshed.device_info.model_type_code = 7
+        mock_coordinator.data[mac_address]["device"] = refreshed
+
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+        attrs = entity._build_extra_state_attributes()
+
+        assert attrs["connected"] is False
+        assert attrs["model_type_code"] == 7
+        assert attrs["home_seq"] == 42
+
+    def test_falls_back_to_the_entity_s_own_device(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Coordinator data without a device entry must not raise."""
+        mac_address = mock_device.device_info.mac_address
+        mock_coordinator.data[mac_address].pop("device")
+        mock_device.device_info.home_seq = 1
+
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+
+        assert entity._build_extra_state_attributes()["home_seq"] == 1
+
+
+class TestDeviceModelId:
+    """The device family code belongs in `model_id`, beside the model name.
+
+    Home Assistant renders `model_id` next to `model` on the device card;
+    the device reports the code as `UnitType`, e.g. NPF for a heat pump
+    water heater.
+    """
+
+    def test_a_known_code_is_shown_by_name(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        from nwp500.enums import UnitType
+
+        mac_address = mock_device.device_info.mac_address
+        feature = MagicMock()
+        feature.model_type_code = UnitType.NPF
+        mock_coordinator.device_features.get.return_value = feature
+
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+        device_info = entity.device_info
+
+        assert device_info is not None
+        assert device_info["model_id"] == "NPF"
+        # The human-readable name is unchanged.
+        assert device_info["model"] == "NWP500"
+
+    def test_an_unknown_code_is_shown_as_its_number(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """The library types this `UnitType | int`, so an int can arrive."""
+        mac_address = mock_device.device_info.mac_address
+        feature = MagicMock()
+        feature.model_type_code = 999
+        mock_coordinator.device_features.get.return_value = feature
+
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+        device_info = entity.device_info
+
+        assert device_info is not None
+        assert device_info["model_id"] == "999"
+
+    def test_no_features_yet_leaves_it_unset(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Before the MQTT device-info response, there is no code to show."""
+        mock_coordinator.device_features.get.return_value = None
+
+        entity = NWP500Entity(
+            mock_coordinator, mock_device.device_info.mac_address, mock_device
+        )
+        device_info = entity.device_info
+
+        assert device_info is not None
+        assert device_info["model_id"] is None

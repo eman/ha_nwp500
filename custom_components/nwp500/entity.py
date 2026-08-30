@@ -138,6 +138,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         sw_version = None
         hw_version = None
         model_name = "NWP500"
+        model_id = None
         configuration_url = None
         suggested_area = "Utility Room"
 
@@ -197,9 +198,22 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
 
             _LOGGER.debug("Device capacity: volume_code=%s", volume_code)
 
+            # Model identifier: the device family code the device reports.
+            # `model` stays the human-readable name; Home Assistant shows
+            # `model_id` beside it, which is where a code belongs. Typed
+            # `UnitType | int` by the library, so an unknown code arrives as
+            # a plain int and is shown as its number.
+            model_type_code = getattr(device_feature, "model_type_code", None)
+            if model_type_code is not None:
+                model_id = str(
+                    getattr(model_type_code, "name", model_type_code)
+                )
+
             _LOGGER.debug(
-                "Final device info: model=%s sw_version=%s hw_version=%s serial=%s",
+                "Final device info: model=%s model_id=%s sw_version=%s "
+                "hw_version=%s serial=%s",
                 model_name,
+                model_id,
                 sw_version,
                 hw_version,
                 serial_number,
@@ -216,6 +230,7 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
             name=device_name,
             manufacturer="Navien",
             model=model_name,
+            model_id=model_id,
             serial_number=serial_number,
             hw_version=hw_version,
             sw_version=sw_version,
@@ -240,12 +255,23 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         attrs = {}
 
         if self.device_data:
-            device_info = self.device.device_info
+            # Read the device the coordinator holds now, not the one captured
+            # at platform setup: the periodic REST refresh rebinds it, and
+            # `connected` and `model_type_code` would otherwise stay frozen
+            # at their setup-time values for the life of the config entry.
+            device = self.device_data.get("device", self.device)
+            device_info = device.device_info
             attrs.update(
                 {
                     "home_seq": device_info.home_seq,
                     "device_type": device_info.device_type,
                     "connected": device_info.connected,
+                    # Cloud-side model identifier, added to the model in
+                    # nwp500-python 9.3.1. None on accounts where the cloud
+                    # does not populate it.
+                    "model_type_code": getattr(
+                        device_info, "model_type_code", None
+                    ),
                 }
             )
 

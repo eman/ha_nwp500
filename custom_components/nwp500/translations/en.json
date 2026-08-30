@@ -338,6 +338,15 @@
       },
       "tou_schedule": {
         "name": "TOU Schedule"
+      },
+      "cloud_error_code": {
+        "name": "Last Reported Error"
+      },
+      "descaling_start_time": {
+        "name": "Descaling Start"
+      },
+      "descaling_end_time": {
+        "name": "Descaling End"
       }
     },
     "binary_sensor": {
@@ -642,7 +651,7 @@
     },
     "request_tou_settings": {
       "name": "Request TOU Settings",
-      "description": "Request the current Time of Use (TOU) schedule configuration from the device. The response will be stored in the coordinator and fired as a nwp500_tou_updated event.",
+      "description": "Read the programmed Time of Use (TOU) plan from the Navien cloud. The device has no way to report its TOU plan directly, so this reads the stored plan over the REST API. The result is stored in the coordinator and fired as a nwp500_tou_updated event.",
       "fields": {
         "device_id": {
           "name": "Device",

@@ -238,3 +238,117 @@ async def test_async_get_config_entry_diagnostics_no_diagnostics_collector(
         result["mqtt_diagnostics_status"]
         == "Diagnostics collector not initialized"
     )
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_reports_the_cloud_recorded_fault_and_descaling(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    mock_coordinator: MagicMock,
+) -> None:
+    """The REST-only device metadata is included, with the installer redacted.
+
+    `error` and `descaling` are readable without an MQTT connection, so they
+    are the parts of a diagnostics dump most likely to explain an offline
+    device. The installer id identifies another party, so it is redacted.
+    """
+    device = MagicMock()
+    device.device_info.device_name = "NWP500"
+    device.device_info.device_type = 52
+    device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
+    device.device_info.connected = True
+    device.device_info.model_type_code = 7
+    device.device_info.installer_id = "installer@example.com"
+    device.error.error_code = MagicMock()
+    device.error.error_code.name = "E015"
+    device.error.error_occurred_time = "2026-08-29 07:15:00"
+    device.descaling.descaling_start_time = "2026-08-01 00:00:00"
+    device.descaling.descaling_end_time = None
+    device.location.address = None
+    device.location.city = None
+    device.location.state = None
+    device.location.latitude = None
+    device.location.longitude = None
+    device.location.altitude = None
+
+    mock_coordinator.mqtt_manager = None
+    mock_coordinator.devices = [device]
+
+    mock_config_entry.runtime_data = mock_coordinator
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    entry = result["devices"][0]
+    assert entry["model_type_code"] == 7
+    assert entry["installer_id"] == "**REDACTED**"
+    assert "installer@example.com" not in str(result)
+    assert entry["error"] == {
+        "error_code": "E015",
+        "error_occurred_time": "2026-08-29 07:15:00",
+    }
+    assert entry["descaling"] == {
+        "descaling_start_time": "2026-08-01 00:00:00",
+        "descaling_end_time": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_omits_blocks_the_cloud_did_not_send(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    mock_coordinator: MagicMock,
+) -> None:
+    """`/device/info` carries no error block, and both blocks are optional."""
+    device = MagicMock()
+    device.device_info.device_name = "NWP500"
+    device.device_info.device_type = 52
+    device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
+    device.device_info.connected = True
+    device.device_info.model_type_code = None
+    device.device_info.installer_id = None
+    device.error = None
+    device.descaling = None
+    device.location = None
+
+    mock_coordinator.mqtt_manager = None
+    mock_coordinator.devices = [device]
+
+    mock_config_entry.runtime_data = mock_coordinator
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    entry = result["devices"][0]
+    assert "error" not in entry
+    assert "descaling" not in entry
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_omits_an_installer_id_the_cloud_did_not_send(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    mock_coordinator: MagicMock,
+) -> None:
+    """Redaction rewrites by key, so an unset value must not be emitted.
+
+    Otherwise "**REDACTED**" would be indistinguishable from a populated
+    installer id -- the trap the location block already avoids.
+    """
+    device = MagicMock()
+    device.device_info.device_name = "NWP500"
+    device.device_info.device_type = 52
+    device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
+    device.device_info.connected = True
+    device.device_info.model_type_code = None
+    device.device_info.installer_id = None
+    device.error = None
+    device.descaling = None
+    device.location = None
+
+    mock_coordinator.mqtt_manager = None
+    mock_coordinator.devices = [device]
+
+    mock_config_entry.runtime_data = mock_coordinator
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert "installer_id" not in result["devices"][0]
