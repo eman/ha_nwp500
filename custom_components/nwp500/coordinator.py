@@ -4,13 +4,16 @@ import asyncio
 import logging
 import time
 from collections import deque
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import instance_id as ha_instance_id
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -48,6 +51,22 @@ if TYPE_CHECKING:
     )
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long after a request gives up its reply may still turn up.
+#
+# The device answers energy queries on a topic shared by every device on
+# this MQTT client, and the payload identifies neither the device nor the
+# request, so a late reply can only be recognised by elimination. A reply
+# carrying no months matches every outstanding request, which makes it
+# indistinguishable from a straggler; those are refused while one may still
+# be in flight.
+#
+# Bounded by time because there is nothing else to bound it by. The window
+# is many times the 20s request timeout: an MQTT reply arriving more than
+# two minutes after its request gave up is not a case worth keeping the
+# ambiguity for, and leaving it open indefinitely would mean a period the
+# device genuinely has no data for could never be reported again.
+_ENERGY_STRAGGLER_WINDOW: Final = 120.0
 
 
 # Typed config entry: the coordinator lives on entry.runtime_data, which HA
@@ -107,9 +126,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # asked next. See async_fetch_energy_usage.
         self._energy_request: dict[str, Any] | None = None
         self._energy_lock = asyncio.Lock()
-        # Set once a request gives up waiting, because its reply may still
-        # turn up and there is nothing in the payload to recognise it by.
-        self._energy_straggler_possible = False
+        # When the last given-up request stops being able to answer, as a
+        # monotonic deadline; 0.0 once no reply is outstanding. A boolean
+        # here could only be cleared by guessing which reply was the
+        # straggler, and clearing it on the next matched reply -- which is
+        # not necessarily that one -- let an empty straggler through to a
+        # later request. See _ENERGY_STRAGGLER_WINDOW.
+        self._energy_straggler_deadline: float = 0.0
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -152,6 +175,54 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=DOMAIN,
             update_interval=timedelta(seconds=scan_interval),
         )
+
+    @property
+    def unit_change_in_progress(self) -> bool:
+        """Whether an atomic unit-system transition is underway.
+
+        Callers that carry a temperature must refuse to act while this is
+        set: between the coordinator, the MQTT manager and the library's
+        unit context being updated, a value sent now could be interpreted
+        in the wrong scale. Public because the service handlers and the
+        water heater entity are the callers that need to ask.
+        """
+        return self._unit_change_in_progress
+
+    @property
+    def _energy_straggler_possible(self) -> bool:
+        """Whether a reply to a given-up energy request may still arrive."""
+        return time.monotonic() < self._energy_straggler_deadline
+
+    @asynccontextmanager
+    async def unit_transition_guard(self, action: str) -> AsyncIterator[None]:
+        """Hold off a unit-system transition for the duration of the block.
+
+        Callers that carry a temperature must serialize against
+        `_atomic_unit_system_change`, not merely check a flag before
+        starting. The conversion to device units reads the library's global
+        unit context, and for a command that is dispatched over MQTT that
+        read happens inside the library, after this coroutine has yielded --
+        so a check made before the yield says nothing about the scale in
+        force when the value is finally encoded.
+
+        `_atomic_unit_system_change` only ever runs while holding
+        `_unit_system_lock`, so holding it here means a transition cannot
+        begin until the block completes, and a transition already underway
+        blocks the caller instead of racing it.
+
+        Args:
+            action: What the caller is doing, used in the error message.
+
+        Raises:
+            HomeAssistantError: If a transition is already in progress.
+        """
+        async with self._unit_system_lock:
+            if self._unit_change_in_progress:
+                raise HomeAssistantError(
+                    f"Cannot {action} during a unit system change. "
+                    "Please try again."
+                )
+            yield
 
     def _update_device_cache(self) -> None:
         """Update the devices-by-MAC lookup cache for O(1) access.
@@ -833,6 +904,22 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "Failed to request initial reservations: %s", err
                         )
 
+                    # Read the programmed TOU plan, so the TOU schedule
+                    # sensor is populated from the start rather than sitting
+                    # unknown until the first periodic schedule refresh --
+                    # roughly twenty minutes after every restart, while its
+                    # reservation counterpart was already populated above.
+                    #
+                    # Unlike reservations this is a REST read keyed by the
+                    # controller serial number, which only the device-info
+                    # response above publishes. That response arrives on the
+                    # MQTT thread and is applied when this coroutine yields,
+                    # so it is normally here by now -- but a device slow to
+                    # answer would leave it missing, and calling anyway would
+                    # log an error for a condition the periodic refresh
+                    # recovers from on its own. So check first.
+                    await self._async_request_initial_tou(device)
+
             _LOGGER.info(
                 "Successfully connected to Navien cloud service with "
                 "%d devices",
@@ -890,6 +977,51 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 f"Failed to connect to Navien service: {err}"
             ) from err
+
+    async def _async_request_initial_tou(self, device: Device) -> None:
+        """Read the TOU plan once at setup, if the device is ready for it.
+
+        Best-effort: a device whose info has not arrived yet is skipped
+        silently, because `_async_refresh_schedules` re-reads the plan on
+        its own cycle. Nothing here may fail setup -- the TOU plan is not
+        what the connection is for.
+        """
+        mac_address = device.device_info.mac_address
+
+        # Mirrors the guard inside async_request_tou_settings, so the
+        # not-ready case never reaches its error log.
+        features = self.device_features.get(mac_address)
+        controller_serial = (
+            getattr(features, "controller_serial_number", "")
+            if features
+            else ""
+        )
+        if not controller_serial:
+            _LOGGER.debug(
+                "Skipping the initial TOU read for %s: device info has not "
+                "arrived yet, so the periodic refresh will pick it up",
+                mac_address,
+            )
+            return
+
+        try:
+            await self.async_request_tou_settings(mac_address)
+        except Exception as err:  # noqa: BLE001 - best-effort boundary
+            # Deliberately broad. A narrower list does not hold the
+            # "nothing here may fail setup" guarantee above: the plan is
+            # decoded with `10.0 ** decimal_point`, so a nonsense
+            # `decimalPoint` from the cloud raises OverflowError, which is
+            # an ArithmeticError and not a ValueError, and a malformed API
+            # object raises AttributeError before the inner method's own
+            # handler is reached. Either would escape to
+            # _async_update_data, become UpdateFailed, and fail setup over
+            # a schedule read that the periodic refresh retries anyway.
+            #
+            # asyncio.CancelledError derives from BaseException, so
+            # shutdown still cancels this cleanly.
+            _LOGGER.debug(
+                "Initial TOU read failed for %s: %s", mac_address, err
+            )
 
     def _on_device_status_update(
         self, mac_address: str, status: DeviceStatus
@@ -1099,6 +1231,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
 
             self._energy_request = None
+            # Deliberately does not clear the straggler window. A reply
+            # matching the period asked for is not necessarily the one that
+            # was outstanding, so treating it as proof the straggler had
+            # landed let a later empty straggler be accepted as some third
+            # request's answer. Only the window expiring clears it.
             waiter: asyncio.Future[dict[str, Any]] = pending["future"]
             if not waiter.done():
                 waiter.set_result(response)
@@ -1372,7 +1509,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     return await asyncio.wait_for(waiter, timeout=timeout)
                 except TimeoutError:
-                    self._energy_straggler_possible = True
+                    self._energy_straggler_deadline = (
+                        time.monotonic() + _ENERGY_STRAGGLER_WINDOW
+                    )
                     _LOGGER.warning(
                         "Timed out after %.0fs waiting for the energy usage "
                         "of %s",

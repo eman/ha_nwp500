@@ -5,6 +5,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
@@ -2178,3 +2179,285 @@ def test_an_unsolicited_energy_reply_is_discarded(coordinator):
     coordinator._handle_energy_usage_in_loop(MAC, {"total": {}, "usage": []})
 
     assert coordinator._energy_request is None
+
+
+@pytest.mark.asyncio
+async def test_an_empty_straggler_is_not_handed_to_a_later_request(
+    coordinator,
+):
+    """A matched reply is not proof the straggler has landed.
+
+    Regression test. Clearing the ambiguity on the next period-bearing
+    reply looked reasonable, but that reply is not necessarily the
+    outstanding one: July times out, August answers properly, and then
+    July's empty reply arrives while September is waiting. Carrying no
+    months, it matches September's request, and with the flag already
+    cleared it was handed over as September's answer -- an all-zero report
+    presented as measured data.
+    """
+    coordinator.async_send_command = AsyncMock(return_value=True)
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+
+    august = _energy_response(2026, [8])
+
+    async def reply_august(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, august)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_august)
+    assert await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) == august
+
+    # July's reply finally arrives, empty, while September waits.
+    empty = {"total": {}, "usage": []}
+
+    async def reply_empty(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, empty)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [9], timeout=0.05)
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_replies_are_trusted_again_once_the_window_expires(
+    coordinator,
+):
+    """The ambiguity is bounded, so it cannot latch on for good.
+
+    A device asked about a month it has nothing recorded for answers with
+    an empty payload, and that must stay reportable. Before, a single
+    timeout disabled empty replies for the life of the coordinator.
+    """
+    coordinator.async_send_command = AsyncMock(return_value=True)
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+    assert coordinator._energy_straggler_possible is True
+
+    # Wind the deadline into the past, as the passage of time would.
+    coordinator._energy_straggler_deadline = time.monotonic() - 1
+    assert coordinator._energy_straggler_possible is False
+
+    empty = {"total": {}, "usage": []}
+
+    async def reply_empty(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, empty)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
+    assert await coordinator.async_fetch_energy_usage(MAC, 2026, [9]) == empty
+
+
+@pytest.mark.asyncio
+async def test_the_straggler_window_is_measured_from_the_timeout(coordinator):
+    """Each give-up reopens the window rather than extending a boolean."""
+    from custom_components.nwp500.coordinator import (
+        _ENERGY_STRAGGLER_WINDOW,
+    )
+
+    coordinator.async_send_command = AsyncMock(return_value=True)
+    before = time.monotonic()
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+
+    deadline = coordinator._energy_straggler_deadline
+    assert before + _ENERGY_STRAGGLER_WINDOW <= deadline
+    assert deadline <= time.monotonic() + _ENERGY_STRAGGLER_WINDOW
+
+
+# ---------------------------------------------------------------------------
+# _async_request_initial_tou
+#
+# The TOU plan is read once at setup so its sensor is populated from the
+# start, instead of staying unknown until the first periodic schedule
+# refresh -- roughly twenty minutes after every restart.
+# ---------------------------------------------------------------------------
+
+
+def _device_with_mac(mac: str = MAC) -> MagicMock:
+    device = MagicMock()
+    device.device_info.mac_address = mac
+    return device
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_happens_when_device_info_has_arrived(
+    coordinator,
+):
+    """With the controller serial known, the plan is read at setup."""
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_is_skipped_before_device_info_arrives(
+    coordinator,
+):
+    """A device that has not reported yet is skipped, not failed.
+
+    The read is keyed by the controller serial number, which only the MQTT
+    device-info response publishes. Calling anyway would log an error for a
+    condition the periodic refresh recovers from on its own.
+    """
+    coordinator.device_features = {}
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_is_skipped_when_the_serial_is_blank(
+    coordinator,
+):
+    """Features present but no serial is the same not-ready condition."""
+    features = MagicMock()
+    features.controller_serial_number = ""
+    coordinator.device_features = {MAC: features}
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_never_fails_setup(coordinator):
+    """A failed read is logged and swallowed; setup must still complete."""
+    from nwp500.exceptions import APIError
+
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    coordinator.async_request_tou_settings = AsyncMock(
+        side_effect=APIError("cloud unavailable")
+    )
+
+    # Must not raise.
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+# ---------------------------------------------------------------------------
+# unit_transition_guard
+#
+# Temperature-bearing callers must serialize against a unit-system
+# transition, not check a flag and then yield: the conversion to device
+# units reads the library's global unit context, and for an MQTT command
+# that read happens inside the library after the caller has awaited.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unit_guard_allows_work_when_no_transition_is_underway(
+    coordinator,
+):
+    """The ordinary case: the block runs."""
+    ran = False
+    async with coordinator.unit_transition_guard("set the temperature"):
+        ran = True
+    assert ran is True
+
+
+@pytest.mark.asyncio
+async def test_unit_guard_refuses_while_a_transition_is_in_progress(
+    coordinator,
+):
+    """A caller arriving mid-transition is told to try again."""
+    coordinator._unit_change_in_progress = True
+
+    with pytest.raises(HomeAssistantError, match="unit system change"):
+        async with coordinator.unit_transition_guard("set a reservation"):
+            raise AssertionError("the block must not run")
+
+
+@pytest.mark.asyncio
+async def test_unit_guard_blocks_a_transition_until_the_work_completes(
+    coordinator,
+):
+    """The point of the lock: a transition cannot interleave with the work.
+
+    _atomic_unit_system_change only ever runs while holding
+    _unit_system_lock, so holding it across validation and dispatch means
+    the global unit context cannot flip after a value has been validated
+    but before the library encodes it.
+    """
+    order: list[str] = []
+    released = asyncio.Event()
+
+    async def work() -> None:
+        async with coordinator.unit_transition_guard("set the temperature"):
+            order.append("work-start")
+            released.set()
+            # Yield repeatedly so the transition would run here if it could.
+            for _ in range(5):
+                await asyncio.sleep(0)
+            order.append("work-end")
+
+    async def transition() -> None:
+        await released.wait()
+        async with coordinator._unit_system_lock:
+            order.append("transition")
+
+    await asyncio.gather(work(), transition())
+
+    assert order == ["work-start", "work-end", "transition"]
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_survives_an_unlisted_exception(coordinator):
+    """The best-effort guarantee must not depend on an exception list.
+
+    The plan is decoded with `10.0 ** decimal_point`, so a nonsense
+    decimalPoint raises OverflowError -- an ArithmeticError, not a
+    ValueError -- and a malformed API object raises AttributeError. Either
+    escaping would become UpdateFailed and fail setup over a schedule read
+    the periodic refresh retries anyway.
+    """
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+
+    for err in (
+        OverflowError("Numerical result out of range"),
+        AttributeError("'NoneType' object has no attribute 'model_dump'"),
+        KeyError("season"),
+    ):
+        coordinator.async_request_tou_settings = AsyncMock(side_effect=err)
+        # Must not raise.
+        await coordinator._async_request_initial_tou(_device_with_mac())
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_still_propagates_cancellation(coordinator):
+    """Broad does not mean swallowing shutdown.
+
+    CancelledError derives from BaseException, so `except Exception` leaves
+    it alone and teardown stays prompt.
+    """
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    coordinator.async_request_tou_settings = AsyncMock(
+        side_effect=asyncio.CancelledError()
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._async_request_initial_tou(_device_with_mac())

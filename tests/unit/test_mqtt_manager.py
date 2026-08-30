@@ -858,3 +858,292 @@ async def test_request_energy_usage_coerces_the_period(
     mock_mqtt_client.request_energy_usage.assert_called_once_with(
         mock_device, year=2026, months=[7]
     )
+
+
+@pytest.mark.asyncio
+async def test_force_reconnect_gives_up_on_repeated_credential_rejection(
+    manager, mock_mqtt_client, mock_device
+):
+    """A cause retrying cannot fix must reach the user, not loop forever.
+
+    When the credentials are rejected, connect() fails identically on every
+    attempt. Retrying without limit looked exactly like working: warnings
+    every 60s, no reauth prompt, and nothing that ever escalated.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+
+    async def rejected():
+        manager._last_failure_was_credentials = True
+        return False
+
+    manager.setup = AsyncMock(side_effect=rejected)
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        result = await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    assert result is False
+    assert manager.setup.await_count == mm._MAX_CREDENTIAL_FAILURES
+    # Reported through the loop, the way the library's own failure event is.
+    manager.loop.call_soon_threadsafe.assert_called_once_with(
+        failed, mm._MAX_CREDENTIAL_FAILURES
+    )
+    assert manager._reconnect_attempts == 0
+    assert manager.reconnection_in_progress is False
+
+
+@pytest.mark.asyncio
+async def test_force_reconnect_keeps_retrying_through_a_network_outage(
+    manager, mock_mqtt_client, mock_device
+):
+    """An outage must not be reported as an authentication failure.
+
+    setup()/connect() return False for outages, brokers refusing
+    connections and AWS SDK errors just as they do for bad credentials.
+    Escalating on attempt count alone would prompt the user to replace
+    credentials that are perfectly valid, and stop retrying the one thing
+    that does recover on its own.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+
+    original_setup = manager.setup
+    attempts = 0
+
+    async def down_then_back():
+        nonlocal attempts
+        attempts += 1
+        if attempts <= mm._MAX_CREDENTIAL_FAILURES * 3:
+            # A transport failure: not a credential rejection.
+            manager._last_failure_was_credentials = False
+            return False
+        return await original_setup()
+
+    manager.setup = down_then_back
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        result = await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    # Kept trying well past the credential threshold, then recovered.
+    assert result is True
+    assert attempts == mm._MAX_CREDENTIAL_FAILURES * 3 + 1
+    failed.assert_not_called()
+    manager.loop.call_soon_threadsafe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_force_reconnect_resets_credential_run_on_a_transport_failure(
+    manager, mock_mqtt_client, mock_device
+):
+    """Only *consecutive* rejections escalate.
+
+    A credential failure followed by an outage is not evidence the password
+    is wrong, so the run restarts rather than accumulating toward reauth.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+
+    original_setup = manager.setup
+    # Alternate rejection / outage so no run ever reaches the threshold.
+    pattern = [True, False] * (mm._MAX_CREDENTIAL_FAILURES * 2)
+    calls = 0
+
+    async def alternating():
+        nonlocal calls
+        if calls < len(pattern):
+            manager._last_failure_was_credentials = pattern[calls]
+            calls += 1
+            return False
+        return await original_setup()
+
+    manager.setup = alternating
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        result = await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    assert result is True
+    failed.assert_not_called()
+
+
+def test_only_a_rejected_login_counts_as_a_credential_failure():
+    """The classifier is what keeps an outage off the reauth path.
+
+    Only InvalidCredentialsError carries the invalid-login contract. In
+    nwp500-python 9.3.1 it is raised from one place -- sign_in(), on a 401
+    or an "invalid"/"unauthorized" message -- while every other non-200 from
+    that same response becomes a bare AuthenticationError. Counting the
+    broader types would answer a Navien outage with a reauth prompt and
+    stop reconnecting.
+    """
+    from nwp500.exceptions import (
+        AuthenticationError,
+        InvalidCredentialsError,
+        MqttCredentialsError,
+        TokenRefreshError,
+    )
+
+    from custom_components.nwp500.mqtt_manager import _is_credential_failure
+
+    assert _is_credential_failure(InvalidCredentialsError("nope")) is True
+
+    # Raised when tokens or AWS credentials were missing when the broker
+    # needed them -- ordinary at token expiry and during a reconnect.
+    assert _is_credential_failure(MqttCredentialsError("no tokens")) is False
+
+    # The library's catch-all for any other non-200, for unparseable
+    # responses, and for state errors. It defaults to retriable=False, so
+    # that flag cannot be used to tell them apart.
+    service_error = AuthenticationError("Authentication failed: 500")
+    assert getattr(service_error, "retriable", None) is False
+    assert _is_credential_failure(service_error) is False
+
+    malformed = AuthenticationError("Invalid response format: expecting value")
+    assert _is_credential_failure(malformed) is False
+
+    assert _is_credential_failure(TokenRefreshError("refresh failed")) is False
+    assert _is_credential_failure(OSError("network unreachable")) is False
+    assert _is_credential_failure(TimeoutError()) is False
+
+
+@pytest.mark.asyncio
+async def test_credential_run_does_not_survive_a_successful_reconnect(
+    manager, mock_mqtt_client, mock_device
+):
+    """A success ends the run; it must not carry into a later outage.
+
+    Two rejections then a success used to leave the count part-way to the
+    threshold, so the first rejection of some later outage escalated
+    straight to reauth.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+    original_setup = manager.setup
+
+    rejections = mm._MAX_CREDENTIAL_FAILURES - 1
+    calls = 0
+
+    async def reject_then_succeed():
+        nonlocal calls
+        calls += 1
+        if calls <= rejections:
+            manager._last_failure_was_credentials = True
+            return False
+        return await original_setup()
+
+    manager.setup = reject_then_succeed
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        assert await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    assert manager._consecutive_credential_failures == 0
+    failed.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_setup_failure_before_connect_is_not_counted_as_credentials(
+    manager, mock_mqtt_client, mock_device
+):
+    """setup() can fail before connect() ever classifies anything.
+
+    The previous attempt's verdict must not be reused, or a single real
+    rejection followed by unrelated setup failures would reach the
+    threshold and prompt for reauthentication.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+    original_setup = manager.setup
+
+    calls = 0
+
+    async def one_rejection_then_setup_failures():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            # A genuine credential rejection, classified by connect().
+            manager._last_failure_was_credentials = True
+            return False
+        if calls <= mm._MAX_CREDENTIAL_FAILURES * 2:
+            # setup() bailing out before connect(): it classifies nothing,
+            # so the flag must already have been cleared for this attempt.
+            return False
+        return await original_setup()
+
+    manager.setup = one_rejection_then_setup_failures
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        assert await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    failed.assert_not_called()
+    manager.loop.call_soon_threadsafe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_connect_marks_a_rejected_login_as_a_credential_failure(
+    manager, mock_mqtt_client, mock_auth_client
+):
+    """connect() is where the classification actually happens."""
+    from nwp500.exceptions import InvalidCredentialsError
+
+    await manager.setup()
+    mock_auth_client.ensure_valid_token = AsyncMock(
+        side_effect=InvalidCredentialsError("Invalid credentials: bad login")
+    )
+
+    assert await manager.connect() is False
+    assert manager._last_failure_was_credentials is True
+
+
+@pytest.mark.asyncio
+async def test_connect_does_not_blame_credentials_for_a_service_outage(
+    manager, mock_mqtt_client, mock_auth_client
+):
+    """A Navien outage must not be recorded as a rejected login.
+
+    The library turns any non-401 sign-in failure into a bare
+    AuthenticationError with retriable=False, so this is what a 500 from
+    the auth service looks like from here.
+    """
+    from nwp500.exceptions import AuthenticationError
+
+    await manager.setup()
+    mock_auth_client.ensure_valid_token = AsyncMock(
+        side_effect=AuthenticationError("Authentication failed: 500")
+    )
+
+    assert await manager.connect() is False
+    assert manager._last_failure_was_credentials is False

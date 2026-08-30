@@ -163,6 +163,8 @@ class TestReservationServices:
         import asyncio
 
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+
+        mock_coordinator.unit_change_in_progress = False
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
@@ -247,6 +249,7 @@ class TestReservationServices:
         ):
             """Test set_reservation respects device feature min/max temperature limits."""
             mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+            mock_coordinator.unit_change_in_progress = False
 
             mock_coordinator.hass = mock_hass
 
@@ -326,6 +329,7 @@ class TestReservationServices:
     ):
         """Test set_reservation raises error for invalid mode."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         stage_coordinator(mock_hass, mock_coordinator)
 
@@ -361,6 +365,7 @@ class TestReservationServices:
     ):
         """Test set_reservation requires temperature for heating modes."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         stage_coordinator(mock_hass, mock_coordinator)
 
@@ -402,6 +407,8 @@ class TestReservationServices:
         mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
 
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+
+        mock_coordinator.unit_change_in_progress = False
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.device_features = {}  # Add device_features
@@ -461,6 +468,7 @@ class TestReservationServices:
     ):
         """Test clear_reservations sends empty reservation list."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
@@ -494,6 +502,7 @@ class TestReservationServices:
     ):
         """Test request_reservations calls coordinator method."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.async_request_reservations = AsyncMock(
             return_value=True
@@ -527,6 +536,7 @@ class TestReservationServices:
     ):
         """Test update_reservations passes reservation list."""
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.async_update_reservations = AsyncMock(
             return_value=True
@@ -1196,6 +1206,8 @@ class TestSetReservationRefusesUnfetchedWrite:
         import asyncio
 
         coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+
+        coordinator.unit_change_in_progress = False
         coordinator.hass = mock_hass
         coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         coordinator.device_features = {}
@@ -1285,6 +1297,8 @@ class TestSetReservationPreservesGlobalSwitch:
         import asyncio
 
         coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+
+        coordinator.unit_change_in_progress = False
         coordinator.hass = mock_hass
         coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         coordinator.device_features = {}
@@ -1380,6 +1394,7 @@ class TestEnergyUsageService:
     @staticmethod
     def _coordinator(mock_hass, response):
         coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        coordinator.unit_change_in_progress = False
         coordinator.hass = mock_hass
         coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         coordinator.async_fetch_energy_usage = AsyncMock(return_value=response)
@@ -1502,3 +1517,90 @@ class TestEnergyUsageService:
             SERVICE_GET_ENERGY_USAGE_SCHEMA(
                 {ATTR_DEVICE_ID: "device_123", "months": [13]}
             )
+
+
+class TestUnitSystemChangeGuard:
+    """Temperature-bearing services must refuse mid-transition.
+
+    Between the coordinator, the MQTT manager and the library's unit context
+    being brought into line, a temperature sent now could be read in the
+    wrong scale.
+    """
+
+    @staticmethod
+    async def _handler_for(
+        mock_hass, mock_device_registry, service_name, guard
+    ):
+        mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.unit_transition_guard = guard
+        mock_coordinator.hass = mock_hass
+        mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_coordinator.async_update_reservations = AsyncMock(
+            return_value=True
+        )
+        stage_coordinator(mock_hass, mock_coordinator)
+
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+        await _async_setup_services(mock_hass)
+
+        for call in mock_hass.services.async_register.call_args_list:
+            if call[0][1] == service_name:
+                return call[0][2], mock_coordinator
+        raise AssertionError(f"{service_name} was not registered")
+
+    @pytest.mark.asyncio
+    async def test_set_reservation_refuses(
+        self, mock_hass, mock_device_registry, raising_unit_guard
+    ):
+        """set_reservation carries a temperature."""
+        handler, coordinator = await self._handler_for(
+            mock_hass,
+            mock_device_registry,
+            "set_reservation",
+            raising_unit_guard,
+        )
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            "device_id": "test_device",
+            "enabled": True,
+            "days": ["Monday"],
+            "hour": 6,
+            "minute": 0,
+            "mode": "heat_pump",
+            "temperature": 125,
+        }
+
+        with pytest.raises(HomeAssistantError, match="unit system change"):
+            await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_update_reservations_refuses(
+        self, mock_hass, mock_device_registry, raising_unit_guard
+    ):
+        """update_reservations entries carry temperatures too.
+
+        Only set_reservation used to check, which left the bulk write -- the
+        one that replaces every entry at once -- unguarded.
+        """
+        handler, coordinator = await self._handler_for(
+            mock_hass,
+            mock_device_registry,
+            "update_reservations",
+            raising_unit_guard,
+        )
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            "device_id": "test_device",
+            "enabled": True,
+            "reservations": [],
+        }
+
+        with pytest.raises(HomeAssistantError, match="unit system change"):
+            await handler(call)
+
+        coordinator.async_update_reservations.assert_not_called()

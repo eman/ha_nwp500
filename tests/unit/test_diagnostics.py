@@ -352,3 +352,50 @@ async def test_diagnostics_omits_an_installer_id_the_cloud_did_not_send(
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
     assert "installer_id" not in result["devices"][0]
+
+
+class TestMacRedaction:
+    """The MAC pattern must catch MACs without eating neighbouring values."""
+
+    @staticmethod
+    def _redact(value: str) -> str:
+        from custom_components.nwp500.diagnostics import _redact_macs
+
+        return _redact_macs(value)
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "AA:BB:CC:DD:EE:FF",
+            "aa-bb-cc-dd-ee-ff",
+            "04786332fca0",
+        ],
+    )
+    def test_redacts_mac_addresses(self, raw: str):
+        """Delimited and bare MAC addresses are still removed."""
+        assert self._redact(raw) == "**REDACTED**"
+
+    def test_redacts_a_mac_embedded_in_a_request_id(self):
+        """Telemetry IDs are '<mac>_<epoch_ms>'; only the MAC is a MAC."""
+        assert self._redact("04786332fca0_1766955369594") == (
+            "**REDACTED**_1766955369594"
+        )
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            # Longer hex runs are not MAC addresses. Without boundaries the
+            # bare-12 branch chewed 12 characters out of each of these.
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+            "1766955369594",
+            "deadbeefcafebabe1234",
+        ],
+    )
+    def test_leaves_longer_identifiers_intact(self, raw: str):
+        """A 12-character window inside a longer run is not a MAC."""
+        assert self._redact(raw) == raw
+
+    def test_leaves_timestamps_intact(self):
+        """ISO timestamps survive; they carry no MAC."""
+        raw = "2025-12-28T20:56:37.611283+00:00"
+        assert self._redact(raw) == raw

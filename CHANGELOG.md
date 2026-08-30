@@ -2,7 +2,106 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Reconfigure now saves the new password.** The reconfigure step called
+  `_abort_if_unique_id_configured()`, but in a reconfigure flow the entry
+  matching that unique ID *is* the entry being reconfigured -- so the flow
+  aborted with "already_configured" before the credentials were written,
+  and the one thing it exists to do, updating a changed Navien password,
+  silently did nothing. It also merged a stray `title` key into the entry's
+  data. Replaced with `_abort_if_unique_id_mismatch()`, which is the helper
+  meant for reauth and reconfigure, and covered by tests that drive the real
+  flow machinery rather than mocking the abort helper away.
+- **Reauth no longer accepts a different account.** `reauth_confirm` never
+  checked the submitted email against the entry's unique ID, so signing in
+  with another Navien account rebound the entry to it while every device,
+  entity and MQTT subscription stayed keyed to MACs from the original
+  account. It now aborts with `wrong_account`.
+- **Wrong passwords are reported as wrong passwords.** `validate_input`
+  decided a failure was an auth failure by looking for "401" or
+  "unauthorized" in the exception's text. It now catches the library's
+  typed exceptions: `InvalidCredentialsError` is the only one carrying the
+  invalid-login contract and maps to `invalid_auth`, while a bare
+  `AuthenticationError` -- which the library also raises for non-401
+  service errors and unparseable responses -- maps to `cannot_connect`, so
+  a Navien outage no longer tells the user to change a working password.
+- **Rejected credentials now lead to a reauth prompt.** `force_reconnect`
+  retried indefinitely. When the cause was a revoked or changed password
+  every attempt failed identically, so it spun at the 60s backoff cap
+  forever -- logging warnings, never escalating, never telling the user what
+  to fix. It now gives up after three consecutive credential rejections and
+  reports through the same path the library's own reconnect loop uses,
+  which starts the reauth flow. Only a rejected login escalates, and only
+  `InvalidCredentialsError` means that: nwp500-python raises it for a 401
+  or an "invalid"/"unauthorized" message, and turns every other non-200
+  from that same response -- along with unparseable responses and internal
+  state errors -- into a bare `AuthenticationError` that also defaults to
+  `retriable=False`. Outages, brokers refusing connections, AWS SDK errors
+  and missing-token conditions all keep retrying on the existing backoff
+  instead of prompting the user to replace credentials that are valid.
+- **Out-of-range water heater setpoints are reported.** `async_set_temperature`
+  logged and returned, leaving the user looking at a temperature they
+  believed they had changed. It now raises `ServiceValidationError`. Its
+  docstring also described a library call the code does not make.
+- **Empty energy usage reports work again after a timeout.** Once any
+  `get_energy_usage` request timed out, the flag guarding against a late
+  reply latched on for the life of the coordinator, so every genuinely empty
+  period reported as a timeout ever after. The guard is now a bounded
+  window rather than a latch. It is deliberately *not* cleared by the next
+  matching reply: that reply is not necessarily the outstanding one, so
+  doing that let a late empty reply -- which, carrying no months, matches
+  every request -- be accepted as some third request's answer, presenting
+  an all-zero report as measured data.
+- **Diagnostics no longer mangle non-MAC identifiers.** The bare 12-hex
+  branch of the MAC pattern had no boundaries, so it matched any 12
+  characters of a longer hex or numeric run -- chewing digits out of epoch
+  timestamps and splitting long identifiers into "**REDACTED**" fragments.
+  The pattern is now fenced by hex-character boundaries.
+- **The TOU schedule is read at setup.** Setup requested the initial
+  reservation schedule but never the TOU plan, which is only re-read every
+  40 update cycles -- so the TOU Schedule sensor read `unknown` for roughly
+  the first twenty minutes after every restart while its reservation
+  counterpart was populated immediately. The plan is now read once during
+  setup. It is a REST read keyed by the controller serial number that only
+  the MQTT device-info response publishes, so a device that has not
+  reported yet is skipped quietly and left to the periodic refresh rather
+  than logged as a failure.
+- **Diagnostics keep their connection detail.** The location PII keys were
+  redacted through the global key set, which matches at any depth, so a
+  generic name like `state` blanked unrelated fields. Location redaction is
+  now scoped to the location block itself.
+
+- **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**
+  With an empty `## [Unreleased]` section it fell back to
+  `content.replace(section, ...)` with `section` empty, which inserts at
+  offset 0 -- so the upgrade bullet landed before `# Changelog`. The
+  section is now rewritten by span.
+
 ### Changed
+- **Every temperature-bearing call is serialized against a unit system
+  change.** Only `set_reservation` checked; `update_reservations` and the
+  water heater's `set_temperature` did not, despite carrying temperatures
+  that could be read in the wrong scale mid-transition -- nor did the
+  target-temperature Number entity, which issues the same `set_temperature`
+  command. All four now hold
+  the coordinator's new `unit_transition_guard` across validation *and*
+  dispatch, rather than reaching into a private attribute with `getattr`
+  and then yielding. Checking a flag first was not sufficient for the
+  water heater: the conversion to device units happens inside the library,
+  after the publish has awaited, so a transition starting in between would
+  encode a setpoint validated in one scale using the other. The guard holds
+  `_unit_system_lock`, which `_atomic_unit_system_change` also requires, so
+  a transition cannot interleave.
+- **The bundled Lovelace cards escape interpolated values.** Entity names,
+  states, units and card configuration were written straight into
+  `innerHTML`. All such values now go through an `esc()` helper. The
+  schedule card's `pad()` additionally validates: it formats the
+  device-supplied reservation `hour` and `min`, whose result lands inside a
+  quoted `title` attribute, so a malformed entry could otherwise have
+  broken out of the attribute. It now coerces through `Number` and renders
+  `--` for anything non-finite, which cannot carry markup at any call
+  site.
+
 - **Library Dependency: nwp500-python**: Upgraded to 9.3.1
 - **The `request_tou_settings` service now reads the plan over REST.**
   nwp500-python 9.3.1 removed `NavienMqttClient.request_tou_settings()`:
@@ -74,13 +173,6 @@
   served one at a time and a reply is accepted only while a request for
   that period is outstanding. A reply that arrives after its own request
   gave up is discarded rather than handed to whoever asked next.
-
-### Fixed
-- **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**
-  With an empty `## [Unreleased]` section it fell back to
-  `content.replace(section, ...)` with `section` empty, which inserts at
-  offset 0 -- so the upgrade bullet landed before `# Changelog`. The
-  section is now rewritten by span.
 
 ## [0.19.0] - 2026-08-22
 

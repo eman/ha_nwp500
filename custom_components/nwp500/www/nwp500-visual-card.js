@@ -5,6 +5,23 @@
 
 const CARD_VERSION = '2.4.0';
 
+/**
+ * Escape a value for interpolation into an HTML template.
+ *
+ * Entity names, states and units originate from the device and from the
+ * user's card configuration, none of which is guaranteed to be free of
+ * markup. Every `${...}` that carries such a value goes through here.
+ */
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[c]);
+}
+
 class NWP500VisualCard extends HTMLElement {
   constructor() {
     super();
@@ -57,7 +74,7 @@ class NWP500VisualCard extends HTMLElement {
       this.shadowRoot.innerHTML = `
         <ha-card>
           <div style="padding:16px;color:red">
-            Entity not found: ${entityId}
+            Entity not found: ${esc(entityId)}
           </div>
         </ha-card>`;
       return;
@@ -128,8 +145,8 @@ class NWP500VisualCard extends HTMLElement {
             <div class="screen-content ${isError ? 'error' : ''}">
               <div class="screen-temp">${targetDisplay}</div>
               <div class="screen-mode">
-                <ha-icon icon="${modeData.icon}"></ha-icon>
-                <span>${modeData.label}</span>
+                <ha-icon icon="${esc(modeData.icon)}"></ha-icon>
+                <span>${esc(modeData.label)}</span>
               </div>
             </div>
           </div>
@@ -401,14 +418,14 @@ class NWP500VisualCard extends HTMLElement {
           <div class="nwp-row">
             <span class="nwp-label">Mode</span>
             <div class="nwp-btn-row">
-              ${MODES.map(m => `<button class="nwp-btn ${m.label.toLowerCase() === currentMode.toLowerCase() ? 'active' : ''}" data-mode="${m.id}">${m.label}</button>`).join('')}
+              ${MODES.map(m => `<button class="nwp-btn ${m.label.toLowerCase() === String(currentMode ?? '').toLowerCase() ? 'active' : ''}" data-mode="${esc(m.id)}">${esc(m.label)}</button>`).join('')}
             </div>
           </div>
 
           <div class="nwp-row" id="tempRow">
             <span class="nwp-label">Target Temperature</span>
-            <div class="nwp-val" id="tempDisplay">${currentTemp}°</div>
-            <input type="range" class="nwp-slider" id="tempSlider" min="${minTemp}" max="${maxTemp}" value="${currentTemp}" step="1">
+            <div class="nwp-val" id="tempDisplay">${esc(currentTemp)}°</div>
+            <input type="range" class="nwp-slider" id="tempSlider" min="${esc(minTemp)}" max="${esc(maxTemp)}" value="${esc(currentTemp)}" step="1">
           </div>
 
           <div class="nwp-actions">
@@ -566,12 +583,12 @@ class NWP500VisualCard extends HTMLElement {
       <div class="nwp-modal-overlay">
         <div class="nwp-modal">
           <div class="nwp-h">
-            <span>${title}</span>
+            <span>${esc(title)}</span>
             <span style="cursor:pointer" id="nwpClose">✕</span>
           </div>
           <div class="nwp-stat-row">
-            <span class="nwp-stat-val">${state}</span>
-            <span class="nwp-stat-unit">${unit}</span>
+            <span class="nwp-stat-val">${esc(state)}</span>
+            <span class="nwp-stat-unit">${esc(unit)}</span>
           </div>
           <div class="nwp-chart-container">
             <div class="nwp-loading">Loading 24h History...</div>
@@ -616,7 +633,7 @@ class NWP500VisualCardEditor extends HTMLElement {
     this.innerHTML = `
       <div class="card-config">
         <div>
-          <paper-input label="Entity" .value="${config.entity}" class="config-entity"></paper-input>
+          <paper-input label="Entity" .value="${esc(config.entity)}" class="config-entity"></paper-input>
         </div>
       </div>
     `;
