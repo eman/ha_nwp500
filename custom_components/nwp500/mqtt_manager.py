@@ -685,11 +685,17 @@ class NWP500MqttManager:
         """
         try:
             _LOGGER.debug("Received energy usage for %s", mac_address)
-            if self._on_energy_usage_callback:
-                response = (
-                    usage.model_dump() if hasattr(usage, "model_dump") else {}
+            if not hasattr(usage, "model_dump"):
+                # Delivering {} here would be worse than delivering
+                # nothing: it satisfies the coordinator's checks and
+                # builds a report of all zeros, which reads as measured
+                # data. Dropping it lets the request time out and say so.
+                _LOGGER.warning(
+                    "Discarding an energy usage payload that cannot be read"
                 )
-                self._on_energy_usage_callback(mac_address, response)
+                return
+            if self._on_energy_usage_callback:
+                self._on_energy_usage_callback(mac_address, usage.model_dump())
         except Exception as err:
             _LOGGER.error("Error handling energy usage: %s", err)
 

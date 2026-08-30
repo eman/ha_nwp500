@@ -107,6 +107,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # asked next. See async_fetch_energy_usage.
         self._energy_request: dict[str, Any] | None = None
         self._energy_lock = asyncio.Lock()
+        # Set once a request gives up waiting, because its reply may still
+        # turn up and there is nothing in the payload to recognise it by.
+        self._energy_straggler_possible = False
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -1081,6 +1084,20 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 return
 
+            if not reported and self._energy_straggler_possible:
+                # A reply carrying no months matches every request, so it
+                # cannot be told apart from a straggler once one is
+                # possible -- and accepting it would hand the caller an
+                # all-zero report as though the device had measured it.
+                # Before any request has gone unanswered nothing can be in
+                # flight, so an empty reply there is simply a device with
+                # nothing recorded for the period.
+                _LOGGER.debug(
+                    "Discarding an empty energy usage reply; a reply to an "
+                    "earlier request may still be outstanding"
+                )
+                return
+
             self._energy_request = None
             waiter: asyncio.Future[dict[str, Any]] = pending["future"]
             if not waiter.done():
@@ -1282,9 +1299,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             if not await self.async_request_reservations(mac_address):
                 return None
-            # Only the wait is guarded, so a TimeoutError raised anywhere
-            # else (e.g. inside the publish above) propagates instead of
-            # being reported as "the device did not answer in time".
+            # Only the wait is guarded. A failure to publish is already
+            # reported as False by the manager, which catches its own
+            # transport errors, so the two cannot be confused.
             try:
                 return await asyncio.wait_for(waiter, timeout=timeout)
             except TimeoutError:
@@ -1349,12 +1366,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 if not sent:
                     return None
-                # Only the wait is guarded, so a TimeoutError from the
-                # publish itself propagates rather than being reported as
-                # "the device did not answer".
+                # Only the wait is guarded. A failure to publish is
+                # already reported as False by the manager, which catches
+                # its own transport errors, so the two cannot be confused.
                 try:
                     return await asyncio.wait_for(waiter, timeout=timeout)
                 except TimeoutError:
+                    self._energy_straggler_possible = True
                     _LOGGER.warning(
                         "Timed out after %.0fs waiting for the energy usage "
                         "of %s",

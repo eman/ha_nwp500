@@ -1980,6 +1980,57 @@ async def test_a_late_reply_is_not_handed_to_the_next_request(coordinator):
 
 
 @pytest.mark.asyncio
+async def test_an_empty_late_reply_is_not_handed_to_the_next_request(
+    coordinator,
+):
+    """A reply carrying no months matches every request.
+
+    So once a request has gone unanswered it cannot be told apart from a
+    straggler -- and accepting it would hand back an all-zero report as
+    though the device had measured it.
+    """
+    coordinator.async_send_command = AsyncMock(return_value=True)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+
+    empty = {"total": {"heat_pump_usage": 0}, "usage": []}
+
+    async def reply_empty(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, empty)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [8], timeout=0.01)
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_empty_reply_answers_when_no_request_has_timed_out(
+    coordinator,
+):
+    """Nothing can be in flight yet, so an empty reply means no data.
+
+    A device asked about a month it has nothing recorded for answers
+    exactly this way, and reporting that as a failure would be wrong.
+    """
+    empty = {"total": {}, "usage": []}
+
+    async def reply_empty(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, empty)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
+
+    assert await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) == empty
+
+
+@pytest.mark.asyncio
 async def test_a_reply_for_another_period_is_ignored(coordinator):
     """August's usage is not an answer to a question about September."""
 

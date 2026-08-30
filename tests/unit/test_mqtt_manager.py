@@ -796,6 +796,34 @@ async def test_energy_usage_callback_routes_a_parsed_response(
 
 
 @pytest.mark.asyncio
+async def test_an_unreadable_energy_payload_is_dropped(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """Delivering {} would be worse than delivering nothing.
+
+    An empty dict satisfies the coordinator's checks and builds a report
+    of all zeros, which reads as measured data. Dropping it lets the
+    request time out and say the device did not report.
+    """
+    received: list[tuple[str, dict]] = []
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_energy_usage=lambda mac, response: received.append((mac, response)),
+    )
+    await manager.setup()
+    await manager.subscribe_device(mock_device)
+
+    callback = mock_mqtt_client.subscribe_energy_usage.call_args[0][1]
+
+    callback(object())
+
+    assert received == []
+
+
+@pytest.mark.asyncio
 async def test_send_command_request_energy_usage(
     manager, mock_mqtt_client, mock_device
 ):
