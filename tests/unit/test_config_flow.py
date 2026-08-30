@@ -404,24 +404,36 @@ async def test_validate_input_invalid_credentials():
 
 
 @pytest.mark.asyncio
-async def test_validate_input_non_retriable_auth_error():
-    """A definitive authentication failure is reported as invalid auth."""
-    err = AuthenticationError("Account locked")
+async def test_validate_input_service_error_is_not_a_bad_password():
+    """A non-401 service failure must not accuse the user's password.
+
+    nwp500-python raises InvalidCredentialsError only for a 401 or an
+    "invalid"/"unauthorized" message, and turns every other non-200 from
+    that same response into a bare AuthenticationError -- which defaults to
+    retriable=False. Mapping that to invalid_auth would tell the user to
+    change a working password because Navien returned a 500.
+    """
+    err = AuthenticationError("Authentication failed: internal server error")
     err.retriable = False
 
-    with pytest.raises(InvalidAuth):
+    with pytest.raises(CannotConnect):
+        await _validate_input_raising(err)
+
+
+@pytest.mark.asyncio
+async def test_validate_input_malformed_response_is_a_connection_error():
+    """The library reports unparseable responses the same way."""
+    err = AuthenticationError("Invalid response format: expecting value")
+    err.retriable = False
+
+    with pytest.raises(CannotConnect):
         await _validate_input_raising(err)
 
 
 @pytest.mark.asyncio
 async def test_validate_input_retriable_auth_error_is_connection_error():
-    """A transient auth failure must not accuse the user's password.
-
-    The library marks network failures during authentication as retriable.
-    Reporting one as invalid_auth would send the user to change a password
-    that is fine.
-    """
-    err = AuthenticationError("Temporary network failure")
+    """A transient auth failure is a connection problem too."""
+    err = AuthenticationError("Network error: connection reset")
     err.retriable = True
 
     with pytest.raises(CannotConnect):

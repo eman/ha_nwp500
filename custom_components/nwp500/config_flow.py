@@ -285,14 +285,20 @@ async def validate_input(
         _LOGGER.error("Invalid Navien credentials for %s: %s", email, err)
         raise InvalidAuth from err
     except _auth_errors as err:
-        # The library marks transient network failures during authentication
-        # as retriable; only a definitive rejection means the credentials
-        # themselves are wrong. Reporting a retriable failure as bad
-        # credentials would send the user to change a password that is fine.
-        _LOGGER.error("Authentication with Navien failed: %s", err)
-        if getattr(err, "retriable", False):
-            raise CannotConnect from err
-        raise InvalidAuth from err
+        # Reported as a connection failure, not a bad password. Only
+        # InvalidCredentialsError above carries the invalid-login contract:
+        # nwp500-python raises it for a 401 or an "invalid"/"unauthorized"
+        # message, and turns every *other* non-200 from that same response
+        # into a bare AuthenticationError -- which also covers unparseable
+        # responses and internal state errors, and defaults to
+        # retriable=False. Sending those to invalid_auth would tell a user
+        # to change a password that is fine because Navien returned a 500.
+        _LOGGER.error(
+            "Navien authentication service failed (retriable=%s): %s",
+            getattr(err, "retriable", False),
+            err,
+        )
+        raise CannotConnect from err
     except Exception as err:  # noqa: BLE001
         # Network, connection, and data access errors
         _LOGGER.error("Failed to authenticate with Navien: %s", err)

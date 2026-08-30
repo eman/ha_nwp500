@@ -20,20 +20,25 @@
 - **Wrong passwords are reported as wrong passwords.** `validate_input`
   decided a failure was an auth failure by looking for "401" or
   "unauthorized" in the exception's text. It now catches the library's
-  `InvalidCredentialsError` and `AuthenticationError`, honouring the
-  `retriable` flag so a transient network failure during login reports as a
-  connection problem instead of accusing the user's password.
+  typed exceptions: `InvalidCredentialsError` is the only one carrying the
+  invalid-login contract and maps to `invalid_auth`, while a bare
+  `AuthenticationError` -- which the library also raises for non-401
+  service errors and unparseable responses -- maps to `cannot_connect`, so
+  a Navien outage no longer tells the user to change a working password.
 - **Rejected credentials now lead to a reauth prompt.** `force_reconnect`
   retried indefinitely. When the cause was a revoked or changed password
   every attempt failed identically, so it spun at the 60s backoff cap
   forever -- logging warnings, never escalating, never telling the user what
   to fix. It now gives up after three consecutive credential rejections and
   reports through the same path the library's own reconnect loop uses,
-  which starts the reauth flow. Only that cause escalates: an outage, a
-  broker refusing connections and an AWS SDK error all also make
-  `connect()` return `False`, so those keep retrying on the existing
-  backoff rather than prompting the user to replace credentials that are
-  valid.
+  which starts the reauth flow. Only a rejected login escalates, and only
+  `InvalidCredentialsError` means that: nwp500-python raises it for a 401
+  or an "invalid"/"unauthorized" message, and turns every other non-200
+  from that same response -- along with unparseable responses and internal
+  state errors -- into a bare `AuthenticationError` that also defaults to
+  `retriable=False`. Outages, brokers refusing connections, AWS SDK errors
+  and missing-token conditions all keep retrying on the existing backoff
+  instead of prompting the user to replace credentials that are valid.
 - **Out-of-range water heater setpoints are reported.** `async_set_temperature`
   logged and returned, leaving the user looking at a temperature they
   believed they had changed. It now raises `ServiceValidationError`. Its

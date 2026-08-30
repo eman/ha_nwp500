@@ -986,29 +986,42 @@ async def test_force_reconnect_resets_credential_run_on_a_transport_failure(
     failed.assert_not_called()
 
 
-def test_credential_failures_are_told_from_transport_failures():
-    """The classifier is what keeps an outage off the reauth path."""
+def test_only_a_rejected_login_counts_as_a_credential_failure():
+    """The classifier is what keeps an outage off the reauth path.
+
+    Only InvalidCredentialsError carries the invalid-login contract. In
+    nwp500-python 9.3.1 it is raised from one place -- sign_in(), on a 401
+    or an "invalid"/"unauthorized" message -- while every other non-200 from
+    that same response becomes a bare AuthenticationError. Counting the
+    broader types would answer a Navien outage with a reauth prompt and
+    stop reconnecting.
+    """
     from nwp500.exceptions import (
         AuthenticationError,
         InvalidCredentialsError,
         MqttCredentialsError,
+        TokenRefreshError,
     )
 
     from custom_components.nwp500.mqtt_manager import _is_credential_failure
 
     assert _is_credential_failure(InvalidCredentialsError("nope")) is True
-    assert _is_credential_failure(MqttCredentialsError("nope")) is True
 
-    # The library marks transport-related login failures retriable; those
-    # are outages wearing an auth exception, not bad credentials.
-    transient = AuthenticationError("connection reset")
-    transient.retriable = True
-    assert _is_credential_failure(transient) is False
+    # Raised when tokens or AWS credentials were missing when the broker
+    # needed them -- ordinary at token expiry and during a reconnect.
+    assert _is_credential_failure(MqttCredentialsError("no tokens")) is False
 
-    definitive = AuthenticationError("account disabled")
-    definitive.retriable = False
-    assert _is_credential_failure(definitive) is True
+    # The library's catch-all for any other non-200, for unparseable
+    # responses, and for state errors. It defaults to retriable=False, so
+    # that flag cannot be used to tell them apart.
+    service_error = AuthenticationError("Authentication failed: 500")
+    assert getattr(service_error, "retriable", None) is False
+    assert _is_credential_failure(service_error) is False
 
+    malformed = AuthenticationError("Invalid response format: expecting value")
+    assert _is_credential_failure(malformed) is False
+
+    assert _is_credential_failure(TokenRefreshError("refresh failed")) is False
     assert _is_credential_failure(OSError("network unreachable")) is False
     assert _is_credential_failure(TimeoutError()) is False
 
@@ -1097,3 +1110,40 @@ async def test_a_setup_failure_before_connect_is_not_counted_as_credentials(
 
     failed.assert_not_called()
     manager.loop.call_soon_threadsafe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_connect_marks_a_rejected_login_as_a_credential_failure(
+    manager, mock_mqtt_client, mock_auth_client
+):
+    """connect() is where the classification actually happens."""
+    from nwp500.exceptions import InvalidCredentialsError
+
+    await manager.setup()
+    mock_auth_client.ensure_valid_token = AsyncMock(
+        side_effect=InvalidCredentialsError("Invalid credentials: bad login")
+    )
+
+    assert await manager.connect() is False
+    assert manager._last_failure_was_credentials is True
+
+
+@pytest.mark.asyncio
+async def test_connect_does_not_blame_credentials_for_a_service_outage(
+    manager, mock_mqtt_client, mock_auth_client
+):
+    """A Navien outage must not be recorded as a rejected login.
+
+    The library turns any non-401 sign-in failure into a bare
+    AuthenticationError with retriable=False, so this is what a 500 from
+    the auth service looks like from here.
+    """
+    from nwp500.exceptions import AuthenticationError
+
+    await manager.setup()
+    mock_auth_client.ensure_valid_token = AsyncMock(
+        side_effect=AuthenticationError("Authentication failed: 500")
+    )
+
+    assert await manager.connect() is False
+    assert manager._last_failure_was_credentials is False

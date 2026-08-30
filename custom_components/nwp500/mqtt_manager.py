@@ -8,11 +8,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Final
 
-from nwp500.exceptions import (
-    AuthenticationError,
-    InvalidCredentialsError,
-    MqttCredentialsError,
-)
+from nwp500.exceptions import InvalidCredentialsError
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -57,18 +53,30 @@ _AWS_SDK_PACKAGES = frozenset({"awscrt", "awsiot"})
 
 
 def _is_credential_failure(err: BaseException) -> bool:
-    """Whether `err` means the stored credentials are the problem.
+    """Whether `err` means the stored credentials were rejected.
 
-    Distinguishes the one cause reconnecting cannot fix from the many that
-    it can. `AuthenticationError.retriable` is the library's own signal that
-    a login failure was transport-related rather than a rejection, so a
-    retriable one is explicitly not a credential failure.
+    Only `InvalidCredentialsError` carries that contract. In nwp500-python
+    9.3.1 it is raised from exactly one place -- `sign_in()`, when the
+    service answers 401 or says "invalid"/"unauthorized" -- and every other
+    non-200 from the same response becomes a bare `AuthenticationError`.
+
+    So the broader types are deliberately excluded:
+
+    * `AuthenticationError` defaults to `retriable=False`, and the library
+      raises it that way for a service error of any other status, for
+      "Invalid response format" on unparseable JSON, and for state errors
+      like "Must authenticate first". None of those say the password is
+      wrong; treating them as such would answer a Navien outage with a
+      reauth prompt.
+    * `MqttCredentialsError` means tokens or AWS credentials were missing
+      when the broker needed them, which is ordinary at token expiry and
+      during a reconnect.
+
+    A changed password still reaches us as `InvalidCredentialsError`:
+    `ensure_valid_token()` re-runs `sign_in()` whenever the AWS credentials
+    expire, so a rejected login surfaces there rather than only at setup.
     """
-    if isinstance(err, (InvalidCredentialsError, MqttCredentialsError)):
-        return True
-    if isinstance(err, AuthenticationError):
-        return not getattr(err, "retriable", False)
-    return False
+    return isinstance(err, InvalidCredentialsError)
 
 
 def _raised_inside_aws_sdk(err: BaseException) -> bool:
