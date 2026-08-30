@@ -489,7 +489,10 @@ class NWP500MqttManager:
                     await self.mqtt_client.request_energy_usage(
                         device,
                         year=int(kwargs["year"]),
-                        months=list(kwargs["months"]),
+                        # Normalised here rather than trusted: months reach
+                        # the service as strings from the UI selector, and
+                        # the protocol wants integers.
+                        months=[int(month) for month in kwargs["months"]],
                     )
                 case "set_vacation_days":
                     days = kwargs.get("days")

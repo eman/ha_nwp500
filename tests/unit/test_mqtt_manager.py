@@ -44,6 +44,9 @@ def mock_mqtt_client(monkeypatch):
             self.disconnect = AsyncMock()
             self.subscribe_device_status = AsyncMock()
             self.subscribe_device_feature = AsyncMock()
+            self.subscribe_reservation_response = AsyncMock()
+            self.subscribe_tou_response = AsyncMock()
+            self.subscribe_energy_usage = AsyncMock()
             self.subscribe = AsyncMock()
             self.start_periodic_requests = AsyncMock()
             self.request_device_info = AsyncMock()
@@ -66,7 +69,7 @@ def mock_mqtt_client(monkeypatch):
             self.request_reservations = AsyncMock()
             self.request_device_status = AsyncMock()
             self.request_device_info = AsyncMock()
-            self.request_tou_settings = AsyncMock()
+            self.request_energy_usage = AsyncMock()
             self.configure_tou_schedule = AsyncMock()
             self.trigger_recirculation_hot_button = AsyncMock()
             self.reset_air_filter = AsyncMock()
@@ -181,6 +184,17 @@ async def test_subscribe_device(manager, mock_mqtt_client, mock_device):
     assert (
         mock_mqtt_client.subscribe_device_feature.call_args[0][0] == mock_device
     )
+
+    # Every response subscription the manager makes is asserted here: a
+    # library method that was renamed or never existed would otherwise
+    # raise inside subscribe_device and be swallowed by its broad except.
+    for subscribe in (
+        mock_mqtt_client.subscribe_reservation_response,
+        mock_mqtt_client.subscribe_tou_response,
+        mock_mqtt_client.subscribe_energy_usage,
+    ):
+        subscribe.assert_called_once()
+        assert subscribe.call_args[0][0] == mock_device
 
 
 @pytest.mark.asyncio
@@ -747,3 +761,72 @@ class TestSdkUpgradedDuringStartup:
         assert connected is False
         assert "network down" in caplog.text
         assert "Restart Home Assistant" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_energy_usage_callback_routes_a_parsed_response(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """The subscription's callback dumps the model and names the device.
+
+    The reply topic is shared by every device on this MQTT client, so the
+    MAC comes from the closure the subscription was made with -- which is
+    what the coordinator logs the report against.
+    """
+    received: list[tuple[str, dict]] = []
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_energy_usage=lambda mac, response: received.append((mac, response)),
+    )
+    await manager.setup()
+    await manager.subscribe_device(mock_device)
+
+    callback = mock_mqtt_client.subscribe_energy_usage.call_args[0][1]
+    usage = MagicMock()
+    usage.model_dump.return_value = {"total": {"heat_pump_usage": 5}}
+
+    callback(usage)
+
+    assert received == [
+        (mock_device.device_info.mac_address, {"total": {"heat_pump_usage": 5}})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_command_request_energy_usage(
+    manager, mock_mqtt_client, mock_device
+):
+    """The command branch reaches the library with the period it was given.
+
+    The coordinator's own tests replace `async_send_command`, so without
+    this a wrong method name or argument shape would pass the suite.
+    """
+    await manager.setup()
+
+    result = await manager.send_command(
+        mock_device, "request_energy_usage", year=2026, months=[7, 8]
+    )
+
+    assert result is True
+    mock_mqtt_client.request_energy_usage.assert_called_once_with(
+        mock_device, year=2026, months=[7, 8]
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_energy_usage_coerces_the_period(
+    manager, mock_mqtt_client, mock_device
+):
+    """Months arrive from a UI selector as strings; the device wants ints."""
+    await manager.setup()
+
+    await manager.send_command(
+        mock_device, "request_energy_usage", year="2026", months=("7",)
+    )
+
+    mock_mqtt_client.request_energy_usage.assert_called_once_with(
+        mock_device, year=2026, months=[7]
+    )

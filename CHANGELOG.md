@@ -69,9 +69,11 @@
   costs nothing when not in use. Defaults to the current month, accepts a
   year and several months at once, and date-stamps each day (the protocol
   numbers days only by their position in the month's list). The device
-  answers on a topic keyed by MQTT client rather than by device, so reports
-  are served one at a time to keep two water heaters' replies from being
-  crossed.
+  answers on a topic keyed by MQTT client rather than by device -- the
+  reply identifies neither the device nor the request -- so reports are
+  served one at a time and a reply is accepted only while a request for
+  that period is outstanding. A reply that arrives after its own request
+  gave up is discarded rather than handed to whoever asked next.
 
 ### Fixed
 - **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**

@@ -29,8 +29,10 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
 
 - **Temperature & mode control** — Set target temperature, switch operation modes, and toggle power.
 - **Live status** — Current water temp, power draw, and device state updated via MQTT.
-- **Energy tracking** — Cumulative usage and current power consumption from the device,
-  plus an on-demand report of the device's own daily history, split heat pump vs. element.
+- **Energy tracking** — Live power draw as a sensor, plus an on-demand report of the
+  device's own daily history, split heat pump vs. resistive element. There is no
+  cumulative consumption sensor: the device records the totals itself and reports them
+  when asked.
 - **Alerts** — Error codes, leak detection, and freeze/scald warnings via binary sensors.
 - **Scheduling** — Recurring mode and temperature changes via the reservation service.
 
