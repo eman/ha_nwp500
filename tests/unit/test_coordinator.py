@@ -2182,16 +2182,58 @@ def test_an_unsolicited_energy_reply_is_discarded(coordinator):
 
 
 @pytest.mark.asyncio
-async def test_empty_replies_work_again_after_a_matched_reply(coordinator):
-    """One timeout must not disable empty replies for good.
+async def test_an_empty_straggler_is_not_handed_to_a_later_request(
+    coordinator,
+):
+    """A matched reply is not proof the straggler has landed.
 
-    A reply matching the outstanding period accounts for whatever was in
-    flight, so the next empty reply is once again just a device with nothing
-    recorded. The straggler flag used to latch on for the life of the
-    coordinator, after which every genuinely empty period reported as a
-    timeout.
+    Regression test. Clearing the ambiguity on the next period-bearing
+    reply looked reasonable, but that reply is not necessarily the
+    outstanding one: July times out, August answers properly, and then
+    July's empty reply arrives while September is waiting. Carrying no
+    months, it matches September's request, and with the flag already
+    cleared it was handed over as September's answer -- an all-zero report
+    presented as measured data.
     """
-    # 1. A request times out, so a straggler becomes possible.
+    coordinator.async_send_command = AsyncMock(return_value=True)
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+
+    august = _energy_response(2026, [8])
+
+    async def reply_august(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, august)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_august)
+    assert await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) == august
+
+    # July's reply finally arrives, empty, while September waits.
+    empty = {"total": {}, "usage": []}
+
+    async def reply_empty(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, empty)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [9], timeout=0.05)
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_empty_replies_are_trusted_again_once_the_window_expires(
+    coordinator,
+):
+    """The ambiguity is bounded, so it cannot latch on for good.
+
+    A device asked about a month it has nothing recorded for answers with
+    an empty payload, and that must stay reportable. Before, a single
+    timeout disabled empty replies for the life of the coordinator.
+    """
     coordinator.async_send_command = AsyncMock(return_value=True)
     assert (
         await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
@@ -2199,18 +2241,10 @@ async def test_empty_replies_work_again_after_a_matched_reply(coordinator):
     )
     assert coordinator._energy_straggler_possible is True
 
-    # 2. A reply matching the period asked for accounts for what was in flight.
-    matched = _energy_response(2026, [8])
-
-    async def reply_matched(mac, command, **kwargs):
-        coordinator._handle_energy_usage_in_loop(mac, matched)
-        return True
-
-    coordinator.async_send_command = AsyncMock(side_effect=reply_matched)
-    assert await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) == matched
+    # Wind the deadline into the past, as the passage of time would.
+    coordinator._energy_straggler_deadline = time.monotonic() - 1
     assert coordinator._energy_straggler_possible is False
 
-    # 3. An empty reply is therefore trustworthy again: a month with no data.
     empty = {"total": {}, "usage": []}
 
     async def reply_empty(mac, command, **kwargs):
@@ -2219,6 +2253,25 @@ async def test_empty_replies_work_again_after_a_matched_reply(coordinator):
 
     coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
     assert await coordinator.async_fetch_energy_usage(MAC, 2026, [9]) == empty
+
+
+@pytest.mark.asyncio
+async def test_the_straggler_window_is_measured_from_the_timeout(coordinator):
+    """Each give-up reopens the window rather than extending a boolean."""
+    from custom_components.nwp500.coordinator import (
+        _ENERGY_STRAGGLER_WINDOW,
+    )
+
+    coordinator.async_send_command = AsyncMock(return_value=True)
+    before = time.monotonic()
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+
+    deadline = coordinator._energy_straggler_deadline
+    assert before + _ENERGY_STRAGGLER_WINDOW <= deadline
+    assert deadline <= time.monotonic() + _ENERGY_STRAGGLER_WINDOW
 
 
 # ---------------------------------------------------------------------------

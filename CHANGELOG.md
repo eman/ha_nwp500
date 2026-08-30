@@ -46,8 +46,12 @@
 - **Empty energy usage reports work again after a timeout.** Once any
   `get_energy_usage` request timed out, the flag guarding against a late
   reply latched on for the life of the coordinator, so every genuinely empty
-  period reported as a timeout ever after. It is now cleared when a reply
-  matching the requested period arrives.
+  period reported as a timeout ever after. The guard is now a bounded
+  window rather than a latch. It is deliberately *not* cleared by the next
+  matching reply: that reply is not necessarily the outstanding one, so
+  doing that let a late empty reply -- which, carrying no months, matches
+  every request -- be accepted as some third request's answer, presenting
+  an all-zero report as measured data.
 - **Diagnostics no longer mangle non-MAC identifiers.** The bare 12-hex
   branch of the MAC pattern had no boundaries, so it matched any 12
   characters of a longer hex or numeric run -- chewing digits out of epoch

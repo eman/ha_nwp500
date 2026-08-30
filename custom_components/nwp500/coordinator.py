@@ -7,7 +7,7 @@ from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
@@ -51,6 +51,22 @@ if TYPE_CHECKING:
     )
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long after a request gives up its reply may still turn up.
+#
+# The device answers energy queries on a topic shared by every device on
+# this MQTT client, and the payload identifies neither the device nor the
+# request, so a late reply can only be recognised by elimination. A reply
+# carrying no months matches every outstanding request, which makes it
+# indistinguishable from a straggler; those are refused while one may still
+# be in flight.
+#
+# Bounded by time because there is nothing else to bound it by. The window
+# is many times the 20s request timeout: an MQTT reply arriving more than
+# two minutes after its request gave up is not a case worth keeping the
+# ambiguity for, and leaving it open indefinitely would mean a period the
+# device genuinely has no data for could never be reported again.
+_ENERGY_STRAGGLER_WINDOW: Final = 120.0
 
 
 # Typed config entry: the coordinator lives on entry.runtime_data, which HA
@@ -110,9 +126,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # asked next. See async_fetch_energy_usage.
         self._energy_request: dict[str, Any] | None = None
         self._energy_lock = asyncio.Lock()
-        # Set once a request gives up waiting, because its reply may still
-        # turn up and there is nothing in the payload to recognise it by.
-        self._energy_straggler_possible = False
+        # When the last given-up request stops being able to answer, as a
+        # monotonic deadline; 0.0 once no reply is outstanding. A boolean
+        # here could only be cleared by guessing which reply was the
+        # straggler, and clearing it on the next matched reply -- which is
+        # not necessarily that one -- let an empty straggler through to a
+        # later request. See _ENERGY_STRAGGLER_WINDOW.
+        self._energy_straggler_deadline: float = 0.0
         self._device_info_request_counter: dict[
             str, int
         ] = {}  # Track fallback device info requests
@@ -167,6 +187,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         water heater entity are the callers that need to ask.
         """
         return self._unit_change_in_progress
+
+    @property
+    def _energy_straggler_possible(self) -> bool:
+        """Whether a reply to a given-up energy request may still arrive."""
+        return time.monotonic() < self._energy_straggler_deadline
 
     @asynccontextmanager
     async def unit_transition_guard(self, action: str) -> AsyncIterator[None]:
@@ -1206,12 +1231,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
 
             self._energy_request = None
-            # A reply matching the outstanding period accounts for whatever
-            # was in flight, so the next empty reply is once again just a
-            # device with nothing recorded. Without this the flag latched on
-            # for the life of the coordinator and every genuinely empty
-            # period reported as a timeout ever after.
-            self._energy_straggler_possible = False
+            # Deliberately does not clear the straggler window. A reply
+            # matching the period asked for is not necessarily the one that
+            # was outstanding, so treating it as proof the straggler had
+            # landed let a later empty straggler be accepted as some third
+            # request's answer. Only the window expiring clears it.
             waiter: asyncio.Future[dict[str, Any]] = pending["future"]
             if not waiter.done():
                 waiter.set_result(response)
@@ -1485,7 +1509,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 try:
                     return await asyncio.wait_for(waiter, timeout=timeout)
                 except TimeoutError:
-                    self._energy_straggler_possible = True
+                    self._energy_straggler_deadline = (
+                        time.monotonic() + _ENERGY_STRAGGLER_WINDOW
+                    )
                     _LOGGER.warning(
                         "Timed out after %.0fs waiting for the energy usage "
                         "of %s",
