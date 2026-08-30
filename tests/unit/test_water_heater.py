@@ -678,10 +678,16 @@ class TestSetTemperatureRejectsBadInput:
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_hass: MagicMock,
+        raising_unit_guard,
     ):
-        """A setpoint sent mid-transition could be read in the wrong scale."""
+        """A setpoint sent mid-transition could be read in the wrong scale.
+
+        The refusal comes from the coordinator's guard, which the entity
+        must enter *around* validation and dispatch rather than checking a
+        flag and then yielding.
+        """
         heater = self._heater(mock_coordinator, mock_device, mock_hass)
-        mock_coordinator.unit_change_in_progress = True
+        mock_coordinator.unit_transition_guard = raising_unit_guard
 
         with pytest.raises(HomeAssistantError):
             await heater.async_set_temperature(temperature=125)

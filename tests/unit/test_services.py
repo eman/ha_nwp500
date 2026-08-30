@@ -1528,9 +1528,11 @@ class TestUnitSystemChangeGuard:
     """
 
     @staticmethod
-    async def _handler_for(mock_hass, mock_device_registry, service_name):
+    async def _handler_for(
+        mock_hass, mock_device_registry, service_name, guard
+    ):
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
-        mock_coordinator.unit_change_in_progress = True
+        mock_coordinator.unit_transition_guard = guard
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         mock_coordinator.async_update_reservations = AsyncMock(
@@ -1551,11 +1553,14 @@ class TestUnitSystemChangeGuard:
 
     @pytest.mark.asyncio
     async def test_set_reservation_refuses(
-        self, mock_hass, mock_device_registry
+        self, mock_hass, mock_device_registry, raising_unit_guard
     ):
         """set_reservation carries a temperature."""
         handler, coordinator = await self._handler_for(
-            mock_hass, mock_device_registry, "set_reservation"
+            mock_hass,
+            mock_device_registry,
+            "set_reservation",
+            raising_unit_guard,
         )
 
         call = MagicMock(spec=ServiceCall)
@@ -1574,7 +1579,7 @@ class TestUnitSystemChangeGuard:
 
     @pytest.mark.asyncio
     async def test_update_reservations_refuses(
-        self, mock_hass, mock_device_registry
+        self, mock_hass, mock_device_registry, raising_unit_guard
     ):
         """update_reservations entries carry temperatures too.
 
@@ -1582,7 +1587,10 @@ class TestUnitSystemChangeGuard:
         one that replaces every entry at once -- unguarded.
         """
         handler, coordinator = await self._handler_for(
-            mock_hass, mock_device_registry, "update_reservations"
+            mock_hass,
+            mock_device_registry,
+            "update_reservations",
+            raising_unit_guard,
         )
 
         call = MagicMock(spec=ServiceCall)

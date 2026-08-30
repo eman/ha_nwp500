@@ -4,6 +4,8 @@ import asyncio
 import logging
 import time
 from collections import deque
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -11,6 +13,7 @@ from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import instance_id as ha_instance_id
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -164,6 +167,37 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         water heater entity are the callers that need to ask.
         """
         return self._unit_change_in_progress
+
+    @asynccontextmanager
+    async def unit_transition_guard(self, action: str) -> AsyncIterator[None]:
+        """Hold off a unit-system transition for the duration of the block.
+
+        Callers that carry a temperature must serialize against
+        `_atomic_unit_system_change`, not merely check a flag before
+        starting. The conversion to device units reads the library's global
+        unit context, and for a command that is dispatched over MQTT that
+        read happens inside the library, after this coroutine has yielded --
+        so a check made before the yield says nothing about the scale in
+        force when the value is finally encoded.
+
+        `_atomic_unit_system_change` only ever runs while holding
+        `_unit_system_lock`, so holding it here means a transition cannot
+        begin until the block completes, and a transition already underway
+        blocks the caller instead of racing it.
+
+        Args:
+            action: What the caller is doing, used in the error message.
+
+        Raises:
+            HomeAssistantError: If a transition is already in progress.
+        """
+        async with self._unit_system_lock:
+            if self._unit_change_in_progress:
+                raise HomeAssistantError(
+                    f"Cannot {action} during a unit system change. "
+                    "Please try again."
+                )
+            yield
 
     def _update_device_cache(self) -> None:
         """Update the devices-by-MAC lookup cache for O(1) access.

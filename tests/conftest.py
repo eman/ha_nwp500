@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfTemperature
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.nwp500.const import CONF_EMAIL, CONF_PASSWORD, DOMAIN
 
@@ -199,6 +201,26 @@ def mock_nwp500_mqtt_client() -> Generator[AsyncMock]:
         yield mock_mqtt
 
 
+@asynccontextmanager
+async def _passthrough_guard(action: str) -> AsyncIterator[None]:
+    """A unit_transition_guard that permits the operation."""
+    yield
+
+
+@pytest.fixture
+def raising_unit_guard():
+    """A unit_transition_guard that refuses, as it does mid-transition."""
+
+    @asynccontextmanager
+    async def _guard(action: str) -> AsyncIterator[None]:
+        raise HomeAssistantError(
+            f"Cannot {action} during a unit system change. Please try again."
+        )
+        yield  # pragma: no cover - unreachable, keeps this a generator
+
+    return _guard
+
+
 @pytest.fixture
 def mock_coordinator(
     mock_config_entry: ConfigEntry,
@@ -218,8 +240,11 @@ def mock_coordinator(
     # Mock device_features to return None (no features available)
     coordinator.device_features = MagicMock()
     coordinator.device_features.get.return_value = None
-    # Not mid unit-system transition. Stated explicitly because a bare
-    # MagicMock attribute is truthy, which would make every
-    # temperature-bearing call look like it arrived during a unit change.
+    # Not mid unit-system transition. A bare MagicMock is truthy, so the
+    # flag is stated explicitly; the guard is given a real no-op context
+    # manager so callers that wrap work in it behave as they would against
+    # a coordinator that is not transitioning.
     coordinator.unit_change_in_progress = False
+    coordinator.unit_transition_guard = _passthrough_guard
+    coordinator.async_request_refresh = AsyncMock()
     return coordinator

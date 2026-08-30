@@ -383,22 +383,6 @@ class NWP500ServiceHandler:
         """Initialize the service handler."""
         self.hass = hass
 
-    @staticmethod
-    def _reject_during_unit_change(
-        coordinator: NWP500DataUpdateCoordinator, action: str
-    ) -> None:
-        """Refuse a temperature-bearing call mid unit-system transition.
-
-        While the coordinator, the MQTT manager and the library's unit
-        context are being brought into line, a temperature sent now could be
-        read in the wrong scale.
-        """
-        if coordinator.unit_change_in_progress:
-            raise HomeAssistantError(
-                f"Cannot {action} during a unit system change. "
-                "Please try again."
-            )
-
     async def _get_coordinator_and_mac(
         self, call: ServiceCall
     ) -> tuple[NWP500DataUpdateCoordinator, str]:
@@ -451,145 +435,153 @@ class NWP500ServiceHandler:
 
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
-        self._reject_during_unit_change(coordinator, "set a reservation")
+        # Validation and dispatch are held together against a unit-system
+        # transition, rather than checking a flag and then yielding. The
+        # conversion below happens before the first await, so this path was
+        # not itself racing -- but the guard makes that a property of the
+        # code rather than of the current statement order.
+        async with coordinator.unit_transition_guard("set a reservation"):
+            enabled = call.data[ATTR_ENABLED]
+            days = call.data[ATTR_DAYS]
+            hour = call.data[ATTR_HOUR]
+            minute = call.data.get(ATTR_MINUTE, 0)
+            mode = call.data[ATTR_OP_MODE]
+            temperature = call.data.get(ATTR_TEMPERATURE)
 
-        enabled = call.data[ATTR_ENABLED]
-        days = call.data[ATTR_DAYS]
-        hour = call.data[ATTR_HOUR]
-        minute = call.data.get(ATTR_MINUTE, 0)
-        mode = call.data[ATTR_OP_MODE]
-        temperature = call.data.get(ATTR_TEMPERATURE)
+            # Convert mode string to DHW mode ID
+            mode_id = MODE_TO_DHW_ID.get(mode)
+            if mode_id is None:
+                raise HomeAssistantError(f"Invalid mode: {mode}")
 
-        # Convert mode string to DHW mode ID
-        mode_id = MODE_TO_DHW_ID.get(mode)
-        if mode_id is None:
-            raise HomeAssistantError(f"Invalid mode: {mode}")
+            # Temperature is guaranteed by schema validation for most modes.
+            # For vacation/power_off, we use a default that matches the unit system.
+            if temperature is None:
+                if mode in ["vacation", "power_off"]:
+                    temperature = (
+                        DEFAULT_TEMPERATURE_C
+                        if coordinator.hass.config.units.temperature_unit
+                        == UnitOfTemperature.CELSIUS
+                        else DEFAULT_TEMPERATURE_F
+                    )
+                else:
+                    raise HomeAssistantError(
+                        f"Temperature is required for mode '{mode}'"
+                    )
 
-        # Temperature is guaranteed by schema validation for most modes.
-        # For vacation/power_off, we use a default that matches the unit system.
-        if temperature is None:
-            if mode in ["vacation", "power_off"]:
-                temperature = (
-                    DEFAULT_TEMPERATURE_C
-                    if coordinator.hass.config.units.temperature_unit
-                    == UnitOfTemperature.CELSIUS
-                    else DEFAULT_TEMPERATURE_F
-                )
-            else:
-                raise HomeAssistantError(
-                    f"Temperature is required for mode '{mode}'"
-                )
+            # Get device features to use device-specific temperature limits
+            features = coordinator.device_features.get(mac_address)
+            device_temp_min = (
+                getattr(features, "dhw_temperature_min", None)
+                if features
+                else None
+            )
+            device_temp_max = (
+                getattr(features, "dhw_temperature_max", None)
+                if features
+                else None
+            )
 
-        # Get device features to use device-specific temperature limits
-        features = coordinator.device_features.get(mac_address)
-        device_temp_min = (
-            getattr(features, "dhw_temperature_min", None) if features else None
-        )
-        device_temp_max = (
-            getattr(features, "dhw_temperature_max", None) if features else None
-        )
-
-        # Use device-specific limits if available, otherwise fallback to constants
-        if device_temp_min is not None and device_temp_max is not None:
-            temp_min, temp_max = device_temp_min, device_temp_max
-        else:
-            # Fallback to hardcoded ranges based on HA unit system
-            if (
-                coordinator.hass.config.units.temperature_unit
-                == UnitOfTemperature.CELSIUS
-            ):
-                temp_min, temp_max = MIN_TEMPERATURE_C, MAX_TEMPERATURE_C
-            else:
-                temp_min, temp_max = MIN_TEMPERATURE_F, MAX_TEMPERATURE_F
-
-        # Validate temperature range
-        if not (temp_min <= temperature <= temp_max):
-            # For device-specific limits, don't specify units as they may be in device units
-            # For fallback constants, they match HA's unit system
+            # Use device-specific limits if available, otherwise fallback to constants
             if device_temp_min is not None and device_temp_max is not None:
-                raise HomeAssistantError(
-                    f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
-                    f"is outside device valid range ({temp_min}-{temp_max})"
-                )
+                temp_min, temp_max = device_temp_min, device_temp_max
             else:
-                raise HomeAssistantError(
-                    f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
-                    f"is outside valid range ({temp_min}-{temp_max}°{coordinator.hass.config.units.temperature_unit})"
-                )
+                # Fallback to hardcoded ranges based on HA unit system
+                if (
+                    coordinator.hass.config.units.temperature_unit
+                    == UnitOfTemperature.CELSIUS
+                ):
+                    temp_min, temp_max = MIN_TEMPERATURE_C, MAX_TEMPERATURE_C
+                else:
+                    temp_min, temp_max = MIN_TEMPERATURE_F, MAX_TEMPERATURE_F
 
-        # Build the reservation entry using library function
-        # Library handles unit conversion based on global context
-        # Ensure we never pass None values - use validated temp_min/temp_max as fallbacks
-        reservation = build_reservation_entry(
-            enabled=enabled,
-            days=days,
-            hour=hour,
-            minute=minute,
-            mode_id=mode_id,
-            temperature=float(temperature),
-            temperature_min=device_temp_min
-            if device_temp_min is not None
-            else temp_min,
-            temperature_max=device_temp_max
-            if device_temp_max is not None
-            else temp_max,
-        )
+            # Validate temperature range
+            if not (temp_min <= temperature <= temp_max):
+                # For device-specific limits, don't specify units as they may be in device units
+                # For fallback constants, they match HA's unit system
+                if device_temp_min is not None and device_temp_max is not None:
+                    raise HomeAssistantError(
+                        f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
+                        f"is outside device valid range ({temp_min}-{temp_max})"
+                    )
+                else:
+                    raise HomeAssistantError(
+                        f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
+                        f"is outside valid range ({temp_min}-{temp_max}°{coordinator.hass.config.units.temperature_unit})"
+                    )
 
-        _LOGGER.info(
-            "Setting reservation for %s: days=%s, time=%02d:%02d, "
-            "mode=%s, temp=%s%s",
-            mac_address,
-            days,
-            hour,
-            minute,
-            mode,
-            temperature,
-            coordinator.hass.config.units.temperature_unit,
-        )
-
-        # Read-modify-write. The write is a full-list replacement at the
-        # protocol level, so the read must reflect what the device actually
-        # holds -- writing from an empty cache would wipe every existing
-        # reservation.
-        async with coordinator._reservation_lock:
-            existing_schedule = coordinator.reservation_schedules.get(
-                mac_address, {}
-            )
-            if not existing_schedule:
-                _LOGGER.debug(
-                    "No cached reservation schedule for %s; fetching before "
-                    "write",
-                    mac_address,
-                )
-                existing_schedule = (
-                    await coordinator.async_fetch_reservations(mac_address)
-                    or {}
-                )
-            if not existing_schedule:
-                raise HomeAssistantError(
-                    f"Could not read the current reservation schedule for "
-                    f"{mac_address}. Refusing to write, because doing so "
-                    f"would replace every reservation on the device. Check "
-                    f"that the device is online and try again."
-                )
-
-            existing_entries = _merge_reservation_entry(
-                list(existing_schedule.get("reservation", [])), reservation
+            # Build the reservation entry using library function
+            # Library handles unit conversion based on global context
+            # Ensure we never pass None values - use validated temp_min/temp_max as fallbacks
+            reservation = build_reservation_entry(
+                enabled=enabled,
+                days=days,
+                hour=hour,
+                minute=minute,
+                mode_id=mode_id,
+                temperature=float(temperature),
+                temperature_min=device_temp_min
+                if device_temp_min is not None
+                else temp_min,
+                temperature_max=device_temp_max
+                if device_temp_max is not None
+                else temp_max,
             )
 
-            # This service's `enabled` field is entry-level. The device's
-            # global reservation switch is separate, so preserve whatever it
-            # currently is instead of forcing it on. `reservation_use` uses
-            # the device bool convention (2=on, 1=off); if the device did not
-            # report it, fall back to enabling.
-            reservation_use = existing_schedule.get("reservation_use")
-            system_enabled = (
-                True if reservation_use is None else reservation_use == 2
+            _LOGGER.info(
+                "Setting reservation for %s: days=%s, time=%02d:%02d, "
+                "mode=%s, temp=%s%s",
+                mac_address,
+                days,
+                hour,
+                minute,
+                mode,
+                temperature,
+                coordinator.hass.config.units.temperature_unit,
             )
 
-            success = await coordinator.async_update_reservations(
-                mac_address, existing_entries, enabled=system_enabled
-            )
+            # Read-modify-write. The write is a full-list replacement at the
+            # protocol level, so the read must reflect what the device actually
+            # holds -- writing from an empty cache would wipe every existing
+            # reservation.
+            async with coordinator._reservation_lock:
+                existing_schedule = coordinator.reservation_schedules.get(
+                    mac_address, {}
+                )
+                if not existing_schedule:
+                    _LOGGER.debug(
+                        "No cached reservation schedule for %s; fetching before "
+                        "write",
+                        mac_address,
+                    )
+                    existing_schedule = (
+                        await coordinator.async_fetch_reservations(mac_address)
+                        or {}
+                    )
+                if not existing_schedule:
+                    raise HomeAssistantError(
+                        f"Could not read the current reservation schedule for "
+                        f"{mac_address}. Refusing to write, because doing so "
+                        f"would replace every reservation on the device. Check "
+                        f"that the device is online and try again."
+                    )
+
+                existing_entries = _merge_reservation_entry(
+                    list(existing_schedule.get("reservation", [])), reservation
+                )
+
+                # This service's `enabled` field is entry-level. The device's
+                # global reservation switch is separate, so preserve whatever it
+                # currently is instead of forcing it on. `reservation_use` uses
+                # the device bool convention (2=on, 1=off); if the device did not
+                # report it, fall back to enabling.
+                reservation_use = existing_schedule.get("reservation_use")
+                system_enabled = (
+                    True if reservation_use is None else reservation_use == 2
+                )
+
+                success = await coordinator.async_update_reservations(
+                    mac_address, existing_entries, enabled=system_enabled
+                )
 
         if not success:
             raise HomeAssistantError("Failed to set reservation")
@@ -601,22 +593,24 @@ class NWP500ServiceHandler:
         """Handle update_reservations service call."""
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
-        # Entries carry temperatures, same as set_reservation.
-        self._reject_during_unit_change(coordinator, "update reservations")
+        # Entries carry temperatures, same as set_reservation. These arrive
+        # already encoded in device units, so nothing here re-converts them
+        # -- but the write is still serialized against a transition so the
+        # two reservation paths behave alike.
+        async with coordinator.unit_transition_guard("update reservations"):
+            reservations = call.data[ATTR_RESERVATIONS]
+            enabled = call.data[ATTR_ENABLED]
 
-        reservations = call.data[ATTR_RESERVATIONS]
-        enabled = call.data[ATTR_ENABLED]
+            _LOGGER.info(
+                "Updating %d reservations for %s (enabled=%s)",
+                len(reservations),
+                mac_address,
+                enabled,
+            )
 
-        _LOGGER.info(
-            "Updating %d reservations for %s (enabled=%s)",
-            len(reservations),
-            mac_address,
-            enabled,
-        )
-
-        success = await coordinator.async_update_reservations(
-            mac_address, reservations, enabled=enabled
-        )
+            success = await coordinator.async_update_reservations(
+                mac_address, reservations, enabled=enabled
+            )
 
         if not success:
             raise HomeAssistantError("Failed to update reservations")

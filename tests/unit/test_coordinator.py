@@ -5,6 +5,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
@@ -2299,3 +2300,69 @@ async def test_initial_tou_read_never_fails_setup(coordinator):
     await coordinator._async_request_initial_tou(_device_with_mac())
 
     coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+# ---------------------------------------------------------------------------
+# unit_transition_guard
+#
+# Temperature-bearing callers must serialize against a unit-system
+# transition, not check a flag and then yield: the conversion to device
+# units reads the library's global unit context, and for an MQTT command
+# that read happens inside the library after the caller has awaited.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unit_guard_allows_work_when_no_transition_is_underway(
+    coordinator,
+):
+    """The ordinary case: the block runs."""
+    ran = False
+    async with coordinator.unit_transition_guard("set the temperature"):
+        ran = True
+    assert ran is True
+
+
+@pytest.mark.asyncio
+async def test_unit_guard_refuses_while_a_transition_is_in_progress(
+    coordinator,
+):
+    """A caller arriving mid-transition is told to try again."""
+    coordinator._unit_change_in_progress = True
+
+    with pytest.raises(HomeAssistantError, match="unit system change"):
+        async with coordinator.unit_transition_guard("set a reservation"):
+            raise AssertionError("the block must not run")
+
+
+@pytest.mark.asyncio
+async def test_unit_guard_blocks_a_transition_until_the_work_completes(
+    coordinator,
+):
+    """The point of the lock: a transition cannot interleave with the work.
+
+    _atomic_unit_system_change only ever runs while holding
+    _unit_system_lock, so holding it across validation and dispatch means
+    the global unit context cannot flip after a value has been validated
+    but before the library encodes it.
+    """
+    order: list[str] = []
+    released = asyncio.Event()
+
+    async def work() -> None:
+        async with coordinator.unit_transition_guard("set the temperature"):
+            order.append("work-start")
+            released.set()
+            # Yield repeatedly so the transition would run here if it could.
+            for _ in range(5):
+                await asyncio.sleep(0)
+            order.append("work-end")
+
+    async def transition() -> None:
+        await released.wait()
+        async with coordinator._unit_system_lock:
+            order.append("transition")
+
+    await asyncio.gather(work(), transition())
+
+    assert order == ["work-start", "work-end", "transition"]

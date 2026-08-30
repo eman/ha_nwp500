@@ -861,13 +861,13 @@ async def test_request_energy_usage_coerces_the_period(
 
 
 @pytest.mark.asyncio
-async def test_force_reconnect_gives_up_and_reports_failure(
+async def test_force_reconnect_gives_up_on_repeated_credential_rejection(
     manager, mock_mqtt_client, mock_device
 ):
     """A cause retrying cannot fix must reach the user, not loop forever.
 
-    When the credentials are gone, connect() fails identically on every
-    attempt. Retrying without a limit looked exactly like working: warnings
+    When the credentials are rejected, connect() fails identically on every
+    attempt. Retrying without limit looked exactly like working: warnings
     every 60s, no reauth prompt, and nothing that ever escalated.
     """
     from custom_components.nwp500 import mqtt_manager as mm
@@ -878,21 +878,136 @@ async def test_force_reconnect_gives_up_and_reports_failure(
 
     await manager.setup()
 
-    # Every attempt fails, as a revoked password would.
-    manager.setup = AsyncMock(return_value=False)
+    async def rejected():
+        manager._last_failure_was_credentials = True
+        return False
 
-    # Collapse the backoff so the test does not sit through ~9 minutes of it.
+    manager.setup = AsyncMock(side_effect=rejected)
+
     with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
         result = await asyncio.wait_for(
             manager.force_reconnect([mock_device]), timeout=15
         )
 
     assert result is False
-    assert manager.setup.await_count == mm._MAX_RECONNECT_ATTEMPTS
+    assert manager.setup.await_count == mm._MAX_CREDENTIAL_FAILURES
     # Reported through the loop, the way the library's own failure event is.
     manager.loop.call_soon_threadsafe.assert_called_once_with(
-        failed, mm._MAX_RECONNECT_ATTEMPTS
+        failed, mm._MAX_CREDENTIAL_FAILURES
     )
-    # Counter is reset so a later attempt starts from the short delays.
     assert manager._reconnect_attempts == 0
     assert manager.reconnection_in_progress is False
+
+
+@pytest.mark.asyncio
+async def test_force_reconnect_keeps_retrying_through_a_network_outage(
+    manager, mock_mqtt_client, mock_device
+):
+    """An outage must not be reported as an authentication failure.
+
+    setup()/connect() return False for outages, brokers refusing
+    connections and AWS SDK errors just as they do for bad credentials.
+    Escalating on attempt count alone would prompt the user to replace
+    credentials that are perfectly valid, and stop retrying the one thing
+    that does recover on its own.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+
+    original_setup = manager.setup
+    attempts = 0
+
+    async def down_then_back():
+        nonlocal attempts
+        attempts += 1
+        if attempts <= mm._MAX_CREDENTIAL_FAILURES * 3:
+            # A transport failure: not a credential rejection.
+            manager._last_failure_was_credentials = False
+            return False
+        return await original_setup()
+
+    manager.setup = down_then_back
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        result = await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    # Kept trying well past the credential threshold, then recovered.
+    assert result is True
+    assert attempts == mm._MAX_CREDENTIAL_FAILURES * 3 + 1
+    failed.assert_not_called()
+    manager.loop.call_soon_threadsafe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_force_reconnect_resets_credential_run_on_a_transport_failure(
+    manager, mock_mqtt_client, mock_device
+):
+    """Only *consecutive* rejections escalate.
+
+    A credential failure followed by an outage is not evidence the password
+    is wrong, so the run restarts rather than accumulating toward reauth.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+
+    original_setup = manager.setup
+    # Alternate rejection / outage so no run ever reaches the threshold.
+    pattern = [True, False] * (mm._MAX_CREDENTIAL_FAILURES * 2)
+    calls = 0
+
+    async def alternating():
+        nonlocal calls
+        if calls < len(pattern):
+            manager._last_failure_was_credentials = pattern[calls]
+            calls += 1
+            return False
+        return await original_setup()
+
+    manager.setup = alternating
+
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        result = await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    assert result is True
+    failed.assert_not_called()
+
+
+def test_credential_failures_are_told_from_transport_failures():
+    """The classifier is what keeps an outage off the reauth path."""
+    from nwp500.exceptions import (
+        AuthenticationError,
+        InvalidCredentialsError,
+        MqttCredentialsError,
+    )
+
+    from custom_components.nwp500.mqtt_manager import _is_credential_failure
+
+    assert _is_credential_failure(InvalidCredentialsError("nope")) is True
+    assert _is_credential_failure(MqttCredentialsError("nope")) is True
+
+    # The library marks transport-related login failures retriable; those
+    # are outages wearing an auth exception, not bad credentials.
+    transient = AuthenticationError("connection reset")
+    transient.retriable = True
+    assert _is_credential_failure(transient) is False
+
+    definitive = AuthenticationError("account disabled")
+    definitive.retriable = False
+    assert _is_credential_failure(definitive) is True
+
+    assert _is_credential_failure(OSError("network unreachable")) is False
+    assert _is_credential_failure(TimeoutError()) is False

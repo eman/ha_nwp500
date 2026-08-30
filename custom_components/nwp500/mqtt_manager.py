@@ -8,6 +8,12 @@ from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Final
 
+from nwp500.exceptions import (
+    AuthenticationError,
+    InvalidCredentialsError,
+    MqttCredentialsError,
+)
+
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
         Device,
@@ -31,17 +37,38 @@ _LOGGER = logging.getLogger(__name__)
 _RECONNECT_BACKOFF_DELAYS: list[float] = [2.0, 5.0, 15.0, 30.0, 60.0]
 _RECONNECTION_FAILED_EVENT = "reconnection_failed"
 
-# How many times force_reconnect retries before giving up and reporting the
-# failure. Retrying forever looks the same as working when the cause is a
-# revoked password: connect() returns False on every attempt, so the loop
-# would spin at the 60s cap indefinitely while the user is told nothing and
-# no reauth flow is ever offered. With the backoff above, this is roughly
-# nine minutes of trying before handing the problem back.
-_MAX_RECONNECT_ATTEMPTS: Final = 12
+# How many consecutive *credential* failures force_reconnect tolerates before
+# giving up and reporting the failure.
+#
+# Only the cause that retrying cannot fix escalates. An outage, a broker
+# refusing connections, an AWS SDK error and a network blip during token
+# refresh all also make connect() return False, and reporting those as an
+# authentication failure would prompt the user to replace credentials that
+# are perfectly valid -- so those keep retrying on the backoff above, which
+# is what recovers when the network comes back.
+#
+# The threshold is above one because the auth service itself can refuse a
+# token refresh transiently in a way the library does not mark retriable.
+_MAX_CREDENTIAL_FAILURES: Final = 3
 
 
 # Top-level packages of the AWS SDK the MQTT stack runs on.
 _AWS_SDK_PACKAGES = frozenset({"awscrt", "awsiot"})
+
+
+def _is_credential_failure(err: BaseException) -> bool:
+    """Whether `err` means the stored credentials are the problem.
+
+    Distinguishes the one cause reconnecting cannot fix from the many that
+    it can. `AuthenticationError.retriable` is the library's own signal that
+    a login failure was transport-related rather than a rejection, so a
+    retriable one is explicitly not a credential failure.
+    """
+    if isinstance(err, (InvalidCredentialsError, MqttCredentialsError)):
+        return True
+    if isinstance(err, AuthenticationError):
+        return not getattr(err, "retriable", False)
+    return False
 
 
 def _raised_inside_aws_sdk(err: BaseException) -> bool:
@@ -104,6 +131,13 @@ class NWP500MqttManager:
 
         # Connection state tracking for diagnostics
         self._connection_interruptions: deque[dict[str, Any]] = deque(maxlen=20)
+
+        # Whether the most recent connect() failed because the credentials
+        # themselves were rejected, as opposed to any of the transport
+        # failures that also make connect() return False. Only the former
+        # is worth sending the user to reauthenticate over.
+        self._last_failure_was_credentials: bool = False
+        self._consecutive_credential_failures: int = 0
 
     async def __aenter__(self) -> NWP500MqttManager:
         """Async context manager entry - set up MQTT connection."""
@@ -250,10 +284,14 @@ class NWP500MqttManager:
                 _LOGGER.error(
                     "Failed to ensure valid auth tokens: %s", auth_err
                 )
+                self._last_failure_was_credentials = _is_credential_failure(
+                    auth_err
+                )
                 return False
 
             connected = await self.mqtt_client.connect()
             if connected:
+                self._last_failure_was_credentials = False
                 self.connected_since = time.time()
                 _LOGGER.info(
                     "MQTT connected successfully at %.3f", self.connected_since
@@ -267,6 +305,9 @@ class NWP500MqttManager:
                     )
             else:
                 _LOGGER.warning("MQTT connection failed")
+                # A bare False from the client says nothing about the cause,
+                # so it is not treated as a credential failure.
+                self._last_failure_was_credentials = False
                 # Record connection failure in diagnostics
                 if self.diagnostics:
                     await self.diagnostics.record_connection_drop(
@@ -296,11 +337,13 @@ class NWP500MqttManager:
                 )
             else:
                 _LOGGER.warning("MQTT connection failed: %s", err)
+            self._last_failure_was_credentials = False
             if self.diagnostics:
                 await self.diagnostics.record_connection_drop(error=err)
             return False
         except Exception as err:
             _LOGGER.warning("MQTT connection failed: %s", err)
+            self._last_failure_was_credentials = _is_credential_failure(err)
             # Record connection failure in diagnostics
             if self.diagnostics:
                 await self.diagnostics.record_connection_drop(error=err)
@@ -545,15 +588,18 @@ class NWP500MqttManager:
         Uses increasing delays between attempts: 2s, 5s, 15s, 30s, 60s (cap).
         Backoff resets on successful reconnection.
 
-        Gives up after `_MAX_RECONNECT_ATTEMPTS` and reports the failure
-        through the same path the library's own reconnect loop uses, so a
-        cause that retrying cannot fix -- a changed password, a revoked
-        account -- reaches the user as a reauth prompt instead of an endless
-        run of warnings.
+        Retries indefinitely for failures that reconnecting can fix -- an
+        outage, a broker refusing connections -- because those resolve when
+        the network comes back. Gives up only after
+        `_MAX_CREDENTIAL_FAILURES` consecutive *credential* rejections,
+        reporting through the same path the library's own reconnect loop
+        uses, so a changed password reaches the user as a reauth prompt
+        rather than an endless run of warnings -- while a long outage never
+        prompts them to replace credentials that are valid.
 
         Returns:
-            True if the connection was re-established, False if the attempt
-            limit was reached.
+            True if the connection was re-established, False if it gave up
+            because the credentials were rejected.
         """
         if self.reconnection_in_progress:
             return False
@@ -612,17 +658,31 @@ class NWP500MqttManager:
                 # Failed - increment attempt counter for next backoff
                 self._reconnect_attempts += 1
 
-                if self._reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
+                # Only a run of credential failures is worth giving up over.
+                # Anything else -- an outage, a broker refusing connections,
+                # an AWS SDK error -- is fixed by the network coming back, so
+                # it keeps retrying rather than sending the user to replace
+                # credentials that are valid.
+                if self._last_failure_was_credentials:
+                    self._consecutive_credential_failures += 1
+                else:
+                    self._consecutive_credential_failures = 0
+
+                if (
+                    self._consecutive_credential_failures
+                    >= _MAX_CREDENTIAL_FAILURES
+                ):
                     attempts = self._reconnect_attempts
-                    # Reset so a later trigger (a manual reload, or the
-                    # coordinator's timeout path once the user has fixed the
-                    # cause) starts from the short delays again.
+                    # Reset so a later trigger, once the user has updated the
+                    # credentials, starts from the short delays again.
                     self._reconnect_attempts = 0
+                    self._consecutive_credential_failures = 0
                     _LOGGER.error(
-                        "Giving up on MQTT reconnection after %d attempt(s). "
-                        "This usually means the Navien credentials are no "
-                        "longer valid.",
+                        "Giving up on MQTT reconnection after %d attempt(s): "
+                        "the Navien credentials were rejected %d time(s) in a "
+                        "row. Re-authentication is required.",
                         attempts,
+                        _MAX_CREDENTIAL_FAILURES,
                     )
                     self._on_reconnection_failed(attempts)
                     return False
@@ -632,9 +692,8 @@ class NWP500MqttManager:
                 )
                 next_backoff = _RECONNECT_BACKOFF_DELAYS[next_backoff_index]
                 _LOGGER.warning(
-                    "Reconnection failed (attempt %d of %d). Retrying in %.0fs...",
+                    "Reconnection failed (attempt %d). Retrying in %.0fs...",
                     self._reconnect_attempts,
-                    _MAX_RECONNECT_ATTEMPTS,
                     next_backoff,
                 )
                 # Loop continues - will retry after backoff

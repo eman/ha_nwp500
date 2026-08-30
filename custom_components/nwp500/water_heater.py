@@ -18,7 +18,6 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import (
-    HomeAssistantError,
     ServiceValidationError,
 )
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -338,33 +337,41 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
         if temperature is None:
             return
 
-        # A setpoint sent mid-transition could be read in the wrong scale;
-        # the reservation services refuse for the same reason.
-        if self.coordinator.unit_change_in_progress:
-            raise HomeAssistantError(
-                "Cannot set the temperature during a unit system change. "
-                "Please try again."
+        # Validation and dispatch are held together against a unit-system
+        # transition. Checking a flag first would not be enough: the value is
+        # converted to device units inside the library, after the publish
+        # below has yielded, so a transition starting in between would encode
+        # a setpoint validated in one scale using the other.
+        async with self.coordinator.unit_transition_guard(
+            "set the temperature"
+        ):
+            # Validate temperature range. Raising rather than returning:
+            # silently dropping the call left the user looking at a setpoint
+            # they thought they had changed, with the reason only in the log.
+            if not (self.min_temp <= temperature <= self.max_temp):
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="temperature_out_of_range",
+                    translation_placeholders={
+                        "temperature": str(temperature),
+                        "min_temp": str(self.min_temp),
+                        "max_temp": str(self.max_temp),
+                    },
+                )
+
+            success = await self.coordinator.async_control_device(
+                self.mac_address,
+                "set_temperature",
+                temperature=float(temperature),
             )
 
-        # Validate temperature range. Raising rather than returning: silently
-        # dropping the call left the user looking at a setpoint they thought
-        # they had changed, with the reason only in the log.
-        if not (self.min_temp <= temperature <= self.max_temp):
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="temperature_out_of_range",
-                translation_placeholders={
-                    "temperature": str(temperature),
-                    "min_temp": str(self.min_temp),
-                    "max_temp": str(self.max_temp),
-                },
-            )
-
-        await self._control_device(
-            "set_temperature",
-            "Failed to set temperature",
-            temperature=float(temperature),
-        )
+        # Refreshing is deliberately outside the guard: it needs no unit
+        # context of its own, and holding the lock across a coordinator
+        # refresh would stall a pending transition for no reason.
+        if success:
+            await self.coordinator.async_request_refresh()
+        else:
+            _LOGGER.error("Failed to set temperature")
 
     @override
     async def async_set_operation_mode(self, operation_mode: str) -> None:

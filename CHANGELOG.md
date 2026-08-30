@@ -23,13 +23,17 @@
   `InvalidCredentialsError` and `AuthenticationError`, honouring the
   `retriable` flag so a transient network failure during login reports as a
   connection problem instead of accusing the user's password.
-- **A dead MQTT connection now leads to a reauth prompt.** `force_reconnect`
+- **Rejected credentials now lead to a reauth prompt.** `force_reconnect`
   retried indefinitely. When the cause was a revoked or changed password
   every attempt failed identically, so it spun at the 60s backoff cap
   forever -- logging warnings, never escalating, never telling the user what
-  to fix. It now gives up after 12 attempts and reports the failure through
-  the same path the library's own reconnect loop uses, which starts the
-  reauth flow.
+  to fix. It now gives up after three consecutive credential rejections and
+  reports through the same path the library's own reconnect loop uses,
+  which starts the reauth flow. Only that cause escalates: an outage, a
+  broker refusing connections and an AWS SDK error all also make
+  `connect()` return `False`, so those keep retrying on the existing
+  backoff rather than prompting the user to replace credentials that are
+  valid.
 - **Out-of-range water heater setpoints are reported.** `async_set_temperature`
   logged and returned, leaving the user looking at a temperature they
   believed they had changed. It now raises `ServiceValidationError`. Its
@@ -58,18 +62,29 @@
   generic name like `state` blanked unrelated fields. Location redaction is
   now scoped to the location block itself.
 
+- **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**
+  With an empty `## [Unreleased]` section it fell back to
+  `content.replace(section, ...)` with `section` empty, which inserts at
+  offset 0 -- so the upgrade bullet landed before `# Changelog`. The
+  section is now rewritten by span.
+
 ### Changed
-- **Every temperature-bearing call refuses during a unit system change.**
-  Only `set_reservation` checked; `update_reservations` and the water
-  heater's `set_temperature` did not, despite carrying temperatures that
-  could be read in the wrong scale mid-transition. The check is now a public
-  `unit_change_in_progress` property on the coordinator rather than a
-  `getattr` reach into a private attribute from another module.
+- **Every temperature-bearing call is serialized against a unit system
+  change.** Only `set_reservation` checked; `update_reservations` and the
+  water heater's `set_temperature` did not, despite carrying temperatures
+  that could be read in the wrong scale mid-transition. All three now hold
+  the coordinator's new `unit_transition_guard` across validation *and*
+  dispatch, rather than reaching into a private attribute with `getattr`
+  and then yielding. Checking a flag first was not sufficient for the
+  water heater: the conversion to device units happens inside the library,
+  after the publish has awaited, so a transition starting in between would
+  encode a setpoint validated in one scale using the other. The guard holds
+  `_unit_system_lock`, which `_atomic_unit_system_change` also requires, so
+  a transition cannot interleave.
 - **The bundled Lovelace cards escape interpolated values.** Entity names,
   states, units and card configuration were written straight into
   `innerHTML`. All such values now go through an `esc()` helper.
 
-### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 9.3.1
 - **The `request_tou_settings` service now reads the plan over REST.**
   nwp500-python 9.3.1 removed `NavienMqttClient.request_tou_settings()`:
@@ -141,13 +156,6 @@
   served one at a time and a reply is accepted only while a request for
   that period is outstanding. A reply that arrives after its own request
   gave up is discarded rather than handed to whoever asked next.
-
-### Fixed
-- **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**
-  With an empty `## [Unreleased]` section it fell back to
-  `content.replace(section, ...)` with `section` empty, which inserts at
-  offset 0 -- so the upgrade bullet landed before `# Changelog`. The
-  section is now rewritten by span.
 
 ## [0.19.0] - 2026-08-22
 
