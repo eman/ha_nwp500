@@ -31,7 +31,7 @@ basedpyright = [
     "basedpyright>=1.0.0",
 ]
 lint = [
-    "ruff>=0.16.0",
+    "ruff>=0.16.3",
 ]
 dev = [
     {include-group = "test"},
