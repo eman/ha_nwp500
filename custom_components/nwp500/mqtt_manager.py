@@ -6,7 +6,7 @@ import time
 import types
 from collections import deque
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -30,6 +30,14 @@ _LOGGER = logging.getLogger(__name__)
 # Reconnection backoff delays (seconds): 2s, 5s, 15s, 30s, 60s cap
 _RECONNECT_BACKOFF_DELAYS: list[float] = [2.0, 5.0, 15.0, 30.0, 60.0]
 _RECONNECTION_FAILED_EVENT = "reconnection_failed"
+
+# How many times force_reconnect retries before giving up and reporting the
+# failure. Retrying forever looks the same as working when the cause is a
+# revoked password: connect() returns False on every attempt, so the loop
+# would spin at the 60s cap indefinitely while the user is told nothing and
+# no reauth flow is ever offered. With the backoff above, this is roughly
+# nine minutes of trying before handing the problem back.
+_MAX_RECONNECT_ATTEMPTS: Final = 12
 
 
 # Top-level packages of the AWS SDK the MQTT stack runs on.
@@ -96,8 +104,6 @@ class NWP500MqttManager:
 
         # Connection state tracking for diagnostics
         self._connection_interruptions: deque[dict[str, Any]] = deque(maxlen=20)
-
-        self._tracked_mac_addresses: set[str] = set()
 
     async def __aenter__(self) -> NWP500MqttManager:
         """Async context manager entry - set up MQTT connection."""
@@ -336,8 +342,6 @@ class NWP500MqttManager:
             return
 
         mac_address = device.device_info.mac_address
-        if mac_address not in self._tracked_mac_addresses:
-            self._tracked_mac_addresses.add(mac_address)
 
         try:
             # Library now injects mac_address into DeviceStatus/DeviceFeature,
@@ -540,7 +544,16 @@ class NWP500MqttManager:
 
         Uses increasing delays between attempts: 2s, 5s, 15s, 30s, 60s (cap).
         Backoff resets on successful reconnection.
-        Retries indefinitely with exponential backoff until successful.
+
+        Gives up after `_MAX_RECONNECT_ATTEMPTS` and reports the failure
+        through the same path the library's own reconnect loop uses, so a
+        cause that retrying cannot fix -- a changed password, a revoked
+        account -- reaches the user as a reauth prompt instead of an endless
+        run of warnings.
+
+        Returns:
+            True if the connection was re-established, False if the attempt
+            limit was reached.
         """
         if self.reconnection_in_progress:
             return False
@@ -598,13 +611,30 @@ class NWP500MqttManager:
 
                 # Failed - increment attempt counter for next backoff
                 self._reconnect_attempts += 1
+
+                if self._reconnect_attempts >= _MAX_RECONNECT_ATTEMPTS:
+                    attempts = self._reconnect_attempts
+                    # Reset so a later trigger (a manual reload, or the
+                    # coordinator's timeout path once the user has fixed the
+                    # cause) starts from the short delays again.
+                    self._reconnect_attempts = 0
+                    _LOGGER.error(
+                        "Giving up on MQTT reconnection after %d attempt(s). "
+                        "This usually means the Navien credentials are no "
+                        "longer valid.",
+                        attempts,
+                    )
+                    self._on_reconnection_failed(attempts)
+                    return False
+
                 next_backoff_index = min(
                     self._reconnect_attempts, len(_RECONNECT_BACKOFF_DELAYS) - 1
                 )
                 next_backoff = _RECONNECT_BACKOFF_DELAYS[next_backoff_index]
                 _LOGGER.warning(
-                    "Reconnection failed (attempt %d). Retrying in %.0fs...",
+                    "Reconnection failed (attempt %d of %d). Retrying in %.0fs...",
                     self._reconnect_attempts,
+                    _MAX_RECONNECT_ATTEMPTS,
                     next_backoff,
                 )
                 # Loop continues - will retry after backoff

@@ -153,6 +153,18 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=scan_interval),
         )
 
+    @property
+    def unit_change_in_progress(self) -> bool:
+        """Whether an atomic unit-system transition is underway.
+
+        Callers that carry a temperature must refuse to act while this is
+        set: between the coordinator, the MQTT manager and the library's
+        unit context being updated, a value sent now could be interpreted
+        in the wrong scale. Public because the service handlers and the
+        water heater entity are the callers that need to ask.
+        """
+        return self._unit_change_in_progress
+
     def _update_device_cache(self) -> None:
         """Update the devices-by-MAC lookup cache for O(1) access.
 
@@ -833,6 +845,22 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "Failed to request initial reservations: %s", err
                         )
 
+                    # Read the programmed TOU plan, so the TOU schedule
+                    # sensor is populated from the start rather than sitting
+                    # unknown until the first periodic schedule refresh --
+                    # roughly twenty minutes after every restart, while its
+                    # reservation counterpart was already populated above.
+                    #
+                    # Unlike reservations this is a REST read keyed by the
+                    # controller serial number, which only the device-info
+                    # response above publishes. That response arrives on the
+                    # MQTT thread and is applied when this coroutine yields,
+                    # so it is normally here by now -- but a device slow to
+                    # answer would leave it missing, and calling anyway would
+                    # log an error for a condition the periodic refresh
+                    # recovers from on its own. So check first.
+                    await self._async_request_initial_tou(device)
+
             _LOGGER.info(
                 "Successfully connected to Navien cloud service with "
                 "%d devices",
@@ -890,6 +918,46 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 f"Failed to connect to Navien service: {err}"
             ) from err
+
+    async def _async_request_initial_tou(self, device: Device) -> None:
+        """Read the TOU plan once at setup, if the device is ready for it.
+
+        Best-effort: a device whose info has not arrived yet is skipped
+        silently, because `_async_refresh_schedules` re-reads the plan on
+        its own cycle. Nothing here may fail setup -- the TOU plan is not
+        what the connection is for.
+        """
+        mac_address = device.device_info.mac_address
+
+        # Mirrors the guard inside async_request_tou_settings, so the
+        # not-ready case never reaches its error log.
+        features = self.device_features.get(mac_address)
+        controller_serial = (
+            getattr(features, "controller_serial_number", "")
+            if features
+            else ""
+        )
+        if not controller_serial:
+            _LOGGER.debug(
+                "Skipping the initial TOU read for %s: device info has not "
+                "arrived yet, so the periodic refresh will pick it up",
+                mac_address,
+            )
+            return
+
+        try:
+            await self.async_request_tou_settings(mac_address)
+        except (
+            APIError,
+            AuthenticationError,
+            OSError,
+            TimeoutError,
+            TypeError,
+            ValueError,
+        ) as err:
+            _LOGGER.debug(
+                "Initial TOU read failed for %s: %s", mac_address, err
+            )
 
     def _on_device_status_update(
         self, mac_address: str, status: DeviceStatus
@@ -1099,6 +1167,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
 
             self._energy_request = None
+            # A reply matching the outstanding period accounts for whatever
+            # was in flight, so the next empty reply is once again just a
+            # device with nothing recorded. Without this the flag latched on
+            # for the life of the coordinator and every genuinely empty
+            # period reported as a timeout ever after.
+            self._energy_straggler_possible = False
             waiter: asyncio.Future[dict[str, Any]] = pending["future"]
             if not waiter.done():
                 waiter.set_result(response)

@@ -34,7 +34,8 @@
       "already_configured": "Account is already configured",
       "reauth_successful": "Re-authentication successful",
       "reauth_failed": "Re-authentication failed. Please try removing and re-adding the integration.",
-      "reconfigure_successful": "Reconfiguration successful"
+      "reconfigure_successful": "Reconfiguration successful",
+      "wrong_account": "This is a different Navien account. Please sign in with the account this integration was set up for."
     }
   },
   "options": {
@@ -684,6 +685,11 @@
           "description": "Months to report on. Several may be requested at once. Defaults to the current month."
         }
       }
+    }
+  },
+  "exceptions": {
+    "temperature_out_of_range": {
+      "message": "Temperature {temperature} is outside the allowed range of {min_temp} to {max_temp}."
     }
   }
 }

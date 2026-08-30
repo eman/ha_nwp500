@@ -5,6 +5,23 @@
 
 const CARD_VERSION = '1.1.0';
 
+/**
+ * Escape a value for interpolation into an HTML template.
+ *
+ * The card title and device ID come from the user's card configuration and
+ * the temperatures from the device, none of which is guaranteed to be free
+ * of markup. Every `${...}` that carries such a value goes through here.
+ */
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[c]);
+}
+
 // Mode definitions
 const MODES = {
   1: { name: 'Heat Pump', icon: 'mdi:heat-pump', color: '#00BCD4', short: 'HP' },
@@ -240,7 +257,7 @@ class NWP500ScheduleCard extends HTMLElement {
       <ha-card>
         <div class="card-header">
           <div class="title-row">
-            <span class="title">${this._config.title}</span>
+            <span class="title">${esc(this._config.title)}</span>
             <div class="global-toggle">
               <span class="toggle-label">${this._reservationUse === 2 ? 'Active' : 'Inactive'}</span>
               <div class="toggle-switch ${this._reservationUse === 2 ? 'on' : ''}" id="globalToggle">
@@ -287,7 +304,7 @@ class NWP500ScheduleCard extends HTMLElement {
       const mode = MODES[e.mode] || MODES[1];
       const tempDisplay = this._formatTemp(e.param);
       const opacity = 1;
-      return `<div class="timeline-block" style="left:${left}%;background:${mode.color};opacity:${opacity}" data-edit="${e._idx}" title="${mode.name} at ${pad(e.hour)}:${pad(e.min)} \u2014 ${tempDisplay}">
+      return `<div class="timeline-block" style="left:${left}%;background:${mode.color};opacity:${opacity}" data-edit="${e._idx}" title="${esc(mode.name)} at ${pad(e.hour)}:${pad(e.min)} \u2014 ${esc(tempDisplay)}">
         <ha-icon icon="${mode.icon}" style="--mdc-icon-size:14px;color:#fff"></ha-icon>
       </div>`;
     }).join('');
@@ -314,7 +331,7 @@ class NWP500ScheduleCard extends HTMLElement {
             <span>${mode.name}</span>
           </div>
         </div>
-        <div class="entry-temp">${e.mode <= 4 ? tempDisplay : '\u2014'}</div>
+        <div class="entry-temp">${e.mode <= 4 ? esc(tempDisplay) : '\u2014'}</div>
         <div class="entry-days">${days.map(d => DAYS[d]).join(', ')}</div>
         <div class="entry-actions">
           <button class="icon-btn" data-edit="${e._idx}" title="Edit">
@@ -478,8 +495,8 @@ class NWP500ScheduleCard extends HTMLElement {
     ).join('')}</div>
           </div>
           <div class="nwp-form-group" id="nwpTempGroup" style="${entry.mode > 4 ? 'display:none' : ''}">
-            <label>Temperature: <span id="nwpTempValue">${tempVal}${tempUnit}</span></label>
-            <input type="range" class="nwp-temp-slider" id="nwpTempSlider" min="${tempMin}" max="${tempMax}" value="${tempVal}" step="1">
+            <label>Temperature: <span id="nwpTempValue">${esc(tempVal)}${esc(tempUnit)}</span></label>
+            <input type="range" class="nwp-temp-slider" id="nwpTempSlider" min="${esc(tempMin)}" max="${esc(tempMax)}" value="${esc(tempVal)}" step="1">
           </div>
           <div class="nwp-form-group">
             <label>Days</label>
@@ -847,11 +864,11 @@ class NWP500ScheduleCardEditor extends HTMLElement {
       <div class="editor">
         <div class="field">
           <label>Device ID (required)</label>
-          <input id="deviceId" value="${this._config.device_id || ''}" placeholder="abc123...">
+          <input id="deviceId" value="${esc(this._config.device_id || '')}" placeholder="abc123...">
         </div>
         <div class="field">
           <label>Title</label>
-          <input id="title" value="${this._config.title || 'Water Heater Schedule'}">
+          <input id="title" value="${esc(this._config.title || 'Water Heater Schedule')}">
         </div>
       </div>
     `;

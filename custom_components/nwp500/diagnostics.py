@@ -13,29 +13,43 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-# Fields whose values are always redacted in diagnostic output.
-# Location fields are account PII: they identify where the user lives, so
-# they are reported as structure only, never as values.
+# Fields whose values are always redacted in diagnostic output, at any depth.
 _TO_REDACT = {
     "password",
     "token",
     "access_token",
     "refresh_token",
     "secret",
+    # The installer's account identifier: another party's identity, not the
+    # user's own device metadata.
+    "installer_id",
+}
+
+# Location fields are account PII: they identify where the user lives, so they
+# are reported as structure only, never as values. Applied to the location
+# block alone rather than through _TO_REDACT, whose keys match at any depth:
+# generic names like "state" would otherwise blank unrelated fields -- MQTT
+# connection state among them -- and cost exactly the diagnostic detail these
+# reports exist to carry.
+_LOCATION_TO_REDACT = {
     "address",
     "city",
     "state",
     "latitude",
     "longitude",
     "altitude",
-    # The installer's account identifier: another party's identity, not the
-    # user's own device metadata.
-    "installer_id",
 }
 
+# Both alternatives are fenced by hex-character boundaries. Without them the
+# bare form matched any 12 characters of a longer hex run -- chewing 12 digits
+# out of an epoch-millisecond timestamp, or splitting a 32-character
+# identifier into two "**REDACTED**" fragments plus a remainder -- which
+# corrupted values that were never MAC addresses.
 _MAC_RE = re.compile(
-    r"[0-9a-fA-F]{2}(?:[:\-][0-9a-fA-F]{2}){5}"  # colon/dash-delimited: AA:BB:CC:DD:EE:FF
-    r"|[0-9a-fA-F]{12}",  # bare 12-hex: AABBCCDDEEFF
+    r"(?<![0-9a-fA-F])(?:"
+    r"[0-9a-fA-F]{2}(?:[:\-][0-9a-fA-F]{2}){5}"  # delimited: AA:BB:CC:DD:EE:FF
+    r"|[0-9a-fA-F]{12}"  # bare 12-hex: AABBCCDDEEFF
+    r")(?![0-9a-fA-F])",
     re.IGNORECASE,
 )
 
@@ -162,11 +176,14 @@ async def async_get_config_entry_diagnostics(
                     "altitude",
                 )
             }
-            entry["location"] = {
-                key: value
-                for key, value in populated.items()
-                if value is not None
-            }
+            entry["location"] = async_redact_data(
+                {
+                    key: value
+                    for key, value in populated.items()
+                    if value is not None
+                },
+                _LOCATION_TO_REDACT,
+            )
         devices.append(entry)
     diagnostics_data["devices"] = devices
 

@@ -383,6 +383,22 @@ class NWP500ServiceHandler:
         """Initialize the service handler."""
         self.hass = hass
 
+    @staticmethod
+    def _reject_during_unit_change(
+        coordinator: NWP500DataUpdateCoordinator, action: str
+    ) -> None:
+        """Refuse a temperature-bearing call mid unit-system transition.
+
+        While the coordinator, the MQTT manager and the library's unit
+        context are being brought into line, a temperature sent now could be
+        read in the wrong scale.
+        """
+        if coordinator.unit_change_in_progress:
+            raise HomeAssistantError(
+                f"Cannot {action} during a unit system change. "
+                "Please try again."
+            )
+
     async def _get_coordinator_and_mac(
         self, call: ServiceCall
     ) -> tuple[NWP500DataUpdateCoordinator, str]:
@@ -435,12 +451,7 @@ class NWP500ServiceHandler:
 
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
-        # SAFETY: Prevent service calls during unit system transitions
-        # This prevents temperatures from being set with wrong unit context
-        if getattr(coordinator, "_unit_change_in_progress", False):
-            raise HomeAssistantError(
-                "Cannot set reservation during unit system change. Please try again."
-            )
+        self._reject_during_unit_change(coordinator, "set a reservation")
 
         enabled = call.data[ATTR_ENABLED]
         days = call.data[ATTR_DAYS]
@@ -589,6 +600,9 @@ class NWP500ServiceHandler:
     async def async_update_reservations(self, call: ServiceCall) -> None:
         """Handle update_reservations service call."""
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        # Entries carry temperatures, same as set_reservation.
+        self._reject_during_unit_change(coordinator, "update reservations")
 
         reservations = call.data[ATTR_RESERVATIONS]
         enabled = call.data[ATTR_ENABLED]

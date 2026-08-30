@@ -12,6 +12,10 @@ from homeassistant.components.water_heater import (
     STATE_HIGH_DEMAND,
 )
 from homeassistant.const import STATE_OFF, UnitOfTemperature
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+)
 from nwp500.enums import DhwOperationSetting
 
 from custom_components.nwp500.const import (
@@ -617,3 +621,69 @@ class TestNWP500WaterHeater:
         heater.hass = mock_hass
 
         assert heater.current_operation == "unknown"
+
+
+class TestSetTemperatureRejectsBadInput:
+    """The setpoint call must fail loudly rather than quietly do nothing."""
+
+    @staticmethod
+    def _heater(mock_coordinator, mock_device, mock_hass):
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+        mock_coordinator.async_control_device = AsyncMock()
+        return heater
+
+    @pytest.mark.asyncio
+    async def test_above_max_raises(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """An out-of-range setpoint is reported, not swallowed.
+
+        Returning silently left the user looking at a temperature they
+        believed they had changed, with the reason only in the log.
+        """
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+
+        with pytest.raises(ServiceValidationError):
+            await heater.async_set_temperature(
+                temperature=MAX_TEMPERATURE_F + 10
+            )
+
+        mock_coordinator.async_control_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_below_min_raises(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """A setpoint under the minimum is reported the same way."""
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+
+        with pytest.raises(ServiceValidationError):
+            await heater.async_set_temperature(
+                temperature=MIN_TEMPERATURE_F - 10
+            )
+
+        mock_coordinator.async_control_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refuses_during_unit_system_change(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """A setpoint sent mid-transition could be read in the wrong scale."""
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+        mock_coordinator.unit_change_in_progress = True
+
+        with pytest.raises(HomeAssistantError):
+            await heater.async_set_temperature(temperature=125)
+
+        mock_coordinator.async_control_device.assert_not_called()

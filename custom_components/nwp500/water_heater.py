@@ -17,12 +17,17 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+)
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from nwp500.enums import DhwOperationSetting
 
 from .const import (
+    DOMAIN,
     HA_TO_DHW_MODE,
     MAX_TEMPERATURE_C,
     MAX_TEMPERATURE_F,
@@ -324,22 +329,36 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature.
 
-        Uses set_dhw_temperature_display() which takes the display temperature
-        directly (what users see on device/app) without requiring conversion.
+        The value is the display temperature -- what the user sees on the
+        device and in the app -- and is passed through in that scale; the
+        library converts it using the unit-system context the coordinator
+        keeps in sync.
         """
         temperature = kwargs.get(ATTR_TEMPERATURE)
         if temperature is None:
             return
 
-        # Validate temperature range
-        if not (self.min_temp <= temperature <= self.max_temp):
-            _LOGGER.error(
-                "Temperature %s out of range (%s-%s)",
-                temperature,
-                self.min_temp,
-                self.max_temp,
+        # A setpoint sent mid-transition could be read in the wrong scale;
+        # the reservation services refuse for the same reason.
+        if self.coordinator.unit_change_in_progress:
+            raise HomeAssistantError(
+                "Cannot set the temperature during a unit system change. "
+                "Please try again."
             )
-            return
+
+        # Validate temperature range. Raising rather than returning: silently
+        # dropping the call left the user looking at a setpoint they thought
+        # they had changed, with the reason only in the log.
+        if not (self.min_temp <= temperature <= self.max_temp):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="temperature_out_of_range",
+                translation_placeholders={
+                    "temperature": str(temperature),
+                    "min_temp": str(self.min_temp),
+                    "max_temp": str(self.max_temp),
+                },
+            )
 
         await self._control_device(
             "set_temperature",

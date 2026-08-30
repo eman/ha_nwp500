@@ -2,6 +2,73 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Reconfigure now saves the new password.** The reconfigure step called
+  `_abort_if_unique_id_configured()`, but in a reconfigure flow the entry
+  matching that unique ID *is* the entry being reconfigured -- so the flow
+  aborted with "already_configured" before the credentials were written,
+  and the one thing it exists to do, updating a changed Navien password,
+  silently did nothing. It also merged a stray `title` key into the entry's
+  data. Replaced with `_abort_if_unique_id_mismatch()`, which is the helper
+  meant for reauth and reconfigure, and covered by tests that drive the real
+  flow machinery rather than mocking the abort helper away.
+- **Reauth no longer accepts a different account.** `reauth_confirm` never
+  checked the submitted email against the entry's unique ID, so signing in
+  with another Navien account rebound the entry to it while every device,
+  entity and MQTT subscription stayed keyed to MACs from the original
+  account. It now aborts with `wrong_account`.
+- **Wrong passwords are reported as wrong passwords.** `validate_input`
+  decided a failure was an auth failure by looking for "401" or
+  "unauthorized" in the exception's text. It now catches the library's
+  `InvalidCredentialsError` and `AuthenticationError`, honouring the
+  `retriable` flag so a transient network failure during login reports as a
+  connection problem instead of accusing the user's password.
+- **A dead MQTT connection now leads to a reauth prompt.** `force_reconnect`
+  retried indefinitely. When the cause was a revoked or changed password
+  every attempt failed identically, so it spun at the 60s backoff cap
+  forever -- logging warnings, never escalating, never telling the user what
+  to fix. It now gives up after 12 attempts and reports the failure through
+  the same path the library's own reconnect loop uses, which starts the
+  reauth flow.
+- **Out-of-range water heater setpoints are reported.** `async_set_temperature`
+  logged and returned, leaving the user looking at a temperature they
+  believed they had changed. It now raises `ServiceValidationError`. Its
+  docstring also described a library call the code does not make.
+- **Empty energy usage reports work again after a timeout.** Once any
+  `get_energy_usage` request timed out, the flag guarding against a late
+  reply latched on for the life of the coordinator, so every genuinely empty
+  period reported as a timeout ever after. It is now cleared when a reply
+  matching the requested period arrives.
+- **Diagnostics no longer mangle non-MAC identifiers.** The bare 12-hex
+  branch of the MAC pattern had no boundaries, so it matched any 12
+  characters of a longer hex or numeric run -- chewing digits out of epoch
+  timestamps and splitting long identifiers into "**REDACTED**" fragments.
+  The pattern is now fenced by hex-character boundaries.
+- **The TOU schedule is read at setup.** Setup requested the initial
+  reservation schedule but never the TOU plan, which is only re-read every
+  40 update cycles -- so the TOU Schedule sensor read `unknown` for roughly
+  the first twenty minutes after every restart while its reservation
+  counterpart was populated immediately. The plan is now read once during
+  setup. It is a REST read keyed by the controller serial number that only
+  the MQTT device-info response publishes, so a device that has not
+  reported yet is skipped quietly and left to the periodic refresh rather
+  than logged as a failure.
+- **Diagnostics keep their connection detail.** The location PII keys were
+  redacted through the global key set, which matches at any depth, so a
+  generic name like `state` blanked unrelated fields. Location redaction is
+  now scoped to the location block itself.
+
+### Changed
+- **Every temperature-bearing call refuses during a unit system change.**
+  Only `set_reservation` checked; `update_reservations` and the water
+  heater's `set_temperature` did not, despite carrying temperatures that
+  could be read in the wrong scale mid-transition. The check is now a public
+  `unit_change_in_progress` property on the coordinator rather than a
+  `getattr` reach into a private attribute from another module.
+- **The bundled Lovelace cards escape interpolated values.** Entity names,
+  states, units and card configuration were written straight into
+  `innerHTML`. All such values now go through an `esc()` helper.
+
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 9.3.1
 - **The `request_tou_settings` service now reads the plan over REST.**

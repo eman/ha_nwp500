@@ -2178,3 +2178,124 @@ def test_an_unsolicited_energy_reply_is_discarded(coordinator):
     coordinator._handle_energy_usage_in_loop(MAC, {"total": {}, "usage": []})
 
     assert coordinator._energy_request is None
+
+
+@pytest.mark.asyncio
+async def test_empty_replies_work_again_after_a_matched_reply(coordinator):
+    """One timeout must not disable empty replies for good.
+
+    A reply matching the outstanding period accounts for whatever was in
+    flight, so the next empty reply is once again just a device with nothing
+    recorded. The straggler flag used to latch on for the life of the
+    coordinator, after which every genuinely empty period reported as a
+    timeout.
+    """
+    # 1. A request times out, so a straggler becomes possible.
+    coordinator.async_send_command = AsyncMock(return_value=True)
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [7], timeout=0.01)
+        is None
+    )
+    assert coordinator._energy_straggler_possible is True
+
+    # 2. A reply matching the period asked for accounts for what was in flight.
+    matched = _energy_response(2026, [8])
+
+    async def reply_matched(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, matched)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_matched)
+    assert await coordinator.async_fetch_energy_usage(MAC, 2026, [8]) == matched
+    assert coordinator._energy_straggler_possible is False
+
+    # 3. An empty reply is therefore trustworthy again: a month with no data.
+    empty = {"total": {}, "usage": []}
+
+    async def reply_empty(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(mac, empty)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply_empty)
+    assert await coordinator.async_fetch_energy_usage(MAC, 2026, [9]) == empty
+
+
+# ---------------------------------------------------------------------------
+# _async_request_initial_tou
+#
+# The TOU plan is read once at setup so its sensor is populated from the
+# start, instead of staying unknown until the first periodic schedule
+# refresh -- roughly twenty minutes after every restart.
+# ---------------------------------------------------------------------------
+
+
+def _device_with_mac(mac: str = MAC) -> MagicMock:
+    device = MagicMock()
+    device.device_info.mac_address = mac
+    return device
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_happens_when_device_info_has_arrived(
+    coordinator,
+):
+    """With the controller serial known, the plan is read at setup."""
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_is_skipped_before_device_info_arrives(
+    coordinator,
+):
+    """A device that has not reported yet is skipped, not failed.
+
+    The read is keyed by the controller serial number, which only the MQTT
+    device-info response publishes. Calling anyway would log an error for a
+    condition the periodic refresh recovers from on its own.
+    """
+    coordinator.device_features = {}
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_is_skipped_when_the_serial_is_blank(
+    coordinator,
+):
+    """Features present but no serial is the same not-ready condition."""
+    features = MagicMock()
+    features.controller_serial_number = ""
+    coordinator.device_features = {MAC: features}
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_never_fails_setup(coordinator):
+    """A failed read is logged and swallowed; setup must still complete."""
+    from nwp500.exceptions import APIError
+
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    coordinator.async_request_tou_settings = AsyncMock(
+        side_effect=APIError("cloud unavailable")
+    )
+
+    # Must not raise.
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)

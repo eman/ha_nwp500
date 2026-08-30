@@ -218,4 +218,8 @@ def mock_coordinator(
     # Mock device_features to return None (no features available)
     coordinator.device_features = MagicMock()
     coordinator.device_features.get.return_value = None
+    # Not mid unit-system transition. Stated explicitly because a bare
+    # MagicMock attribute is truthy, which would make every
+    # temperature-bearing call look like it arrived during a unit change.
+    coordinator.unit_change_in_progress = False
     return coordinator

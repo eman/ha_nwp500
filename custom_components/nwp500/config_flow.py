@@ -19,16 +19,34 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Authentication failures validate_input maps to distinct UI errors. Declared
+# before the import so both branches below assign rather than redefine.
+_credential_errors: tuple[type[Exception], ...]
+_auth_errors: tuple[type[Exception], ...]
+
 # Import at module level to avoid blocking calls in event loop
 try:
     from nwp500 import (  # type: ignore[attr-defined]
         NavienAPIClient,
         NavienAuthClient,
     )
+    from nwp500.exceptions import (
+        AuthenticationError,
+        InvalidCredentialsError,
+    )
 
     nwp500_available = True
+
+    # Held as tuples so the handlers in validate_input stay resolvable when
+    # the library is missing: an empty tuple is a legal except clause that
+    # matches nothing. Nothing can raise these in that state anyway -- the
+    # nwp500_available guard returns first.
+    _credential_errors = (InvalidCredentialsError,)
+    _auth_errors = (AuthenticationError,)
 except ImportError:
     nwp500_available = False
+    _credential_errors = ()
+    _auth_errors = ()
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -114,6 +132,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 errors["base"] = "unknown"
             else:
                 if self._reauth_entry:
+                    # Reauth must stay on the account the entry was created
+                    # for. Every device, entity and MQTT subscription is keyed
+                    # to MACs from that account, so accepting a different
+                    # login here would silently rebind the entry to devices
+                    # its registry entries do not describe.
+                    await self.async_set_unique_id(
+                        user_input[CONF_EMAIL].lower()
+                    )
+                    self._abort_if_unique_id_mismatch(reason="wrong_account")
                     return self.async_update_reload_and_abort(
                         self._reauth_entry,
                         data=user_input,
@@ -151,9 +178,13 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
             else:
                 email = user_input[CONF_EMAIL].lower()
                 await self.async_set_unique_id(email)
-                self._abort_if_unique_id_configured(
-                    updates={"title": info["title"]}
-                )
+                # Not _abort_if_unique_id_configured: in a reconfigure flow
+                # the entry that matches this unique ID *is* the entry being
+                # reconfigured, so that helper aborted with
+                # "already_configured" before the new credentials were ever
+                # written -- silently discarding the password change this
+                # flow exists to make.
+                self._abort_if_unique_id_mismatch(reason="wrong_account")
                 return self.async_update_reload_and_abort(
                     self._get_reconfigure_entry(),
                     title=info["title"],
@@ -250,11 +281,21 @@ async def validate_input(
     except CannotConnect, InvalidAuth:
         # Re-raise our own exceptions
         raise
+    except _credential_errors as err:
+        _LOGGER.error("Invalid Navien credentials for %s: %s", email, err)
+        raise InvalidAuth from err
+    except _auth_errors as err:
+        # The library marks transient network failures during authentication
+        # as retriable; only a definitive rejection means the credentials
+        # themselves are wrong. Reporting a retriable failure as bad
+        # credentials would send the user to change a password that is fine.
+        _LOGGER.error("Authentication with Navien failed: %s", err)
+        if getattr(err, "retriable", False):
+            raise CannotConnect from err
+        raise InvalidAuth from err
     except Exception as err:  # noqa: BLE001
         # Network, connection, and data access errors
         _LOGGER.error("Failed to authenticate with Navien: %s", err)
-        if "401" in str(err) or "unauthorized" in str(err).lower():
-            raise InvalidAuth from err
         raise CannotConnect from err
 
     return {"title": f"Navien {device_name}"}

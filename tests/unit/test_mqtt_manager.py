@@ -858,3 +858,41 @@ async def test_request_energy_usage_coerces_the_period(
     mock_mqtt_client.request_energy_usage.assert_called_once_with(
         mock_device, year=2026, months=[7]
     )
+
+
+@pytest.mark.asyncio
+async def test_force_reconnect_gives_up_and_reports_failure(
+    manager, mock_mqtt_client, mock_device
+):
+    """A cause retrying cannot fix must reach the user, not loop forever.
+
+    When the credentials are gone, connect() fails identically on every
+    attempt. Retrying without a limit looked exactly like working: warnings
+    every 60s, no reauth prompt, and nothing that ever escalated.
+    """
+    from custom_components.nwp500 import mqtt_manager as mm
+
+    failed = MagicMock()
+    manager._on_reconnection_failed_callback = failed
+    manager.loop = MagicMock()
+
+    await manager.setup()
+
+    # Every attempt fails, as a revoked password would.
+    manager.setup = AsyncMock(return_value=False)
+
+    # Collapse the backoff so the test does not sit through ~9 minutes of it.
+    with patch.object(mm, "_RECONNECT_BACKOFF_DELAYS", [0.0]):
+        result = await asyncio.wait_for(
+            manager.force_reconnect([mock_device]), timeout=15
+        )
+
+    assert result is False
+    assert manager.setup.await_count == mm._MAX_RECONNECT_ATTEMPTS
+    # Reported through the loop, the way the library's own failure event is.
+    manager.loop.call_soon_threadsafe.assert_called_once_with(
+        failed, mm._MAX_RECONNECT_ATTEMPTS
+    )
+    # Counter is reset so a later attempt starts from the short delays.
+    assert manager._reconnect_attempts == 0
+    assert manager.reconnection_in_progress is False
