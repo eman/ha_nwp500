@@ -681,7 +681,7 @@
         },
         "months": {
           "name": "Months",
-          "description": "Months to report on, 1-12. Several may be requested at once. Defaults to the current month."
+          "description": "Months to report on. Several may be requested at once. Defaults to the current month."
         }
       }
     }

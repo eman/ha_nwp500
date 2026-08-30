@@ -26,6 +26,7 @@ from custom_components.nwp500 import (
     SERVICE_DISABLE_DEMAND_RESPONSE,
     SERVICE_ENABLE_DEMAND_RESPONSE,
     SERVICE_GET_ENERGY_USAGE,
+    SERVICE_GET_ENERGY_USAGE_SCHEMA,
     SERVICE_REQUEST_RESERVATIONS,
     SERVICE_REQUEST_TOU,
     SERVICE_RESET_AIR_FILTER,
@@ -1482,3 +1483,22 @@ class TestEnergyUsageService:
 
         with pytest.raises(HomeAssistantError, match="did not report"):
             await handler(call)
+
+    def test_months_from_the_ui_picker_are_accepted(self):
+        """The month dropdown submits strings, the device wants ints.
+
+        `services.yaml` renders `months` as a multi-select, and a select
+        selector's values are strings -- so the schema has to coerce them
+        or every call made from the UI would be rejected.
+        """
+        validated = SERVICE_GET_ENERGY_USAGE_SCHEMA(
+            {ATTR_DEVICE_ID: "device_123", "months": ["7", "8"]}
+        )
+
+        assert validated["months"] == [7, 8]
+
+    def test_a_month_outside_the_calendar_is_rejected(self):
+        with pytest.raises(vol.Invalid):
+            SERVICE_GET_ENERGY_USAGE_SCHEMA(
+                {ATTR_DEVICE_ID: "device_123", "months": [13]}
+            )

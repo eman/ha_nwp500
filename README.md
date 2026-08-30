@@ -137,6 +137,10 @@ data:
 response_variable: report
 ```
 
+In the UI the months are a dropdown, so this is easier to reach from
+**Developer Tools → Actions** than from YAML; the report is shown there as
+the action's response.
+
 The report carries a total for everything requested, then a per-month total
 and a date-stamped day-by-day breakdown:
 
