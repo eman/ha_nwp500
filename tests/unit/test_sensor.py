@@ -795,6 +795,36 @@ class TestCloudMetadataSensors:
 
         assert sensor.native_value is None
 
+    def test_cloud_sensors_survive_the_device_going_offline(
+        self, mock_coordinator, mock_device
+    ):
+        """The whole point: these read the cloud, not the MQTT status.
+
+        `NWP500Entity.available` drops out after a few cycles without a
+        fresh device update, which is exactly when the cloud-recorded
+        fault is worth reading.
+        """
+        mock_coordinator.last_update_success = True
+        error = MagicMock()
+        error.error_code.name = "E015"
+        mock_coordinator.get_device_error.return_value = error
+
+        sensor = self._error_sensor(mock_coordinator, mock_device)
+        sensor._stale_count = 99
+
+        assert sensor.available is True
+        assert sensor.native_value == "E015"
+
+    def test_cloud_sensors_follow_the_coordinator(
+        self, mock_coordinator, mock_device
+    ):
+        """A coordinator that cannot reach the cloud at all is unavailable."""
+        mock_coordinator.last_update_success = False
+
+        sensor = self._error_sensor(mock_coordinator, mock_device)
+
+        assert sensor.available is False
+
     def test_descaling_sensors_are_disabled_by_default(
         self, mock_coordinator, mock_device
     ):

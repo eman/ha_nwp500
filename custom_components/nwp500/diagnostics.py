@@ -118,8 +118,14 @@ async def async_get_config_entry_diagnostics(
             "model_type_code": getattr(
                 device.device_info, "model_type_code", None
             ),
-            "installer_id": getattr(device.device_info, "installer_id", None),
         }
+
+        # Redaction rewrites by key, so emitting an unset installer_id would
+        # render it "**REDACTED**" and make it indistinguishable from a
+        # populated one -- the same trap the location block avoids below.
+        installer_id = getattr(device.device_info, "installer_id", None)
+        if installer_id is not None:
+            entry["installer_id"] = installer_id
 
         # Cloud-recorded fault and descaling window. Both are absent on
         # responses that do not carry them, so the keys are only emitted

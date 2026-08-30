@@ -15,9 +15,12 @@
   and onto the bus as `nwp500_tou_updated`. The TOU Schedule sensor and
   anything listening for that event are unaffected -- the REST plan is
   flattened into the same shape the MQTT write confirmation arrives in --
-  and the periodic schedule refresh now actually populates it. Because the
-  read is REST, it also works while the device is offline. Writes
-  (`configure_tou_schedule`) and the TOU switch are unchanged.
+  and the periodic schedule refresh now actually populates it. The read
+  itself is pure REST, but it is keyed by the controller serial number,
+  which only the MQTT device-info response publishes: it therefore still
+  needs the device to have been heard from at least once since Home
+  Assistant started. Writes (`configure_tou_schedule`) and the TOU switch
+  are unchanged.
 
 ### Added
 - **The device's last recorded fault is now readable while it is offline.**
@@ -26,8 +29,10 @@
   status, so the new **Last Reported Error** diagnostic sensor still
   reports the fault -- and, in its `occurred_at` attribute, when it
   happened -- at times when the existing Error Code sensor, which follows
-  the MQTT status, has gone unavailable. A code the library's enum does not
-  know is reported as its number rather than breaking the sensor.
+  the MQTT status, has gone unavailable. Its availability deliberately
+  follows the coordinator rather than MQTT staleness, so it survives the
+  device going offline. A code the library's enum does not know is reported
+  as its number rather than breaking the sensor.
 - **Descaling window sensors** (**Descaling Start** / **Descaling End**),
   from the `descaling` block the same response carries. Both ends are unset
   on a device with no descaling scheduled or recorded, which is the common
@@ -35,7 +40,10 @@
 - **`model_type_code` and `installer_id`.** `deviceInfo` gained both in the
   cloud API and 9.3.1 models them. `model_type_code` is exposed as an entity
   attribute; both appear in a diagnostics dump, with `installer_id` redacted
-  as it identifies another party.
+  as it identifies another party and omitted entirely when the cloud did not
+  populate it. Entity attributes now read the device object the coordinator
+  currently holds rather than the one captured at platform setup, so this
+  and `connected` follow the periodic refresh instead of staying frozen.
 - The device list is re-read every 20 coordinator cycles (~10 minutes at the
   default scan interval) so this cloud-side metadata stays current. It was
   previously fetched once, at setup. A failed or empty re-read keeps the

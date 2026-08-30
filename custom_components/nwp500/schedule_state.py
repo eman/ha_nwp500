@@ -150,9 +150,14 @@ def tou_info_to_schedule(
             entry: dict[str, Any] = {"season": season}
             for name, alias in _TOU_INTERVAL_KEYS:
                 entry[name] = int(interval.get(alias, 0) or 0)
-            decimal_point = int(
-                interval.get("decimalPoint", _DEFAULT_DECIMAL_POINT)
-                or _DEFAULT_DECIMAL_POINT
+            # `or` would be wrong here: a plan priced in whole units sends
+            # `decimalPoint: 0`, and substituting the default for it would
+            # divide the price by 10^5.
+            raw_decimal_point = interval.get("decimalPoint")
+            decimal_point = (
+                _DEFAULT_DECIMAL_POINT
+                if raw_decimal_point is None
+                else int(raw_decimal_point)
             )
             entry["decimal_point"] = decimal_point
             # Computed fields TOUPeriod.model_dump() also emits, so an

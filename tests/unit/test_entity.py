@@ -279,3 +279,46 @@ class TestNWP500Entity:
         # Test fallback when device_name is None
         mock_device.device_info.device_name = None
         assert entity.device_name == "NWP500"
+
+
+class TestRefreshedDeviceMetadata:
+    """Entity attributes must follow the coordinator's current device.
+
+    The device list is re-read periodically over REST; an entity that kept
+    reading the object captured at platform setup would report the cloud's
+    startup-time view forever.
+    """
+
+    def test_attributes_read_the_refreshed_device(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        mac_address = mock_device.device_info.mac_address
+        refreshed = MagicMock()
+        refreshed.device_info.home_seq = 42
+        refreshed.device_info.device_type = 52
+        refreshed.device_info.connected = False
+        refreshed.device_info.model_type_code = 7
+        mock_coordinator.data[mac_address]["device"] = refreshed
+
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+        attrs = entity._build_extra_state_attributes()
+
+        assert attrs["connected"] is False
+        assert attrs["model_type_code"] == 7
+        assert attrs["home_seq"] == 42
+
+    def test_falls_back_to_the_entity_s_own_device(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+    ):
+        """Coordinator data without a device entry must not raise."""
+        mac_address = mock_device.device_info.mac_address
+        mock_coordinator.data[mac_address].pop("device")
+        mock_device.device_info.home_seq = 1
+
+        entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
+
+        assert entity._build_extra_state_attributes()["home_seq"] == 1

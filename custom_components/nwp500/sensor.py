@@ -586,7 +586,24 @@ class NWP500TOUScheduleSensor(NWP500ScheduleSensor):
         )
 
 
-class NWP500CloudErrorSensor(NWP500DiagnosticSensor):
+class NWP500CloudMetadataSensor(NWP500DiagnosticSensor):
+    """Base for sensors fed by the REST device list rather than by MQTT.
+
+    `NWP500Entity.available` goes False once the device stops answering
+    over MQTT, which is the right rule for a sensor reading device status
+    and the wrong one here: these values come from the cloud, which keeps
+    answering while the device is offline. That is exactly when the
+    recorded fault is worth reading, so availability follows the
+    coordinator alone.
+    """
+
+    @property
+    def available(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return True while the coordinator itself is healthy."""
+        return self.coordinator.last_update_success
+
+
+class NWP500CloudErrorSensor(NWP500CloudMetadataSensor):
     """The device's last recorded fault, as the cloud reports it.
 
     Distinct from the `error_code` sensor, which reflects the live MQTT
@@ -625,7 +642,7 @@ class NWP500CloudErrorSensor(NWP500DiagnosticSensor):
         }
 
 
-class NWP500DescalingSensor(NWP500DiagnosticSensor):
+class NWP500DescalingSensor(NWP500CloudMetadataSensor):
     """One end of the descaling window the cloud records for the device.
 
     Reported as the cloud sends it. Both ends are unset on a device with no

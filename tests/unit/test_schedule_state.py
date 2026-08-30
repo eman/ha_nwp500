@@ -264,6 +264,31 @@ class TestTouInfoToSchedule:
         assert sparse["decimal_point"] == 5
         assert sparse["end_time"] == "00:00"
 
+    def test_a_zero_decimal_point_is_not_mistaken_for_absent(self):
+        """A plan priced in whole units sends `decimalPoint: 0`.
+
+        Falling back to the default for it would divide every price by
+        10^5 and store a decimal point the device does not have, so the
+        schedule hash would never match what is programmed.
+        """
+        schedule = schedule_state.tou_info_to_schedule(
+            {
+                "schedule": [
+                    {
+                        "season": 4095,
+                        "intervals": [
+                            {"priceMin": 25, "priceMax": 25, "decimalPoint": 0}
+                        ],
+                    }
+                ]
+            },
+            enabled=True,
+        )
+
+        entry = schedule["reservation"][0]
+        assert entry["decimal_point"] == 0
+        assert entry["decoded_price_min"] == 25.0
+
     def test_the_result_is_readable_by_the_schedule_helpers(self):
         """The point of the conversion: the sensor's helpers accept it."""
         schedule = schedule_state.tou_info_to_schedule(self.INFO, enabled=True)

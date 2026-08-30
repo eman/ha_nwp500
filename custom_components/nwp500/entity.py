@@ -240,7 +240,12 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         attrs = {}
 
         if self.device_data:
-            device_info = self.device.device_info
+            # Read the device the coordinator holds now, not the one captured
+            # at platform setup: the periodic REST refresh rebinds it, and
+            # `connected` and `model_type_code` would otherwise stay frozen
+            # at their setup-time values for the life of the config entry.
+            device = self.device_data.get("device", self.device)
+            device_info = device.device_info
             attrs.update(
                 {
                     "home_seq": device_info.home_seq,

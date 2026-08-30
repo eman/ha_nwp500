@@ -1790,6 +1790,26 @@ async def test_failed_metadata_refresh_keeps_the_known_devices(coordinator):
 
 
 @pytest.mark.asyncio
+async def test_metadata_refresh_absorbs_a_malformed_response(coordinator):
+    """The library validates rows outside its own error wrapper.
+
+    A surprise in the payload arrives as a ValidationError or a
+    JSONDecodeError -- both ValueError. Letting one escape would fail the
+    whole update cycle over metadata nothing else depends on.
+    """
+    coord = _metadata_coordinator(coordinator)
+    known = coord.devices
+    coord.api_client.list_devices = AsyncMock(
+        side_effect=ValueError("1 validation error for Device")
+    )
+    coord._device_metadata_counter = -1
+
+    await coord._async_refresh_device_metadata()
+
+    assert coord.devices is known
+
+
+@pytest.mark.asyncio
 async def test_empty_metadata_refresh_keeps_the_known_devices(coordinator):
     """An empty listing is treated as a bad answer, not as "no devices"."""
     coord = _metadata_coordinator(coordinator, [])

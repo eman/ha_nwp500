@@ -169,7 +169,18 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             devices = await self.api_client.list_devices()
-        except (APIError, AuthenticationError, OSError, TimeoutError) as err:
+        except (
+            APIError,
+            AuthenticationError,
+            OSError,
+            TimeoutError,
+            # The library validates each row outside its own error wrapper,
+            # so a surprise in the payload arrives as pydantic's
+            # ValidationError or json's JSONDecodeError -- both ValueError.
+            # Left uncaught it would fail the whole update cycle, marking
+            # every entity unavailable over metadata nothing depends on.
+            ValueError,
+        ) as err:
             _LOGGER.debug("Device metadata refresh failed: %s", err)
             return
 
