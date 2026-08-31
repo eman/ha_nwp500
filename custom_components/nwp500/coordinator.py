@@ -68,6 +68,21 @@ _LOGGER = logging.getLogger(__name__)
 # device genuinely has no data for could never be reported again.
 _ENERGY_STRAGGLER_WINDOW: Final = 120.0
 
+# How long to wait for the device's reservation schedule, and how many times
+# to ask, when reading it at setup.
+#
+# The read is published over MQTT and answered asynchronously, and the reply
+# has been seen to reach its topic without ever being dispatched to the
+# subscription -- leaving the schedule sensor unknown until the periodic
+# refresh twenty minutes later. Waiting for the reply turns that into
+# something this can notice and simply ask again.
+#
+# Two seconds is the observed reply latency, so the timeout is generous
+# without stalling startup: even a device that never answers costs
+# 2 x 5s, well inside Home Assistant's 60s setup budget.
+_INITIAL_RESERVATION_TIMEOUT: Final = 5.0
+_INITIAL_RESERVATION_ATTEMPTS: Final = 2
+
 
 # Typed config entry: the coordinator lives on entry.runtime_data, which HA
 # scopes to the entry's lifetime and tears down automatically on unload.
@@ -890,25 +905,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "Failed to request initial device info: %s", err
                         )
 
-                    # Request initial reservation schedule
-                    try:
-                        await self.mqtt_manager.send_command(
-                            device, "request_reservations"
-                        )
-                        _LOGGER.debug(
-                            "Requested initial reservations for %s",
-                            device.device_info.mac_address,
-                        )
-                    except Exception as err:
-                        _LOGGER.warning(
-                            "Failed to request initial reservations: %s", err
-                        )
+                    # Read the programmed reservation schedule.
+                    await self._async_request_initial_reservations(device)
 
                     # Read the programmed TOU plan, so the TOU schedule
                     # sensor is populated from the start rather than sitting
-                    # unknown until the first periodic schedule refresh --
-                    # roughly twenty minutes after every restart, while its
-                    # reservation counterpart was already populated above.
+                    # unknown until the first periodic schedule refresh,
+                    # roughly twenty minutes after every restart.
                     #
                     # Unlike reservations this is a REST read keyed by the
                     # controller serial number, which only the device-info
@@ -977,6 +980,60 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 f"Failed to connect to Navien service: {err}"
             ) from err
+
+    async def _async_request_initial_reservations(self, device: Device) -> None:
+        """Read the reservation schedule at setup, waiting for the reply.
+
+        Publishing and hoping was not enough. The request is answered
+        asynchronously over MQTT, and a reply has been observed arriving on
+        its topic without ever being dispatched to the subscription: the
+        request went out 2.2s after setup began, the device answered, and
+        the handler never ran. Nothing retried, so the schedule sensor sat
+        unknown until the periodic refresh twenty minutes later.
+
+        Waiting for the reply makes a lost one visible, and asking again
+        costs one more publish. Best-effort throughout: a device that never
+        answers leaves the sensor to the periodic refresh, exactly as before,
+        and never fails setup.
+        """
+        mac_address = device.device_info.mac_address
+
+        for attempt in range(1, _INITIAL_RESERVATION_ATTEMPTS + 1):
+            try:
+                schedule = await self.async_fetch_reservations(
+                    mac_address, timeout=_INITIAL_RESERVATION_TIMEOUT
+                )
+            except Exception as err:  # noqa: BLE001 - best-effort boundary
+                # Deliberately broad, for the same reason as the TOU read
+                # below: nothing about a schedule read may fail setup.
+                # CancelledError is a BaseException, so shutdown is
+                # unaffected.
+                _LOGGER.debug(
+                    "Initial reservation read failed for %s: %s",
+                    mac_address,
+                    err,
+                )
+                return
+
+            if schedule is not None:
+                _LOGGER.debug(
+                    "Read initial reservations for %s on attempt %d",
+                    mac_address,
+                    attempt,
+                )
+                return
+
+            _LOGGER.debug(
+                "No reservation reply for %s (attempt %d of %d)",
+                mac_address,
+                attempt,
+                _INITIAL_RESERVATION_ATTEMPTS,
+            )
+
+        _LOGGER.warning(
+            "The device did not report its reservation schedule during "
+            "setup; the periodic refresh will retry",
+        )
 
     async def _async_request_initial_tou(self, device: Device) -> None:
         """Read the TOU plan once at setup, if the device is ready for it.
@@ -1387,28 +1444,46 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_refresh_schedules(self, mac_address: str) -> None:
         """Re-read the programmed reservation and TOU schedules.
 
-        Fire-and-forget: the responses land in `reservation_schedules` /
-        `tou_schedules` through the MQTT callbacks, which is what the
-        schedule sensors read. Failures are logged and ignored so a schedule
-        refresh never breaks the status update cycle.
+        The reservation read waits for the device's reply rather than
+        publishing and hoping, for the reason given in
+        `_async_request_initial_reservations`: a dropped reply is otherwise
+        invisible, and the next chance to notice is a full refresh cycle
+        away. Waiting means a lost reply costs one retry instead of twenty
+        minutes of stale state.
+
+        Failures are logged and ignored so a schedule refresh never breaks
+        the status update cycle.
         """
-        for label, request in (
-            ("reservations", self.async_request_reservations),
-            ("TOU settings", self.async_request_tou_settings),
-        ):
-            try:
-                await request(mac_address)
-            except (TimeoutError, RuntimeError, OSError, MqttError) as err:
-                # TimeoutError is caught deliberately: the caller's own
-                # handler treats it as a failed *status* request and starts
-                # counting toward a forced reconnect, so a slow schedule
-                # re-read must not be mistaken for a dead connection.
-                _LOGGER.debug(
-                    "Periodic %s refresh failed for %s: %s",
-                    label,
-                    mac_address,
-                    err,
+        try:
+            if (
+                await self.async_fetch_reservations(
+                    mac_address, timeout=_INITIAL_RESERVATION_TIMEOUT
                 )
+                is None
+            ):
+                _LOGGER.debug(
+                    "Periodic reservation refresh got no reply for %s",
+                    mac_address,
+                )
+        except (TimeoutError, RuntimeError, OSError, MqttError) as err:
+            # TimeoutError is caught deliberately: the caller's own handler
+            # treats it as a failed *status* request and starts counting
+            # toward a forced reconnect, so a slow schedule re-read must not
+            # be mistaken for a dead connection.
+            _LOGGER.debug(
+                "Periodic reservations refresh failed for %s: %s",
+                mac_address,
+                err,
+            )
+
+        try:
+            await self.async_request_tou_settings(mac_address)
+        except (TimeoutError, RuntimeError, OSError, MqttError) as err:
+            _LOGGER.debug(
+                "Periodic TOU settings refresh failed for %s: %s",
+                mac_address,
+                err,
+            )
 
     async def async_fetch_reservations(
         self, mac_address: str, timeout: float = 10.0

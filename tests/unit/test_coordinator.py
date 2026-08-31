@@ -1221,13 +1221,42 @@ def test_field_unit_swallows_library_errors(coordinator, err):
 
 @pytest.mark.asyncio
 async def test_schedule_refresh_requests_both_schedules(coordinator):
-    """A refresh re-reads reservations and TOU settings for the device."""
-    coordinator.async_request_reservations = AsyncMock(return_value=True)
+    """A refresh re-reads reservations and TOU settings for the device.
+
+    The reservation read waits for the device's reply rather than
+    publishing and hoping, so a dropped reply is noticed rather than
+    leaving stale state until the next cycle.
+    """
+    schedule = {"reservation_use": 2, "reservation": []}
+
+    async def answer(mac):
+        coordinator._handle_reservation_update_in_loop(mac, schedule)
+        return True
+
+    coordinator.async_request_reservations = AsyncMock(side_effect=answer)
     coordinator.async_request_tou_settings = AsyncMock(return_value=True)
 
     await coordinator._async_refresh_schedules(MAC)
 
     coordinator.async_request_reservations.assert_awaited_once_with(MAC)
+    coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+    assert coordinator.reservation_schedules[MAC] == schedule
+
+
+@pytest.mark.asyncio
+async def test_schedule_refresh_still_reads_tou_when_reservations_are_lost(
+    coordinator,
+):
+    """A missing reservation reply must not skip the TOU read."""
+    coordinator.async_request_reservations = AsyncMock(return_value=True)
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    with patch(
+        "custom_components.nwp500.coordinator._INITIAL_RESERVATION_TIMEOUT",
+        0.01,
+    ):
+        await coordinator._async_refresh_schedules(MAC)
+
     coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
 
 
@@ -1281,8 +1310,20 @@ def setup_clients_env(coordinator, mock_hass):
     mqtt.subscribe_device = AsyncMock()
     mqtt.start_periodic_requests = AsyncMock()
     mqtt.request_device_info = AsyncMock()
-    mqtt.send_command = AsyncMock(return_value=True)
     mqtt.disconnect = AsyncMock()
+
+    # The setup reservation read waits for the device's reply, so a mock
+    # that never answers would make every test using this fixture sit
+    # through the retry timeouts. Answer it, as a working device does.
+    async def _send_command(device, command, **kwargs):
+        if command == "request_reservations":
+            coordinator._handle_reservation_update_in_loop(
+                device.device_info.mac_address,
+                {"reservation_use": 2, "reservation": []},
+            )
+        return True
+
+    mqtt.send_command = AsyncMock(side_effect=_send_command)
 
     with (
         patch("nwp500.NavienAuthClient", return_value=auth),
@@ -1313,7 +1354,12 @@ async def test_setup_clients_connects_and_primes_each_device(
     mqtt.subscribe_device.assert_awaited_once()
     mqtt.start_periodic_requests.assert_awaited_once()
     mqtt.request_device_info.assert_awaited_once()
+    # One publish: the device answered, so the read did not need retrying.
     mqtt.send_command.assert_awaited_once()
+    assert coordinator.reservation_schedules[MAC] == {
+        "reservation_use": 2,
+        "reservation": [],
+    }
 
 
 @pytest.mark.asyncio
@@ -2461,3 +2507,121 @@ async def test_initial_tou_read_still_propagates_cancellation(coordinator):
 
     with pytest.raises(asyncio.CancelledError):
         await coordinator._async_request_initial_tou(_device_with_mac())
+
+
+# ---------------------------------------------------------------------------
+# _async_request_initial_reservations
+#
+# The read is published over MQTT and answered asynchronously. A reply has
+# been observed reaching its topic without ever being dispatched to the
+# subscription, which left the schedule sensor unknown until the periodic
+# refresh twenty minutes later.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_initial_reservation_read_stops_once_the_device_answers(
+    coordinator,
+):
+    """A device that replies is asked exactly once."""
+    schedule = {"reservation_use": 2, "reservation": []}
+
+    async def answer(mac):
+        coordinator._handle_reservation_update_in_loop(mac, schedule)
+        return True
+
+    coordinator.async_request_reservations = AsyncMock(side_effect=answer)
+
+    await coordinator._async_request_initial_reservations(_device_with_mac())
+
+    assert coordinator.async_request_reservations.await_count == 1
+    assert coordinator.reservation_schedules[MAC] == schedule
+
+
+@pytest.mark.asyncio
+async def test_initial_reservation_read_retries_a_dropped_reply(coordinator):
+    """The whole point: a lost reply is asked for again.
+
+    Fire-and-forget could not tell a delivered reply from a dropped one, so
+    a drop cost a full refresh cycle of stale state.
+    """
+    from custom_components.nwp500.coordinator import (
+        _INITIAL_RESERVATION_ATTEMPTS,
+    )
+
+    schedule = {"reservation_use": 2, "reservation": []}
+    calls = 0
+
+    async def drop_then_answer(mac):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            coordinator._handle_reservation_update_in_loop(mac, schedule)
+        return True
+
+    coordinator.async_request_reservations = AsyncMock(
+        side_effect=drop_then_answer
+    )
+
+    with patch(
+        "custom_components.nwp500.coordinator._INITIAL_RESERVATION_TIMEOUT",
+        0.01,
+    ):
+        await coordinator._async_request_initial_reservations(
+            _device_with_mac()
+        )
+
+    assert calls == 2
+    assert calls <= _INITIAL_RESERVATION_ATTEMPTS
+    assert coordinator.reservation_schedules[MAC] == schedule
+
+
+@pytest.mark.asyncio
+async def test_initial_reservation_read_gives_up_without_failing_setup(
+    coordinator,
+):
+    """A device that never answers is left to the periodic refresh."""
+    from custom_components.nwp500.coordinator import (
+        _INITIAL_RESERVATION_ATTEMPTS,
+    )
+
+    coordinator.async_request_reservations = AsyncMock(return_value=True)
+
+    with patch(
+        "custom_components.nwp500.coordinator._INITIAL_RESERVATION_TIMEOUT",
+        0.01,
+    ):
+        # Must not raise.
+        await coordinator._async_request_initial_reservations(
+            _device_with_mac()
+        )
+
+    assert (
+        coordinator.async_request_reservations.await_count
+        == _INITIAL_RESERVATION_ATTEMPTS
+    )
+    assert MAC not in coordinator.reservation_schedules
+
+
+@pytest.mark.asyncio
+async def test_initial_reservation_read_never_fails_setup(coordinator):
+    """An unexpected error is swallowed, like the TOU read beside it."""
+    coordinator.async_request_reservations = AsyncMock(
+        side_effect=RuntimeError("boom")
+    )
+
+    # Must not raise.
+    await coordinator._async_request_initial_reservations(_device_with_mac())
+
+
+@pytest.mark.asyncio
+async def test_initial_reservation_read_propagates_cancellation(coordinator):
+    """Broad does not mean swallowing shutdown."""
+    coordinator.async_request_reservations = AsyncMock(
+        side_effect=asyncio.CancelledError()
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator._async_request_initial_reservations(
+            _device_with_mac()
+        )

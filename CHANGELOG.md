@@ -3,6 +3,18 @@
 ## [Unreleased]
 
 ### Fixed
+- **The reservation schedule is read at setup instead of merely requested.**
+  Setup published `request_reservations` and moved on, so a reply that never
+  arrived was indistinguishable from one that did -- and nothing retried
+  until the periodic refresh, roughly twenty minutes later, leaving the
+  Reservation Schedule sensor `unknown` for that whole window. Observed in
+  the wild rather than theorised: the request went out 2.2s into setup, the
+  device answered on its MQTT topic, and the subscription callback never
+  ran. Setup now waits for the reply and asks again once if it does not
+  come, and the periodic refresh waits as well so a dropped reply there
+  costs one retry rather than a full cycle of stale state. Best-effort
+  throughout: a device that never answers is still left to the periodic
+  refresh and never fails setup.
 - **Reconfigure now saves the new password.** The reconfigure step called
   `_abort_if_unique_id_configured()`, but in a reconfigure flow the entry
   matching that unique ID *is* the entry being reconfigured -- so the flow
