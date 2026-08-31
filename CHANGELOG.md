@@ -89,6 +89,14 @@
   generic name like `state` blanked unrelated fields. Location redaction is
   now scoped to the location block itself.
 
+- **`release.sh` inserted the version heading into prose.** Its CHANGELOG
+  substitution matched `## [Unreleased]` anywhere on any line, not just the
+  heading, so cutting a release rewrote the places this file *quotes* that
+  string while describing the release tooling -- dropping a version heading
+  into the middle of a sentence, and into a code span running across two
+  lines. Both substitutions are now anchored to a whole line, and the
+  heading one applies only to the first match. Covered by tests that run
+  the real script against a throwaway repository.
 - **`update_nwp500_version.py` wrote its CHANGELOG entry above the title.**
   With an empty `## [Unreleased]` section it fell back to
   `content.replace(section, ...)` with `section` empty, which inserts at

@@ -78,13 +78,20 @@ mv /tmp/manifest.json custom_components/nwp500/manifest.json
 
 # Update CHANGELOG.md
 echo -e "${GREEN}Updating CHANGELOG.md...${NC}"
-# Replace ## [Unreleased] with ## [Unreleased]\n\n## [NEW_VERSION] - DATE
-sed -i "s/## \[Unreleased\]/## [Unreleased]\n\n## [${NEW_VERSION}] - ${RELEASE_DATE}/" CHANGELOG.md
+# Insert "## [NEW_VERSION] - DATE" under the Unreleased heading, so the
+# entries collected there become the new release.
+#
+# Anchored to a whole line (^...$) and applied only to the first match. The
+# changelog quotes "## [Unreleased]" inside prose and code spans when
+# describing the release tooling itself, and an unanchored substitution
+# rewrote those too -- inserting a version heading into the middle of a
+# sentence, and into a code span that ran across two lines.
+sed -i "0,/^## \[Unreleased\]$/s|^## \[Unreleased\]$|## [Unreleased]\n\n## [${NEW_VERSION}] - ${RELEASE_DATE}|" CHANGELOG.md
 
 # Update changelog links at bottom
 # Find the current [Unreleased] link and update it
 PREV_VERSION=$CURRENT_VERSION
-sed -i "s|\[Unreleased\]: .*|\[Unreleased\]: https://github.com/eman/ha_nwp500/compare/v${NEW_VERSION}...HEAD\n[${NEW_VERSION}]: https://github.com/eman/ha_nwp500/compare/v${PREV_VERSION}...v${NEW_VERSION}|" CHANGELOG.md
+sed -i "s|^\[Unreleased\]: .*|\[Unreleased\]: https://github.com/eman/ha_nwp500/compare/v${NEW_VERSION}...HEAD\n[${NEW_VERSION}]: https://github.com/eman/ha_nwp500/compare/v${PREV_VERSION}...v${NEW_VERSION}|" CHANGELOG.md
 
 # Run type checking
 echo -e "${GREEN}Running type checking...${NC}"

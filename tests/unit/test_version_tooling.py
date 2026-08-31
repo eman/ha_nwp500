@@ -395,3 +395,138 @@ def test_main_bump_leaves_the_repo_consistent(tmp_path, monkeypatch):
     assert check.load_expected()["nwp500-python"] == "9.4.0"
     for path in check.repository_files():
         assert check.scan(path, check.load_expected()) == []
+
+
+# ---------------------------------------------------------------------------
+# scripts/release.sh
+#
+# The changelog rewrite is a sed substitution, so it is guarded by running
+# the real script against a throwaway repository rather than by reimplementing
+# its logic here.
+# ---------------------------------------------------------------------------
+
+
+def _release_repo(tmp_path: Path, changelog: str) -> Path:
+    """A minimal repo release.sh will agree to run in."""
+    import subprocess
+
+    root = tmp_path / "repo"
+    (root / "custom_components" / "nwp500").mkdir(parents=True)
+    (root / "scripts").mkdir()
+    (root / ".venv" / "bin").mkdir(parents=True)
+
+    (root / "custom_components" / "nwp500" / "manifest.json").write_text(
+        json.dumps({"domain": "nwp500", "version": "0.19.0"}, indent=2) + "\n"
+    )
+    (root / "CHANGELOG.md").write_text(changelog)
+
+    script = (SCRIPTS / "release.sh").read_text()
+    (root / "scripts" / "release.sh").write_text(script)
+    (root / "scripts" / "release.sh").chmod(0o755)
+
+    # release.sh runs `.venv/bin/tox -e mypy` before committing; the real
+    # type check has its own CI job, so stand in for it here.
+    tox = root / ".venv" / "bin" / "tox"
+    tox.write_text("#!/bin/sh\nexit 0\n")
+    tox.chmod(0o755)
+
+    git = "/usr/bin/git"
+    subprocess.run([git, "init", "-q"], cwd=root, check=True)  # noqa: S603
+    for args in (
+        ["config", "user.email", "t@example.com"],
+        ["config", "user.name", "T"],
+        ["add", "-A"],
+        ["commit", "-qm", "init"],
+        ["checkout", "-q", "-B", "main"],
+    ):
+        subprocess.run([git, *args], cwd=root, check=True)  # noqa: S603
+    return root
+
+
+def _run_release(root: Path, bump: str = "minor"):
+    import subprocess
+
+    return subprocess.run(  # noqa: S603
+        ["/bin/bash", "scripts/release.sh", bump],
+        cwd=root,
+        input="y\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_release_inserts_one_version_heading(tmp_path):
+    """The Unreleased entries become the new release."""
+    root = _release_repo(
+        tmp_path,
+        "# Changelog\n\n## [Unreleased]\n\n### Fixed\n- Something.\n\n"
+        "## [0.19.0] - 2026-08-22\n\n- Older.\n\n"
+        "[Unreleased]: https://example.invalid/compare/v0.19.0...HEAD\n",
+    )
+
+    result = _run_release(root)
+    assert result.returncode == 0, result.stderr
+
+    text = (root / "CHANGELOG.md").read_text()
+    assert text.count("## [0.20.0] - ") == 1
+    # Unreleased stays, empty, above the new release.
+    assert "## [Unreleased]\n\n## [0.20.0] - " in text
+    assert (
+        '"version": "0.20.0"'
+        in (root / "custom_components" / "nwp500" / "manifest.json").read_text()
+    )
+
+
+def test_release_does_not_rewrite_prose_mentions_of_the_heading(tmp_path):
+    """A version heading must not be inserted into a sentence.
+
+    The changelog quotes `## [Unreleased]` when describing the release
+    tooling itself, including inside a code span that runs across two
+    lines. An unanchored substitution rewrote those too, producing a
+    version heading in the middle of a paragraph.
+    """
+    prose_single = "  With an empty `## [Unreleased]` section it fell back.\n"
+    prose_span = (
+        "  It is now scoped to `## [Unreleased]\n## [0.19.0] - 2026-08-22`.\n"
+    )
+    root = _release_repo(
+        tmp_path,
+        "# Changelog\n\n## [Unreleased]\n\n### Fixed\n"
+        f"- A tooling fix.\n{prose_single}{prose_span}\n"
+        "## [0.19.0] - 2026-08-22\n\n- Older.\n\n"
+        "[Unreleased]: https://example.invalid/compare/v0.19.0...HEAD\n",
+    )
+
+    result = _run_release(root)
+    assert result.returncode == 0, result.stderr
+
+    text = (root / "CHANGELOG.md").read_text()
+    assert prose_single in text, "inline mention was rewritten"
+    assert prose_span in text, "multi-line code span was rewritten"
+    assert text.count("## [0.20.0] - ") == 1, "heading inserted more than once"
+
+
+def test_release_updates_the_link_refs(tmp_path):
+    """The compare links gain the new version and keep the old ones.
+
+    The script writes the project's own GitHub URLs, so the expectations
+    below use that form rather than an invented one.
+    """
+    base = "https://github.com/eman/ha_nwp500/compare"
+    root = _release_repo(
+        tmp_path,
+        "# Changelog\n\n## [Unreleased]\n\n- Something.\n\n"
+        "## [0.19.0] - 2026-08-22\n\n- Older.\n\n"
+        f"[Unreleased]: {base}/v0.19.0...HEAD\n"
+        f"[0.19.0]: {base}/v0.18.0...v0.19.0\n",
+    )
+
+    result = _run_release(root)
+    assert result.returncode == 0, result.stderr
+
+    text = (root / "CHANGELOG.md").read_text()
+    assert f"[Unreleased]: {base}/v0.20.0...HEAD" in text
+    assert f"[0.20.0]: {base}/v0.19.0...v0.20.0" in text
+    # The rewrite is anchored to the Unreleased line, so older refs survive.
+    assert f"[0.19.0]: {base}/v0.18.0...v0.19.0" in text
