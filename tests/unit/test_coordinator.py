@@ -2625,3 +2625,160 @@ async def test_initial_reservation_read_propagates_cancellation(coordinator):
         await coordinator._async_request_initial_reservations(
             _device_with_mac()
         )
+
+
+@pytest.mark.asyncio
+async def test_periodic_refresh_retries_a_dropped_reply(coordinator):
+    """The periodic read retries on the same terms as the setup read.
+
+    It performed a single fetch, so a dropped reply still meant a full
+    refresh cycle of stale state -- the thing waiting was meant to avoid.
+    """
+    schedule = {"reservation_use": 2, "reservation": []}
+    calls = 0
+
+    async def drop_then_answer(mac):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            coordinator._handle_reservation_update_in_loop(mac, schedule)
+        return True
+
+    coordinator.async_request_reservations = AsyncMock(
+        side_effect=drop_then_answer
+    )
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    with patch(
+        "custom_components.nwp500.coordinator._INITIAL_RESERVATION_TIMEOUT",
+        0.01,
+    ):
+        await coordinator._async_refresh_schedules(MAC)
+
+    assert calls == 2
+    assert coordinator.reservation_schedules[MAC] == schedule
+    # The TOU read still follows, whatever the reservation read did.
+    coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+@pytest.mark.asyncio
+async def test_periodic_refresh_stops_asking_once_answered(coordinator):
+    """A device that replies is not asked a second time."""
+    schedule = {"reservation_use": 2, "reservation": []}
+
+    async def answer(mac):
+        coordinator._handle_reservation_update_in_loop(mac, schedule)
+        return True
+
+    coordinator.async_request_reservations = AsyncMock(side_effect=answer)
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    await coordinator._async_refresh_schedules(MAC)
+
+    assert coordinator.async_request_reservations.await_count == 1
+
+
+# ---------------------------------------------------------------------------
+# _start_schedule_refresh
+#
+# The refresh waits on device replies, and every device reaches the refresh
+# cycle on the same update, so it must not be awaited inside the status loop.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_schedule_refresh_does_not_block_the_status_loop(coordinator):
+    """Dispatching returns immediately, whatever the device does."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_refresh(mac):
+        started.set()
+        await release.wait()
+
+    coordinator._async_refresh_schedules = slow_refresh
+    coordinator.hass = MagicMock()
+    coordinator.hass.async_create_task = lambda coro, name=None: (
+        asyncio.ensure_future(coro)
+    )
+
+    coordinator._start_schedule_refresh(MAC)
+    await started.wait()  # the task really is running
+
+    # The dispatching call already returned while the refresh is mid-flight.
+    assert not coordinator._schedule_refresh_tasks[MAC].done()
+
+    release.set()
+    await coordinator._schedule_refresh_tasks[MAC]
+
+
+@pytest.mark.asyncio
+async def test_schedule_refresh_does_not_pile_up_per_device(coordinator):
+    """A device still being refreshed is skipped, not queued."""
+    release = asyncio.Event()
+    calls = 0
+
+    async def slow_refresh(mac):
+        nonlocal calls
+        calls += 1
+        await release.wait()
+
+    coordinator._async_refresh_schedules = slow_refresh
+    coordinator.hass = MagicMock()
+    coordinator.hass.async_create_task = lambda coro, name=None: (
+        asyncio.ensure_future(coro)
+    )
+
+    coordinator._start_schedule_refresh(MAC)
+    await asyncio.sleep(0)
+    coordinator._start_schedule_refresh(MAC)
+    coordinator._start_schedule_refresh(MAC)
+
+    assert calls == 1
+
+    release.set()
+    await coordinator._schedule_refresh_tasks[MAC]
+
+    # Once finished, a later cycle starts a fresh one.
+    release.clear()
+    coordinator._start_schedule_refresh(MAC)
+    await asyncio.sleep(0)
+    assert calls == 2
+    release.set()
+    await coordinator._schedule_refresh_tasks[MAC]
+
+
+@pytest.mark.asyncio
+async def test_setup_primes_every_device_concurrently(setup_clients_env):
+    """Silent devices must not multiply the setup wait.
+
+    The reservation read waits on the device's reply, so priming device by
+    device in sequence multiplied that wait by the number of devices on the
+    account -- enough of them would spend Home Assistant's whole setup
+    budget on reads that are only ever best-effort.
+    """
+    coordinator, _auth, api, _mqtt = setup_clients_env
+
+    macs = ["AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02", "AA:BB:CC:DD:EE:03"]
+    api.list_devices = AsyncMock(return_value=[_device(m) for m in macs])
+
+    in_flight = 0
+    peak = 0
+
+    async def slow_prime(device):
+        nonlocal in_flight, peak
+        in_flight += 1
+        peak = max(peak, in_flight)
+        await asyncio.sleep(0.05)
+        in_flight -= 1
+
+    coordinator._async_prime_schedules = slow_prime
+
+    started = time.monotonic()
+    await coordinator._setup_clients()
+    elapsed = time.monotonic() - started
+
+    # All three were in flight together, and the wall clock reflects one
+    # wait rather than three.
+    assert peak == len(macs)
+    assert elapsed < 0.05 * len(macs)

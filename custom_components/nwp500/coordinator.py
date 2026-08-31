@@ -156,6 +156,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # schedule state would go stale after any change made outside Home
         # Assistant (the app, the front panel).
         self._schedule_request_counter: dict[str, int] = {}
+        # In-flight periodic schedule refreshes, keyed by MAC. The refresh
+        # waits on the device's reply, so awaiting it inside the status loop
+        # would stall status polling for every device that stayed silent --
+        # and every device reaches the refresh cycle on the same update.
+        # Run as tasks instead, at most one per device.
+        self._schedule_refresh_tasks: dict[str, asyncio.Task[None]] = {}
         # Track periodic re-reads of the REST device list, which carries the
         # cloud-recorded fault and descaling window (see
         # _async_refresh_device_metadata).
@@ -617,7 +623,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             schedule_counter
                         )
                         if schedule_counter == 0:
-                            await self._async_refresh_schedules(mac_address)
+                            self._start_schedule_refresh(mac_address)
 
                     except TimeoutError, MqttError:
                         self._consecutive_timeouts += 1
@@ -905,23 +911,20 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "Failed to request initial device info: %s", err
                         )
 
-                    # Read the programmed reservation schedule.
-                    await self._async_request_initial_reservations(device)
-
-                    # Read the programmed TOU plan, so the TOU schedule
-                    # sensor is populated from the start rather than sitting
-                    # unknown until the first periodic schedule refresh,
-                    # roughly twenty minutes after every restart.
-                    #
-                    # Unlike reservations this is a REST read keyed by the
-                    # controller serial number, which only the device-info
-                    # response above publishes. That response arrives on the
-                    # MQTT thread and is applied when this coroutine yields,
-                    # so it is normally here by now -- but a device slow to
-                    # answer would leave it missing, and calling anyway would
-                    # log an error for a condition the periodic refresh
-                    # recovers from on its own. So check first.
-                    await self._async_request_initial_tou(device)
+                # Prime the schedules for every device at once, rather than
+                # inside the loop above. The reservation read waits on the
+                # device's reply, so doing it per device in sequence would
+                # multiply that wait by the number of devices on the
+                # account -- enough silent devices would spend the whole of
+                # Home Assistant's setup budget on reads that are only ever
+                # best-effort. Concurrently, the cost is one wait however
+                # many devices there are.
+                await asyncio.gather(
+                    *(
+                        self._async_prime_schedules(device)
+                        for device in self.devices
+                    )
+                )
 
             _LOGGER.info(
                 "Successfully connected to Navien cloud service with "
@@ -980,6 +983,23 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 f"Failed to connect to Navien service: {err}"
             ) from err
+
+    async def _async_prime_schedules(self, device: Device) -> None:
+        """Read both programmed schedules for one device, at setup.
+
+        Reservations first, then TOU. Both are best-effort and neither may
+        fail setup, so this never raises.
+        """
+        await self._async_request_initial_reservations(device)
+
+        # The TOU plan is a REST read keyed by the controller serial number,
+        # which only the MQTT device-info response publishes. That response
+        # arrives on the MQTT thread and is applied when this coroutine
+        # yields, so it is normally here by now -- but a device slow to
+        # answer would leave it missing, and calling anyway would log an
+        # error for a condition the periodic refresh recovers from on its
+        # own. _async_request_initial_tou checks first.
+        await self._async_request_initial_tou(device)
 
     async def _async_request_initial_reservations(self, device: Device) -> None:
         """Read the reservation schedule at setup, waiting for the reply.
@@ -1441,6 +1461,32 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             device, "request_reservations"
         )
 
+    def _start_schedule_refresh(self, mac_address: str) -> None:
+        """Refresh one device's schedules without blocking the update cycle.
+
+        The status loop must not wait on this. The reservation read waits
+        for the device's reply, and every device hits the refresh cycle on
+        the same update, so awaiting it there would add that wait once per
+        silent device to a single coordinator update -- potentially past the
+        update interval itself.
+
+        At most one refresh per device is in flight; if the previous one has
+        not finished, this cycle is skipped rather than queued.
+        """
+        existing = self._schedule_refresh_tasks.get(mac_address)
+        if existing and not existing.done():
+            _LOGGER.debug(
+                "Schedule refresh for %s is still running; skipping this cycle",
+                mac_address,
+            )
+            return
+
+        task = self.hass.async_create_task(
+            self._async_refresh_schedules(mac_address),
+            f"{DOMAIN} schedule refresh {mac_address}",
+        )
+        self._schedule_refresh_tasks[mac_address] = task
+
     async def _async_refresh_schedules(self, mac_address: str) -> None:
         """Re-read the programmed reservation and TOU schedules.
 
@@ -1448,22 +1494,28 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         publishing and hoping, for the reason given in
         `_async_request_initial_reservations`: a dropped reply is otherwise
         invisible, and the next chance to notice is a full refresh cycle
-        away. Waiting means a lost reply costs one retry instead of twenty
-        minutes of stale state.
+        away. It retries on the same terms as the setup read, so a lost
+        reply costs another request rather than twenty minutes of stale
+        state. The TOU read follows either way.
 
         Failures are logged and ignored so a schedule refresh never breaks
         the status update cycle.
         """
         try:
-            if (
-                await self.async_fetch_reservations(
-                    mac_address, timeout=_INITIAL_RESERVATION_TIMEOUT
-                )
-                is None
-            ):
+            for attempt in range(1, _INITIAL_RESERVATION_ATTEMPTS + 1):
+                if (
+                    await self.async_fetch_reservations(
+                        mac_address, timeout=_INITIAL_RESERVATION_TIMEOUT
+                    )
+                    is not None
+                ):
+                    break
                 _LOGGER.debug(
-                    "Periodic reservation refresh got no reply for %s",
+                    "Periodic reservation refresh got no reply for %s "
+                    "(attempt %d of %d)",
                     mac_address,
+                    attempt,
+                    _INITIAL_RESERVATION_ATTEMPTS,
                 )
         except (TimeoutError, RuntimeError, OSError, MqttError) as err:
             # TimeoutError is caught deliberately: the caller's own handler
@@ -1755,6 +1807,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_shutdown(self) -> None:
         """Shutdown the coordinator."""
+        # Cancel any in-flight schedule refreshes. They wait on device
+        # replies, so without this a teardown could outlive the entry.
+        for task in self._schedule_refresh_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._schedule_refresh_tasks.clear()
+
         # Cancel any pending reconnection task
         if self._reconnect_task and not self._reconnect_task.done():
             self._reconnect_task.cancel()

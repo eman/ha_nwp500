@@ -11,9 +11,15 @@
   the wild rather than theorised: the request went out 2.2s into setup, the
   device answered on its MQTT topic, and the subscription callback never
   ran. Setup now waits for the reply and asks again once if it does not
-  come, and the periodic refresh waits as well so a dropped reply there
-  costs one retry rather than a full cycle of stale state. Best-effort
-  throughout: a device that never answers is still left to the periodic
+  come, and the periodic refresh waits and retries on the same terms so a
+  dropped reply there costs another request rather than a full cycle of
+  stale state. Because waiting has a cost, the setup reads run for every
+  device at once rather than device by device -- otherwise silent devices
+  would multiply the wait by the size of the account -- and the periodic
+  refresh runs as a task per device instead of inside the status polling
+  loop, where every device reaching the refresh cycle on the same update
+  could have stalled status polling past its own interval. Best-effort
+  throughout: a device that never answers is still left to the next
   refresh and never fails setup.
 - **Reconfigure now saves the new password.** The reconfigure step called
   `_abort_if_unique_id_configured()`, but in a reconfigure flow the entry
