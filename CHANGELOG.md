@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-09-01
+
 ### Fixed
 - **Setup no longer fails when the cloud reports a null error code.**
   Some devices come back from `/device/list` with `"error": {"errorCode":
@@ -1534,7 +1536,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.20.1...HEAD
+[0.20.1]: https://github.com/eman/ha_nwp500/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/eman/ha_nwp500/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/eman/ha_nwp500/compare/v0.18.0...v0.19.0
 [0.18.0]: https://github.com/eman/ha_nwp500/compare/v0.17.1...v0.18.0
