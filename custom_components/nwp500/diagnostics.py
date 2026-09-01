@@ -146,9 +146,14 @@ async def async_get_config_entry_diagnostics(
         # when the cloud actually populated the block.
         error = getattr(device, "error", None)
         if error is not None:
+            # A null code means the cloud reported none -- which is not
+            # the same claim as NO_ERROR, and must not be rendered as the
+            # string "None".
             code = getattr(error, "error_code", None)
             entry["error"] = {
-                "error_code": str(getattr(code, "name", code)),
+                "error_code": (
+                    None if code is None else str(getattr(code, "name", code))
+                ),
                 "error_occurred_time": getattr(
                     error, "error_occurred_time", None
                 ),

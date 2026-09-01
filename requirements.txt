@@ -8,7 +8,7 @@
 # Development tooling lives in requirements-dev.txt.
 
 # Core integration library
-nwp500-python==9.3.1
+nwp500-python==9.3.2
 
 # AWS IoT SDK for MQTT communication (pulls awscrt)
 awsiotsdk==1.31.0

@@ -293,6 +293,42 @@ async def test_diagnostics_reports_the_cloud_recorded_fault_and_descaling(
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_reports_a_null_error_code_as_null(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    mock_coordinator: MagicMock,
+) -> None:
+    """The cloud sends `{"errorCode": null}` on some devices.
+
+    A null means the cloud recorded no code, so it is reported as null
+    rather than the string "None", which would read as a fault named None.
+    """
+    device = MagicMock()
+    device.device_info.device_name = "NWP500"
+    device.device_info.device_type = 52
+    device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
+    device.device_info.connected = True
+    device.device_info.model_type_code = None
+    device.device_info.installer_id = None
+    device.error.error_code = None
+    device.error.error_occurred_time = None
+    device.descaling = None
+    device.location = None
+
+    mock_coordinator.mqtt_manager = None
+    mock_coordinator.devices = [device]
+
+    mock_config_entry.runtime_data = mock_coordinator
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert result["devices"][0]["error"] == {
+        "error_code": None,
+        "error_occurred_time": None,
+    }
+
+
+@pytest.mark.asyncio
 async def test_diagnostics_omits_blocks_the_cloud_did_not_send(
     hass: HomeAssistant,
     mock_config_entry: ConfigEntry,
