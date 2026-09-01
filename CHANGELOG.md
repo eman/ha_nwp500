@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Setup no longer fails when the cloud reports a null error code.**
+  Some devices come back from `/device/list` with `"error": {"errorCode":
+  null}`. nwp500-python 9.3.1 typed `DeviceErrorSummary.error_code` as
+  `ErrorCode | int`, so the null failed validation of the whole `Device`,
+  the listing was unparseable, and the integration could not set up at all
+  -- "Failed setup, will retry", with no working entities until a rollback
+  to 0.19.x. 9.3.2 types the field `ErrorCode | int | None`, so a null now
+  parses as "the cloud recorded no code", which is not the same claim as
+  `NO_ERROR`. The Cloud Error Code sensor already reported nothing for a
+  missing code and is unchanged; diagnostics now emit `error_code: null`
+  rather than the string `"None"`, which read as a fault named None.
+  Reported in [#131](https://github.com/eman/ha_nwp500/issues/131).
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 9.3.2
+
 ## [0.20.0] - 2026-08-30
 
 ### Fixed

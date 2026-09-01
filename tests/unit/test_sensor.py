@@ -753,6 +753,22 @@ class TestCloudMetadataSensors:
 
         assert sensor.native_value == "999"
 
+    def test_a_null_code_reports_nothing(self, mock_coordinator, mock_device):
+        """The cloud sends `{"errorCode": null}` on some devices.
+
+        A null is the cloud reporting no code, not a fault numbered zero,
+        so the sensor stays unknown rather than naming NO_ERROR.
+        """
+        error = MagicMock()
+        error.error_code = None
+        error.error_occurred_time = None
+        mock_coordinator.get_device_error.return_value = error
+
+        sensor = self._error_sensor(mock_coordinator, mock_device)
+
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes["occurred_at"] is None
+
     def test_no_error_block_reports_nothing(
         self, mock_coordinator, mock_device
     ):
