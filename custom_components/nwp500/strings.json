@@ -673,7 +673,7 @@
         },
         "hours": {
           "name": "Hours",
-          "description": "Service interval in evaporator-fan hours: 0 (alarm off) or 1000-10000 in steps of 500"
+          "description": "Service interval in evaporator-fan hours, 1000-10000 in steps of 500. Type 0 to switch the alarm off."
         }
       }
     },

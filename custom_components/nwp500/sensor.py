@@ -204,9 +204,16 @@ async def async_setup_entry(
         entities.append(
             NWP500TOUScheduleSensor(coordinator, mac_address, device)
         )
-        entities.append(
-            NWP500RecirculationScheduleSensor(coordinator, mac_address, device)
-        )
+        # Only where the device reports recirculation scheduling: elsewhere
+        # the schedule is never asked for, and the sensor would sit unknown
+        # forever. The feature flags arrive with the device-info reply,
+        # which setup waits on before the platforms load.
+        if coordinator.supports_recirculation_schedule(mac_address):
+            entities.append(
+                NWP500RecirculationScheduleSensor(
+                    coordinator, mac_address, device
+                )
+            )
         # Lifetime counters from the installer diagnostics query
         entities.extend(
             NWP500InstallerDiagnosticsSensor(

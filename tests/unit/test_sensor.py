@@ -1040,3 +1040,39 @@ class TestRecirculationScheduleSensor:
 
         assert sensor.native_value == 0
         assert sensor.extra_state_attributes["enabled"] is False
+
+
+class TestRecirculationScheduleSensorCreation:
+    """The sensor exists only where the device reports the feature."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("supported", [True, False])
+    async def test_created_only_when_the_device_supports_scheduling(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_config_entry: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        supported: bool,
+    ):
+        mock_coordinator.data = {
+            "AA:BB:CC:DD:EE:FF": {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+        mock_coordinator.supports_recirculation_schedule = MagicMock(
+            return_value=supported
+        )
+        mock_config_entry.runtime_data = mock_coordinator
+        added = []
+
+        await async_setup_entry(
+            hass, mock_config_entry, lambda entities, _: added.extend(entities)
+        )
+
+        created = any(
+            isinstance(e, NWP500RecirculationScheduleSensor) for e in added
+        )
+        assert created is supported

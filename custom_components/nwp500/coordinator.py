@@ -1061,15 +1061,38 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         The reply is stored in `recirculation_schedules` and fired as a
         `nwp500_recirculation_schedule_updated` event.
 
+        Only published when the device reports recirculation scheduling.
+        The library refuses the query on any other device, and asking every
+        refresh cycle would log that refusal every time; a device whose
+        features have not arrived yet is treated the same way, since the
+        refresh will ask again once they have.
+
         Returns:
             bool: True if the request was published.
         """
         device = self._devices_by_mac.get(mac_address)
         if not device or not self.mqtt_manager:
             return False
+        if not self.supports_recirculation_schedule(mac_address):
+            _LOGGER.debug(
+                "Not requesting the recirculation schedule of %s: the device "
+                "does not report recirculation scheduling",
+                mac_address,
+            )
+            return False
         return await self.mqtt_manager.send_command(
             device, "request_recirculation_schedule"
         )
+
+    def supports_recirculation_schedule(self, mac_address: str) -> bool:
+        """Whether the device reports the recirculation scheduling feature.
+
+        False until the device-info reply has been received, so callers
+        that run before it -- entity creation, the first refresh -- must
+        expect to be told no on a device that does support it.
+        """
+        features = self.device_features.get(mac_address)
+        return bool(getattr(features, "recirc_reservation_use", False))
 
     async def _async_request_initial_reservations(self, device: Device) -> None:
         """Read the reservation schedule at setup, waiting for the reply.
