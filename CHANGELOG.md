@@ -36,9 +36,11 @@
   pump schedule with the new query, the same way the Reservation Schedule
   sensor reads reservations: entry count as state, entries and a schedule
   hash as attributes. A `nwp500_recirculation_schedule_updated` event
-  fires on each read. The library verified the read on a unit without a
-  pump (empty, disabled schedule); the write remains unexposed until its
-  echo has been seen on a unit with one.
+  fires on each read. Only created, and only requested, on a device whose
+  features report recirculation scheduling; the library refuses the query
+  on any other. The library verified the read on a unit without a pump
+  (empty, disabled schedule); the write remains unexposed until its echo
+  has been seen on a unit with one.
 - The diagnostics download includes the full installer diagnostics reading
   and the recirculation schedule per device, once the device has answered.
 
@@ -52,6 +54,19 @@
   Home Assistant instance -- is not known, so
   `MqttConnectionConfig(send_session_end_on_disconnect=False)` keeps the
   behaviour every earlier version had.
+- A command the library refuses on the device's feature flags is logged
+  once at INFO, naming the feature, instead of as an error; the service
+  call still fails. Read-only queries (reservations, energy, diagnostics,
+  recirculation schedule) no longer trigger a device status request
+  afterwards, which removes one status round trip per read from every
+  schedule refresh cycle: three on a device with recirculation scheduling,
+  two on any other.
+- The `set_air_filter_life` hours field is a dropdown of exactly what the
+  device accepts -- Off, then 1000-10000 in steps of 500 -- instead of a
+  number box that could offer 500 and not reach 0.
+- The Recirculation Schedule sensor is also created after setup, on the
+  first feature update that reports scheduling support, for a device whose
+  initial device-info reply was lost.
 - The energy report's `total` is documented as the device's lifetime total.
   9.4.0 checked live that the device reports the same `total` whatever
   period is asked for; the key is unchanged, and per-month totals are still

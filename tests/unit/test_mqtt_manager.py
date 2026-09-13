@@ -1406,3 +1406,94 @@ async def test_parameterised_commands_refuse_to_run_without_their_argument(
     assert await manager.send_command(mock_device, command) is False
 
     getattr(mock_mqtt_client, method).assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_capability_refusal_is_reported_not_logged_as_an_error(
+    manager, mock_mqtt_client, mock_device, caplog
+):
+    """The library declined on the device's feature flags; nothing failed.
+
+    A device does not grow features, so an ERROR line on every attempt
+    would only be noise. The caller still gets False.
+    """
+    from nwp500.exceptions import DeviceCapabilityError
+
+    await manager.setup()
+    mock_mqtt_client.set_vacation_duration.side_effect = DeviceCapabilityError(
+        "holiday_use"
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = await manager.send_command(
+            mock_device, "set_vacation_duration", days=3
+        )
+
+    assert result is False
+    assert "does not support holiday_use" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command",
+    [
+        "request_reservations",
+        "request_energy_usage",
+        "request_energy_usage_monthly",
+        "request_diagnostics",
+        "request_recirculation_schedule",
+    ],
+)
+async def test_read_only_queries_do_not_trigger_a_status_request(
+    manager, mock_mqtt_client, mock_device, command
+):
+    """A read changes nothing, so there is no result to refresh."""
+    await manager.setup()
+
+    kwargs = {
+        "request_energy_usage": {"year": 2026, "months": [1]},
+        "request_energy_usage_monthly": {"years": [2026]},
+    }.get(command, {})
+    assert await manager.send_command(mock_device, command, **kwargs) is True
+
+    mock_mqtt_client.request_device_status.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_control_commands_still_trigger_a_status_request(
+    manager, mock_mqtt_client, mock_device
+):
+    await manager.setup()
+
+    assert await manager.send_command(mock_device, "reset_condenser_fault")
+
+    mock_mqtt_client.request_device_status.assert_called_once_with(mock_device)
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_recirculation_payload_is_dropped(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """An empty dict would be shown as an empty, disabled schedule."""
+    received: list[tuple[str, dict]] = []
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_recirculation_schedule=lambda mac, response: received.append(
+            (mac, response)
+        ),
+    )
+    await manager.setup()
+    await manager.subscribe_device(mock_device)
+
+    callback = (
+        mock_mqtt_client.subscribe_recirculation_schedule_response.call_args[0][
+            1
+        ]
+    )
+    callback(object())
+
+    assert received == []

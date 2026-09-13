@@ -1355,12 +1355,13 @@ async def test_setup_clients_connects_and_primes_each_device(
     mqtt.start_periodic_requests.assert_awaited_once()
     mqtt.request_device_info.assert_awaited_once()
     # One reservation publish: the device answered, so the read did not
-    # need retrying. The installer diagnostics and recirculation schedule
-    # reads follow, published once each and not waited on.
+    # need retrying. The installer diagnostics read follows, published
+    # once and not waited on. No recirculation schedule read: this
+    # device's features have not arrived, so it is not known to support
+    # one, and the library would refuse the query.
     assert [call.args[1] for call in mqtt.send_command.await_args_list] == [
         "request_reservations",
         "request_diagnostics",
-        "request_recirculation_schedule",
     ]
     assert coordinator.reservation_schedules[MAC] == {
         "reservation_use": 2,
@@ -2843,11 +2844,49 @@ async def test_request_diagnostics_publishes_the_query(wired):
 
 @pytest.mark.asyncio
 async def test_request_recirculation_schedule_publishes_the_query(wired):
+    """Published only once the device is known to support scheduling."""
+    features = MagicMock()
+    features.recirc_reservation_use = True
+    wired.device_features[MAC] = features
+
     assert await wired.async_request_recirculation_schedule(MAC) is True
 
     wired.mqtt_manager.send_command.assert_awaited_once_with(
         wired._devices_by_mac[MAC], "request_recirculation_schedule"
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("known", [False, None])
+async def test_recirculation_schedule_is_not_asked_of_a_device_without_it(
+    wired, known
+):
+    """The library refuses the query on such a device, at ERROR, every time.
+
+    Not asking is cheaper and quieter. A device whose features have not
+    arrived yet (None) is treated the same way; the refresh asks again
+    once they have.
+    """
+    if known is None:
+        wired.device_features.clear()
+    else:
+        features = MagicMock()
+        features.recirc_reservation_use = known
+        wired.device_features[MAC] = features
+
+    assert await wired.async_request_recirculation_schedule(MAC) is False
+
+    wired.mqtt_manager.send_command.assert_not_called()
+
+
+def test_supports_recirculation_schedule_follows_the_feature_flag(wired):
+    assert wired.supports_recirculation_schedule(MAC) is False
+
+    features = MagicMock()
+    features.recirc_reservation_use = True
+    wired.device_features[MAC] = features
+
+    assert wired.supports_recirculation_schedule(MAC) is True
 
 
 @pytest.mark.asyncio

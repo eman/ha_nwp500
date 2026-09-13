@@ -189,6 +189,9 @@ async def async_setup_entry(
     coordinator = config_entry.runtime_data
 
     entities: list[SensorEntity] = []
+    # Devices that have a Recirculation Schedule sensor, so a later feature
+    # update neither duplicates one nor misses a device.
+    recirculation_sensor_macs: set[str] = set()
 
     # Add device-specific sensors
     for mac_address, device_data in coordinator.data.items():
@@ -204,9 +207,19 @@ async def async_setup_entry(
         entities.append(
             NWP500TOUScheduleSensor(coordinator, mac_address, device)
         )
-        entities.append(
-            NWP500RecirculationScheduleSensor(coordinator, mac_address, device)
-        )
+        # Only where the device reports recirculation scheduling: elsewhere
+        # the schedule is never asked for, and the sensor would sit unknown
+        # forever. The feature flags normally arrive with the device-info
+        # reply before the platforms load; a device whose reply was lost
+        # gets its sensor from _add_recirculation_sensors_when_supported
+        # once a later reply lands.
+        if coordinator.supports_recirculation_schedule(mac_address):
+            entities.append(
+                NWP500RecirculationScheduleSensor(
+                    coordinator, mac_address, device
+                )
+            )
+            recirculation_sensor_macs.add(mac_address)
         # Lifetime counters from the installer diagnostics query
         entities.extend(
             NWP500InstallerDiagnosticsSensor(
@@ -248,6 +261,36 @@ async def async_setup_entry(
         )
 
     async_add_entities(entities, True)
+
+    def _add_recirculation_sensors_when_supported() -> None:
+        """Create the schedule sensor for a device whose features came late.
+
+        The initial device-info request is best-effort: a timeout or a
+        dropped reply leaves `device_features` empty and setup continues.
+        The periodic info request fills it in later, and the coordinator
+        notifies listeners on every feature update, so this is where a
+        supported device that missed the first pass gets its sensor.
+        """
+        late: list[SensorEntity] = []
+        for mac_address, device_data in coordinator.data.items():
+            if mac_address in recirculation_sensor_macs:
+                continue
+            if not coordinator.supports_recirculation_schedule(mac_address):
+                continue
+            recirculation_sensor_macs.add(mac_address)
+            late.append(
+                NWP500RecirculationScheduleSensor(
+                    coordinator, mac_address, device_data["device"]
+                )
+            )
+        if late:
+            async_add_entities(late, True)
+
+    config_entry.async_on_unload(
+        coordinator.async_add_listener(
+            _add_recirculation_sensors_when_supported
+        )
+    )
 
 
 class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

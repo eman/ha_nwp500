@@ -8,7 +8,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Final
 
-from nwp500.exceptions import InvalidCredentialsError
+from nwp500.exceptions import DeviceCapabilityError, InvalidCredentialsError
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -656,14 +656,32 @@ class NWP500MqttManager:
                     _LOGGER.error("Unknown command: %s", command)
                     return False
 
-            # Request update after command
-            try:
-                await self.mqtt_client.request_device_status(device)
-            except Exception as err:
-                self._handle_command_error(err, "post-command status request")
+            # Request update after a control command, so the entities show
+            # the result without waiting for the next poll. A read-only
+            # query changes nothing on the device, and the device answers
+            # it on its own topic, so a status request after one would
+            # only add a round trip to every refresh cycle.
+            if not command.startswith("request_"):
+                try:
+                    await self.mqtt_client.request_device_status(device)
+                except Exception as err:
+                    self._handle_command_error(
+                        err, "post-command status request"
+                    )
 
             return True
 
+        except DeviceCapabilityError as err:
+            # The library checked the device's feature flags and declined
+            # to publish. Nothing went wrong on the wire, and the device
+            # will not grow the feature, so this is not an error to report
+            # on every attempt -- the caller is told it was refused.
+            _LOGGER.info(
+                "Command %s refused: the device does not support %s",
+                command,
+                err.feature_name,
+            )
+            return False
         except Exception as err:
             return self._handle_command_error(err, f"command {command}")
 
@@ -921,13 +939,19 @@ class NWP500MqttManager:
         """
         try:
             _LOGGER.debug("Received recirculation schedule for %s", mac_address)
-            if self._on_recirculation_schedule_callback:
-                response = (
-                    schedule.model_dump()
-                    if hasattr(schedule, "model_dump")
-                    else {}
+            if not hasattr(schedule, "model_dump"):
+                # Same reasoning as the diagnostics handler: an empty dict
+                # would be stored and shown as an empty, disabled schedule,
+                # which reads as something the device reported.
+                _LOGGER.warning(
+                    "Discarding a recirculation schedule payload that "
+                    "cannot be read"
                 )
-                self._on_recirculation_schedule_callback(mac_address, response)
+                return
+            if self._on_recirculation_schedule_callback:
+                self._on_recirculation_schedule_callback(
+                    mac_address, schedule.model_dump()
+                )
         except Exception as err:
             _LOGGER.error("Error handling recirculation schedule: %s", err)
 
