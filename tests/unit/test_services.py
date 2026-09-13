@@ -30,9 +30,13 @@ from custom_components.nwp500 import (
     SERVICE_REQUEST_RESERVATIONS,
     SERVICE_REQUEST_TOU,
     SERVICE_RESET_AIR_FILTER,
+    SERVICE_RESET_CONDENSER_FAULT,
+    SERVICE_SET_AIR_FILTER_LIFE,
+    SERVICE_SET_AIR_FILTER_LIFE_SCHEMA,
     SERVICE_SET_RECIRCULATION_MODE,
     SERVICE_SET_RESERVATION,
     SERVICE_SET_VACATION_DAYS,
+    SERVICE_SET_VACATION_DURATION,
     SERVICE_TRIGGER_RECIRCULATION,
     SERVICE_UPDATE_RESERVATIONS,
     SERVICE_UPDATE_RESERVATIONS_SCHEMA,
@@ -122,10 +126,10 @@ class TestReservationServices:
 
     @pytest.mark.asyncio
     async def test_setup_services_registers_all(self, mock_hass):
-        """Test that all 13 services are registered."""
+        """Test that all 16 services are registered."""
         await _async_setup_services(mock_hass)
 
-        assert mock_hass.services.async_register.call_count == 13
+        assert mock_hass.services.async_register.call_count == 16
 
         # Verify all expected services are registered
         registered_services = [
@@ -145,6 +149,9 @@ class TestReservationServices:
         assert SERVICE_SET_RECIRCULATION_MODE in registered_services
         assert SERVICE_TRIGGER_RECIRCULATION in registered_services
         assert SERVICE_GET_ENERGY_USAGE in registered_services
+        assert SERVICE_SET_VACATION_DURATION in registered_services
+        assert SERVICE_SET_AIR_FILTER_LIFE in registered_services
+        assert SERVICE_RESET_CONDENSER_FAULT in registered_services
 
     @pytest.mark.asyncio
     async def test_setup_services_skips_if_already_registered(self, mock_hass):
@@ -1604,3 +1611,173 @@ class TestUnitSystemChangeGuard:
             await handler(call)
 
         coordinator.async_update_reservations.assert_not_called()
+
+
+class TestNwp500Python940Services:
+    """The controls nwp500-python 9.4.0 added, and the monthly energy query."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self, mock_hass, mock_device_registry):
+        """Stage one coordinator behind one device."""
+        self.mock_hass = mock_hass
+        self.mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        self.mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
+        stage_coordinator(mock_hass, self.mock_coordinator)
+
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+
+    async def _handler(self, service_name):
+        await _async_setup_services(self.mock_hass)
+        for call in self.mock_hass.services.async_register.call_args_list:
+            if call[0][1] == service_name:
+                return call[0][2]
+        pytest.fail(f"{service_name} was not registered")
+
+    @pytest.mark.asyncio
+    async def test_set_vacation_duration_changes_only_the_day_count(self):
+        """A different command from set_vacation_days: mode is untouched."""
+        handler = await self._handler(SERVICE_SET_VACATION_DURATION)
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", ATTR_DAYS: 12}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_awaited_once_with(
+            "AA:BB:CC:DD:EE:FF", "set_vacation_duration", days=12
+        )
+
+    @pytest.mark.asyncio
+    async def test_set_air_filter_life_sends_the_hours(self):
+        handler = await self._handler(SERVICE_SET_AIR_FILTER_LIFE)
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", "hours": 3000}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_awaited_once_with(
+            "AA:BB:CC:DD:EE:FF", "set_air_filter_life", hours=3000
+        )
+
+    @pytest.mark.asyncio
+    async def test_reset_condenser_fault_sends_the_command(self):
+        handler = await self._handler(SERVICE_RESET_CONDENSER_FAULT)
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123"}
+        await handler(call)
+
+        self.mock_coordinator.async_send_command.assert_awaited_once_with(
+            "AA:BB:CC:DD:EE:FF", "reset_condenser_fault"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("service_name", "data", "message"),
+        [
+            (
+                SERVICE_SET_VACATION_DURATION,
+                {ATTR_DAYS: 3},
+                "vacation duration",
+            ),
+            (SERVICE_SET_AIR_FILTER_LIFE, {"hours": 0}, "air filter life"),
+            (SERVICE_RESET_CONDENSER_FAULT, {}, "condenser fault"),
+        ],
+    )
+    async def test_a_refused_publish_is_an_error(
+        self, service_name, data, message
+    ):
+        self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
+        handler = await self._handler(service_name)
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", **data}
+
+        with pytest.raises(HomeAssistantError, match=message):
+            await handler(call)
+
+    @pytest.mark.parametrize("hours", [0, 1000, 3500, 10000])
+    def test_air_filter_life_accepts_what_the_app_offers(self, hours):
+        """Off, or 1000-10000 in 500-hour steps -- the NaviLink app's picker."""
+        validated = SERVICE_SET_AIR_FILTER_LIFE_SCHEMA(
+            {ATTR_DEVICE_ID: "device_123", "hours": str(hours)}
+        )
+
+        assert validated["hours"] == hours
+
+    @pytest.mark.parametrize("hours", [500, 1250, 10500, -1000])
+    def test_air_filter_life_rejects_what_the_library_would(self, hours):
+        """Validated here so a bad value is a usage error, not a device round trip."""
+        with pytest.raises(vol.Invalid):
+            SERVICE_SET_AIR_FILTER_LIFE_SCHEMA(
+                {ATTR_DEVICE_ID: "device_123", "hours": hours}
+            )
+
+    @pytest.mark.asyncio
+    async def test_energy_usage_for_whole_years_asks_the_monthly_query(self):
+        """`years` selects the per-month report and drops duplicate years."""
+        self.mock_coordinator.async_fetch_energy_usage_monthly = AsyncMock(
+            return_value={
+                "total": {"heat_pump_usage": 2000},
+                "usage": [
+                    {
+                        "year": 2026,
+                        "month": None,
+                        "data": [{"heat_pump_usage": 1000}],
+                    }
+                ],
+            }
+        )
+        handler = await self._handler(SERVICE_GET_ENERGY_USAGE)
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", "years": [2026, 2025, 2026]}
+        report = await handler(call)
+
+        self.mock_coordinator.async_fetch_energy_usage_monthly.assert_awaited_once_with(
+            "AA:BB:CC:DD:EE:FF", [2025, 2026]
+        )
+        assert report["lifetime_total"]["heat_pump_kwh"] == 2.0
+        assert report["years"][0]["months"][0]["date"] == "2026-01"
+
+    @pytest.mark.asyncio
+    async def test_a_silent_device_is_an_error_for_the_monthly_query_too(
+        self,
+    ):
+        self.mock_coordinator.async_fetch_energy_usage_monthly = AsyncMock(
+            return_value=None
+        )
+        handler = await self._handler(SERVICE_GET_ENERGY_USAGE)
+
+        call = MagicMock(spec=ServiceCall)
+        call.data = {ATTR_DEVICE_ID: "device_123", "years": [2026]}
+
+        with pytest.raises(HomeAssistantError, match="did not report"):
+            await handler(call)
+
+    def test_years_accepts_a_list_in_the_library_range(self):
+        validated = SERVICE_GET_ENERGY_USAGE_SCHEMA(
+            {ATTR_DEVICE_ID: "device_123", "years": ["2025", 2026]}
+        )
+
+        assert validated["years"] == [2025, 2026]
+
+    @pytest.mark.parametrize("years", [[1999], [2100], []])
+    def test_years_outside_the_library_range_are_rejected(self, years):
+        with pytest.raises(vol.Invalid):
+            SERVICE_GET_ENERGY_USAGE_SCHEMA(
+                {ATTR_DEVICE_ID: "device_123", "years": years}
+            )
+
+    @pytest.mark.parametrize(
+        "period",
+        [{"year": 2026}, {"months": [3]}, {"year": 2026, "months": [3]}],
+    )
+    def test_years_cannot_be_combined_with_a_daily_period(self, period):
+        """Asking for months and whole years at once has no single answer."""
+        with pytest.raises(vol.Invalid, match="cannot be combined"):
+            SERVICE_GET_ENERGY_USAGE_SCHEMA(
+                {ATTR_DEVICE_ID: "device_123", "years": [2026], **period}
+            )

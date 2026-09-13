@@ -108,6 +108,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.device_features: dict[str, DeviceFeature] = {}
         self.reservation_schedules: dict[str, dict[str, Any]] = {}
         self.tou_schedules: dict[str, dict[str, Any]] = {}
+        self.recirculation_schedules: dict[str, dict[str, Any]] = {}
+        # The installer diagnostics counters (`DeviceDiagnostics.model_dump()`
+        # output) per device: lifetime energy, component run times and start
+        # counts, fault event counts. Read on request only, at setup and on
+        # the schedule refresh cycle; sensors read from here.
+        self.device_diagnostics: dict[str, dict[str, Any]] = {}
         self._reconnect_task: asyncio.Task[Any] | None = (
             None  # Track reconnection task
         )
@@ -753,7 +759,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                'uv pip install "nwp500-python==9.3.2" "awsiotsdk==1.31.0"'
+                'uv pip install "nwp500-python==9.4.0" "awsiotsdk==1.31.0"'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -879,6 +885,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 on_reservation_update=self._on_reservation_update,
                 on_tou_update=self._on_tou_update,
                 on_energy_usage=self._on_energy_usage,
+                on_diagnostics=self._on_diagnostics,
+                on_recirculation_schedule=self._on_recirculation_schedule,
                 unit_system=self.unit_system,
                 on_reconnected=_on_mqtt_reconnected,
                 on_reconnection_failed=_on_mqtt_reconnection_failed,
@@ -1000,6 +1008,68 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # error for a condition the periodic refresh recovers from on its
         # own. _async_request_initial_tou checks first.
         await self._async_request_initial_tou(device)
+
+        # Installer diagnostics and the recirculation schedule are asked
+        # for and not waited on: the sensors that read them stay unknown
+        # until the reply lands, and the periodic refresh asks again.
+        await self._async_request_on_demand_reads(
+            device.device_info.mac_address
+        )
+
+    async def _async_request_on_demand_reads(self, mac_address: str) -> None:
+        """Publish the reads the device answers only when asked.
+
+        Installer diagnostics (lifetime counters) and the recirculation pump
+        schedule. Best-effort: a failed publish is logged and never raised,
+        because these run inside setup and the refresh cycle.
+        """
+        for request in (
+            self.async_request_diagnostics,
+            self.async_request_recirculation_schedule,
+        ):
+            try:
+                await request(mac_address)
+            except Exception as err:  # noqa: BLE001 - best-effort boundary
+                _LOGGER.debug(
+                    "On-demand read %s failed for %s: %s",
+                    request.__name__,
+                    mac_address,
+                    err,
+                )
+
+    async def async_request_diagnostics(self, mac_address: str) -> bool:
+        """Ask the device for its installer diagnostics counters.
+
+        The reply is stored in `device_diagnostics` by `_on_diagnostics`
+        and pushed to the sensors that read it.
+
+        Returns:
+            bool: True if the request was published.
+        """
+        device = self._devices_by_mac.get(mac_address)
+        if not device or not self.mqtt_manager:
+            return False
+        return await self.mqtt_manager.send_command(
+            device, "request_diagnostics"
+        )
+
+    async def async_request_recirculation_schedule(
+        self, mac_address: str
+    ) -> bool:
+        """Ask the device for its recirculation pump schedule.
+
+        The reply is stored in `recirculation_schedules` and fired as a
+        `nwp500_recirculation_schedule_updated` event.
+
+        Returns:
+            bool: True if the request was published.
+        """
+        device = self._devices_by_mac.get(mac_address)
+        if not device or not self.mqtt_manager:
+            return False
+        return await self.mqtt_manager.send_command(
+            device, "request_recirculation_schedule"
+        )
 
     async def _async_request_initial_reservations(self, device: Device) -> None:
         """Read the reservation schedule at setup, waiting for the reply.
@@ -1241,6 +1311,65 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.error("Error handling reservation update: %s", err)
 
+    def _on_diagnostics(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Handle an installer diagnostics response from the MQTT Manager."""
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_diagnostics_in_loop, mac_address, response
+        )
+
+    def _handle_diagnostics_in_loop(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Store the installer diagnostics counters within the event loop.
+
+        Cached, unlike the energy report: these are lifetime counters that
+        entities read, so the latest reading is kept and listeners are told
+        about it. The MAC is the one the subscription was registered under;
+        the library already drops replies that name another device.
+        """
+        try:
+            _LOGGER.debug("Received installer diagnostics for %s", mac_address)
+            self.device_diagnostics[mac_address] = response
+            self.async_update_listeners()
+        except Exception as err:
+            _LOGGER.error("Error handling installer diagnostics: %s", err)
+
+    def _on_recirculation_schedule(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Handle a recirculation schedule response from the MQTT Manager."""
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_recirculation_schedule_in_loop, mac_address, response
+        )
+
+    def _handle_recirculation_schedule_in_loop(
+        self, mac_address: str, response: dict[str, Any]
+    ) -> None:
+        """Process a recirculation schedule response within the event loop.
+
+        Mirrors `_handle_reservation_update_in_loop`: the schedule is stored,
+        announced on the bus, and pushed to entities.
+        """
+        try:
+            _LOGGER.info("Received recirculation schedule for %s", mac_address)
+
+            self.recirculation_schedules[mac_address] = response
+
+            self.hass.bus.async_fire(
+                "nwp500_recirculation_schedule_updated",
+                {
+                    "mac_address": mac_address,
+                    "reservation_use": response.get("reservation_use", 0),
+                    "reservations": response.get("reservation", []),
+                },
+            )
+
+            self.async_update_listeners()
+        except Exception as err:
+            _LOGGER.error("Error handling recirculation schedule: %s", err)
+
     def _on_energy_usage(
         self, mac_address: str, response: dict[str, Any]
     ) -> None:
@@ -1263,6 +1392,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         MQTT client -- so it is logged but never matched on. What is matched
         is the period: a reply covering months nobody currently has
         outstanding is a leftover from a request that already gave up.
+
+        The daily and monthly queries share this handler. A daily reply
+        carries one entry per (year, month); a monthly reply carries one
+        entry per year with no month, which is recorded here as month 0,
+        and the request that asked for it expects exactly that.
         """
         try:
             _LOGGER.debug(
@@ -1284,7 +1418,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 for month in response.get("usage") or []
                 if isinstance(month, dict)
             }
-            expected = {(pending["year"], month) for month in pending["months"]}
+            expected: set[tuple[int, int]] = pending["expected"]
             if reported - expected:
                 _LOGGER.debug(
                     "Discarding an energy usage reply for %s; %s was asked for",
@@ -1537,6 +1671,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 err,
             )
 
+        # Lifetime counters and the recirculation schedule change slowly,
+        # so the schedule refresh cadence is enough for them too.
+        await self._async_request_on_demand_reads(mac_address)
+
     async def async_fetch_reservations(
         self, mac_address: str, timeout: float = 10.0
     ) -> dict[str, Any] | None:
@@ -1590,16 +1728,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         months: list[int],
         timeout: float = 20.0,
     ) -> dict[str, Any] | None:
-        """Ask the device for its energy history and wait for the answer.
+        """Ask the device for its daily energy history and wait for the answer.
 
         The device keeps daily totals split between the heat pump and the
         resistive elements, and reports them only when asked. This is a
         pull, not a subscription: nothing is cached and no entity reads it.
-
-        The reply arrives on a topic keyed by MQTT client rather than by
-        device, so with more than one water heater on the account a
-        concurrent second question could be answered by the first device's
-        reply. `_energy_lock` therefore allows one report at a time.
 
         Args:
             mac_address: Device MAC address.
@@ -1611,22 +1744,74 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             The raw response the device reported, or None if the request
             could not be sent or no reply arrived in time.
         """
+        return await self._async_fetch_energy(
+            mac_address,
+            "request_energy_usage",
+            expected={(year, month) for month in months},
+            timeout=timeout,
+            year=year,
+            months=months,
+        )
+
+    async def async_fetch_energy_usage_monthly(
+        self,
+        mac_address: str,
+        years: list[int],
+        timeout: float = 20.0,
+    ) -> dict[str, Any] | None:
+        """Ask the device for per-month energy totals and wait for the answer.
+
+        The monthly query (nwp500-python 9.4.0) answers with one entry per
+        year, carrying no month, whose data list holds twelve per-month
+        items. Same pull semantics as `async_fetch_energy_usage`.
+
+        Args:
+            mac_address: Device MAC address.
+            years: Years to query (2000-2099); the device accepts several.
+            timeout: Seconds to wait for the device's response.
+
+        Returns:
+            The raw response the device reported, or None if the request
+            could not be sent or no reply arrived in time.
+        """
+        return await self._async_fetch_energy(
+            mac_address,
+            "request_energy_usage_monthly",
+            expected={(year, 0) for year in years},
+            timeout=timeout,
+            years=years,
+        )
+
+    async def _async_fetch_energy(
+        self,
+        mac_address: str,
+        command: str,
+        *,
+        expected: set[tuple[int, int]],
+        timeout: float,
+        **kwargs: Any,
+    ) -> dict[str, Any] | None:
+        """Publish one energy query and wait for the reply that matches it.
+
+        The reply arrives on a topic keyed by MQTT client rather than by
+        device, so with more than one water heater on the account a
+        concurrent second question could be answered by the first device's
+        reply. `_energy_lock` therefore allows one report at a time, and
+        the reply is matched against `expected` -- the (year, month)
+        periods it must cover -- in `_handle_energy_usage_in_loop`.
+        """
         async with self._energy_lock:
             loop = asyncio.get_running_loop()
             waiter: asyncio.Future[dict[str, Any]] = loop.create_future()
             self._energy_request = {
                 "mac_address": mac_address,
-                "year": year,
-                "months": list(months),
+                "expected": set(expected),
                 "future": waiter,
             }
 
             try:
                 sent = await self.async_send_command(
-                    mac_address,
-                    "request_energy_usage",
-                    year=year,
-                    months=months,
+                    mac_address, command, **kwargs
                 )
                 if not sent:
                     return None
@@ -1839,6 +2024,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.device_features.clear()
         self.reservation_schedules.clear()
         self.tou_schedules.clear()
+        self.recirculation_schedules.clear()
+        self.device_diagnostics.clear()
 
     def get_field_unit_safe(self, status: Any, field_name: str) -> str | None:
         """Safely get unit field from device status with standardized error handling.

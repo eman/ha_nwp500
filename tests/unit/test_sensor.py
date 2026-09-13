@@ -7,9 +7,12 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.core import HomeAssistant
 
+from custom_components.nwp500.const import INSTALLER_DIAGNOSTICS_SENSORS
 from custom_components.nwp500.sensor import (
     NWP500CloudErrorSensor,
     NWP500DescalingSensor,
+    NWP500InstallerDiagnosticsSensor,
+    NWP500RecirculationScheduleSensor,
     NWP500ReservationScheduleSensor,
     NWP500Sensor,
     NWP500TOUScheduleSensor,
@@ -850,3 +853,190 @@ class TestCloudMetadataSensors:
         )
 
         assert sensor.entity_registry_enabled_default is False
+
+
+class TestInstallerDiagnosticsSensors:
+    """Lifetime counters from nwp500-python 9.4.0's diagnostics query.
+
+    The device reports them only when asked, so the sensors read the
+    coordinator's store and stay unknown until the first reply.
+    """
+
+    MAC = "AA:BB:CC:DD:EE:FF"
+
+    def _sensor(self, mock_coordinator, mock_device, key, reading=None):
+        mock_coordinator.device_diagnostics = (
+            {} if reading is None else {self.MAC: reading}
+        )
+        return NWP500InstallerDiagnosticsSensor(
+            mock_coordinator,
+            self.MAC,
+            mock_device,
+            key,
+            INSTALLER_DIAGNOSTICS_SENSORS[key],
+        )
+
+    def test_unknown_until_the_device_has_answered(
+        self, mock_coordinator, mock_device
+    ):
+        sensor = self._sensor(
+            mock_coordinator, mock_device, "lifetime_heat_pump_energy"
+        )
+
+        assert sensor.native_value is None
+
+    def test_reads_its_counter_from_its_block(
+        self, mock_coordinator, mock_device
+    ):
+        reading = {
+            "ts_data": {"cumulated_pwr_hp": 1234567, "cumulated_pwr_he": 89},
+            "ta_data": {"cumulated_op_time_comp": 4321},
+        }
+
+        energy = self._sensor(
+            mock_coordinator, mock_device, "lifetime_heat_pump_energy", reading
+        )
+        run_time = self._sensor(
+            mock_coordinator, mock_device, "compressor_run_time", reading
+        )
+
+        assert energy.native_value == 1234567
+        assert run_time.native_value == 4321
+
+    def test_a_reading_without_the_block_is_unknown(
+        self, mock_coordinator, mock_device
+    ):
+        sensor = self._sensor(
+            mock_coordinator,
+            mock_device,
+            "compressor_start_count",
+            {"ts_data": {}},
+        )
+
+        assert sensor.native_value is None
+
+    def test_a_zero_counter_is_zero_not_unknown(
+        self, mock_coordinator, mock_device
+    ):
+        sensor = self._sensor(
+            mock_coordinator,
+            mock_device,
+            "water_leak_event_count",
+            {"ts_data": {"cumulated_occ_num_wtr_ovr_flow": 0}},
+        )
+
+        assert sensor.native_value == 0
+
+    def test_lifetime_energy_is_a_total_increasing_energy_sensor(
+        self, mock_coordinator, mock_device
+    ):
+        """What the Energy dashboard needs to accept it as a source."""
+        from homeassistant.components.sensor import (
+            SensorDeviceClass,
+            SensorStateClass,
+        )
+        from homeassistant.const import UnitOfEnergy
+
+        sensor = self._sensor(
+            mock_coordinator, mock_device, "lifetime_heat_element_energy"
+        )
+
+        assert sensor.device_class is SensorDeviceClass.ENERGY
+        assert sensor.state_class is SensorStateClass.TOTAL_INCREASING
+        assert sensor.native_unit_of_measurement == UnitOfEnergy.WATT_HOUR
+        assert (
+            sensor.suggested_unit_of_measurement == UnitOfEnergy.KILO_WATT_HOUR
+        )
+        assert sensor.entity_registry_enabled_default is True
+        # Not filed as diagnostic: it is a measurement people want on
+        # dashboards, not a maintenance detail.
+        assert sensor.entity_category is None
+
+    def test_run_times_are_durations_in_hours(
+        self, mock_coordinator, mock_device
+    ):
+        from homeassistant.components.sensor import SensorDeviceClass
+        from homeassistant.const import UnitOfTime
+        from homeassistant.helpers.entity import EntityCategory
+
+        sensor = self._sensor(
+            mock_coordinator, mock_device, "upper_element_run_time"
+        )
+
+        assert sensor.device_class is SensorDeviceClass.DURATION
+        assert sensor.native_unit_of_measurement == UnitOfTime.HOURS
+        assert sensor.entity_category is EntityCategory.DIAGNOSTIC
+        assert sensor.entity_registry_enabled_default is False
+
+    def test_every_configured_counter_names_a_real_library_field(self):
+        """A typo in the table would silently read as unknown forever."""
+        from nwp500.models import DeviceDiagnostics
+
+        for key, config in INSTALLER_DIAGNOSTICS_SENSORS.items():
+            block_model = DeviceDiagnostics.model_fields[config["block"]]
+            block_type = block_model.default_factory
+            assert block_type is not None, key
+            assert config["field"] in block_type.model_fields, key
+
+    def test_unique_ids_are_distinct(self, mock_coordinator, mock_device):
+        ids = {
+            self._sensor(mock_coordinator, mock_device, key).unique_id
+            for key in INSTALLER_DIAGNOSTICS_SENSORS
+        }
+
+        assert len(ids) == len(INSTALLER_DIAGNOSTICS_SENSORS)
+
+
+class TestRecirculationScheduleSensor:
+    """The pump schedule read with nwp500-python 9.4.0."""
+
+    MAC = "AA:BB:CC:DD:EE:FF"
+
+    def _sensor(self, mock_coordinator, mock_device, schedule=None):
+        mock_coordinator.recirculation_schedules = (
+            {} if schedule is None else {self.MAC: schedule}
+        )
+        return NWP500RecirculationScheduleSensor(
+            mock_coordinator, self.MAC, mock_device
+        )
+
+    def test_state_is_none_before_the_schedule_is_read(
+        self, mock_coordinator, mock_device
+    ):
+        assert self._sensor(mock_coordinator, mock_device).native_value is None
+
+    def test_state_counts_entries_and_exposes_them(
+        self, mock_coordinator, mock_device
+    ):
+        entry = {
+            "enable": 2,
+            "week": 62,
+            "hour": 6,
+            "min": 0,
+            "mode": 2,
+            "param": -1,
+        }
+        sensor = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {"reservation_use": 2, "reservation": [entry]},
+        )
+
+        assert sensor.native_value == 1
+        attrs = sensor.extra_state_attributes
+        assert attrs["entries"] == [entry]
+        assert attrs["enabled"] is True
+        assert attrs["schedule_hash"]
+
+    def test_a_unit_without_a_pump_reports_an_empty_disabled_schedule(
+        self, mock_coordinator, mock_device
+    ):
+        """What the library saw live: reservation_use 1, no entries."""
+        sensor = self._sensor(
+            mock_coordinator,
+            mock_device,
+            {"reservation_use": 1, "reservation": []},
+        )
+
+        assert sensor.native_value == 0
+        assert sensor.extra_state_attributes["enabled"] is False

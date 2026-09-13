@@ -8,6 +8,12 @@ and the device is the only thing that measures it.
 The raw response is awkward to consume directly -- a day carries no date,
 only its position in the month's list -- so this module turns it into a
 report a template or script can read without knowing the protocol.
+
+Two queries share the response shape. The daily query answers with one
+entry per requested month whose list holds a day per item; the monthly
+query (nwp500-python 9.4.0) answers with one entry per requested year,
+carrying no month, whose list holds a month per item. `build_report`
+shapes the first, `build_monthly_report` the second.
 """
 
 from __future__ import annotations
@@ -105,8 +111,11 @@ def build_report(
         mac_address: The device the report is for.
 
     Returns:
-        A JSON-serialisable report: the whole-request total, then one entry
-        per month carrying its own total and its date-stamped days.
+        A JSON-serialisable report: the response's `total`, then one entry
+        per month carrying its own total and its date-stamped days. The
+        response's `total` is the device's lifetime total whatever period
+        was asked for (nwp500-python 9.4.0 checked this live), so a
+        multi-month figure is the sum of the per-month totals, not `total`.
     """
     months: list[dict[str, Any]] = []
     for month in response.get("usage") or []:
@@ -126,4 +135,79 @@ def build_report(
         "mac_address": mac_address,
         "total": _usage(response.get("total") or {}),
         "months": months,
+    }
+
+
+def _months(year_entry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Date-stamp each month in a year's list.
+
+    As with days, the protocol carries no month per item -- position in
+    the list is the month, counting from 1 -- so a year is only readable
+    together with the year it was requested for.
+    """
+    year = int(year_entry.get("year", 0) or 0)
+
+    dated: list[dict[str, Any]] = []
+    for month_number, month in enumerate(year_entry.get("data") or [], start=1):
+        if not isinstance(month, dict) or month_number > 12:
+            # More than twelve entries is padding, not a thirteenth month.
+            continue
+        entry: dict[str, Any] = {"month": month_number}
+        if year:
+            entry["date"] = f"{year:04d}-{month_number:02d}"
+        entry.update(_usage(month))
+        dated.append(entry)
+    return dated
+
+
+def _months_total(months: list[dict[str, Any]]) -> dict[str, Any]:
+    """Total one year from its months, as `_period_total` does for days."""
+    return _usage(
+        {
+            "heat_pump_usage": sum(month["heat_pump_wh"] for month in months),
+            "heat_element_usage": sum(
+                month["heat_element_wh"] for month in months
+            ),
+            "heat_pump_time": sum(month["heat_pump_hours"] for month in months),
+            "heat_element_time": sum(
+                month["heat_element_hours"] for month in months
+            ),
+        }
+    )
+
+
+def build_monthly_report(
+    response: dict[str, Any], *, mac_address: str
+) -> dict[str, Any]:
+    """Turn a monthly-query `EnergyUsageResponse` dump into a report.
+
+    Args:
+        response: `EnergyUsageResponse.model_dump()` output from the
+            monthly (per-year) query.
+        mac_address: The device the report is for.
+
+    Returns:
+        A JSON-serialisable report: the device's lifetime total, then one
+        entry per year carrying its own total and its date-stamped months.
+        The response's `total` is the lifetime total whatever period was
+        asked for (checked live by the library), so it is named as such
+        rather than presented as the total of the years shown.
+    """
+    years: list[dict[str, Any]] = []
+    for year_entry in response.get("usage") or []:
+        if not isinstance(year_entry, dict):
+            continue
+        months = _months(year_entry)
+        years.append(
+            {
+                "year": int(year_entry.get("year", 0) or 0),
+                "total": _months_total(months),
+                "months": months,
+            }
+        )
+
+    return {
+        "mac_address": mac_address,
+        "lifetime_total": _usage(response.get("total") or {}),
+        "years": years,
     }

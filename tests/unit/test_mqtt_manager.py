@@ -47,6 +47,9 @@ def mock_mqtt_client(monkeypatch):
             self.subscribe_reservation_response = AsyncMock()
             self.subscribe_tou_response = AsyncMock()
             self.subscribe_energy_usage = AsyncMock()
+            self.subscribe_energy_usage_monthly = AsyncMock()
+            self.subscribe_diagnostics = AsyncMock()
+            self.subscribe_recirculation_schedule_response = AsyncMock()
             self.subscribe = AsyncMock()
             self.start_periodic_requests = AsyncMock()
             self.request_device_info = AsyncMock()
@@ -70,6 +73,12 @@ def mock_mqtt_client(monkeypatch):
             self.request_device_status = AsyncMock()
             self.request_device_info = AsyncMock()
             self.request_energy_usage = AsyncMock()
+            self.request_energy_usage_monthly = AsyncMock()
+            self.request_diagnostics = AsyncMock()
+            self.request_recirculation_schedule = AsyncMock()
+            self.set_vacation_duration = AsyncMock()
+            self.set_air_filter_life = AsyncMock()
+            self.reset_condenser_fault = AsyncMock()
             self.configure_tou_schedule = AsyncMock()
             self.trigger_recirculation_hot_button = AsyncMock()
             self.reset_air_filter = AsyncMock()
@@ -192,6 +201,9 @@ async def test_subscribe_device(manager, mock_mqtt_client, mock_device):
         mock_mqtt_client.subscribe_reservation_response,
         mock_mqtt_client.subscribe_tou_response,
         mock_mqtt_client.subscribe_energy_usage,
+        mock_mqtt_client.subscribe_energy_usage_monthly,
+        mock_mqtt_client.subscribe_diagnostics,
+        mock_mqtt_client.subscribe_recirculation_schedule_response,
     ):
         subscribe.assert_called_once()
         assert subscribe.call_args[0][0] == mock_device
@@ -1147,3 +1159,250 @@ async def test_connect_does_not_blame_credentials_for_a_service_outage(
 
     assert await manager.connect() is False
     assert manager._last_failure_was_credentials is False
+
+
+# ---------------------------------------------------------------------------
+# nwp500-python 9.4.0
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_setup_does_not_send_session_end_on_disconnect(
+    manager, mock_mqtt_client
+):
+    """disconnect() must not publish the app's ``st/end`` query.
+
+    nwp500-python 9.4.0 sends it by default, as the NaviLink app does when
+    it leaves a device. This integration disconnects only to reconnect or
+    to shut down, and what the query does to other clients of the same
+    device is not known, so it stays off -- as every earlier version
+    behaved.
+    """
+    await manager.setup()
+
+    assert mock_mqtt_client.config.send_session_end_on_disconnect is False
+    # The session settings it always had are untouched.
+    assert mock_mqtt_client.config.clean_session is False
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_callback_routes_a_parsed_response(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """The diagnostics subscription dumps the model and names the device."""
+    received: list[tuple[str, dict]] = []
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_diagnostics=lambda mac, response: received.append((mac, response)),
+    )
+    await manager.setup()
+    await manager.subscribe_device(mock_device)
+
+    callback = mock_mqtt_client.subscribe_diagnostics.call_args[0][1]
+    diagnostics = MagicMock()
+    diagnostics.model_dump.return_value = {
+        "ts_data": {"cumulated_pwr_hp": 1234}
+    }
+
+    callback(diagnostics)
+
+    assert received == [
+        (
+            mock_device.device_info.mac_address,
+            {"ts_data": {"cumulated_pwr_hp": 1234}},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_diagnostics_payload_is_dropped(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """A payload with no model_dump must not become a set of zero counters."""
+    received: list[tuple[str, dict]] = []
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_diagnostics=lambda mac, response: received.append((mac, response)),
+    )
+    await manager.setup()
+    await manager.subscribe_device(mock_device)
+
+    callback = mock_mqtt_client.subscribe_diagnostics.call_args[0][1]
+    callback(object())
+
+    assert received == []
+
+
+@pytest.mark.asyncio
+async def test_monthly_energy_replies_share_the_energy_callback(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """The monthly query's reply reaches the same handler as the daily one.
+
+    The coordinator tells the two apart by the period it asked for, so the
+    manager does not need a second callback.
+    """
+    received: list[tuple[str, dict]] = []
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_energy_usage=lambda mac, response: received.append((mac, response)),
+    )
+    await manager.setup()
+    await manager.subscribe_device(mock_device)
+
+    callback = mock_mqtt_client.subscribe_energy_usage_monthly.call_args[0][1]
+    usage = MagicMock()
+    usage.model_dump.return_value = {
+        "usage": [{"year": 2026, "month": None, "data": []}]
+    }
+
+    callback(usage)
+
+    assert received == [
+        (
+            mock_device.device_info.mac_address,
+            {"usage": [{"year": 2026, "month": None, "data": []}]},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_recirculation_schedule_callback_routes_a_parsed_response(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """The recirculation schedule subscription dumps the model."""
+    received: list[tuple[str, dict]] = []
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_recirculation_schedule=lambda mac, response: received.append(
+            (mac, response)
+        ),
+    )
+    await manager.setup()
+    await manager.subscribe_device(mock_device)
+
+    callback = (
+        mock_mqtt_client.subscribe_recirculation_schedule_response.call_args[0][
+            1
+        ]
+    )
+    schedule = MagicMock()
+    schedule.model_dump.return_value = {
+        "reservation_use": 1,
+        "reservation": [],
+    }
+
+    callback(schedule)
+
+    assert received == [
+        (
+            mock_device.device_info.mac_address,
+            {"reservation_use": 1, "reservation": []},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_command_request_energy_usage_monthly(
+    manager, mock_mqtt_client, mock_device
+):
+    """The monthly query reaches the library with integer years."""
+    await manager.setup()
+
+    result = await manager.send_command(
+        mock_device, "request_energy_usage_monthly", years=["2025", 2026]
+    )
+
+    assert result is True
+    mock_mqtt_client.request_energy_usage_monthly.assert_called_once_with(
+        mock_device, years=[2025, 2026]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "method"),
+    [
+        ("request_diagnostics", "request_diagnostics"),
+        ("request_recirculation_schedule", "request_recirculation_schedule"),
+        ("reset_condenser_fault", "reset_condenser_fault"),
+    ],
+)
+async def test_send_command_argument_free_commands(
+    manager, mock_mqtt_client, mock_device, command, method
+):
+    """Each argument-free 9.4.0 command reaches its library method."""
+    await manager.setup()
+
+    assert await manager.send_command(mock_device, command) is True
+
+    getattr(mock_mqtt_client, method).assert_called_once_with(mock_device)
+
+
+@pytest.mark.asyncio
+async def test_send_command_set_vacation_duration(
+    manager, mock_mqtt_client, mock_device
+):
+    """set_vacation_duration passes the day count as an integer."""
+    await manager.setup()
+
+    assert (
+        await manager.send_command(
+            mock_device, "set_vacation_duration", days="7"
+        )
+        is True
+    )
+
+    mock_mqtt_client.set_vacation_duration.assert_called_once_with(
+        mock_device, 7
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_command_set_air_filter_life(
+    manager, mock_mqtt_client, mock_device
+):
+    """set_air_filter_life passes the service interval in hours."""
+    await manager.setup()
+
+    assert (
+        await manager.send_command(
+            mock_device, "set_air_filter_life", hours=3000
+        )
+        is True
+    )
+
+    mock_mqtt_client.set_air_filter_life.assert_called_once_with(
+        mock_device, 3000
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("command", "method"),
+    [
+        ("set_vacation_duration", "set_vacation_duration"),
+        ("set_air_filter_life", "set_air_filter_life"),
+    ],
+)
+async def test_parameterised_commands_refuse_to_run_without_their_argument(
+    manager, mock_mqtt_client, mock_device, command, method
+):
+    """A missing argument is a caller bug, reported rather than defaulted."""
+    await manager.setup()
+
+    assert await manager.send_command(mock_device, command) is False
+
+    getattr(mock_mqtt_client, method).assert_not_called()

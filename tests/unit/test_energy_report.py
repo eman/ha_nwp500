@@ -130,3 +130,107 @@ class TestBuildReport:
         import json
 
         json.dumps(energy_report.build_report(RESPONSE, mac_address="AA:BB"))
+
+
+# The monthly query: one entry per year, no month, a month per item.
+MONTHLY_RESPONSE = {
+    "total": {
+        "heat_pump_usage": 900000,
+        "heat_element_usage": 100000,
+        "heat_pump_time": 9000,
+        "heat_element_time": 200,
+    },
+    "usage": [
+        {
+            "year": 2026,
+            "month": None,
+            "data": [
+                {
+                    "heat_pump_usage": 50000,
+                    "heat_element_usage": 10000,
+                    "heat_pump_time": 500,
+                    "heat_element_time": 20,
+                },
+                {
+                    "heat_pump_usage": 40000,
+                    "heat_element_usage": 0,
+                    "heat_pump_time": 400,
+                    "heat_element_time": 0,
+                },
+            ],
+        }
+    ],
+}
+
+
+class TestBuildMonthlyReport:
+    """The per-year report's shape."""
+
+    def test_months_are_dated_by_their_position(self):
+        report = energy_report.build_monthly_report(
+            MONTHLY_RESPONSE, mac_address="AA:BB"
+        )
+
+        months = report["years"][0]["months"]
+        assert [m["month"] for m in months] == [1, 2]
+        assert [m["date"] for m in months] == ["2026-01", "2026-02"]
+
+    def test_a_year_is_totalled_from_its_months(self):
+        """The response's own total is lifetime, so the year's must be summed."""
+        report = energy_report.build_monthly_report(
+            MONTHLY_RESPONSE, mac_address="AA:BB"
+        )
+
+        year = report["years"][0]
+        assert year["year"] == 2026
+        assert year["total"]["heat_pump_wh"] == 90000
+        assert year["total"]["heat_element_wh"] == 10000
+        assert year["total"]["total_kwh"] == 100.0
+        assert year["total"]["heat_pump_hours"] == 900
+
+    def test_the_lifetime_total_is_named_as_such(self):
+        report = energy_report.build_monthly_report(
+            MONTHLY_RESPONSE, mac_address="AA:BB"
+        )
+
+        assert report["lifetime_total"]["total_kwh"] == 1000.0
+        assert "total" not in report
+
+    def test_a_thirteenth_month_is_dropped(self):
+        response = {
+            "total": {},
+            "usage": [
+                {
+                    "year": 2026,
+                    "month": None,
+                    "data": [{"heat_pump_usage": 1}] * 13,
+                }
+            ],
+        }
+
+        report = energy_report.build_monthly_report(
+            response, mac_address="AA:BB"
+        )
+
+        assert len(report["years"][0]["months"]) == 12
+
+    def test_an_unknown_year_carries_no_dates(self):
+        response = {
+            "total": {},
+            "usage": [{"month": None, "data": [{"heat_pump_usage": 1}]}],
+        }
+
+        report = energy_report.build_monthly_report(
+            response, mac_address="AA:BB"
+        )
+
+        assert "date" not in report["years"][0]["months"][0]
+
+    def test_the_report_is_json_serialisable(self):
+        import json
+
+        json.dumps(
+            energy_report.build_monthly_report(
+                MONTHLY_RESPONSE, mac_address="AA:BB"
+            )
+        )

@@ -164,6 +164,22 @@ async def async_get_config_entry_diagnostics(
                 key: getattr(descaling, key, None)
                 for key in ("descaling_start_time", "descaling_end_time")
             }
+        # On-demand MQTT reads (nwp500-python 9.4.0), present once the
+        # device has answered. The installer diagnostics carry counters
+        # the sensors do not show -- demand-response operation times, hot
+        # water draw statistics -- whose units the vendor does not
+        # document, so the whole reading goes in here.
+        mac = device.device_info.mac_address
+        installer_diagnostics = coordinator.device_diagnostics
+        if isinstance(installer_diagnostics, dict) and mac in (
+            installer_diagnostics
+        ):
+            entry["installer_diagnostics"] = installer_diagnostics[mac]
+        recirculation_schedules = coordinator.recirculation_schedules
+        if isinstance(recirculation_schedules, dict) and mac in (
+            recirculation_schedules
+        ):
+            entry["recirculation_schedule"] = recirculation_schedules[mac]
         location = getattr(device, "location", None)
         if location:
             # Only include fields the cloud actually populated. Emitting

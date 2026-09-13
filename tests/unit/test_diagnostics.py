@@ -435,3 +435,83 @@ class TestMacRedaction:
         """ISO timestamps survive; they carry no MAC."""
         raw = "2025-12-28T20:56:37.611283+00:00"
         assert self._redact(raw) == raw
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_includes_the_on_demand_mqtt_reads(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    mock_coordinator: MagicMock,
+) -> None:
+    """The installer counters and pump schedule go in whole.
+
+    The counters carry fields the sensors do not show -- demand-response
+    operation times, hot-water draw statistics -- whose units the vendor
+    does not document. The dump is where those can still be read.
+    """
+    device = MagicMock()
+    device.device_info.device_name = "NWP500"
+    device.device_info.device_type = 52
+    device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
+    device.device_info.connected = True
+    device.device_info.model_type_code = 7
+    device.device_info.installer_id = None
+    device.error = None
+    device.descaling = None
+    device.location = None
+
+    mock_coordinator.mqtt_manager = None
+    mock_coordinator.devices = [device]
+    mock_coordinator.device_diagnostics = {
+        "AA:BB:CC:DD:EE:FF": {
+            "ts_data": {"cumulated_op_time_dr_shed": 3},
+            "td_data": {"num_of_dhw_use": 0},
+            "ta_data": {"cumulated_op_time_comp": 10},
+        }
+    }
+    mock_coordinator.recirculation_schedules = {
+        "AA:BB:CC:DD:EE:FF": {"reservation_use": 1, "reservation": []}
+    }
+    mock_config_entry.runtime_data = mock_coordinator
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    entry = result["devices"][0]
+    assert entry["installer_diagnostics"]["ts_data"] == {
+        "cumulated_op_time_dr_shed": 3
+    }
+    assert entry["recirculation_schedule"] == {
+        "reservation_use": 1,
+        "reservation": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_omits_on_demand_reads_the_device_has_not_answered(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    mock_coordinator: MagicMock,
+) -> None:
+    """An unanswered read is absent, not an empty block that reads as zeros."""
+    device = MagicMock()
+    device.device_info.device_name = "NWP500"
+    device.device_info.device_type = 52
+    device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
+    device.device_info.connected = True
+    device.device_info.model_type_code = 7
+    device.device_info.installer_id = None
+    device.error = None
+    device.descaling = None
+    device.location = None
+
+    mock_coordinator.mqtt_manager = None
+    mock_coordinator.devices = [device]
+    mock_coordinator.device_diagnostics = {}
+    mock_coordinator.recirculation_schedules = {}
+    mock_config_entry.runtime_data = mock_coordinator
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    entry = result["devices"][0]
+    assert "installer_diagnostics" not in entry
+    assert "recirculation_schedule" not in entry

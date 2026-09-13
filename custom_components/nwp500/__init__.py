@@ -70,11 +70,14 @@ SERVICE_UPDATE_RESERVATIONS = "update_reservations"
 SERVICE_CLEAR_RESERVATIONS = "clear_reservations"
 SERVICE_REQUEST_RESERVATIONS = "request_reservations"
 SERVICE_SET_VACATION_DAYS = "set_vacation_days"
+SERVICE_SET_VACATION_DURATION = "set_vacation_duration"
 SERVICE_CONFIGURE_TOU = "configure_tou_schedule"
 SERVICE_REQUEST_TOU = "request_tou_settings"
 SERVICE_ENABLE_DEMAND_RESPONSE = "enable_demand_response"
 SERVICE_DISABLE_DEMAND_RESPONSE = "disable_demand_response"
 SERVICE_RESET_AIR_FILTER = "reset_air_filter"
+SERVICE_SET_AIR_FILTER_LIFE = "set_air_filter_life"
+SERVICE_RESET_CONDENSER_FAULT = "reset_condenser_fault"
 SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
 SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
 SERVICE_GET_ENERGY_USAGE = "get_energy_usage"
@@ -82,6 +85,7 @@ SERVICE_GET_ENERGY_USAGE = "get_energy_usage"
 # Service attributes
 ATTR_ENABLED = "enabled"
 ATTR_DAYS = "days"
+ATTR_HOURS = "hours"
 ATTR_HOUR = "hour"
 ATTR_MINUTE = "minute"
 ATTR_OP_MODE = "mode"  # Renamed to avoid conflict with HA's ATTR_MODE
@@ -245,6 +249,52 @@ SERVICE_DEVICE_SCHEMA = vol.Schema(
 
 ATTR_YEAR = "year"
 ATTR_MONTHS = "months"
+ATTR_YEARS = "years"
+
+# The air filter service interval the NaviLink app offers: off, or
+# 1000-10000 evaporator-fan hours in 500-hour steps. The library rejects
+# anything else, so the schema does too, before a device is involved.
+AIR_FILTER_LIFE_OFF = 0
+AIR_FILTER_LIFE_MIN_HOURS = 1000
+AIR_FILTER_LIFE_MAX_HOURS = 10000
+AIR_FILTER_LIFE_STEP_HOURS = 500
+
+
+def _air_filter_life_hours(value: Any) -> int:
+    """Validate an air filter service interval.
+
+    Raises:
+        vol.Invalid: If the value is not 0 or 1000-10000 in steps of 500.
+    """
+    hours = int(vol.Coerce(int)(value))
+    if hours == AIR_FILTER_LIFE_OFF:
+        return hours
+    if (
+        AIR_FILTER_LIFE_MIN_HOURS <= hours <= AIR_FILTER_LIFE_MAX_HOURS
+        and hours % AIR_FILTER_LIFE_STEP_HOURS == 0
+    ):
+        return hours
+    raise vol.Invalid(
+        f"hours must be {AIR_FILTER_LIFE_OFF} (alarm off) or "
+        f"{AIR_FILTER_LIFE_MIN_HOURS}-{AIR_FILTER_LIFE_MAX_HOURS} in steps "
+        f"of {AIR_FILTER_LIFE_STEP_HOURS}, got {hours}"
+    )
+
+
+def _one_energy_period(data: dict[str, Any]) -> dict[str, Any]:
+    """Reject a request that names both a daily and a monthly period.
+
+    `years` asks the monthly query; `year`/`months` ask the daily one. A
+    call naming both has no single answer, and silently preferring one
+    would hand back a report for a period the caller did not ask about.
+    """
+    if ATTR_YEARS in data and (ATTR_YEAR in data or ATTR_MONTHS in data):
+        raise vol.Invalid(
+            f"{ATTR_YEARS} cannot be combined with {ATTR_YEAR} or "
+            f"{ATTR_MONTHS}: ask for whole years or for months, not both"
+        )
+    return data
+
 
 # Schema for services that target a device but also accept entity_id
 SERVICE_DEVICE_OR_ENTITY_SCHEMA = vol.All(
@@ -272,6 +322,25 @@ SERVICE_GET_ENERGY_USAGE_SCHEMA = vol.All(
                 vol.Length(min=1, max=12),
                 [vol.All(vol.Coerce(int), vol.Range(min=1, max=12))],
             ),
+            # Whole years, answered month by month. The library accepts
+            # 2000-2099 and drops duplicates; the same range applies here.
+            vol.Optional(ATTR_YEARS): vol.All(
+                cv.ensure_list,
+                vol.Length(min=1, max=10),
+                [vol.All(vol.Coerce(int), vol.Range(min=2000, max=2099))],
+            ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+    _one_energy_period,
+)
+
+SERVICE_SET_AIR_FILTER_LIFE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Required(ATTR_HOURS): _air_filter_life_hours,
         }
     ),
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
@@ -724,6 +793,11 @@ class NWP500ServiceHandler:
         """
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
 
+        if ATTR_YEARS in call.data:
+            return await self._async_get_energy_usage_monthly(
+                coordinator, mac_address, call.data[ATTR_YEARS]
+            )
+
         today = dt_util.now()
         year = call.data.get(ATTR_YEAR, today.year)
         months = call.data.get(ATTR_MONTHS, [today.month])
@@ -745,6 +819,38 @@ class NWP500ServiceHandler:
             )
 
         return energy_report.build_report(response, mac_address=mac_address)
+
+    async def _async_get_energy_usage_monthly(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        years: list[int],
+    ) -> ServiceResponse:
+        """Answer get_energy_usage for whole years, a month per item.
+
+        The NaviLink app's own usage screen asks this way, for the previous
+        and current year. Duplicated years are dropped here for the same
+        reason the library drops them: the device answers each year once.
+        """
+        unique_years = sorted(set(years))
+        _LOGGER.info(
+            "Requesting monthly energy usage for %s (years=%s)",
+            mac_address,
+            unique_years,
+        )
+
+        response = await coordinator.async_fetch_energy_usage_monthly(
+            mac_address, unique_years
+        )
+        if response is None:
+            raise HomeAssistantError(
+                "The device did not report its energy usage. It may be "
+                "offline, or the connection may be down."
+            )
+
+        return energy_report.build_monthly_report(
+            response, mac_address=mac_address
+        )
 
     async def async_enable_demand_response(self, call: ServiceCall) -> None:
         """Handle enable_demand_response service call."""
@@ -775,6 +881,56 @@ class NWP500ServiceHandler:
         )
         if not success:
             raise HomeAssistantError("Failed to reset air filter timer")
+
+    async def async_set_air_filter_life(self, call: ServiceCall) -> None:
+        """Handle set_air_filter_life service call.
+
+        Sets the service interval the air filter alarm counts toward; the
+        device reports it back as the Air Filter Alarm Period sensor.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        hours = call.data[ATTR_HOURS]
+        _LOGGER.info(
+            "Setting air filter service interval to %d hours on %s",
+            hours,
+            mac_address,
+        )
+        success = await coordinator.async_send_command(
+            mac_address, "set_air_filter_life", hours=hours
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set air filter life")
+
+    async def async_reset_condenser_fault(self, call: ServiceCall) -> None:
+        """Handle reset_condenser_fault service call.
+
+        Installer-level in the NaviLink app; the gate is in the app, and a
+        consumer account's device acknowledges the command.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Clearing condenser fault on %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "reset_condenser_fault"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to reset condenser fault")
+
+    async def async_set_vacation_duration(self, call: ServiceCall) -> None:
+        """Handle set_vacation_duration service call.
+
+        Changes the vacation day count without changing the operation
+        mode, unlike set_vacation_days, which enters vacation mode.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        days = call.data[ATTR_DAYS]
+        _LOGGER.info(
+            "Setting vacation duration to %d days on %s", days, mac_address
+        )
+        success = await coordinator.async_send_command(
+            mac_address, "set_vacation_duration", days=days
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set vacation duration")
 
     async def async_set_recirculation_mode(self, call: ServiceCall) -> None:
         """Handle set_recirculation_mode service call."""
@@ -1000,6 +1156,21 @@ _SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
         SERVICE_RESET_AIR_FILTER,
         "async_reset_air_filter",
         SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_SET_AIR_FILTER_LIFE,
+        "async_set_air_filter_life",
+        SERVICE_SET_AIR_FILTER_LIFE_SCHEMA,
+    ),
+    (
+        SERVICE_RESET_CONDENSER_FAULT,
+        "async_reset_condenser_fault",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_SET_VACATION_DURATION,
+        "async_set_vacation_duration",
+        SERVICE_SET_VACATION_DAYS_SCHEMA,
     ),
     (
         SERVICE_SET_RECIRCULATION_MODE,

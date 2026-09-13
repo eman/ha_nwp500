@@ -285,6 +285,99 @@ set_vacation_days:
           max: 30
           mode: box
 
+set_vacation_duration:
+  name: Set Vacation Duration
+  description: >-
+    Change the vacation day count without changing the operation mode.
+    Unlike set_vacation_days, this does not put the device into vacation
+    mode; it only updates the number of days (1-30) the next vacation
+    period will last.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    days:
+      name: Days
+      description: Vacation duration in days (1-30)
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 30
+          mode: box
+
+set_air_filter_life:
+  name: Set Air Filter Service Interval
+  description: >-
+    Set how many evaporator-fan hours the air filter alarm counts before it
+    trips. Accepts 0 to switch the alarm off, or 1000-10000 hours in steps
+    of 500, which is what the NaviLink app offers. The device reports the
+    interval back as the Air Filter Alarm Period sensor.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    hours:
+      name: Hours
+      description: >-
+        Service interval in evaporator-fan hours: 0 (alarm off) or
+        1000-10000 in steps of 500
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 10000
+          step: 500
+          unit_of_measurement: h
+          mode: box
+
+reset_condenser_fault:
+  name: Reset Condenser Fault
+  description: >-
+    Clear a condenser fault. The NaviLink app shows this only to installer
+    accounts, but the device accepts the command from any account. Use it
+    after the cause of the fault has been dealt with.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+
 set_recirculation_mode:
   name: Set Recirculation Mode
   description: >-
@@ -419,7 +512,8 @@ get_energy_usage:
     Ask the water heater for its recorded energy usage and return it as a
     report. The device keeps daily totals split between the heat pump and
     the electric heating elements; nothing is recorded in Home Assistant,
-    the data is returned to the caller. Defaults to the current month.
+    the data is returned to the caller. Defaults to the current month. Ask
+    for whole years instead to get one total per month.
   fields:
     device_id:
       name: Device
@@ -480,3 +574,11 @@ get_energy_usage:
               value: "11"
             - label: December
               value: "12"
+    years:
+      name: Years
+      description: >-
+        Whole years to report on, one total per month. Cannot be combined
+        with Year or Months.
+      required: false
+      selector:
+        object:

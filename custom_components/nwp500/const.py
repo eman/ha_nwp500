@@ -1125,3 +1125,160 @@ SENSOR_CONFIGS: Final = {
         "enabled": False,
     },
 }
+
+
+# Installer diagnostics counters (nwp500-python 9.4.0, `DeviceDiagnostics`).
+# These are lifetime totals the device reports only when asked, so they are
+# read from the coordinator's `device_diagnostics` store rather than from the
+# status object. `block` is the model section (`ts_data`, `td_data` or
+# `ta_data`) and `field` the counter within it. Units follow the library's
+# notes: energies are Wh (they match the energy query's lifetime totals),
+# `cumulated_op_time_*` are hours, `cumulated_op_num_*` are start counts.
+# Counters whose units the vendor does not document (demand-response
+# operation times, hot-water draw statistics) are left to the diagnostics
+# dump rather than shown as sensors with a made-up unit.
+INSTALLER_DIAGNOSTICS_SENSORS: Final[dict[str, dict[str, Any]]] = {
+    # The two headline counters. Split lifetime energy by heat source is
+    # what the Energy dashboard wants and nothing else on the device
+    # measures it, so these are on by default and not filed as diagnostic.
+    "lifetime_heat_pump_energy": {
+        "block": "ts_data",
+        "field": "cumulated_pwr_hp",
+        "unit": "Wh",
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "entity_category": None,
+        "enabled": True,
+    },
+    "lifetime_heat_element_energy": {
+        "block": "ts_data",
+        "field": "cumulated_pwr_he",
+        "unit": "Wh",
+        "device_class": "energy",
+        "state_class": "total_increasing",
+        "entity_category": None,
+        "enabled": True,
+    },
+    "days_since_installation": {
+        "block": "ts_data",
+        "field": "days_since_installation",
+        "unit": "d",
+        "device_class": "duration",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    # Component run times (hours) and start counts.
+    "compressor_run_time": {
+        "block": "ta_data",
+        "field": "cumulated_op_time_comp",
+        "unit": "h",
+        "device_class": "duration",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "compressor_start_count": {
+        "block": "ta_data",
+        "field": "cumulated_op_num_comp",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "evaporator_fan_run_time": {
+        "block": "ta_data",
+        "field": "cumulated_op_time_eva_fan",
+        "unit": "h",
+        "device_class": "duration",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "evaporator_fan_start_count": {
+        "block": "ta_data",
+        "field": "cumulated_op_num_eva_fan",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "upper_element_run_time": {
+        "block": "ta_data",
+        "field": "cumulated_op_time_uhe",
+        "unit": "h",
+        "device_class": "duration",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "upper_element_start_count": {
+        "block": "ta_data",
+        "field": "cumulated_op_num_uhe",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "lower_element_run_time": {
+        "block": "ta_data",
+        "field": "cumulated_op_time_lhe",
+        "unit": "h",
+        "device_class": "duration",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "lower_element_start_count": {
+        "block": "ta_data",
+        "field": "cumulated_op_num_lhe",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "recirculation_pump_run_time": {
+        "block": "ta_data",
+        "field": "cumulated_op_time_recirc_pump",
+        "unit": "h",
+        "device_class": "duration",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "recirculation_pump_start_count": {
+        "block": "ta_data",
+        "field": "cumulated_op_num_recirc_pump",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    # Fault and protection event counts.
+    "freeze_protection_event_count": {
+        "block": "ts_data",
+        "field": "num_of_frost_protect_burn",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "dry_fire_event_count": {
+        "block": "ts_data",
+        "field": "cumulated_occ_num_dry_fire",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "condensate_overflow_event_count": {
+        "block": "ts_data",
+        "field": "cumulated_occ_num_con_ovr_flow",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "water_leak_event_count": {
+        "block": "ts_data",
+        "field": "cumulated_occ_num_wtr_ovr_flow",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "heat_pump_error_count": {
+        "block": "ts_data",
+        "field": "cumulated_occ_num_hpo",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "abnormal_discharge_temperature_count": {
+        "block": "ts_data",
+        "field": "cumulated_occ_num_ab_dis_tmp",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+    "abnormal_suction_temperature_count": {
+        "block": "ts_data",
+        "field": "cumulated_occ_num_ab_suc_tmp",
+        "state_class": "total_increasing",
+        "enabled": False,
+    },
+}
