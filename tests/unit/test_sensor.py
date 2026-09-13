@@ -1076,3 +1076,51 @@ class TestRecirculationScheduleSensorCreation:
             isinstance(e, NWP500RecirculationScheduleSensor) for e in added
         )
         assert created is supported
+
+    @pytest.mark.asyncio
+    async def test_created_late_when_the_feature_reply_arrives_after_setup(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_config_entry: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """A lost device-info reply must not cost the sensor for good.
+
+        The initial info request is best-effort; the periodic one fills
+        the features in later and the coordinator notifies listeners, at
+        which point the supported device gets its sensor, exactly once.
+        """
+        mock_coordinator.data = {
+            "AA:BB:CC:DD:EE:FF": {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+        mock_coordinator.supports_recirculation_schedule = MagicMock(
+            return_value=False
+        )
+        mock_config_entry.runtime_data = mock_coordinator
+        batches: list[list] = []
+
+        await async_setup_entry(
+            hass,
+            mock_config_entry,
+            lambda entities, _: batches.append(list(entities)),
+        )
+        listener = mock_coordinator.async_add_listener.call_args[0][0]
+
+        # Features still unknown: nothing added.
+        listener()
+        assert len(batches) == 1
+
+        # The reply lands and reports support: one sensor, once.
+        mock_coordinator.supports_recirculation_schedule.return_value = True
+        listener()
+        listener()
+
+        assert len(batches) == 2
+        assert [type(e) for e in batches[1]] == [
+            NWP500RecirculationScheduleSensor
+        ]

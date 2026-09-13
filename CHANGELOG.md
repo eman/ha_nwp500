@@ -58,10 +58,15 @@
   once at INFO, naming the feature, instead of as an error; the service
   call still fails. Read-only queries (reservations, energy, diagnostics,
   recirculation schedule) no longer trigger a device status request
-  afterwards, which removes two status round trips from every schedule
-  refresh cycle.
-- The `set_air_filter_life` hours picker starts at 1000 so it can no longer
-  offer 500, which the device does not accept; 0 (alarm off) is typed.
+  afterwards, which removes one status round trip per read from every
+  schedule refresh cycle: three on a device with recirculation scheduling,
+  two on any other.
+- The `set_air_filter_life` hours field is a dropdown of exactly what the
+  device accepts -- Off, then 1000-10000 in steps of 500 -- instead of a
+  number box that could offer 500 and not reach 0.
+- The Recirculation Schedule sensor is also created after setup, on the
+  first feature update that reports scheduling support, for a device whose
+  initial device-info reply was lost.
 - The energy report's `total` is documented as the device's lifetime total.
   9.4.0 checked live that the device reports the same `total` whatever
   period is asked for; the key is unchanged, and per-month totals are still

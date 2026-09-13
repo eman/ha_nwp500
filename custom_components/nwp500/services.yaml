@@ -344,16 +344,53 @@ set_air_filter_life:
     hours:
       name: Hours
       description: >-
-        Service interval in evaporator-fan hours, 1000-10000 in steps of
-        500. Type 0 to switch the alarm off.
+        Service interval in evaporator-fan hours: Off, or 1000-10000 in
+        steps of 500, the choices the NaviLink app offers.
       required: true
       selector:
-        number:
-          min: 1000
-          max: 10000
-          step: 500
-          unit_of_measurement: h
-          mode: box
+        select:
+          mode: dropdown
+          options:
+            - label: "Off"
+              value: "0"
+            - label: "1000 h"
+              value: "1000"
+            - label: "1500 h"
+              value: "1500"
+            - label: "2000 h"
+              value: "2000"
+            - label: "2500 h"
+              value: "2500"
+            - label: "3000 h"
+              value: "3000"
+            - label: "3500 h"
+              value: "3500"
+            - label: "4000 h"
+              value: "4000"
+            - label: "4500 h"
+              value: "4500"
+            - label: "5000 h"
+              value: "5000"
+            - label: "5500 h"
+              value: "5500"
+            - label: "6000 h"
+              value: "6000"
+            - label: "6500 h"
+              value: "6500"
+            - label: "7000 h"
+              value: "7000"
+            - label: "7500 h"
+              value: "7500"
+            - label: "8000 h"
+              value: "8000"
+            - label: "8500 h"
+              value: "8500"
+            - label: "9000 h"
+              value: "9000"
+            - label: "9500 h"
+              value: "9500"
+            - label: "10000 h"
+              value: "10000"
 
 reset_condenser_fault:
   name: Reset Condenser Fault
