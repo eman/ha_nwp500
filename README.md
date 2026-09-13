@@ -29,10 +29,12 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
 
 - **Temperature & mode control** — Set target temperature, switch operation modes, and toggle power.
 - **Live status** — Current water temp, power draw, and device state updated via MQTT.
-- **Energy tracking** — Live power draw as a sensor, plus an on-demand report of the
-  device's own daily history, split heat pump vs. resistive element. There is no
-  cumulative consumption sensor: the device records the totals itself and reports them
-  when asked.
+- **Energy tracking** — Live power draw as a sensor, lifetime heat pump and heating
+  element energy sensors for the Energy dashboard, plus an on-demand report of the
+  device's own daily or monthly history, split heat pump vs. resistive element.
+- **Lifetime counters** — Compressor, fan, element and pump run times and start
+  counts, and fault event counts, from the installer diagnostics the NaviLink app
+  shows only to installers.
 - **Alerts** — Error codes, leak detection, and freeze/scald warnings via binary sensors.
 - **Scheduling** — Recurring mode and temperature changes via the reservation service.
 
@@ -101,7 +103,9 @@ Most sensors are **disabled by default**. Enable them from the device page in Ho
 | Temperature | Tank & DHW temperatures                                        | Yes                |
 | Power       | Current power & energy status                                  | Yes                |
 | Status      | Error codes & basic status                                     | Yes                |
+| Energy      | Lifetime heat pump & heating element energy                    | Yes                |
 | Diagnostics | Compressor temps, fan RPM, flow rates, refrigerant pressures   | No                 |
+| Lifetime    | Run times, start counts, fault event counts, days installed    | No                 |
 | Internal    | EEV steps, mixing rates, component status                      | No                 |
 | Safety      | Leak detection, freeze protection, scald warnings              | No                 |
 
@@ -143,8 +147,9 @@ In the UI the months are a dropdown, so this is easier to reach from
 **Developer Tools → Actions** than from YAML; the report is shown there as
 the action's response.
 
-The report carries a total for everything requested, then a per-month total
-and a date-stamped day-by-day breakdown:
+The report carries the device's lifetime total (the device reports the
+same `total` whatever period is asked for), then a per-month total and a
+date-stamped day-by-day breakdown:
 
 ```yaml
 mac_address: AA:BB:CC:DD:EE:FF
@@ -173,6 +178,43 @@ months:
 `heat_pump_percent` is the share that came from the heat pump; the
 remainder is resistive element usage, which costs roughly three times as
 much per unit of heat.
+
+Ask for whole years instead to get one total per month, the way the
+NaviLink app's usage screen does. `years` cannot be combined with `year`
+or `months`.
+
+```yaml
+action: nwp500.get_energy_usage
+target:
+  device_id: your_device_id
+data:
+  years: [2025, 2026]
+response_variable: report
+```
+
+```yaml
+mac_address: AA:BB:CC:DD:EE:FF
+lifetime_total: {...}
+years:
+  - year: 2026
+    total: {...}
+    months:
+      - month: 1
+        date: "2026-01"
+        heat_pump_wh: 41200
+        ...
+```
+
+### Maintenance Services
+
+- `nwp500.reset_air_filter` restarts the air filter timer after cleaning.
+- `nwp500.set_air_filter_life` sets the interval the air filter alarm counts
+  toward: 0 (alarm off) or 1000-10000 evaporator-fan hours in steps of 500,
+  the same choices the NaviLink app offers.
+- `nwp500.reset_condenser_fault` clears a condenser fault once its cause has
+  been dealt with. The app shows this only to installer accounts.
+- `nwp500.set_vacation_duration` changes the vacation day count without
+  entering vacation mode; `nwp500.set_vacation_days` enters it.
 
 ## Automation Examples
 
@@ -248,7 +290,7 @@ action:
 
 ## Library Version
 
-Uses **[nwp500-python v9.3.2](https://github.com/eman/nwp500-python/releases/tag/v9.3.2)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
+Uses **[nwp500-python v9.4.0](https://github.com/eman/nwp500-python/releases/tag/v9.4.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
 
 ## License
 

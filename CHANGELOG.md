@@ -2,6 +2,72 @@
 
 ## [Unreleased]
 
+### Added
+- **Lifetime counters from the installer diagnostics query.** nwp500-python
+  9.4.0 added the `st/td/rd` query the NaviLink app's installer screen uses,
+  which the device answers from any account. The integration asks for it at
+  setup and on the schedule refresh cycle and exposes the reading as sensors:
+  Lifetime Heat Pump Energy and Lifetime Heating Element Energy (Wh,
+  `total_increasing`, enabled by default, usable as Energy dashboard
+  sources -- the library verified they match the energy query's lifetime
+  totals); Days Since Installation; run time (hours) and start count for the
+  compressor, evaporator fan, upper and lower heating elements and
+  recirculation pump; and event counts for freeze protection, dry fire,
+  condensate overflow, water leak, heat pump errors and abnormal discharge
+  and suction temperatures (all disabled by default, diagnostic). Counters
+  whose units the vendor does not document -- demand-response operation
+  times, hot-water draw statistics -- are in the integration's diagnostics
+  download rather than shown as sensors with a made-up unit.
+- **`get_energy_usage` can report whole years, one total per month.** Pass
+  `years` (2000-2099) instead of `year`/`months` to send the monthly query
+  the NaviLink app's usage screen sends; the report then carries
+  `lifetime_total` and one entry per year with date-stamped months. The two
+  forms cannot be combined in one call.
+- **`set_air_filter_life` service** sets the air filter service interval:
+  0 (alarm off) or 1000-10000 evaporator-fan hours in steps of 500, the same
+  picker the app offers. Validated before any device is involved. The device
+  reports the interval back as the Air Filter Alarm Period sensor.
+- **`reset_condenser_fault` service** clears a condenser fault. Installer-only
+  in the app; the gate is in the app, and a consumer account's device
+  acknowledges it.
+- **`set_vacation_duration` service** changes the vacation day count (1-30)
+  without changing the operation mode, which `set_vacation_days` does.
+- **Recirculation Schedule sensor** (diagnostic) reads the recirculation
+  pump schedule with the new query, the same way the Reservation Schedule
+  sensor reads reservations: entry count as state, entries and a schedule
+  hash as attributes. A `nwp500_recirculation_schedule_updated` event
+  fires on each read. The library verified the read on a unit without a
+  pump (empty, disabled schedule); the write remains unexposed until its
+  echo has been seen on a unit with one.
+- The diagnostics download includes the full installer diagnostics reading
+  and the recirculation schedule per device, once the device has answered.
+
+### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 9.4.0
+- **The library's new session-end-on-disconnect is switched off.** 9.4.0's
+  `disconnect()` publishes the app's `st/end` query to every subscribed
+  device, as the NaviLink app does when it leaves a device screen. This
+  integration disconnects only to reconnect or to shut down, and what the
+  query does to other clients of the same device -- the phone app, a second
+  Home Assistant instance -- is not known, so
+  `MqttConnectionConfig(send_session_end_on_disconnect=False)` keeps the
+  behaviour every earlier version had.
+- The energy report's `total` is documented as the device's lifetime total.
+  9.4.0 checked live that the device reports the same `total` whatever
+  period is asked for; the key is unchanged, and per-month totals are still
+  summed from the days shown.
+- 9.4.0 fixes in the library that this integration benefits from without
+  code changes: energy, reservation, TOU, diagnostics and recirculation
+  replies are no longer delivered to another device's callback on accounts
+  with two water heaters (the library now checks the reply's MAC), and
+  unsubscribing one of several wildcard subscriptions no longer removes the
+  wrong handler.
+- 9.4.0 removed six MQTT commands the NaviLink app never sends
+  (`check_firmware_update`, `reconnect_wifi`, `reset_wifi`,
+  `set_freeze_protection_temperature`, `run_smart_diagnostic`,
+  `update_weekly_reservation`) and reshaped the recirculation schedule
+  models. The integration used none of them, so nothing changes here.
+
 ## [0.20.1] - 2026-09-01
 
 ### Fixed

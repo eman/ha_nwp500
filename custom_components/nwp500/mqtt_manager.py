@@ -22,6 +22,7 @@ if TYPE_CHECKING:
         ReservationSchedule,
         TOUReservationSchedule,
     )
+    from nwp500.models import DeviceDiagnostics, RecirculationSchedule
     from nwp500.mqtt_events import (
         ConnectionInterruptedEvent,
         ConnectionResumedEvent,
@@ -110,6 +111,9 @@ class NWP500MqttManager:
         | None = None,
         on_tou_update: Callable[[str, dict[str, Any]], None] | None = None,
         on_energy_usage: Callable[[str, dict[str, Any]], None] | None = None,
+        on_diagnostics: Callable[[str, dict[str, Any]], None] | None = None,
+        on_recirculation_schedule: Callable[[str, dict[str, Any]], None]
+        | None = None,
         unit_system: str | None = None,
         on_reconnected: Callable[[], None] | None = None,
         on_reconnection_failed: Callable[[int], None] | None = None,
@@ -126,7 +130,10 @@ class NWP500MqttManager:
         self._on_reservation_update_callback = on_reservation_update
         self._on_tou_update_callback = on_tou_update
         self._on_energy_usage_callback = on_energy_usage
+        self._on_diagnostics_callback = on_diagnostics
+        self._on_recirculation_schedule_callback = on_recirculation_schedule
         self._on_reconnected_callback = on_reconnected
+
         self._on_reconnection_failed_callback = on_reconnection_failed
         self.unit_system = unit_system
 
@@ -237,14 +244,25 @@ class NWP500MqttManager:
             # (session_present=True) and subscriptions are never lost, avoiding
             # the AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION errors that occur
             # when the broker discards a clean-session on every reconnect.
+            #
+            # send_session_end_on_disconnect is off. As of nwp500-python
+            # 9.4.0, disconnect() publishes the NaviLink app's ``st/end``
+            # session-end query to every subscribed device, because that is
+            # what the app does when it leaves a device screen. This
+            # integration never "leaves": disconnect() here is a step in a
+            # forced reconnect or a shutdown, and what ``st/end`` does to
+            # other clients of the same device -- the user's phone app, or
+            # a second Home Assistant instance -- is not known. Not sending
+            # it is exactly what every earlier version did.
+            config_kwargs: dict[str, Any] = {
+                "clean_session": False,
+                "send_session_end_on_disconnect": False,
+            }
+            if client_id:
+                config_kwargs["client_id"] = client_id
             self.mqtt_client = NavienMqttClient(
                 self.auth_client,
-                config=MqttConnectionConfig(
-                    client_id=client_id,
-                    clean_session=False,
-                )
-                if client_id
-                else MqttConnectionConfig(clean_session=False),
+                config=MqttConnectionConfig(**config_kwargs),
                 unit_system=self.unit_system,  # type: ignore[reportArgumentType,unused-ignore]
             )
 
@@ -419,10 +437,33 @@ class NWP500MqttManager:
                 device,
                 lambda tou: self._on_tou_schedule(mac_address, tou),
             )
-            # Energy usage history, answered only when asked for.
+            # Energy usage history, answered only when asked for. The daily
+            # and monthly queries are answered on different topics but with
+            # the same response shape, and the coordinator tells the two
+            # apart by the period it asked for, so both feed one handler.
             await self.mqtt_client.subscribe_energy_usage(
                 device,
                 lambda usage: self._on_energy_usage(mac_address, usage),
+            )
+            await self.mqtt_client.subscribe_energy_usage_monthly(
+                device,
+                lambda usage: self._on_energy_usage(mac_address, usage),
+            )
+            # Installer diagnostics: lifetime energy, run-time and fault
+            # counters. Answered only when asked for (request_diagnostics).
+            await self.mqtt_client.subscribe_diagnostics(
+                device,
+                lambda diagnostics: self._on_diagnostics(
+                    mac_address, diagnostics
+                ),
+            )
+            # Recirculation pump schedule, read on request and echoed back
+            # after a write.
+            await self.mqtt_client.subscribe_recirculation_schedule_response(
+                device,
+                lambda schedule: self._on_recirculation_schedule(
+                    mac_address, schedule
+                ),
             )
         except Exception as err:
             _LOGGER.warning(
@@ -549,12 +590,48 @@ class NWP500MqttManager:
                         # the protocol wants integers.
                         months=[int(month) for month in kwargs["months"]],
                     )
+                case "request_energy_usage_monthly":
+                    await self.mqtt_client.request_energy_usage_monthly(
+                        device,
+                        years=[int(year) for year in kwargs["years"]],
+                    )
+                case "request_diagnostics":
+                    await self.mqtt_client.request_diagnostics(device)
+                case "request_recirculation_schedule":
+                    await self.mqtt_client.request_recirculation_schedule(
+                        device
+                    )
                 case "set_vacation_days":
                     days = kwargs.get("days")
                     if days is not None:
                         await self.mqtt_client.set_vacation_days(
                             device, int(days)
                         )
+                case "set_vacation_duration":
+                    days = kwargs.get("days")
+                    if days is None:
+                        _LOGGER.error(
+                            "set_vacation_duration requires 'days' kwarg "
+                            "but none was provided"
+                        )
+                        return False
+                    await self.mqtt_client.set_vacation_duration(
+                        device, int(days)
+                    )
+                case "set_air_filter_life":
+                    hours = kwargs.get("hours")
+                    if hours is None:
+                        _LOGGER.error(
+                            "set_air_filter_life requires 'hours' kwarg "
+                            "but none was provided"
+                        )
+                        return False
+                    await self.mqtt_client.set_air_filter_life(
+                        device, int(hours)
+                    )
+                case "reset_condenser_fault":
+                    await self.mqtt_client.reset_condenser_fault(device)
+
                 case "enable_demand_response":
                     await self.mqtt_client.enable_demand_response(device)
                 case "disable_demand_response":
@@ -807,6 +884,52 @@ class NWP500MqttManager:
                 self._on_energy_usage_callback(mac_address, usage.model_dump())
         except Exception as err:
             _LOGGER.error("Error handling energy usage: %s", err)
+
+    def _on_diagnostics(
+        self, mac_address: str, diagnostics: DeviceDiagnostics
+    ) -> None:
+        """Handle a typed installer diagnostics response from the device.
+
+        Called by subscribe_diagnostics() with a parsed DeviceDiagnostics.
+        Converts to dict for coordinator storage, mirroring the other typed
+        handlers.
+        """
+        try:
+            _LOGGER.debug("Received installer diagnostics for %s", mac_address)
+            if not hasattr(diagnostics, "model_dump"):
+                # Same reasoning as the energy handler: a payload that
+                # cannot be read must not become a set of zero counters.
+                _LOGGER.warning(
+                    "Discarding a diagnostics payload that cannot be read"
+                )
+                return
+            if self._on_diagnostics_callback:
+                self._on_diagnostics_callback(
+                    mac_address, diagnostics.model_dump()
+                )
+        except Exception as err:
+            _LOGGER.error("Error handling installer diagnostics: %s", err)
+
+    def _on_recirculation_schedule(
+        self, mac_address: str, schedule: RecirculationSchedule
+    ) -> None:
+        """Handle a typed recirculation schedule from the device.
+
+        Called by subscribe_recirculation_schedule_response() with a parsed
+        RecirculationSchedule. Converts to dict for coordinator storage,
+        mirroring _on_reservation_schedule.
+        """
+        try:
+            _LOGGER.debug("Received recirculation schedule for %s", mac_address)
+            if self._on_recirculation_schedule_callback:
+                response = (
+                    schedule.model_dump()
+                    if hasattr(schedule, "model_dump")
+                    else {}
+                )
+                self._on_recirculation_schedule_callback(mac_address, response)
+        except Exception as err:
+            _LOGGER.error("Error handling recirculation schedule: %s", err)
 
     # Event Handlers
     def _on_device_status_update_direct(self, status: DeviceStatus) -> None:

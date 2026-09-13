@@ -348,6 +348,69 @@
       },
       "descaling_end_time": {
         "name": "Descaling End"
+      },
+      "recirculation_schedule": {
+        "name": "Recirculation Schedule"
+      },
+      "lifetime_heat_pump_energy": {
+        "name": "Lifetime Heat Pump Energy"
+      },
+      "lifetime_heat_element_energy": {
+        "name": "Lifetime Heating Element Energy"
+      },
+      "days_since_installation": {
+        "name": "Days Since Installation"
+      },
+      "compressor_run_time": {
+        "name": "Compressor Run Time"
+      },
+      "compressor_start_count": {
+        "name": "Compressor Start Count"
+      },
+      "evaporator_fan_run_time": {
+        "name": "Evaporator Fan Run Time"
+      },
+      "evaporator_fan_start_count": {
+        "name": "Evaporator Fan Start Count"
+      },
+      "upper_element_run_time": {
+        "name": "Upper Heating Element Run Time"
+      },
+      "upper_element_start_count": {
+        "name": "Upper Heating Element Start Count"
+      },
+      "lower_element_run_time": {
+        "name": "Lower Heating Element Run Time"
+      },
+      "lower_element_start_count": {
+        "name": "Lower Heating Element Start Count"
+      },
+      "recirculation_pump_run_time": {
+        "name": "Recirculation Pump Run Time"
+      },
+      "recirculation_pump_start_count": {
+        "name": "Recirculation Pump Start Count"
+      },
+      "freeze_protection_event_count": {
+        "name": "Freeze Protection Event Count"
+      },
+      "dry_fire_event_count": {
+        "name": "Dry Fire Event Count"
+      },
+      "condensate_overflow_event_count": {
+        "name": "Condensate Overflow Event Count"
+      },
+      "water_leak_event_count": {
+        "name": "Water Leak Event Count"
+      },
+      "heat_pump_error_count": {
+        "name": "Heat Pump Error Count"
+      },
+      "abnormal_discharge_temperature_count": {
+        "name": "Abnormal Discharge Temperature Count"
+      },
+      "abnormal_suction_temperature_count": {
+        "name": "Abnormal Suction Temperature Count"
       }
     },
     "binary_sensor": {
@@ -578,6 +641,56 @@
         }
       }
     },
+    "set_vacation_duration": {
+      "name": "Set Vacation Duration",
+      "description": "Change the vacation day count without changing the operation mode. Unlike set_vacation_days, this does not put the device into vacation mode; it only updates the number of days (1-30) the next vacation period will last.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
+        },
+        "days": {
+          "name": "Days",
+          "description": "Vacation duration in days (1-30)"
+        }
+      }
+    },
+    "set_air_filter_life": {
+      "name": "Set Air Filter Service Interval",
+      "description": "Set how many evaporator-fan hours the air filter alarm counts before it trips. Accepts 0 to switch the alarm off, or 1000-10000 hours in steps of 500, which is what the NaviLink app offers. The device reports the interval back as the Air Filter Alarm Period sensor.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
+        },
+        "hours": {
+          "name": "Hours",
+          "description": "Service interval in evaporator-fan hours: 0 (alarm off) or 1000-10000 in steps of 500"
+        }
+      }
+    },
+    "reset_condenser_fault": {
+      "name": "Reset Condenser Fault",
+      "description": "Clear a condenser fault. The NaviLink app shows this only to installer accounts, but the device accepts the command from any account. Use it after the cause of the fault has been dealt with.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
+        }
+      }
+    },
     "set_vacation_days": {
       "name": "Set Vacation Days",
       "description": "Configure vacation mode duration. Sets the device to vacation mode for the specified number of days (1-30). Vacation mode reduces energy consumption during extended absences.",
@@ -666,7 +779,7 @@
     },
     "get_energy_usage": {
       "name": "Get Energy Usage",
-      "description": "Ask the water heater for its recorded energy usage and return it as a report. The device keeps daily totals split between the heat pump and the electric heating elements; nothing is recorded in Home Assistant, the data is returned to the caller. Defaults to the current month.",
+      "description": "Ask the water heater for its recorded energy usage and return it as a report. The device keeps daily totals split between the heat pump and the electric heating elements; nothing is recorded in Home Assistant, the data is returned to the caller. Defaults to the current month. Ask for whole years instead to get one total per month.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -683,6 +796,10 @@
         "months": {
           "name": "Months",
           "description": "Months to report on. Several may be requested at once. Defaults to the current month."
+        },
+        "years": {
+          "name": "Years",
+          "description": "Whole years to report on, one total per month. Cannot be combined with Year or Months."
         }
       }
     }

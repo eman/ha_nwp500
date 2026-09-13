@@ -23,7 +23,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import schedule_state
-from .const import SENSOR_CONFIGS
+from .const import INSTALLER_DIAGNOSTICS_SENSORS, SENSOR_CONFIGS
 from .coordinator import (
     NWP500ConfigEntry,
     NWP500DataUpdateCoordinator,
@@ -203,6 +203,16 @@ async def async_setup_entry(
         )
         entities.append(
             NWP500TOUScheduleSensor(coordinator, mac_address, device)
+        )
+        entities.append(
+            NWP500RecirculationScheduleSensor(coordinator, mac_address, device)
+        )
+        # Lifetime counters from the installer diagnostics query
+        entities.extend(
+            NWP500InstallerDiagnosticsSensor(
+                coordinator, mac_address, device, key, config
+            )
+            for key, config in INSTALLER_DIAGNOSTICS_SENSORS.items()
         )
         # Cloud-recorded metadata, readable while the device is offline
         entities.append(
@@ -584,6 +594,99 @@ class NWP500TOUScheduleSensor(NWP500ScheduleSensor):
             "tou_schedules",
             schedule_state.tou_canonical,
         )
+
+
+class NWP500RecirculationScheduleSensor(NWP500ScheduleSensor):
+    """The programmed recirculation pump schedule.
+
+    Read with nwp500-python 9.4.0's recirculation schedule query. The
+    entries have the reservation entry shape (enable/week/hour/min/mode/
+    param), so the reservation canonical form applies unchanged.
+    """
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Device,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(
+            coordinator,
+            mac_address,
+            device,
+            "recirculation_schedule",
+            "recirculation_schedules",
+            schedule_state.reservation_canonical,
+        )
+
+
+_DIAGNOSTICS_DEVICE_CLASSES: dict[str, SensorDeviceClass] = {
+    "energy": SensorDeviceClass.ENERGY,
+    "duration": SensorDeviceClass.DURATION,
+}
+_DIAGNOSTICS_STATE_CLASSES: dict[str, SensorStateClass] = {
+    "total_increasing": SensorStateClass.TOTAL_INCREASING,
+    "measurement": SensorStateClass.MEASUREMENT,
+}
+
+
+class NWP500InstallerDiagnosticsSensor(NWP500DiagnosticSensor):
+    """One lifetime counter from the installer diagnostics query.
+
+    The NaviLink app shows these on its installer screen: lifetime energy
+    per heat source, component run times and start counts, fault event
+    counts. The device reports them only when asked, so the value comes
+    from the coordinator's `device_diagnostics` store, which setup and the
+    periodic schedule refresh fill. Unknown until the first reply, so
+    "not read yet" stays distinguishable from a counter at zero.
+    """
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Device,
+        key: str,
+        config: dict[str, Any],
+    ) -> None:
+        """Initialize the sensor from its INSTALLER_DIAGNOSTICS_SENSORS entry."""
+        super().__init__(coordinator, mac_address, device, key)
+        self._block: str = config["block"]
+        self._field: str = config["field"]
+        self._attr_native_unit_of_measurement = config.get("unit")
+        if device_class := config.get("device_class"):
+            self._attr_device_class = _DIAGNOSTICS_DEVICE_CLASSES[device_class]
+        if state_class := config.get("state_class"):
+            self._attr_state_class = _DIAGNOSTICS_STATE_CLASSES[state_class]
+        if config.get("device_class") == "energy":
+            # The device counts whole watt-hours; a lifetime figure reads
+            # better in kWh, which is also what the Energy dashboard shows.
+            self._attr_suggested_unit_of_measurement = (
+                UnitOfEnergy.KILO_WATT_HOUR
+            )
+        if "entity_category" in config:
+            self._attr_entity_category = config["entity_category"]
+        self._attr_entity_registry_enabled_default = bool(
+            config.get("enabled", False)
+        )
+
+    @property
+    def native_value(self) -> int | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return the counter, or None until diagnostics have been read."""
+        diagnostics = self.coordinator.device_diagnostics.get(self.mac_address)
+        if diagnostics is None:
+            return None
+        block = diagnostics.get(self._block)
+        if not isinstance(block, dict):
+            return None
+        value = block.get(self._field)
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except TypeError, ValueError:
+            return None
 
 
 class NWP500CloudMetadataSensor(NWP500DiagnosticSensor):

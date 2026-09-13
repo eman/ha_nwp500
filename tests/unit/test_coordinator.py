@@ -1354,8 +1354,14 @@ async def test_setup_clients_connects_and_primes_each_device(
     mqtt.subscribe_device.assert_awaited_once()
     mqtt.start_periodic_requests.assert_awaited_once()
     mqtt.request_device_info.assert_awaited_once()
-    # One publish: the device answered, so the read did not need retrying.
-    mqtt.send_command.assert_awaited_once()
+    # One reservation publish: the device answered, so the read did not
+    # need retrying. The installer diagnostics and recirculation schedule
+    # reads follow, published once each and not waited on.
+    assert [call.args[1] for call in mqtt.send_command.await_args_list] == [
+        "request_reservations",
+        "request_diagnostics",
+        "request_recirculation_schedule",
+    ]
     assert coordinator.reservation_schedules[MAC] == {
         "reservation_use": 2,
         "reservation": [],
@@ -2782,3 +2788,202 @@ async def test_setup_primes_every_device_concurrently(setup_clients_env):
     # wait rather than three.
     assert peak == len(macs)
     assert elapsed < 0.05 * len(macs)
+
+
+# ---------------------------------------------------------------------------
+# nwp500-python 9.4.0: installer diagnostics, recirculation schedule, and the
+# monthly energy query.
+# ---------------------------------------------------------------------------
+
+
+def test_diagnostics_reply_is_stored_and_pushed_to_entities(coordinator):
+    """The counters are cached, unlike the energy report, because sensors read them."""
+    coordinator.async_update_listeners = MagicMock()
+    reading = {"ts_data": {"cumulated_pwr_hp": 1000}}
+
+    coordinator._handle_diagnostics_in_loop(MAC, reading)
+
+    assert coordinator.device_diagnostics[MAC] == reading
+    coordinator.async_update_listeners.assert_called_once()
+
+
+def test_diagnostics_callback_defers_to_the_event_loop(coordinator):
+    """The MQTT thread hands the reply to the loop rather than touching state."""
+    coordinator._on_diagnostics(MAC, {"ts_data": {}})
+
+    coordinator.hass.loop.call_soon_threadsafe.assert_called_once_with(
+        coordinator._handle_diagnostics_in_loop, MAC, {"ts_data": {}}
+    )
+
+
+def test_recirculation_schedule_reply_is_stored_and_announced(coordinator):
+    """Stored, fired on the bus, and pushed to entities, like reservations."""
+    coordinator.async_update_listeners = MagicMock()
+    schedule = {"reservation_use": 1, "reservation": []}
+
+    coordinator._handle_recirculation_schedule_in_loop(MAC, schedule)
+
+    assert coordinator.recirculation_schedules[MAC] == schedule
+    coordinator.hass.bus.async_fire.assert_called_once_with(
+        "nwp500_recirculation_schedule_updated",
+        {"mac_address": MAC, "reservation_use": 1, "reservations": []},
+    )
+    coordinator.async_update_listeners.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_request_diagnostics_publishes_the_query(wired):
+    """The read is one publish; the reply arrives through the subscription."""
+    assert await wired.async_request_diagnostics(MAC) is True
+
+    wired.mqtt_manager.send_command.assert_awaited_once_with(
+        wired._devices_by_mac[MAC], "request_diagnostics"
+    )
+
+
+@pytest.mark.asyncio
+async def test_request_recirculation_schedule_publishes_the_query(wired):
+    assert await wired.async_request_recirculation_schedule(MAC) is True
+
+    wired.mqtt_manager.send_command.assert_awaited_once_with(
+        wired._devices_by_mac[MAC], "request_recirculation_schedule"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "request_name",
+    ["async_request_diagnostics", "async_request_recirculation_schedule"],
+)
+async def test_on_demand_reads_of_an_unknown_device_are_refused(
+    wired, request_name
+):
+    assert await getattr(wired, request_name)("99:99:99:99:99:99") is False
+
+    wired.mqtt_manager.send_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_schedule_refresh_also_asks_for_the_on_demand_reads(
+    coordinator,
+):
+    """Lifetime counters and the pump schedule ride the schedule refresh."""
+    schedule = {"reservation_use": 2, "reservation": []}
+
+    async def answer(mac):
+        coordinator._handle_reservation_update_in_loop(mac, schedule)
+        return True
+
+    coordinator.async_request_reservations = AsyncMock(side_effect=answer)
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+    coordinator.async_request_diagnostics = AsyncMock(return_value=True)
+    coordinator.async_request_recirculation_schedule = AsyncMock(
+        return_value=True
+    )
+
+    await coordinator._async_refresh_schedules(MAC)
+
+    coordinator.async_request_diagnostics.assert_awaited_once_with(MAC)
+    coordinator.async_request_recirculation_schedule.assert_awaited_once_with(
+        MAC
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_failed_on_demand_read_does_not_break_the_refresh(
+    coordinator, caplog
+):
+    """Best-effort: a publish failure is logged, and the next read still runs."""
+    coordinator.async_request_diagnostics = AsyncMock(
+        side_effect=RuntimeError("boom")
+    )
+    coordinator.async_request_recirculation_schedule = AsyncMock(
+        return_value=True
+    )
+
+    await coordinator._async_request_on_demand_reads(MAC)
+
+    coordinator.async_request_recirculation_schedule.assert_awaited_once_with(
+        MAC
+    )
+
+
+@pytest.mark.asyncio
+async def test_shutdown_clears_the_on_demand_stores(coordinator):
+    coordinator.device_diagnostics[MAC] = {"ts_data": {}}
+    coordinator.recirculation_schedules[MAC] = {"reservation": []}
+
+    await coordinator.async_shutdown()
+
+    assert coordinator.device_diagnostics == {}
+    assert coordinator.recirculation_schedules == {}
+
+
+def _monthly_energy_response(years: list[int]) -> dict:
+    """A monthly-query reply: one entry per year, carrying no month."""
+    return {
+        "total": {"heat_pump_usage": 5},
+        "usage": [{"year": year, "month": None, "data": []} for year in years],
+    }
+
+
+@pytest.mark.asyncio
+async def test_fetch_energy_usage_monthly_returns_the_devices_reply(
+    coordinator,
+):
+    """A per-year reply is matched to the years asked for."""
+    response = _monthly_energy_response([2025, 2026])
+
+    async def reply(mac, command, **kwargs):
+        assert command == "request_energy_usage_monthly"
+        assert kwargs == {"years": [2025, 2026]}
+        coordinator._handle_energy_usage_in_loop(mac, response)
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=reply)
+
+    assert (
+        await coordinator.async_fetch_energy_usage_monthly(MAC, [2025, 2026])
+        == response
+    )
+    assert coordinator._energy_request is None
+
+
+@pytest.mark.asyncio
+async def test_a_daily_reply_does_not_answer_a_monthly_request(coordinator):
+    """The two queries share a handler; the period keeps them apart.
+
+    A leftover daily reply for August covers (2026, 8), which a request
+    for the whole of 2026 -- expecting (2026, 0) -- did not ask for.
+    """
+
+    async def wrong_kind(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(
+            mac, _energy_response(2026, [8])
+        )
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=wrong_kind)
+
+    assert (
+        await coordinator.async_fetch_energy_usage_monthly(
+            MAC, [2026], timeout=0.01
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_monthly_reply_does_not_answer_a_daily_request(coordinator):
+    async def wrong_kind(mac, command, **kwargs):
+        coordinator._handle_energy_usage_in_loop(
+            mac, _monthly_energy_response([2026])
+        )
+        return True
+
+    coordinator.async_send_command = AsyncMock(side_effect=wrong_kind)
+
+    assert (
+        await coordinator.async_fetch_energy_usage(MAC, 2026, [8], timeout=0.01)
+        is None
+    )
