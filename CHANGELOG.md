@@ -82,6 +82,14 @@
   `set_freeze_protection_temperature`, `run_smart_diagnostic`,
   `update_weekly_reservation`) and reshaped the recirculation schedule
   models. The integration used none of them, so nothing changes here.
+- **Routine MQTT reconnects and recovered schedule reads no longer log
+  warnings.** AWS IoT drops the connection about once a day and the library
+  reconnects within seconds, but the first update cycle in that gap logged
+  an ERROR. A disconnect now warns once, and only after four update cycles
+  (two minutes). Likewise, each missed reservation-schedule reply logged a
+  WARNING even though the automatic retry recovered every one over a
+  four-day run; the per-attempt timeout is now DEBUG, and a warning is
+  logged only when every attempt goes unanswered.
 
 ## [0.20.1] - 2026-09-01
 

@@ -83,6 +83,13 @@ _ENERGY_STRAGGLER_WINDOW: Final = 120.0
 _INITIAL_RESERVATION_TIMEOUT: Final = 5.0
 _INITIAL_RESERVATION_ATTEMPTS: Final = 2
 
+# Update cycles MQTT may stay disconnected before it is worth a warning.
+# AWS IoT drops the connection about once a day and the library's automatic
+# reconnect usually restores it within 20s, so warning on the first cycle
+# only reported outages that had already fixed themselves. Four 30s cycles
+# is two minutes: past a routine reconnect, but soon enough to be useful.
+_DISCONNECTED_WARNING_CYCLES: Final = 4
+
 
 # Typed config entry: the coordinator lives on entry.runtime_data, which HA
 # scopes to the entry's lifetime and tears down automatically on unload.
@@ -512,12 +519,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.mqtt_manager and not self.mqtt_manager.is_connected:
                 self._consecutive_timeouts += 1
 
-                # Log only on first disconnect; subsequent cycles use DEBUG
-                if self._consecutive_timeouts == 1:
-                    _LOGGER.error(
-                        "MQTT client is not connected. Device status requests "
-                        "will fail. Connection may have been lost or failed "
-                        "to reconnect."
+                # Warn once, and only when the automatic reconnect has had
+                # time to work; other cycles use DEBUG.
+                if self._consecutive_timeouts == _DISCONNECTED_WARNING_CYCLES:
+                    _LOGGER.warning(
+                        "MQTT client has been disconnected for %d update "
+                        "cycles. Device status requests will fail until "
+                        "the connection is restored.",
+                        self._consecutive_timeouts,
                     )
                 else:
                     _LOGGER.debug(
@@ -1674,6 +1683,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     attempt,
                     _INITIAL_RESERVATION_ATTEMPTS,
                 )
+            else:
+                _LOGGER.warning(
+                    "The device %s did not report its reservation schedule "
+                    "after %d attempts; the next refresh will retry",
+                    mac_address,
+                    _INITIAL_RESERVATION_ATTEMPTS,
+                )
         except (TimeoutError, RuntimeError, OSError, MqttError) as err:
             # TimeoutError is caught deliberately: the caller's own handler
             # treats it as a failed *status* request and starts counting
@@ -1730,7 +1746,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 return await asyncio.wait_for(waiter, timeout=timeout)
             except TimeoutError:
-                _LOGGER.warning(
+                # DEBUG: callers retry, and each reports a final failure
+                # itself -- a warning here fired on misses the retry fixed.
+                _LOGGER.debug(
                     "Timed out after %.0fs waiting for the reservation "
                     "schedule of %s",
                     timeout,
