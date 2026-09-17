@@ -1,6 +1,7 @@
 """Tests for NWP500DataUpdateCoordinator."""
 
 import asyncio
+import logging
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,7 +9,10 @@ import pytest
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
-from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
+from custom_components.nwp500.coordinator import (
+    _DISCONNECTED_WARNING_SECONDS,
+    NWP500DataUpdateCoordinator,
+)
 
 
 @pytest.fixture
@@ -181,6 +185,164 @@ async def test_async_update_increments_consecutive_timeouts_when_disconnected(
 
         await coordinator._async_update_data()
         assert coordinator._consecutive_timeouts == 2
+
+
+@pytest.mark.asyncio
+async def test_async_update_warns_once_when_disconnect_outlasts_reconnect(
+    coordinator, mock_hass, caplog
+):
+    """A routine reconnect logs nothing above DEBUG; an outage warns once.
+
+    The threshold is elapsed time, not update cycles: scan_interval is
+    configurable from 10s to 300s, so counting cycles would mean anything
+    from 40 seconds to 20 minutes.
+    """
+    coordinator.data = {}
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
+
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    def warnings():
+        return [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    clock = 1000.0
+
+    with (
+        patch("nwp500.unit_system.set_unit_system"),
+        patch(
+            "custom_components.nwp500.coordinator.time.monotonic",
+            side_effect=lambda: clock,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        # Inside the reconnect window, however many cycles it spans.
+        await coordinator._async_update_data()
+        clock += _DISCONNECTED_WARNING_SECONDS - 1
+        await coordinator._async_update_data()
+        assert warnings() == []
+
+        # Past it, and staying down: one warning, not one per cycle.
+        clock += 2
+        for _ in range(3):
+            await coordinator._async_update_data()
+            clock += 30
+
+    assert len(warnings()) == 1
+    assert "disconnected for" in warnings()[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_an_outage_between_two_cycles_is_never_warned_about(
+    coordinator, mock_hass, caplog
+):
+    """The threshold is a floor checked on the poll, not a deadline.
+
+    With a long scan interval an outage can start and end between two
+    cycles. Nothing warns, by design: an outage no cycle ever observed,
+    which the library's reconnect already repaired, is the noise this
+    logging set out to stop reporting.
+    """
+    coordinator.data = {}
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
+    coordinator.devices = []
+
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    clock = 1000.0
+
+    with (
+        patch("nwp500.unit_system.set_unit_system"),
+        patch(
+            "custom_components.nwp500.coordinator.time.monotonic",
+            side_effect=lambda: clock,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        # One cycle sees it down, and it is back before the next one.
+        await coordinator._async_update_data()
+        clock += 300.0
+        coordinator.mqtt_manager.is_connected = True
+        coordinator.mqtt_manager.connected_since = clock
+        await coordinator._async_update_data()
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert coordinator._disconnected_since is None
+
+
+@pytest.mark.asyncio
+async def test_a_second_outage_warns_again(coordinator, mock_hass, caplog):
+    """The one-shot warning is per outage: reconnecting re-arms it."""
+    coordinator.data = {}
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
+
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    clock = 1000.0
+
+    with (
+        patch("nwp500.unit_system.set_unit_system"),
+        patch(
+            "custom_components.nwp500.coordinator.time.monotonic",
+            side_effect=lambda: clock,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        await coordinator._async_update_data()
+        clock += _DISCONNECTED_WARNING_SECONDS
+        await coordinator._async_update_data()
+
+        # Reconnect. The status request is irrelevant here; only the
+        # disconnected branch being skipped matters.
+        coordinator.mqtt_manager.is_connected = True
+        coordinator.mqtt_manager.connected_since = clock
+        coordinator.async_request_device_status = AsyncMock(return_value=True)
+        coordinator.devices = []
+        await coordinator._async_update_data()
+        assert coordinator._disconnected_since is None
+        assert coordinator._disconnect_warned is False
+
+        # Down again, long enough to matter.
+        coordinator.mqtt_manager.is_connected = False
+        await coordinator._async_update_data()
+        clock += _DISCONNECTED_WARNING_SECONDS
+        await coordinator._async_update_data()
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 2
+
+
+@pytest.mark.asyncio
+async def test_request_timeouts_do_not_trip_the_disconnect_warning(
+    coordinator, mock_hass, caplog
+):
+    """Unrelated request timeouts must not trip the outage warning.
+
+    _consecutive_timeouts also counts per-device request timeouts, and the
+    forced-reconnect path zeroes it. Sharing it with the outage warning let
+    unrelated timeouts pass the threshold, or skip past it mid-outage.
+    """
+    coordinator.data = {}
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
+    # As if earlier request timeouts had already run the counter up.
+    coordinator._consecutive_timeouts = 9
+
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    with (
+        patch("nwp500.unit_system.set_unit_system"),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        await coordinator._async_update_data()
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
 
 
 @pytest.mark.asyncio
@@ -1258,6 +1420,65 @@ async def test_schedule_refresh_still_reads_tou_when_reservations_are_lost(
         await coordinator._async_refresh_schedules(MAC)
 
     coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+@pytest.mark.asyncio
+async def test_schedule_refresh_warns_only_when_every_attempt_is_lost(
+    coordinator, caplog
+):
+    """A recovered miss stays at DEBUG; losing every attempt warns once."""
+    coordinator.async_update_listeners = MagicMock()
+    replies = iter([False, True])
+
+    async def answer_second(mac):
+        if next(replies):
+            coordinator._handle_reservation_update_in_loop(
+                mac, {"reservation": []}
+            )
+        return True
+
+    coordinator.async_request_reservations = AsyncMock(
+        side_effect=answer_second
+    )
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "custom_components.nwp500.coordinator._INITIAL_RESERVATION_TIMEOUT",
+            0.01,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        await coordinator._async_refresh_schedules(MAC)
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+        coordinator.async_request_reservations = AsyncMock(return_value=True)
+        await coordinator._async_refresh_schedules(MAC)
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert "did not report its reservation schedule" in warnings[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_schedule_refresh_does_not_blame_the_device_for_a_lost_publish(
+    coordinator, caplog
+):
+    """A request that never went out is not the device failing to answer.
+
+    A refresh racing with MQTT teardown cannot publish. Warning that the
+    device did not report its schedule would misattribute that, and would
+    add warnings during exactly the disconnect this logging keeps quiet.
+    """
+    coordinator.async_request_reservations = AsyncMock(return_value=False)
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"):
+        await coordinator._async_refresh_schedules(MAC)
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    # One attempt, not the full retry run: nothing is owed an answer.
+    assert coordinator.async_request_reservations.await_count == 1
 
 
 @pytest.mark.asyncio

@@ -45,7 +45,12 @@
   and the recirculation schedule per device, once the device has answered.
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.4.0
+- **Library Dependency: nwp500-python**: Upgraded to 9.4.1
+  9.4.1 resets the reconnect attempt counter after a successful reconnect,
+  so every AWS IoT disconnect reconnects with the same short backoff as the
+  first one instead of each day's outage starting where the last one
+  stopped -- over a four-day run the first delay had grown from about 1s to
+  12s.
 - **The library's new session-end-on-disconnect is switched off.** 9.4.0's
   `disconnect()` publishes the app's `st/end` query to every subscribed
   device, as the NaviLink app does when it leaves a device screen. This
@@ -82,6 +87,19 @@
   `set_freeze_protection_temperature`, `run_smart_diagnostic`,
   `update_weekly_reservation`) and reshaped the recirculation schedule
   models. The integration used none of them, so nothing changes here.
+- **Routine MQTT reconnects and recovered schedule reads no longer log
+  warnings.** AWS IoT drops the connection about once a day and the library
+  reconnects within seconds, but the first update cycle in that gap logged
+  an ERROR. A disconnect now warns once, on the first update cycle that
+  finds it still down two minutes on. The threshold is elapsed time rather
+  than a count of cycles, because the scan interval is configurable from
+  10s to 300s; it is a floor checked on the cycle, so a long interval
+  defers the warning to its next poll and an outage that starts and ends
+  between two cycles is never warned about -- which is the point.
+  Likewise, each missed reservation-schedule reply logged a WARNING even
+  though the automatic retry recovered every one over a four-day run; the
+  per-attempt timeout is now DEBUG, and a warning is logged only when
+  every attempt goes unanswered.
 
 ## [0.20.1] - 2026-09-01
 

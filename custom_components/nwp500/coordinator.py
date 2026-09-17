@@ -83,6 +83,23 @@ _ENERGY_STRAGGLER_WINDOW: Final = 120.0
 _INITIAL_RESERVATION_TIMEOUT: Final = 5.0
 _INITIAL_RESERVATION_ATTEMPTS: Final = 2
 
+# How long MQTT may stay disconnected before it is worth a warning.
+# AWS IoT drops the connection about once a day and the library's automatic
+# reconnect usually restores it within 20s, so warning on the first update
+# cycle only reported outages that had already fixed themselves. Measured in
+# seconds rather than cycles because the update interval is configurable
+# (10s to 300s), and the same count of cycles would mean anything from
+# 40 seconds to 20 minutes.
+#
+# Deliberately checked on the update cycle rather than by its own timer, so
+# it is a floor and not a deadline: the warning appears on the first cycle
+# that finds the connection still down 120s on, which a 300s scan interval
+# defers to roughly t=300, and an outage that both starts and ends between
+# two cycles is never warned about at all. That is the intent -- an outage
+# nothing noticed and the reconnect already repaired is what this logging
+# set out to stop reporting. A timer would warn about precisely those.
+_DISCONNECTED_WARNING_SECONDS: Final = 120.0
+
 
 # Typed config entry: the coordinator lives on entry.runtime_data, which HA
 # scopes to the entry's lifetime and tears down automatically on unload.
@@ -186,6 +203,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._total_requests_sent: int = 0
         self._total_responses_received: int = 0
         self._mqtt_connected_since: float | None = None
+        # When the current disconnection was first seen, and whether it has
+        # been warned about. Kept apart from _consecutive_timeouts, which
+        # also counts per-device request timeouts and is zeroed by the
+        # forced-reconnect path: a count shared with those could pass the
+        # warning threshold without an outage, or skip past it during one.
+        self._disconnected_since: float | None = None
+        self._disconnect_warned: bool = False
         self._consecutive_timeouts: int = 0
         self._mqtt_reconnection_failed_attempts: int | None = None
         # Use deque for efficient circular buffer (automatic maxlen enforcement)
@@ -512,21 +536,40 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.mqtt_manager and not self.mqtt_manager.is_connected:
                 self._consecutive_timeouts += 1
 
-                # Log only on first disconnect; subsequent cycles use DEBUG
-                if self._consecutive_timeouts == 1:
-                    _LOGGER.error(
-                        "MQTT client is not connected. Device status requests "
-                        "will fail. Connection may have been lost or failed "
-                        "to reconnect."
+                # Monotonic: a system clock correction must not make a
+                # two-minute outage look instant or eternal.
+                now = time.monotonic()
+                if self._disconnected_since is None:
+                    self._disconnected_since = now
+                outage = now - self._disconnected_since
+
+                # Warn once per outage, and only once the automatic
+                # reconnect has had time to work; other cycles use DEBUG.
+                if (
+                    not self._disconnect_warned
+                    and outage >= _DISCONNECTED_WARNING_SECONDS
+                ):
+                    self._disconnect_warned = True
+                    _LOGGER.warning(
+                        "MQTT client has been disconnected for %.0fs. Device "
+                        "status requests will fail until the connection is "
+                        "restored.",
+                        outage,
                     )
                 else:
                     _LOGGER.debug(
-                        "MQTT still disconnected (consecutive timeouts: %d)",
+                        "MQTT still disconnected for %.0fs (consecutive "
+                        "timeouts: %d)",
+                        outage,
                         self._consecutive_timeouts,
                     )
 
                 # Return data with device entries but no new MQTT requests
                 return device_data
+
+            # Connected: the next outage gets its own warning.
+            self._disconnected_since = None
+            self._disconnect_warned = False
 
             # If the MQTT connection has transitioned to a new session since we
             # last checked (i.e. it just reconnected), reset the consecutive
@@ -759,7 +802,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                'uv pip install "nwp500-python==9.4.0" "awsiotsdk==1.31.0"'
+                'uv pip install "nwp500-python==9.4.1" "awsiotsdk==1.31.0"'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -1113,9 +1156,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for attempt in range(1, _INITIAL_RESERVATION_ATTEMPTS + 1):
             try:
-                schedule = await self.async_fetch_reservations(
-                    mac_address, timeout=_INITIAL_RESERVATION_TIMEOUT
+                result = await self._async_fetch_reservations_result(
+                    mac_address, _INITIAL_RESERVATION_TIMEOUT
                 )
+                published, schedule = result
             except Exception as err:  # noqa: BLE001 - best-effort boundary
                 # Deliberately broad, for the same reason as the TOU read
                 # below: nothing about a schedule read may fail setup.
@@ -1136,6 +1180,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 return
 
+            if not published:
+                # Nothing was asked -- MQTT was not ready -- so this is not
+                # a silent device, and the periodic refresh will ask again.
+                _LOGGER.debug(
+                    "Initial reservation read could not be sent for %s",
+                    mac_address,
+                )
+                return
+
             _LOGGER.debug(
                 "No reservation reply for %s (attempt %d of %d)",
                 mac_address,
@@ -1144,8 +1197,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         _LOGGER.warning(
-            "The device did not report its reservation schedule during "
+            "The device %s did not report its reservation schedule during "
             "setup; the periodic refresh will retry",
+            mac_address,
         )
 
     async def _async_request_initial_tou(self, device: Device) -> None:
@@ -1660,18 +1714,31 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         try:
             for attempt in range(1, _INITIAL_RESERVATION_ATTEMPTS + 1):
-                if (
-                    await self.async_fetch_reservations(
-                        mac_address, timeout=_INITIAL_RESERVATION_TIMEOUT
+                result = await self._async_fetch_reservations_result(
+                    mac_address, _INITIAL_RESERVATION_TIMEOUT
+                )
+                published, schedule = result
+                if schedule is not None:
+                    break
+                if not published:
+                    # Nothing was asked, so the device owes no answer.
+                    _LOGGER.debug(
+                        "Periodic reservation refresh could not be sent for %s",
+                        mac_address,
                     )
-                    is not None
-                ):
                     break
                 _LOGGER.debug(
                     "Periodic reservation refresh got no reply for %s "
                     "(attempt %d of %d)",
                     mac_address,
                     attempt,
+                    _INITIAL_RESERVATION_ATTEMPTS,
+                )
+            else:
+                _LOGGER.warning(
+                    "The device %s did not report its reservation schedule "
+                    "after %d attempts; the next refresh will retry",
+                    mac_address,
                     _INITIAL_RESERVATION_ATTEMPTS,
                 )
         except (TimeoutError, RuntimeError, OSError, MqttError) as err:
@@ -1717,26 +1784,50 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             The reservation schedule the device reported, or None if the
             request could not be sent or no response arrived in time.
         """
+        _, schedule = await self._async_fetch_reservations_result(
+            mac_address, timeout
+        )
+        return schedule
+
+    async def _async_fetch_reservations_result(
+        self, mac_address: str, timeout: float
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """Fetch the reservation schedule, saying whether it was even asked.
+
+        `async_fetch_reservations` answers None both for a request that
+        could not be published and for a device that never replied. Callers
+        that report a silent device need those apart: a refresh racing with
+        MQTT teardown never asked, and saying the device did not answer
+        would blame it for the disconnection -- and add warnings to exactly
+        the outage this logging is meant to keep quiet.
+
+        Returns:
+            (published, schedule). `published` is False when the request
+            never went out, in which case `schedule` is always None.
+        """
         loop = asyncio.get_running_loop()
         waiter: asyncio.Future[dict[str, Any]] = loop.create_future()
         self._reservation_waiters.setdefault(mac_address, []).append(waiter)
 
         try:
             if not await self.async_request_reservations(mac_address):
-                return None
+                return False, None
             # Only the wait is guarded. A failure to publish is already
             # reported as False by the manager, which catches its own
             # transport errors, so the two cannot be confused.
             try:
-                return await asyncio.wait_for(waiter, timeout=timeout)
+                return True, await asyncio.wait_for(waiter, timeout=timeout)
             except TimeoutError:
-                _LOGGER.warning(
+                # DEBUG: callers retry, and each reports its own final
+                # failure. A warning here fired on a miss that the very
+                # next retry recovered.
+                _LOGGER.debug(
                     "Timed out after %.0fs waiting for the reservation "
                     "schedule of %s",
                     timeout,
                     mac_address,
                 )
-                return None
+                return True, None
         finally:
             pending = self._reservation_waiters.get(mac_address)
             if pending and waiter in pending:
