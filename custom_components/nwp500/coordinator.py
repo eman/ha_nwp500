@@ -83,12 +83,14 @@ _ENERGY_STRAGGLER_WINDOW: Final = 120.0
 _INITIAL_RESERVATION_TIMEOUT: Final = 5.0
 _INITIAL_RESERVATION_ATTEMPTS: Final = 2
 
-# Update cycles MQTT may stay disconnected before it is worth a warning.
+# How long MQTT may stay disconnected before it is worth a warning.
 # AWS IoT drops the connection about once a day and the library's automatic
-# reconnect usually restores it within 20s, so warning on the first cycle
-# only reported outages that had already fixed themselves. Four 30s cycles
-# is two minutes: past a routine reconnect, but soon enough to be useful.
-_DISCONNECTED_WARNING_CYCLES: Final = 4
+# reconnect usually restores it within 20s, so warning on the first update
+# cycle only reported outages that had already fixed themselves. Measured in
+# seconds rather than cycles because the update interval is configurable
+# (10s to 300s), and the same count of cycles would mean anything from
+# 40 seconds to 20 minutes.
+_DISCONNECTED_WARNING_SECONDS: Final = 120.0
 
 
 # Typed config entry: the coordinator lives on entry.runtime_data, which HA
@@ -193,6 +195,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._total_requests_sent: int = 0
         self._total_responses_received: int = 0
         self._mqtt_connected_since: float | None = None
+        # When the current disconnection was first seen, and whether it has
+        # been warned about. Kept apart from _consecutive_timeouts, which
+        # also counts per-device request timeouts and is zeroed by the
+        # forced-reconnect path: a count shared with those could pass the
+        # warning threshold without an outage, or skip past it during one.
+        self._disconnected_since: float | None = None
+        self._disconnect_warned: bool = False
         self._consecutive_timeouts: int = 0
         self._mqtt_reconnection_failed_attempts: int | None = None
         # Use deque for efficient circular buffer (automatic maxlen enforcement)
@@ -519,23 +528,38 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.mqtt_manager and not self.mqtt_manager.is_connected:
                 self._consecutive_timeouts += 1
 
-                # Warn once, and only when the automatic reconnect has had
-                # time to work; other cycles use DEBUG.
-                if self._consecutive_timeouts == _DISCONNECTED_WARNING_CYCLES:
+                now = time.time()
+                if self._disconnected_since is None:
+                    self._disconnected_since = now
+                outage = now - self._disconnected_since
+
+                # Warn once per outage, and only once the automatic
+                # reconnect has had time to work; other cycles use DEBUG.
+                if (
+                    not self._disconnect_warned
+                    and outage >= _DISCONNECTED_WARNING_SECONDS
+                ):
+                    self._disconnect_warned = True
                     _LOGGER.warning(
-                        "MQTT client has been disconnected for %d update "
-                        "cycles. Device status requests will fail until "
-                        "the connection is restored.",
-                        self._consecutive_timeouts,
+                        "MQTT client has been disconnected for %.0fs. Device "
+                        "status requests will fail until the connection is "
+                        "restored.",
+                        outage,
                     )
                 else:
                     _LOGGER.debug(
-                        "MQTT still disconnected (consecutive timeouts: %d)",
+                        "MQTT still disconnected for %.0fs (consecutive "
+                        "timeouts: %d)",
+                        outage,
                         self._consecutive_timeouts,
                     )
 
                 # Return data with device entries but no new MQTT requests
                 return device_data
+
+            # Connected: the next outage gets its own warning.
+            self._disconnected_since = None
+            self._disconnect_warned = False
 
             # If the MQTT connection has transitioned to a new session since we
             # last checked (i.e. it just reconnected), reset the consecutive
