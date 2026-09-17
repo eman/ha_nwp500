@@ -82,6 +82,11 @@
   `set_freeze_protection_temperature`, `run_smart_diagnostic`,
   `update_weekly_reservation`) and reshaped the recirculation schedule
   models. The integration used none of them, so nothing changes here.
+- **nwp500-python 9.4.1**, which resets the reconnect attempt counter after
+  a successful reconnect. Every AWS IoT disconnect now reconnects with the
+  same short backoff as the first one, instead of each day's outage
+  starting where the last one stopped -- on a four-day run the first delay
+  had grown from about 1s to 12s.
 - **Routine MQTT reconnects and recovered schedule reads no longer log
   warnings.** AWS IoT drops the connection about once a day and the library
   reconnects within seconds, but the first update cycle in that gap logged
