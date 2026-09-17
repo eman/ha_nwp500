@@ -234,6 +234,46 @@ async def test_async_update_warns_once_when_disconnect_outlasts_reconnect(
 
 
 @pytest.mark.asyncio
+async def test_an_outage_between_two_cycles_is_never_warned_about(
+    coordinator, mock_hass, caplog
+):
+    """The threshold is a floor checked on the poll, not a deadline.
+
+    With a long scan interval an outage can start and end between two
+    cycles. Nothing warns, by design: an outage no cycle ever observed,
+    which the library's reconnect already repaired, is the noise this
+    logging set out to stop reporting.
+    """
+    coordinator.data = {}
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
+    coordinator.devices = []
+
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    clock = 1000.0
+
+    with (
+        patch("nwp500.unit_system.set_unit_system"),
+        patch(
+            "custom_components.nwp500.coordinator.time.monotonic",
+            side_effect=lambda: clock,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        # One cycle sees it down, and it is back before the next one.
+        await coordinator._async_update_data()
+        clock += 300.0
+        coordinator.mqtt_manager.is_connected = True
+        coordinator.mqtt_manager.connected_since = clock
+        await coordinator._async_update_data()
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert coordinator._disconnected_since is None
+
+
+@pytest.mark.asyncio
 async def test_a_second_outage_warns_again(coordinator, mock_hass, caplog):
     """The one-shot warning is per outage: reconnecting re-arms it."""
     coordinator.data = {}

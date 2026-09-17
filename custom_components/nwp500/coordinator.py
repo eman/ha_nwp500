@@ -90,6 +90,14 @@ _INITIAL_RESERVATION_ATTEMPTS: Final = 2
 # seconds rather than cycles because the update interval is configurable
 # (10s to 300s), and the same count of cycles would mean anything from
 # 40 seconds to 20 minutes.
+#
+# Deliberately checked on the update cycle rather than by its own timer, so
+# it is a floor and not a deadline: the warning appears on the first cycle
+# that finds the connection still down 120s on, which a 300s scan interval
+# defers to roughly t=300, and an outage that both starts and ends between
+# two cycles is never warned about at all. That is the intent -- an outage
+# nothing noticed and the reconnect already repaired is what this logging
+# set out to stop reporting. A timer would warn about precisely those.
 _DISCONNECTED_WARNING_SECONDS: Final = 120.0
 
 
