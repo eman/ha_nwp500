@@ -101,6 +101,17 @@
   per-attempt timeout is now DEBUG, and a warning is logged only when
   every attempt goes unanswered.
 
+### Fixed
+- **The lifetime energy sensors no longer sit unknown for twenty minutes
+  after a restart.** The installer diagnostics reply has been seen reaching
+  its topic without being dispatched to the subscription, and the request
+  was only repeated on the schedule refresh cycle, so nothing asked again
+  until then -- leaving Lifetime Heat Pump Energy and Lifetime Heating
+  Element Energy blank on the Energy dashboard meanwhile. The read now
+  waits for the reply and asks once more if none arrives, on the same
+  terms as the reservation read. A device that never answers is still left
+  to the next refresh, now with a warning rather than silence.
+
 ## [0.20.1] - 2026-09-01
 
 ### Fixed
