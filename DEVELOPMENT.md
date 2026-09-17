@@ -247,8 +247,8 @@ remaining copies are the install hints in `coordinator.py` and
 Bump them all with:
 
 ```bash
-python scripts/update_nwp500_version.py 9.4.0
-python scripts/update_nwp500_version.py --awsiotsdk 1.32.0   # if needed
+python scripts/update_nwp500_version.py <new-version>
+python scripts/update_nwp500_version.py --awsiotsdk <new-version>   # if needed
 ```
 
 The current version is read from `manifest.json`, so you do not pass it.

@@ -528,7 +528,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.mqtt_manager and not self.mqtt_manager.is_connected:
                 self._consecutive_timeouts += 1
 
-                now = time.time()
+                # Monotonic: a system clock correction must not make a
+                # two-minute outage look instant or eternal.
+                now = time.monotonic()
                 if self._disconnected_since is None:
                     self._disconnected_since = now
                 outage = now - self._disconnected_since
@@ -1146,9 +1148,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for attempt in range(1, _INITIAL_RESERVATION_ATTEMPTS + 1):
             try:
-                schedule = await self.async_fetch_reservations(
-                    mac_address, timeout=_INITIAL_RESERVATION_TIMEOUT
+                result = await self._async_fetch_reservations_result(
+                    mac_address, _INITIAL_RESERVATION_TIMEOUT
                 )
+                published, schedule = result
             except Exception as err:  # noqa: BLE001 - best-effort boundary
                 # Deliberately broad, for the same reason as the TOU read
                 # below: nothing about a schedule read may fail setup.
@@ -1169,6 +1172,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 return
 
+            if not published:
+                # Nothing was asked -- MQTT was not ready -- so this is not
+                # a silent device, and the periodic refresh will ask again.
+                _LOGGER.debug(
+                    "Initial reservation read could not be sent for %s",
+                    mac_address,
+                )
+                return
+
             _LOGGER.debug(
                 "No reservation reply for %s (attempt %d of %d)",
                 mac_address,
@@ -1177,8 +1189,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
 
         _LOGGER.warning(
-            "The device did not report its reservation schedule during "
+            "The device %s did not report its reservation schedule during "
             "setup; the periodic refresh will retry",
+            mac_address,
         )
 
     async def _async_request_initial_tou(self, device: Device) -> None:
@@ -1693,12 +1706,18 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         try:
             for attempt in range(1, _INITIAL_RESERVATION_ATTEMPTS + 1):
-                if (
-                    await self.async_fetch_reservations(
-                        mac_address, timeout=_INITIAL_RESERVATION_TIMEOUT
+                result = await self._async_fetch_reservations_result(
+                    mac_address, _INITIAL_RESERVATION_TIMEOUT
+                )
+                published, schedule = result
+                if schedule is not None:
+                    break
+                if not published:
+                    # Nothing was asked, so the device owes no answer.
+                    _LOGGER.debug(
+                        "Periodic reservation refresh could not be sent for %s",
+                        mac_address,
                     )
-                    is not None
-                ):
                     break
                 _LOGGER.debug(
                     "Periodic reservation refresh got no reply for %s "
@@ -1757,28 +1776,50 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             The reservation schedule the device reported, or None if the
             request could not be sent or no response arrived in time.
         """
+        _, schedule = await self._async_fetch_reservations_result(
+            mac_address, timeout
+        )
+        return schedule
+
+    async def _async_fetch_reservations_result(
+        self, mac_address: str, timeout: float
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """Fetch the reservation schedule, saying whether it was even asked.
+
+        `async_fetch_reservations` answers None both for a request that
+        could not be published and for a device that never replied. Callers
+        that report a silent device need those apart: a refresh racing with
+        MQTT teardown never asked, and saying the device did not answer
+        would blame it for the disconnection -- and add warnings to exactly
+        the outage this logging is meant to keep quiet.
+
+        Returns:
+            (published, schedule). `published` is False when the request
+            never went out, in which case `schedule` is always None.
+        """
         loop = asyncio.get_running_loop()
         waiter: asyncio.Future[dict[str, Any]] = loop.create_future()
         self._reservation_waiters.setdefault(mac_address, []).append(waiter)
 
         try:
             if not await self.async_request_reservations(mac_address):
-                return None
+                return False, None
             # Only the wait is guarded. A failure to publish is already
             # reported as False by the manager, which catches its own
             # transport errors, so the two cannot be confused.
             try:
-                return await asyncio.wait_for(waiter, timeout=timeout)
+                return True, await asyncio.wait_for(waiter, timeout=timeout)
             except TimeoutError:
-                # DEBUG: callers retry, and each reports a final failure
-                # itself -- a warning here fired on misses the retry fixed.
+                # DEBUG: callers retry, and each reports its own final
+                # failure. A warning here fired on a miss that the very
+                # next retry recovered.
                 _LOGGER.debug(
                     "Timed out after %.0fs waiting for the reservation "
                     "schedule of %s",
                     timeout,
                     mac_address,
                 )
-                return None
+                return True, None
         finally:
             pending = self._reservation_waiters.get(mac_address)
             if pending and waiter in pending:

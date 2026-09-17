@@ -141,8 +141,8 @@ The integration maps nwp500-python operation modes to Home Assistant states:
 the script; do not hand-edit and do not maintain a checklist of files:
 
 ```bash
-python scripts/update_nwp500_version.py 9.4.0
-python scripts/update_nwp500_version.py --awsiotsdk 1.32.0   # if needed
+python scripts/update_nwp500_version.py <new-version>
+python scripts/update_nwp500_version.py --awsiotsdk <new-version>   # if needed
 ```
 
 The current version is read from the manifest, so it is not passed in. The

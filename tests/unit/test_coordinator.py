@@ -212,7 +212,7 @@ async def test_async_update_warns_once_when_disconnect_outlasts_reconnect(
     with (
         patch("nwp500.unit_system.set_unit_system"),
         patch(
-            "custom_components.nwp500.coordinator.time.time",
+            "custom_components.nwp500.coordinator.time.monotonic",
             side_effect=lambda: clock,
         ),
         caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
@@ -248,7 +248,7 @@ async def test_a_second_outage_warns_again(coordinator, mock_hass, caplog):
     with (
         patch("nwp500.unit_system.set_unit_system"),
         patch(
-            "custom_components.nwp500.coordinator.time.time",
+            "custom_components.nwp500.coordinator.time.monotonic",
             side_effect=lambda: clock,
         ),
         caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
@@ -1418,6 +1418,27 @@ async def test_schedule_refresh_warns_only_when_every_attempt_is_lost(
     warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
     assert len(warnings) == 1
     assert "did not report its reservation schedule" in warnings[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_schedule_refresh_does_not_blame_the_device_for_a_lost_publish(
+    coordinator, caplog
+):
+    """A request that never went out is not the device failing to answer.
+
+    A refresh racing with MQTT teardown cannot publish. Warning that the
+    device did not report its schedule would misattribute that, and would
+    add warnings during exactly the disconnect this logging keeps quiet.
+    """
+    coordinator.async_request_reservations = AsyncMock(return_value=False)
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"):
+        await coordinator._async_refresh_schedules(MAC)
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    # One attempt, not the full retry run: nothing is owed an answer.
+    assert coordinator.async_request_reservations.await_count == 1
 
 
 @pytest.mark.asyncio
