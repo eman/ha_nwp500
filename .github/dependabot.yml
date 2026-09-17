@@ -35,6 +35,14 @@ updates:
           - "awsiotsdk*"
     # Only update to compatible versions
     versioning-strategy: increase
+    ignore:
+      # The homeassistant floor in the mypy and basedpyright dependency
+      # groups mirrors the minimum hacs.json declares for users. Type
+      # checking against the oldest supported release is the point: it
+      # catches an API a user on that version would not have. Raising the
+      # floor to track the newest release makes the check weaker, so it
+      # moves by hand when hacs.json moves.
+      - dependency-name: "homeassistant"
 
   # Monitor GitHub Actions (when added)
   - package-ecosystem: "github-actions"
