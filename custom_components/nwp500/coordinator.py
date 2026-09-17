@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Final
@@ -83,12 +83,15 @@ _ENERGY_STRAGGLER_WINDOW: Final = 120.0
 _INITIAL_RESERVATION_TIMEOUT: Final = 5.0
 _INITIAL_RESERVATION_ATTEMPTS: Final = 2
 
-# The same, for the installer diagnostics read, which shares the failure:
-# the reply reaches its topic and is not always dispatched. Observed at
-# 0.1s and 4s on a live device, so 5s is generous; two attempts keep the
+# The same, for the reads the device answers only when asked: the
+# installer diagnostics counters and the recirculation schedule. The cloud
+# does not always answer these either -- one request went unanswered while
+# the next, identical one was answered in 4s -- and they are otherwise only
+# repeated on the refresh cycle twenty minutes later. Replies were observed
+# at 4s on a live device, so 5s is generous, and two attempts keep the
 # worst case inside setup's budget alongside the reservation read.
-_INITIAL_DIAGNOSTICS_TIMEOUT: Final = 5.0
-_INITIAL_DIAGNOSTICS_ATTEMPTS: Final = 2
+_ON_DEMAND_READ_TIMEOUT: Final = 5.0
+_ON_DEMAND_READ_ATTEMPTS: Final = 2
 
 # How long MQTT may stay disconnected before it is worth a warning.
 # AWS IoT drops the connection about once a day and the library's automatic
@@ -157,11 +160,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._reservation_waiters: dict[
             str, list[asyncio.Future[dict[str, Any]]]
         ] = {}
-        # The same, for the installer diagnostics reply. The counters feed
-        # Energy dashboard sensors, and the request is only repeated on the
-        # schedule refresh cycle -- twenty minutes at the default interval
-        # -- so a dropped reply left those sensors unknown for that long.
+        # The same, for the two on-demand reads. Both feed sensors and are
+        # only repeated on the schedule refresh cycle -- twenty minutes at
+        # the default interval -- so a missing reply left those sensors
+        # unknown for that long.
         self._diagnostics_waiters: dict[
+            str, list[asyncio.Future[dict[str, Any]]]
+        ] = {}
+        self._recirculation_waiters: dict[
             str, list[asyncio.Future[dict[str, Any]]]
         ] = {}
         # The one energy-usage request in flight, if any: who asked, what
@@ -1081,12 +1087,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         schedule. Best-effort: a failed publish is logged and never raised,
         because these run inside setup and the refresh cycle.
 
-        The diagnostics read waits for its reply and asks again if none
-        arrives, for the reason given in `_async_read_diagnostics`.
+        Both wait for their reply and ask again if none arrives, for the
+        reason given in `_async_read_diagnostics`.
         """
         for request in (
             self._async_read_diagnostics,
-            self.async_request_recirculation_schedule,
+            self._async_read_recirculation_schedule,
         ):
             try:
                 await request(mac_address)
@@ -1102,11 +1108,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Ask for the installer diagnostics and wait for the reply.
 
         Publishing and hoping left the two lifetime energy sensors unknown
-        for twenty minutes: the reply was seen reaching its topic without
-        ever being dispatched to the subscription, and this request is only
-        repeated on the schedule refresh cycle, so nothing asked again
-        until then. Observed on a restart, with the counters blank on the
-        Energy dashboard meanwhile.
+        for twenty minutes. The cloud does not always answer: on one
+        restart the request went out and no reply arrived on the response
+        topic at all, while the next cycle's identical request was answered
+        in 4s. This request is only repeated on the schedule refresh cycle,
+        so nothing asked again until then, and the counters sat blank on
+        the Energy dashboard meanwhile.
 
         Same terms as the reservation read: waiting makes a lost reply
         visible, and asking again costs one more publish. A device that
@@ -1115,13 +1122,65 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Returns:
             bool: True if the device reported its counters.
         """
-        for attempt in range(1, _INITIAL_DIAGNOSTICS_ATTEMPTS + 1):
-            published, diagnostics = await self._async_fetch_diagnostics(
-                mac_address, _INITIAL_DIAGNOSTICS_TIMEOUT
+        return await self._async_read_with_retry(
+            mac_address,
+            self._diagnostics_waiters,
+            self.async_request_diagnostics,
+            "installer diagnostics",
+        )
+
+    async def _async_read_recirculation_schedule(
+        self, mac_address: str
+    ) -> bool:
+        """Ask for the recirculation schedule and wait for the reply.
+
+        Same failure as the diagnostics read above -- a query the cloud
+        does not always answer, repeated only on the refresh cycle -- so
+        the sensor sat unknown for twenty minutes whenever a reply went
+        missing. A device that does not support recirculation scheduling
+        never publishes at all, and is not waited on.
+
+        Returns:
+            bool: True if the device reported its schedule.
+        """
+        return await self._async_read_with_retry(
+            mac_address,
+            self._recirculation_waiters,
+            self.async_request_recirculation_schedule,
+            "recirculation schedule",
+        )
+
+    async def _async_read_with_retry(
+        self,
+        mac_address: str,
+        waiters: dict[str, list[asyncio.Future[dict[str, Any]]]],
+        request: Callable[[str], Awaitable[bool]],
+        label: str,
+    ) -> bool:
+        """Publish a read, wait for the reply, and ask again if none comes.
+
+        Shared by the on-demand reads, which are answered asynchronously
+        over MQTT and are otherwise only repeated on the refresh cycle
+        twenty minutes later. Best-effort: never raises, and leaves a
+        device that will not answer to the next cycle.
+
+        Args:
+            mac_address: Device MAC address.
+            waiters: The waiter registry this reply resolves.
+            request: Publishes the read; False when nothing went out.
+            label: What is being read, for the log lines.
+
+        Returns:
+            bool: True if the device answered.
+        """
+        for attempt in range(1, _ON_DEMAND_READ_ATTEMPTS + 1):
+            published, reply = await self._async_fetch_reply(
+                mac_address, waiters, request, label
             )
-            if diagnostics is not None:
+            if reply is not None:
                 _LOGGER.debug(
-                    "Read the installer diagnostics of %s on attempt %d",
+                    "Read the %s of %s on attempt %d",
+                    label,
                     mac_address,
                     attempt,
                 )
@@ -1129,59 +1188,71 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not published:
                 # Nothing was asked, so the device owes no answer.
                 _LOGGER.debug(
-                    "The installer diagnostics request could not be sent "
-                    "for %s",
+                    "The %s request could not be sent for %s",
+                    label,
                     mac_address,
                 )
                 return False
             _LOGGER.debug(
-                "No installer diagnostics reply for %s (attempt %d of %d)",
+                "No %s reply for %s (attempt %d of %d)",
+                label,
                 mac_address,
                 attempt,
-                _INITIAL_DIAGNOSTICS_ATTEMPTS,
+                _ON_DEMAND_READ_ATTEMPTS,
             )
 
         _LOGGER.warning(
-            "The device %s did not report its installer diagnostics after "
-            "%d attempts; the next refresh will retry",
+            "The device %s did not report its %s after %d attempts; the "
+            "next refresh will retry",
             mac_address,
-            _INITIAL_DIAGNOSTICS_ATTEMPTS,
+            label,
+            _ON_DEMAND_READ_ATTEMPTS,
         )
         return False
 
-    async def _async_fetch_diagnostics(
-        self, mac_address: str, timeout: float
+    async def _async_fetch_reply(
+        self,
+        mac_address: str,
+        waiters: dict[str, list[asyncio.Future[dict[str, Any]]]],
+        request: Callable[[str], Awaitable[bool]],
+        label: str,
+        timeout: float = _ON_DEMAND_READ_TIMEOUT,
     ) -> tuple[bool, dict[str, Any] | None]:
-        """Request the diagnostics counters and wait for the device's reply.
+        """Publish one read and wait for the device's reply.
 
         Returns:
-            (published, diagnostics). `published` is False when the request
-            never went out, in which case `diagnostics` is always None.
+            (published, reply). `published` is False when the request never
+            went out, in which case `reply` is always None -- a caller that
+            reports a silent device needs those apart, since a read racing
+            with MQTT teardown never asked at all.
         """
         loop = asyncio.get_running_loop()
         waiter: asyncio.Future[dict[str, Any]] = loop.create_future()
-        self._diagnostics_waiters.setdefault(mac_address, []).append(waiter)
+        waiters.setdefault(mac_address, []).append(waiter)
 
         try:
-            if not await self.async_request_diagnostics(mac_address):
+            if not await request(mac_address):
                 return False, None
+            # Only the wait is guarded. A failure to publish is already
+            # reported as False by the manager, which catches its own
+            # transport errors, so the two cannot be confused.
             try:
                 return True, await asyncio.wait_for(waiter, timeout=timeout)
             except TimeoutError:
                 # DEBUG: the retry above reports the final failure.
                 _LOGGER.debug(
-                    "Timed out after %.0fs waiting for the installer "
-                    "diagnostics of %s",
+                    "Timed out after %.0fs waiting for the %s of %s",
                     timeout,
+                    label,
                     mac_address,
                 )
                 return True, None
         finally:
-            pending = self._diagnostics_waiters.get(mac_address)
+            pending = waiters.get(mac_address)
             if pending and waiter in pending:
                 pending.remove(waiter)
             if pending is not None and not pending:
-                self._diagnostics_waiters.pop(mac_address, None)
+                waiters.pop(mac_address, None)
 
     async def async_request_diagnostics(self, mac_address: str) -> bool:
         """Ask the device for its installer diagnostics counters.
@@ -1543,6 +1614,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("Received recirculation schedule for %s", mac_address)
 
             self.recirculation_schedules[mac_address] = response
+
+            # Wake anything waiting on a fresh read (_async_read_with_retry)
+            for waiter in self._recirculation_waiters.pop(mac_address, []):
+                if not waiter.done():
+                    waiter.set_result(response)
 
             self.hass.bus.async_fire(
                 "nwp500_recirculation_schedule_updated",
@@ -1915,35 +1991,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             (published, schedule). `published` is False when the request
             never went out, in which case `schedule` is always None.
         """
-        loop = asyncio.get_running_loop()
-        waiter: asyncio.Future[dict[str, Any]] = loop.create_future()
-        self._reservation_waiters.setdefault(mac_address, []).append(waiter)
-
-        try:
-            if not await self.async_request_reservations(mac_address):
-                return False, None
-            # Only the wait is guarded. A failure to publish is already
-            # reported as False by the manager, which catches its own
-            # transport errors, so the two cannot be confused.
-            try:
-                return True, await asyncio.wait_for(waiter, timeout=timeout)
-            except TimeoutError:
-                # DEBUG: callers retry, and each reports its own final
-                # failure. A warning here fired on a miss that the very
-                # next retry recovered.
-                _LOGGER.debug(
-                    "Timed out after %.0fs waiting for the reservation "
-                    "schedule of %s",
-                    timeout,
-                    mac_address,
-                )
-                return True, None
-        finally:
-            pending = self._reservation_waiters.get(mac_address)
-            if pending and waiter in pending:
-                pending.remove(waiter)
-            if pending is not None and not pending:
-                self._reservation_waiters.pop(mac_address, None)
+        return await self._async_fetch_reply(
+            mac_address,
+            self._reservation_waiters,
+            self.async_request_reservations,
+            "reservation schedule",
+            timeout,
+        )
 
     async def async_fetch_energy_usage(
         self,

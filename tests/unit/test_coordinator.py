@@ -3144,11 +3144,18 @@ async def test_schedule_refresh_also_asks_for_the_on_demand_reads(
 
     coordinator.async_request_reservations = AsyncMock(side_effect=answer)
     coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    async def answer_recirculation(mac):
+        coordinator._handle_recirculation_schedule_in_loop(
+            mac, {"reservation": []}
+        )
+        return True
+
     coordinator.async_request_diagnostics = AsyncMock(
         side_effect=answer_diagnostics
     )
     coordinator.async_request_recirculation_schedule = AsyncMock(
-        return_value=True
+        side_effect=answer_recirculation
     )
 
     await coordinator._async_refresh_schedules(MAC)
@@ -3180,7 +3187,7 @@ async def test_diagnostics_read_retries_a_dropped_reply(coordinator, caplog):
 
     with (
         patch(
-            "custom_components.nwp500.coordinator._INITIAL_DIAGNOSTICS_TIMEOUT",
+            "custom_components.nwp500.coordinator._ON_DEMAND_READ_TIMEOUT",
             0.01,
         ),
         caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
@@ -3202,7 +3209,7 @@ async def test_diagnostics_read_warns_when_every_attempt_is_lost(
 
     with (
         patch(
-            "custom_components.nwp500.coordinator._INITIAL_DIAGNOSTICS_TIMEOUT",
+            "custom_components.nwp500.coordinator._ON_DEMAND_READ_TIMEOUT",
             0.01,
         ),
         caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
@@ -3233,15 +3240,78 @@ async def test_diagnostics_read_does_not_blame_the_device_for_a_lost_publish(
 
 
 @pytest.mark.asyncio
+async def test_recirculation_read_retries_a_dropped_reply(coordinator, caplog):
+    """The recirculation schedule read shares the diagnostics failure."""
+    coordinator.async_update_listeners = MagicMock()
+    coordinator.hass.bus = MagicMock()
+    schedule = {"reservation_use": 1, "reservation": [{"hour": 6}]}
+    replies = iter([False, True])
+
+    async def answer_second(mac):
+        if next(replies):
+            coordinator._handle_recirculation_schedule_in_loop(mac, schedule)
+        return True
+
+    coordinator.async_request_recirculation_schedule = AsyncMock(
+        side_effect=answer_second
+    )
+
+    with (
+        patch(
+            "custom_components.nwp500.coordinator._ON_DEMAND_READ_TIMEOUT",
+            0.01,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        assert await coordinator._async_read_recirculation_schedule(MAC) is True
+
+    assert coordinator.async_request_recirculation_schedule.await_count == 2
+    assert coordinator.recirculation_schedules[MAC] == schedule
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert MAC not in coordinator._recirculation_waiters
+
+
+@pytest.mark.asyncio
+async def test_an_unsupported_recirculation_read_is_not_a_silent_device(
+    coordinator, caplog
+):
+    """A device without recirculation scheduling is never asked at all.
+
+    async_request_recirculation_schedule returns False for it, which must
+    read as "nothing was published" rather than "the device ignored us" --
+    otherwise every refresh cycle would warn about a device working
+    exactly as intended.
+    """
+    coordinator.async_request_recirculation_schedule = AsyncMock(
+        return_value=False
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"):
+        assert (
+            await coordinator._async_read_recirculation_schedule(MAC) is False
+        )
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert coordinator.async_request_recirculation_schedule.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_a_failed_on_demand_read_does_not_break_the_refresh(
     coordinator, caplog
 ):
     """Best-effort: a publish failure is logged, and the next read still runs."""
+
+    async def answer_recirculation(mac):
+        coordinator._handle_recirculation_schedule_in_loop(
+            mac, {"reservation": []}
+        )
+        return True
+
     coordinator.async_request_diagnostics = AsyncMock(
         side_effect=RuntimeError("boom")
     )
     coordinator.async_request_recirculation_schedule = AsyncMock(
-        return_value=True
+        side_effect=answer_recirculation
     )
 
     await coordinator._async_request_on_demand_reads(MAC)
