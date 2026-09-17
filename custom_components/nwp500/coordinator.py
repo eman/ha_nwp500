@@ -1072,10 +1072,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # own. _async_request_initial_tou checks first.
         await self._async_request_initial_tou(device)
 
-        # Installer diagnostics are read with the same wait-and-retry as
-        # the reservations above. The recirculation schedule is asked for
-        # and not waited on: its sensor stays unknown until the reply
-        # lands, and the periodic refresh asks again.
+        # The installer diagnostics and the recirculation schedule are read
+        # with the same wait-and-retry as the reservations above, so their
+        # sensors are populated by the time setup finishes rather than
+        # waiting on the refresh cycle for a reply that never came.
         await self._async_request_on_demand_reads(
             device.device_info.mac_address
         )
@@ -1175,7 +1175,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         for attempt in range(1, _ON_DEMAND_READ_ATTEMPTS + 1):
             published, reply = await self._async_fetch_reply(
-                mac_address, waiters, request, label
+                mac_address,
+                waiters,
+                request,
+                label,
+                _ON_DEMAND_READ_TIMEOUT,
             )
             if reply is not None:
                 _LOGGER.debug(
@@ -1216,9 +1220,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         waiters: dict[str, list[asyncio.Future[dict[str, Any]]]],
         request: Callable[[str], Awaitable[bool]],
         label: str,
-        timeout: float = _ON_DEMAND_READ_TIMEOUT,
+        timeout: float,
     ) -> tuple[bool, dict[str, Any] | None]:
         """Publish one read and wait for the device's reply.
+
+        `timeout` is required rather than defaulted: a default binds the
+        constant at definition time, so patching it -- as the tests do --
+        would leave this path sleeping the real five seconds.
 
         Returns:
             (published, reply). `published` is False when the request never

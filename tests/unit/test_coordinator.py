@@ -3168,11 +3168,12 @@ async def test_schedule_refresh_also_asks_for_the_on_demand_reads(
 
 @pytest.mark.asyncio
 async def test_diagnostics_read_retries_a_dropped_reply(coordinator, caplog):
-    """The reply reaches its topic and is not always dispatched.
+    """The cloud does not always answer this query.
 
-    Observed live: the counters answered the request, the handler never
-    ran, and nothing asked again for twenty minutes -- leaving the two
+    Observed live: the request went out, no reply reached the response
+    topic, and nothing asked again for twenty minutes -- leaving the two
     lifetime energy sensors unknown on the Energy dashboard meanwhile.
+    The next cycle's identical request was answered in 4s.
     """
     coordinator.async_update_listeners = MagicMock()
     counters = {"ts_data": {"heat_pump_energy": 1278}}
