@@ -45,12 +45,16 @@
   and the recirculation schedule per device, once the device has answered.
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.4.1
+- **Library Dependency: nwp500-python**: Upgraded to 9.4.2
   9.4.1 resets the reconnect attempt counter after a successful reconnect,
   so every AWS IoT disconnect reconnects with the same short backoff as the
   first one instead of each day's outage starting where the last one
   stopped -- over a four-day run the first delay had grown from about 1s to
-  12s.
+  12s. 9.4.2 makes the typed response handlers say, at DEBUG, when they
+  decline a message -- wrong topic suffix, no data under the expected key,
+  or a reply naming another device. Those three dropped a message in
+  silence, which left a dropped reply and a reply the cloud never sent
+  looking identical in the logs.
 - **The library's new session-end-on-disconnect is switched off.** 9.4.0's
   `disconnect()` publishes the app's `st/end` query to every subscribed
   device, as the NaviLink app does when it leaves a device screen. This
