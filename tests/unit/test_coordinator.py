@@ -1533,15 +1533,19 @@ def setup_clients_env(coordinator, mock_hass):
     mqtt.request_device_info = AsyncMock()
     mqtt.disconnect = AsyncMock()
 
-    # The setup reservation read waits for the device's reply, so a mock
-    # that never answers would make every test using this fixture sit
-    # through the retry timeouts. Answer it, as a working device does.
+    # The setup reservation and diagnostics reads wait for the device's
+    # reply, so a mock that never answers would make every test using this
+    # fixture sit through the retry timeouts. Answer both, as a working
+    # device does.
     async def _send_command(device, command, **kwargs):
+        mac = device.device_info.mac_address
         if command == "request_reservations":
             coordinator._handle_reservation_update_in_loop(
-                device.device_info.mac_address,
+                mac,
                 {"reservation_use": 2, "reservation": []},
             )
+        elif command == "request_diagnostics":
+            coordinator._handle_diagnostics_in_loop(mac, {"ts_data": {}})
         return True
 
     mqtt.send_command = AsyncMock(side_effect=_send_command)
@@ -1575,9 +1579,9 @@ async def test_setup_clients_connects_and_primes_each_device(
     mqtt.subscribe_device.assert_awaited_once()
     mqtt.start_periodic_requests.assert_awaited_once()
     mqtt.request_device_info.assert_awaited_once()
-    # One reservation publish: the device answered, so the read did not
-    # need retrying. The installer diagnostics read follows, published
-    # once and not waited on. No recirculation schedule read: this
+    # One publish each for the reservation and diagnostics reads: the
+    # device answered both, so neither needed retrying. No recirculation
+    # schedule read: this
     # device's features have not arrived, so it is not known to support
     # one, and the library would refuse the query.
     assert [call.args[1] for call in mqtt.send_command.await_args_list] == [
@@ -3134,11 +3138,24 @@ async def test_schedule_refresh_also_asks_for_the_on_demand_reads(
         coordinator._handle_reservation_update_in_loop(mac, schedule)
         return True
 
+    async def answer_diagnostics(mac):
+        coordinator._handle_diagnostics_in_loop(mac, {"ts_data": {}})
+        return True
+
     coordinator.async_request_reservations = AsyncMock(side_effect=answer)
     coordinator.async_request_tou_settings = AsyncMock(return_value=True)
-    coordinator.async_request_diagnostics = AsyncMock(return_value=True)
+
+    async def answer_recirculation(mac):
+        coordinator._handle_recirculation_schedule_in_loop(
+            mac, {"reservation": []}
+        )
+        return True
+
+    coordinator.async_request_diagnostics = AsyncMock(
+        side_effect=answer_diagnostics
+    )
     coordinator.async_request_recirculation_schedule = AsyncMock(
-        return_value=True
+        side_effect=answer_recirculation
     )
 
     await coordinator._async_refresh_schedules(MAC)
@@ -3150,15 +3167,152 @@ async def test_schedule_refresh_also_asks_for_the_on_demand_reads(
 
 
 @pytest.mark.asyncio
+async def test_diagnostics_read_retries_a_dropped_reply(coordinator, caplog):
+    """The cloud does not always answer this query.
+
+    Observed live: the request went out, no reply reached the response
+    topic, and nothing asked again for twenty minutes -- leaving the two
+    lifetime energy sensors unknown on the Energy dashboard meanwhile.
+    The next cycle's identical request was answered in 4s.
+    """
+    coordinator.async_update_listeners = MagicMock()
+    counters = {"ts_data": {"heat_pump_energy": 1278}}
+    replies = iter([False, True])
+
+    async def answer_second(mac):
+        if next(replies):
+            coordinator._handle_diagnostics_in_loop(mac, counters)
+        return True
+
+    coordinator.async_request_diagnostics = AsyncMock(side_effect=answer_second)
+
+    with (
+        patch(
+            "custom_components.nwp500.coordinator._ON_DEMAND_READ_TIMEOUT",
+            0.01,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        assert await coordinator._async_read_diagnostics(MAC) is True
+
+    assert coordinator.async_request_diagnostics.await_count == 2
+    assert coordinator.device_diagnostics[MAC] == counters
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert MAC not in coordinator._diagnostics_waiters
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_read_warns_when_every_attempt_is_lost(
+    coordinator, caplog
+):
+    """A silent device is left to the next refresh, with one warning."""
+    coordinator.async_request_diagnostics = AsyncMock(return_value=True)
+
+    with (
+        patch(
+            "custom_components.nwp500.coordinator._ON_DEMAND_READ_TIMEOUT",
+            0.01,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        assert await coordinator._async_read_diagnostics(MAC) is False
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1
+    assert "did not report its installer diagnostics" in (
+        warnings[0].getMessage()
+    )
+    assert MAC not in coordinator._diagnostics_waiters
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_read_does_not_blame_the_device_for_a_lost_publish(
+    coordinator, caplog
+):
+    """A request that never went out is not the device failing to answer."""
+    coordinator.async_request_diagnostics = AsyncMock(return_value=False)
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"):
+        assert await coordinator._async_read_diagnostics(MAC) is False
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert coordinator.async_request_diagnostics.await_count == 1
+    assert MAC not in coordinator._diagnostics_waiters
+
+
+@pytest.mark.asyncio
+async def test_recirculation_read_retries_a_dropped_reply(coordinator, caplog):
+    """The recirculation schedule read shares the diagnostics failure."""
+    coordinator.async_update_listeners = MagicMock()
+    coordinator.hass.bus = MagicMock()
+    schedule = {"reservation_use": 1, "reservation": [{"hour": 6}]}
+    replies = iter([False, True])
+
+    async def answer_second(mac):
+        if next(replies):
+            coordinator._handle_recirculation_schedule_in_loop(mac, schedule)
+        return True
+
+    coordinator.async_request_recirculation_schedule = AsyncMock(
+        side_effect=answer_second
+    )
+
+    with (
+        patch(
+            "custom_components.nwp500.coordinator._ON_DEMAND_READ_TIMEOUT",
+            0.01,
+        ),
+        caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"),
+    ):
+        assert await coordinator._async_read_recirculation_schedule(MAC) is True
+
+    assert coordinator.async_request_recirculation_schedule.await_count == 2
+    assert coordinator.recirculation_schedules[MAC] == schedule
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert MAC not in coordinator._recirculation_waiters
+
+
+@pytest.mark.asyncio
+async def test_an_unsupported_recirculation_read_is_not_a_silent_device(
+    coordinator, caplog
+):
+    """A device without recirculation scheduling is never asked at all.
+
+    async_request_recirculation_schedule returns False for it, which must
+    read as "nothing was published" rather than "the device ignored us" --
+    otherwise every refresh cycle would warn about a device working
+    exactly as intended.
+    """
+    coordinator.async_request_recirculation_schedule = AsyncMock(
+        return_value=False
+    )
+
+    with caplog.at_level(logging.DEBUG, logger="custom_components.nwp500"):
+        assert (
+            await coordinator._async_read_recirculation_schedule(MAC) is False
+        )
+
+    assert [r for r in caplog.records if r.levelno >= logging.WARNING] == []
+    assert coordinator.async_request_recirculation_schedule.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_a_failed_on_demand_read_does_not_break_the_refresh(
     coordinator, caplog
 ):
     """Best-effort: a publish failure is logged, and the next read still runs."""
+
+    async def answer_recirculation(mac):
+        coordinator._handle_recirculation_schedule_in_loop(
+            mac, {"reservation": []}
+        )
+        return True
+
     coordinator.async_request_diagnostics = AsyncMock(
         side_effect=RuntimeError("boom")
     )
     coordinator.async_request_recirculation_schedule = AsyncMock(
-        return_value=True
+        side_effect=answer_recirculation
     )
 
     await coordinator._async_request_on_demand_reads(MAC)

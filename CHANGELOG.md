@@ -101,6 +101,21 @@
   per-attempt timeout is now DEBUG, and a warning is logged only when
   every attempt goes unanswered.
 
+### Fixed
+- **The lifetime energy sensors no longer sit unknown for twenty minutes
+  after a restart.** The cloud does not always answer the installer
+  diagnostics query: on one restart no reply reached the response topic at
+  all, while the next cycle's identical request was answered in 4s. The
+  request was only repeated on the schedule refresh cycle, so nothing asked
+  again until then, leaving Lifetime Heat Pump Energy and Lifetime Heating
+  Element Energy blank on the Energy dashboard meanwhile. The read now
+  waits for the reply and asks once more if none arrives, on the same terms
+  as the reservation read. A device that never answers is still left to the
+  next refresh, now with a warning rather than silence.
+- **The recirculation schedule read got the same treatment**, for the same
+  reason: it was published and not waited on, and its sensor sat unknown
+  until a later cycle whenever a reply went missing.
+
 ## [0.20.1] - 2026-09-01
 
 ### Fixed
