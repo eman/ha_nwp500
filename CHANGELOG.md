@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-09-17
+
 ### Added
 - **Lifetime counters from the installer diagnostics query.** nwp500-python
   9.4.0 added the `st/td/rd` query the NaviLink app's installer screen uses,
@@ -1654,7 +1656,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.20.1...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/eman/ha_nwp500/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/eman/ha_nwp500/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/eman/ha_nwp500/compare/v0.19.0...v0.20.0
 [0.19.0]: https://github.com/eman/ha_nwp500/compare/v0.18.0...v0.19.0
