@@ -4,13 +4,16 @@ Spec sections 2, 3, 5 and 6 of issue #158. The planning is in `engine.py`;
 this module feeds it what the device reports, keeps time for it, commits the
 writes it asks for, and persists what it must remember across a restart.
 
-Only shadow execution exists so far: each write the planner asks for is
-committed as simulated and never sent. Live writes are delivery step 5 of
-the specification, after the device tests in its section 8.
+In shadow each write the planner asks for is committed as simulated and
+never sent. In live (delivery step 5) every write goes through one
+`ListWriter`: the list is read first, written whole, and committed only once
+the device holds it (section 5.4). Live is gated by `CONTROL_LIVE_AVAILABLE`
+and needs a declared owner's program; without either it runs as shadow.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from dataclasses import replace
@@ -31,10 +34,13 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_CONTROL_INTENT_ENTITY,
+    CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MODE,
+    CONF_CONTROL_OWNER_PROGRAM,
     CONF_CONTROL_SURPLUS_ENTITY,
     CONF_CONTROL_SURPLUS_THRESHOLD_KW,
     CONF_SCAN_INTERVAL,
+    CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
@@ -44,7 +50,7 @@ from ..const import (
     DOMAIN,
 )
 from .capabilities import Capabilities, build_capabilities
-from .engine import Planner, RaiseState, Report, State, Write
+from .engine import WRITE_DISABLE, Planner, RaiseState, Report, State, Write
 from .entries import OWNER_LABELS, schedule_hash
 from .evaluate import Ack, check_plan, rejected_ack
 from .intent import (
@@ -56,6 +62,7 @@ from .intent import (
 )
 from .observed import Observed, observe
 from .owner import OwnerProgram
+from .writer import CoordinatorWriter, ListWriter
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -70,6 +77,40 @@ _LOGGER = logging.getLogger(__name__)
 # The heartbeat entity must move at least every 15 minutes (spec section
 # 5.12). Ticking at a third of that leaves room for a missed tick.
 HEARTBEAT_INTERVAL = timedelta(minutes=5)
+
+# An unconfirmed live write is retried once after this (section 5.4).
+WRITE_RETRY = timedelta(seconds=60)
+# After the retry fails too, writing waits this long before trying again.
+WRITE_PAUSE = timedelta(minutes=15)
+
+
+def live_writes(options: Mapping[str, Any], mac_address: str) -> bool:
+    """Whether these options write the list to this heater.
+
+    Live, with the gate open, the owner's program declared, and segments
+    live. Anything else writes nothing (grants follow segments).
+    """
+    return (
+        CONTROL_LIVE_AVAILABLE
+        and options.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE
+        and options.get(CONF_CONTROL_LIVE_SEGMENTS, False) is True
+        and declared_owner(options, mac_address) is not None
+    )
+
+
+def declared_owner(
+    options: Mapping[str, Any], mac_address: str
+) -> OwnerProgram | None:
+    """The owner's program declared in the options for going live (6.3)."""
+    declared = options.get(CONF_CONTROL_OWNER_PROGRAM)
+    if not isinstance(declared, Mapping):
+        return None
+    document = declared.get(mac_address)
+    if not isinstance(document, Mapping):
+        return None
+    program = OwnerProgram.from_document(document)
+    return replace(program, declared=True) if program is not None else None
+
 
 # Existing entities a consumer reads for this heater, by the unique id
 # suffix the sensor platforms give them.
@@ -91,6 +132,7 @@ class DeviceControl:
         mac_address: str,
         device: Device,
         store: ControlStore,
+        writer: ListWriter | None = None,
     ) -> None:
         """Bind to a device. Nothing listens until `async_start`."""
         self.hass = hass
@@ -99,10 +141,14 @@ class DeviceControl:
         self.mac_address = mac_address
         self.device = device
         self.store = store
+        self.writer: ListWriter = writer or CoordinatorWriter(
+            coordinator, mac_address
+        )
 
         options = entry.options
+        self.declared_owner = declared_owner(options, mac_address)
         mode = str(options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE))
-        if mode == CONTROL_MODE_LIVE:
+        if mode == CONTROL_MODE_LIVE and not CONTROL_LIVE_AVAILABLE:
             # Nothing can select it yet; an options file edited by hand is
             # run in shadow rather than trusted to write.
             _LOGGER.warning(
@@ -110,7 +156,15 @@ class DeviceControl:
                 "in shadow"
             )
             mode = CONTROL_MODE_SHADOW
+        elif mode == CONTROL_MODE_LIVE and self.declared_owner is None:
+            _LOGGER.warning(
+                "External control: live mode needs the owner's program "
+                "declared in the options (going live); running in shadow"
+            )
+            mode = CONTROL_MODE_SHADOW
         self.mode = mode
+        # Live for segments; grants follow their own switch in the planner.
+        self.writes = live_writes(options, mac_address)
         self.intent_entity_id: str | None = options.get(
             CONF_CONTROL_INTENT_ENTITY
         )
@@ -141,13 +195,21 @@ class DeviceControl:
                 telemetry={},
             ),
             dt_util.get_default_time_zone(),
-            shadow=True,
+            shadow=not self.writes,
             explain_window=timedelta(seconds=poll + 60),
         )
 
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsubscribe: list[CALLBACK_TYPE] = []
         self._cancel_event: CALLBACK_TYPE | None = None
+        # One evaluation at a time: a live write awaits the device, and
+        # changes arriving meanwhile are folded into the next pass.
+        self._lock = asyncio.Lock()
+        self._again = False
+        self._failures = 0
+        self._paused_until: datetime | None = None
+        self._cancel_retry: CALLBACK_TYPE | None = None
+        self._release_attempts = 0
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -169,10 +231,20 @@ class DeviceControl:
                 self.planner = Planner(
                     self.planner.capabilities,
                     self.planner.tz,
-                    shadow=True,
+                    shadow=not self.writes,
                     explain_window=self.planner.explain_window,
                 )
-        if owner_state := self.store.stored_owner(self.mac_address):
+        # The store's flag survives a planner reset: whether the device
+        # holds the feature's list decides what disabling must undo.
+        self.planner.took_over = self.planner.took_over or self.store.took_over(
+            self.mac_address
+        )
+        if self.declared_owner is not None:
+            self.planner.owner = self.declared_owner
+            await self.store.async_set_owner(
+                self.mac_address, self.declared_owner.as_document()
+            )
+        elif owner_state := self.store.stored_owner(self.mac_address):
             self.planner.owner = OwnerProgram.from_document(owner_state)
         observed = self.observe()
         await self._async_ensure_owner(observed)
@@ -180,6 +252,13 @@ class DeviceControl:
         if self.mode == CONTROL_MODE_DISABLED:
             await self._async_disable(now)
         else:
+            if self.holds_device and not self.writes:
+                _LOGGER.warning(
+                    "The heater %s still holds the feature's reservation "
+                    "list, but live writes are off. Press Disable to hand it "
+                    "back to the owner's program",
+                    self.mac_address,
+                )
             await self.store.async_set_disabled_done(self.mac_address, False)
             if self.intent_entity_id:
                 self._unsubscribe.append(
@@ -217,6 +296,12 @@ class DeviceControl:
         if self._cancel_event is not None:
             self._cancel_event()
             self._cancel_event = None
+        self._cancel_retry_timer()
+
+    def _cancel_retry_timer(self) -> None:
+        if self._cancel_retry is not None:
+            self._cancel_retry()
+            self._cancel_retry = None
 
     async def _async_feature_version(self) -> str:
         try:
@@ -225,10 +310,25 @@ class DeviceControl:
             return "unknown"
         return str(integration.version or "unknown")
 
+    @property
+    def holds_device(self) -> bool:
+        """Whether the heater holds the feature's list (a live write landed)."""
+        return self.planner.took_over or self.store.took_over(self.mac_address)
+
     async def _async_disable(self, now: datetime) -> None:
         """Section 6.6, once per entry into `disabled`."""
         await self.store.async_clear_intent(self.mac_address)
         if self.store.disabled_done(self.mac_address):
+            return
+        if self.holds_device:
+            async with self._lock:
+                released = await self._async_release(now)
+            if not released:
+                self._retry_release(now)
+                await self._async_persist()
+                return
+            await self.store.async_set_disabled_done(self.mac_address, True)
+            await self._async_persist()
             return
         write = self.planner.disable(now)
         _LOGGER.info(
@@ -240,6 +340,103 @@ class DeviceControl:
         )
         await self.store.async_set_disabled_done(self.mac_address, True)
         await self._async_persist()
+
+    async def async_release(self, now: datetime) -> bool:
+        """Hand the heater back before the feature is switched off (6.6)."""
+        if not self.holds_device:
+            return True
+        async with self._lock:
+            return await self._async_release(now)
+
+    async def _async_release(self, now: datetime) -> bool:
+        """Section 6.6 in live: the owner's list, then the owner's state.
+
+        True once the device confirmed the owner's list. The caller holds
+        the lock.
+        """
+        owner = self.planner.owner
+        if owner is None:
+            _LOGGER.error(
+                "Cannot restore the owner's program on %s: none is known",
+                self.mac_address,
+            )
+            return False
+        if await self._async_fresh_read() is None:
+            self._record_failed_disable(now)
+            return False
+        observed = self.observe()
+        schedule = owner.restore(self.planner.others(observed))
+        if not await self._async_write_list(schedule, observed):
+            self._record_failed_disable(now)
+            return False
+        state_written = observed.suspended_by is None
+        confirmed = True
+        if state_written:
+            mode, setpoint_raw = owner.state_now(now, self.planner.tz)
+            try:
+                confirmed = await self.writer.async_restore_state(
+                    mode, setpoint_raw
+                )
+            except Exception as err:  # noqa: BLE001 - reported, not raised
+                _LOGGER.warning(
+                    "Restoring the owner's state on %s failed: %s",
+                    self.mac_address,
+                    err,
+                )
+                confirmed = False
+        else:
+            _LOGGER.info(
+                "The heater %s is in %s; the owner's state is not written",
+                self.mac_address,
+                observed.suspended_by,
+            )
+        write = self.planner.disable(
+            now,
+            simulated=False,
+            confirmed=confirmed,
+            state_written=state_written,
+        )
+        await self.store.async_set_took_over(self.mac_address, False)
+        _LOGGER.info(
+            "External control handed %s back to the owner's program: %d "
+            "entr%s removed%s",
+            self.mac_address,
+            len(write.removed),
+            "y" if len(write.removed) == 1 else "ies",
+            "" if confirmed else "; the owner's state was not confirmed",
+        )
+        return True
+
+    def _record_failed_disable(self, now: datetime) -> None:
+        self.planner.last_write = Write(
+            reason=WRITE_DISABLE,
+            at=now,
+            added=(),
+            removed=tuple(self.planner.owned),
+            result=tuple(self.planner.owned),
+            simulated=False,
+            confirmed=False,
+        )
+        _LOGGER.error(
+            "Could not restore the owner's reservation list on %s; the "
+            "feature's entries are still on the heater",
+            self.mac_address,
+        )
+
+    def _retry_release(self, now: datetime) -> None:
+        """Retry a failed disabling once; after that, on the next start."""
+        self._release_attempts += 1
+        if self._release_attempts > 1:
+            return
+        self._cancel_retry_timer()
+
+        async def _retry(when: datetime) -> None:
+            self._cancel_retry = None
+            await self._async_disable(when)
+
+        self._cancel_retry = async_track_point_in_utc_time(
+            self.hass, _retry, now + WRITE_RETRY
+        )
 
     # -- what the entities read -------------------------------------------
 
@@ -420,21 +617,117 @@ class DeviceControl:
     # -- evaluation --------------------------------------------------------
 
     async def _async_evaluate(self, now: datetime) -> None:
-        """One planning pass, the write it needs, and persistence."""
+        """One planning pass, the write it needs, and persistence.
+
+        Passes do not overlap. One asked for while another runs is folded
+        into a further pass right after it (section 5.4, coalesced).
+        """
+        if self._lock.locked():
+            self._again = True
+            return
+        async with self._lock:
+            while True:
+                self._again = False
+                await self._async_evaluate_once(now)
+                if not self._again:
+                    break
+                now = dt_util.utcnow()
+
+    async def _async_evaluate_once(self, now: datetime) -> None:
         observed = self.observe()
         self._track_device_hash(observed, now)
         await self._async_ensure_owner(observed)
         self.planner.capabilities = self._build_capabilities()
         if self.mode != CONTROL_MODE_DISABLED:
             write = self.planner.step(now, observed)
-            if write is not None:
+            if write is not None and write.simulated:
                 self._commit(write)
+            elif write is not None:
+                await self._async_write_live(now)
+                self._track_device_hash(self.observe(), now)
         self._schedule_next_event()
         await self._async_persist()
         self._notify()
 
+    async def _async_fresh_read(self) -> dict[str, Any] | None:
+        try:
+            return await self.writer.async_read()
+        except Exception as err:  # noqa: BLE001 - a failed read is reported
+            _LOGGER.warning(
+                "Reading the reservation list of %s failed: %s",
+                self.mac_address,
+                err,
+            )
+            return None
+
+    async def _async_write_list(
+        self, schedule: dict[str, Any], observed: Observed
+    ) -> bool:
+        """Write the whole list; True once the device holds it."""
+        current = observed.schedule
+        if current is not None and schedule_hash(current) == schedule_hash(
+            schedule
+        ):
+            return True
+        try:
+            read = await self.writer.async_write(schedule)
+        except Exception as err:  # noqa: BLE001 - an unconfirmed write
+            _LOGGER.warning(
+                "Writing the reservation list of %s failed: %s",
+                self.mac_address,
+                err,
+            )
+            return False
+        return read is not None and schedule_hash(read) == schedule_hash(
+            schedule
+        )
+
+    async def _async_write_live(self, now: datetime) -> None:
+        """Read first, plan on what was read, write, and confirm (5.4)."""
+        if self._paused_until is not None and now < self._paused_until:
+            return
+        fresh = await self._async_fresh_read()
+        observed = self.observe()
+        write = self.planner.step(now, observed)
+        if write is None:
+            return
+        confirmed = False
+        if fresh is not None:
+            confirmed = await self._async_write_list(
+                self.planner.program(observed, write.result), observed
+            )
+        if confirmed:
+            self._failures = 0
+            self._paused_until = None
+            self._cancel_retry_timer()
+            self._commit(replace(write, simulated=False, confirmed=True))
+            await self.store.async_set_took_over(self.mac_address, True)
+            return
+        self._failures += 1
+        final = self._failures >= 2
+        retry_at = now + (WRITE_PAUSE if final else WRITE_RETRY)
+        if final:
+            self._failures = 0
+        self.planner.reject(write, now, retry_at=retry_at, final=final)
+        self._paused_until = retry_at
+        _LOGGER.warning(
+            "The %s write to %s was not confirmed; %s at %s",
+            write.reason,
+            self.mac_address,
+            "writing pauses until" if final else "retrying",
+            retry_at.isoformat(),
+        )
+        self._cancel_retry_timer()
+        self._cancel_retry = async_track_point_in_utc_time(
+            self.hass, self._on_retry, retry_at
+        )
+
+    async def _on_retry(self, now: datetime) -> None:
+        self._cancel_retry = None
+        await self._async_evaluate(now)
+
     def _commit(self, write: Write) -> None:
-        """Commit a write. In shadow it is simulated, never sent."""
+        """Commit a write: simulated in shadow, confirmed in live."""
         self.planner.commit(write)
         _LOGGER.debug(
             "%s write for %s (%s): +%d -%d entries",
@@ -564,11 +857,14 @@ class DeviceControl:
             self._notify()
             return False
 
-        self._adopt(plan, now, now, self.observe())
-        await self.store.async_set_intent(
-            self.mac_address, plan.as_document(), now.isoformat()
-        )
-        await self._async_evaluate(now)
+        # Not while a pass is writing: that write was planned on the plan
+        # before, and is committed or rejected against it.
+        async with self._lock:
+            self._adopt(plan, now, now, self.observe())
+            await self.store.async_set_intent(
+                self.mac_address, plan.as_document(), now.isoformat()
+            )
+        await self._async_evaluate(max(now, dt_util.utcnow()))
         return True
 
     def _adopt(

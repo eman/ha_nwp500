@@ -627,9 +627,12 @@ async def test_an_options_change_with_the_feature_on_keeps_it():
     mock_entry = _entry({"control_enabled": True})
     feature = MagicMock()
     feature.async_remove = AsyncMock()
+    feature.async_options_changed = AsyncMock()
     mock_hass.data = {DOMAIN: {mock_entry.entry_id: {"control": feature}}}
 
     await async_reload_entry(mock_hass, mock_entry)
 
     feature.async_remove.assert_not_awaited()
+    # Leaving live hands the heater back before the reload (#158).
+    feature.async_options_changed.assert_awaited_once()
     mock_hass.config_entries.async_reload.assert_awaited_once()

@@ -845,6 +845,136 @@ class TestExternalControlOptions:
         with pytest.raises(vol.Invalid):
             form["data_schema"](self._control_input(control_mode="live"))
 
+    @staticmethod
+    def _with_heater(entry, schedule):
+        status = MagicMock()
+        status.dhw_operation_setting = 3
+        status.dhw_target_temperature_setting_raw = 119
+        coordinator = MagicMock()
+        coordinator.data = {"AA:BB": {"status": status}}
+        coordinator.reservation_schedules = (
+            {"AA:BB": schedule} if schedule is not None else {}
+        )
+        entry.runtime_data = coordinator
+
+    @pytest.mark.asyncio
+    async def test_live_is_offered_once_the_gate_is_open(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
+        )
+        handler, _ = self._handler(hass)
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+        form = await handler.async_step_external_control()
+        keys = {str(key) for key in form["data_schema"].schema}
+        assert {"control_live_segments", "control_live_grants"} <= keys
+        form["data_schema"](self._control_input(control_mode="live"))
+
+    @pytest.mark.asyncio
+    async def test_going_live_declares_the_owner_program(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
+        )
+        hass.config.units = US_CUSTOMARY_SYSTEM
+        handler, entry = self._handler(hass)
+        entry_ = {
+            "enable": 2,
+            "week": 124,
+            "hour": 6,
+            "min": 0,
+            "mode": 3,
+            "param": 120,
+        }
+        self._with_heater(
+            entry, {"reservation_use": 2, "reservation": [entry_]}
+        )
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input(
+                control_mode="live",
+                control_live_segments=True,
+                control_live_grants=False,
+            )
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "going_live"
+        summary = result["description_placeholders"]["program"]
+        assert "Mode: Energy Saver" in summary
+        assert "Setpoint: 139.1 °F" in summary
+        assert "Mon Tue Wed Thu Fri 06:00" in summary
+        assert "switched off while live" in summary
+
+        result = await handler.async_step_going_live({})
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"]["control_mode"] == "live"
+        assert result["data"]["control_live_segments"] is True
+        assert result["data"]["control_owner_program"] == {
+            "AA:BB": {
+                "mode": "energy_saver",
+                "setpoint_raw": 119,
+                "reservations_enabled": True,
+                "entries": [entry_],
+                "declared": True,
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_going_live_waits_for_the_heater(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
+        )
+        handler, entry = self._handler(hass)
+        self._with_heater(entry, None)
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+        await handler.async_step_external_control(
+            self._control_input(control_mode="live")
+        )
+
+        result = await handler.async_step_going_live({})
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {"base": "owner_snapshot_unavailable"}
+
+    @pytest.mark.asyncio
+    async def test_staying_live_keeps_the_declaration(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
+        )
+        declared = {"AA:BB": {"mode": "heat_pump", "setpoint_raw": 120}}
+        handler, _ = self._handler(
+            hass,
+            {
+                "control_mode": "live",
+                "control_owner_program": declared,
+            },
+        )
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input(control_mode="live")
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"]["control_owner_program"] == declared
+
     @pytest.mark.asyncio
     async def test_saving_drops_first_draft_options(self, hass: HomeAssistant):
         handler, _ = self._handler(

@@ -4,8 +4,9 @@ Spec section 5 of issue #158. The planner is pure: it takes the time and an
 `Observed` snapshot, and returns the list write the device should receive.
 Nothing here touches Home Assistant or the device. In shadow mode the device
 controller commits each write without sending it, so the planner's view of
-"what is on the device" is a simulation; in live mode (delivery step 5) it
-would commit only what the device confirmed.
+"what is on the device" is a simulation. In live mode it commits only what
+the device confirmed, and a write the device did not take is handed back
+through `reject`.
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from .entries import (
     KIND_NEAR_TERM,
     KIND_PLAN,
     KIND_PRECEDENCE_EXIT,
+    NEAR_TERM_KINDS,
     OwnedEntry,
     compose_program,
     entry_slot,
@@ -41,6 +43,7 @@ from .entries import (
 )
 from .evaluate import (
     GRANT_ENDED,
+    GRANT_FAILED,
     GRANT_RAISED,
     GRANT_REJECTED,
     GRANT_SHADOW,
@@ -48,12 +51,16 @@ from .evaluate import (
     REASON_BEYOND_HORIZON,
     REASON_BOUNDS_UNKNOWN,
     REASON_ENTRY_BUDGET,
+    REASON_HELD_IN_TOU_WINDOW,
+    REASON_NOT_APPLIED,
     REASON_NOT_LIVE,
+    REASON_WRITE_NOT_CONFIRMED,
     STATE_PARTLY_PROGRAMMED,
     STATE_PENDING,
     STATE_PROGRAMMED,
     STATE_SHADOW,
     STATUS_ENDED,
+    STATUS_FAILED,
     STATUS_IN_FORCE,
     STATUS_MERGED,
     STATUS_PENDING,
@@ -82,6 +89,9 @@ FIRED_GRACE = timedelta(minutes=1)
 # Removing a fired entry is batched with other writes, but never left for
 # longer than this, so it cannot repeat a week later while the feature runs.
 CLEANUP_DEFER = timedelta(hours=24)
+# Read-back of an entry is skipped once it is this far past its window: the
+# device's state then says nothing about that entry (a restart, an outage).
+READBACK_STALE = timedelta(minutes=15)
 
 # Why a list write was made (the last write entity's `reason`).
 WRITE_PLAN = "plan"
@@ -92,6 +102,8 @@ WRITE_GRANT_LOWER = "grant_lower"
 WRITE_PRECEDENCE_EXIT = "precedence_exit"
 WRITE_POWER_OFF = "power_off"
 WRITE_DISABLE = "disable"
+# The first live write: owner entries switched off, reservations on (5.1).
+WRITE_TAKEOVER = "takeover"
 
 # People's changes, as the override entity reports them (section 5.10).
 REPORT_SETPOINT = "setpoint"
@@ -255,6 +267,13 @@ class Planner:
         self.last_write: Write | None = None
         self.raise_state: RaiseState | None = None
         self.suspended_by: str | None = None
+        # Live: whether the feature holds the list (section 5.1), segments or
+        # grants whose write failed after its retry (section 5.4), and the
+        # read-back of each served item's latest entry (section 5.11).
+        self.took_over = False
+        self.failed: dict[str, str] = {}
+        self.readback: dict[str, str] = {}
+        self._checked: set[str] = set()
         self.next_event_at: datetime | None = None
         self.last_step: datetime | None = None
         self._info: dict[str, _SegmentInfo] = {}
@@ -301,6 +320,10 @@ class Planner:
             if self._device_state
             else None,
             "reservations_on": self._reservations_on,
+            "took_over": self.took_over,
+            "failed": dict(self.failed),
+            "readback": dict(self.readback),
+            "checked": sorted(self._checked),
         }
 
     def load_document(self, document: Mapping[str, Any]) -> None:
@@ -333,6 +356,14 @@ class Planner:
         if device_state := document.get("device_state"):
             self._device_state = (str(device_state[0]), int(device_state[1]))
         self._reservations_on = document.get("reservations_on")
+        self.took_over = bool(document.get("took_over", False))
+        self.failed = {
+            str(k): str(v) for k, v in document.get("failed", {}).items()
+        }
+        self.readback = {
+            str(k): str(v) for k, v in document.get("readback", {}).items()
+        }
+        self._checked = set(document.get("checked", []))
 
     @staticmethod
     def _report_key(report: Report) -> str:
@@ -414,6 +445,7 @@ class Planner:
         self.plan = plan
         self.grant_rejections = check_grants(plan, self.capabilities, now=now)
         self.removed_segments = set()
+        self.failed = {}
         # A near-term entry still serves the new plan if the new plan wants
         # the same state from the same segment now; any other served the old
         # plan only.
@@ -439,6 +471,9 @@ class Planner:
             if e.kind == KIND_PLAN
             and e.serves is not None
             and states.get(e.serves) == State(e.mode, e.setpoint_raw)
+        }
+        self.readback = {
+            k: v for k, v in self.readback.items() if k in self.asserted
         }
 
         anchor = self._anchor(now)
@@ -484,18 +519,39 @@ class Planner:
             return
         self._lower(now)
 
-    def disable(self, now: datetime) -> Write:
-        """Section 6.6: remove every owned entry, restore the owner's state."""
-        owner_state = self.owner.state_now(now, self.tz) if self.owner else None
+    def disable(
+        self,
+        now: datetime,
+        *,
+        simulated: bool | None = None,
+        confirmed: bool | None = None,
+        state_written: bool = True,
+    ) -> Write:
+        """Section 6.6: remove every owned entry, restore the owner's state.
+
+        In live the device controller has already written the owner's list
+        and state; this records it. `state_written` is False when the
+        owner's state was not written (the heater was in vacation or
+        powered off, which take precedence).
+        """
+        owner_state = (
+            self.owner.state_now(now, self.tz)
+            if self.owner is not None and state_written
+            else None
+        )
         write = Write(
             reason=WRITE_DISABLE,
             at=now,
             added=(),
             removed=tuple(self.owned),
             result=(),
-            simulated=self.shadow,
+            simulated=self.shadow if simulated is None else simulated,
+            confirmed=confirmed,
             owner_state=owner_state,
         )
+        self.failed = {}
+        self.readback = {}
+        self._checked = set()
         self.plan = None
         self.extra = []
         self.asserted = set()
@@ -503,6 +559,8 @@ class Planner:
         self.raise_state = None
         self.grant_rejections = {}
         self.commit(write)
+        # The owner's program is back: the feature holds nothing.
+        self.took_over = False
         return write
 
     # -- a planning pass ---------------------------------------------------
@@ -515,6 +573,7 @@ class Planner:
         self._track_cycle(now, observed)
         self._track_surplus(now, observed)
         self._track_grant(now, observed)
+        self._track_readback(now, observed)
         self._assert_in_force(now)
         self.extra = [e for e in self.extra if e.fires_at + FIRED_GRACE > now]
 
@@ -524,7 +583,24 @@ class Planner:
             return self._switch_off_owned(now)
         if self.suspended_by:
             return None
-        return self._diff(desired, now)
+        write = self._diff(desired, now)
+        if (
+            write is None
+            and not self.shadow
+            and not self.took_over
+            and self.plan is not None
+        ):
+            # Going live with nothing of its own to add yet still takes the
+            # list over: the owner's entries must not fire against the plan.
+            write = Write(
+                reason=WRITE_TAKEOVER,
+                at=now,
+                added=(),
+                removed=(),
+                result=tuple(self.owned),
+                simulated=False,
+            )
+        return write
 
     def _switch_off_owned(self, now: datetime) -> Write | None:
         """Section 5.9: switch the feature's entries off while powered off.
@@ -555,6 +631,59 @@ class Planner:
         for entry in write.added:
             if entry.kind == KIND_PLAN and entry.serves:
                 self.asserted.add(entry.serves)
+        if not write.simulated:
+            # The device holds the whole wanted list now.
+            self.took_over = True
+            self.failed = {
+                k: v
+                for k, v in self.failed.items()
+                if v != REASON_WRITE_NOT_CONFIRMED
+            }
+
+    def reject(
+        self, write: Write, now: datetime, *, retry_at: datetime, final: bool
+    ) -> None:
+        """A live write the device did not confirm (section 5.4).
+
+        Nothing it added is on the device. Plan entries stay candidates and
+        go in the next write. An entry that must fire soon, a near-term,
+        precedence exit or lowering, is moved to the first minute it can
+        still make after `retry_at`, so the retry does not write an entry
+        whose minute has passed. After the retry has failed too (`final`),
+        what it served is `failed`, and a surplus raise is withdrawn.
+        """
+        self.last_write = replace(write, simulated=False, confirmed=False)
+        for entry in write.added:
+            if entry in self.owned:
+                continue
+            if final and entry.serves:
+                self.failed[entry.serves] = REASON_WRITE_NOT_CONFIRMED
+            if entry.kind not in NEAR_TERM_KINDS or entry not in self.extra:
+                continue
+            rs = self.raise_state
+            if (
+                final
+                and entry.kind == KIND_GRANT_RAISE
+                and rs is not None
+                and rs.entry == entry
+            ):
+                self._drop_raise_entries(now)
+                self.raise_state = None
+                continue
+            self.extra = [e for e in self.extra if e != entry]
+            moved = self._near_term(
+                entry.kind,
+                entry.serves or "",
+                State(entry.mode, entry.setpoint_raw),
+                retry_at,
+            )
+            if (
+                moved is not None
+                and rs is not None
+                and rs.entry == entry
+                and entry.kind == KIND_GRANT_RAISE
+            ):
+                self.raise_state = replace(rs, entry=moved)
 
     # Precedence and people's changes
 
@@ -682,6 +811,80 @@ class Planner:
             self.owned = [e for e in self.owned if e != owned_entry]
             self.extra = [e for e in self.extra if e != owned_entry]
 
+    # Read-back (section 5.11)
+
+    @staticmethod
+    def _check_key(entry: OwnedEntry) -> str:
+        return f"{entry.kind}:{entry.serves}:{entry.fires_at.isoformat()}"
+
+    def _track_readback(self, now: datetime, observed: Observed) -> None:
+        """Compare the device's state with the latest entry that fired.
+
+        Live only. Checked once per entry, after the poll interval plus a
+        minute. A setpoint that differs is `not_applied_on_device`; a mode
+        that differs is that too, unless the entry fired inside a TOU
+        window, where the device can hold its mode (`held_in_tou_window`).
+        A person's change since the entry fired explains any difference.
+        """
+        if self.shadow:
+            return
+        keys = {self._check_key(e) for e in self.owned}
+        self._checked &= keys
+        if (
+            observed.mode is None
+            or observed.setpoint_raw is None
+            or observed.suspended_by is not None
+        ):
+            return
+        due = [
+            e
+            for e in self.owned
+            if e.enabled
+            and e.fires_at + self.explain_window <= now
+            and self._check_key(e) not in self._checked
+        ]
+        if not due:
+            return
+        self._checked.update(self._check_key(e) for e in due)
+        latest = max(due, key=lambda e: e.fires_at)
+        if latest.serves is None or (
+            now - (latest.fires_at + self.explain_window) > READBACK_STALE
+        ):
+            return
+        if any(
+            r.detected_at >= latest.fires_at
+            for r in self.reports.values()
+            if r.field in (REPORT_SETPOINT, REPORT_MODE)
+        ):
+            return
+        reason: str | None = None
+        if observed.setpoint_raw != latest.setpoint_raw:
+            reason = REASON_NOT_APPLIED
+        elif observed.mode != latest.mode:
+            tou_periods = observed.tou_periods if observed.tou_on else ()
+            reason = (
+                REASON_HELD_IN_TOU_WINDOW
+                if in_tou_window(
+                    tou_periods, latest.fires_at.astimezone(self.tz)
+                )
+                else REASON_NOT_APPLIED
+            )
+        if reason is None:
+            self.readback.pop(latest.serves, None)
+            return
+        self.readback[latest.serves] = reason
+        _LOGGER.warning(
+            "Entry for %s at %s: the heater reports %s at %d half-degrees, "
+            "not %s at %d (%s)",
+            latest.serves,
+            latest.fires_at.isoformat(),
+            observed.mode,
+            observed.setpoint_raw,
+            latest.mode,
+            latest.setpoint_raw,
+            reason,
+        )
+
     # Surplus grants
 
     def _track_cycle(self, now: datetime, observed: Observed) -> None:
@@ -753,6 +956,10 @@ class Planner:
         )
         anchor = self._anchor(now)
         if grant is None or anchor is None or anchor[1] is None:
+            return
+        if not self.shadow and not grants_live(self.capabilities):
+            # Live for segments only: a grant is evaluated as in shadow,
+            # and a raise would be written, so none is made.
             return
         state = anchor[1]
         if (
@@ -1052,6 +1259,12 @@ class Planner:
             for grant in self._accepted_grants():
                 times.extend((grant.start, grant.end))
         times.extend(e.fires_at + FIRED_GRACE for e in self.owned + self.extra)
+        if not self.shadow:
+            times.extend(
+                e.fires_at + self.explain_window
+                for e in self.owned
+                if self._check_key(e) not in self._checked
+            )
         fired = [
             e.fires_at for e in self.owned if e.fires_at + FIRED_GRACE <= now
         ]
@@ -1091,13 +1304,42 @@ class Planner:
         upcoming = [e for e in self.owned if e.fires_at > now]
         return min(upcoming, key=lambda e: e.fires_at) if upcoming else None
 
-    def program(self, observed: Observed) -> dict[str, Any]:
+    def reservations_on(self, observed: Observed) -> bool:
+        """The reservation switch the feature wants.
+
+        On, to take the list over. Once it holds the list, as the device
+        reports it: a person who turned it off keeps it off (section 5.10).
+        """
+        if not self.took_over or observed.reservations_enabled is None:
+            return True
+        return observed.reservations_enabled
+
+    def program(
+        self, observed: Observed, owned: Iterable[OwnedEntry] | None = None
+    ) -> dict[str, Any]:
         """The whole list the feature wants on the device."""
-        return compose_program(self.others(observed), self.owned)
+        return compose_program(
+            self.others(observed),
+            self.owned if owned is None else owned,
+            reservations_on=self.reservations_on(observed),
+        )
 
     def program_hash(self, observed: Observed) -> str:
         """The program's `schedule_hash`."""
         return schedule_hash(self.program(observed))
+
+    def _live_status(
+        self, item: str, status: str, reason: str | None
+    ) -> tuple[str, str | None]:
+        """A segment's status with live write and read-back failures."""
+        if status in (STATUS_PENDING, STATUS_IN_FORCE) and item in self.failed:
+            return STATUS_FAILED, self.failed[item]
+        if status == STATUS_IN_FORCE and item in self.readback:
+            found = self.readback[item]
+            if found == REASON_NOT_APPLIED:
+                return STATUS_FAILED, found
+            return status, found
+        return status, reason
 
     def ack(self, intent_id: str | None) -> Ack:
         """The acknowledgement of the plan in force."""
@@ -1152,6 +1394,8 @@ class Planner:
                     status = STATUS_PROGRAMMED if programmed else STATUS_PENDING
             else:
                 status = STATUS_SCHEDULED
+            if not self.shadow:
+                status, reason = self._live_status(segment.id, status, reason)
             statuses.append(status)
             segments.append(
                 ItemAck(
@@ -1178,6 +1422,14 @@ class Planner:
                 status = GRANT_WAITING
             if reason is None and not self.shadow and not live_grants:
                 status, reason = GRANT_SHADOW, REASON_NOT_LIVE
+            elif reason is None and not self.shadow:
+                if grant.id in self.failed:
+                    status, reason = GRANT_FAILED, self.failed[grant.id]
+                elif (
+                    status == GRANT_RAISED
+                    and self.readback.get(grant.id) == REASON_NOT_APPLIED
+                ):
+                    status, reason = GRANT_FAILED, REASON_NOT_APPLIED
             grants.append(
                 ItemAck(
                     id=grant.id, status=status, reason=reason, extra=grant.extra
@@ -1188,7 +1440,7 @@ class Planner:
             state = STATE_SHADOW
         elif STATUS_PENDING in statuses:
             state = STATE_PENDING
-        elif STATUS_REMOVED in statuses:
+        elif STATUS_REMOVED in statuses or STATUS_FAILED in statuses:
             state = STATE_PARTLY_PROGRAMMED
         else:
             state = STATE_PROGRAMMED

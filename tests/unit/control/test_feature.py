@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.const import Platform
@@ -119,3 +119,20 @@ async def test_start_removes_entities_of_an_earlier_version(
     assert entity_registry.async_get(stale.entity_id) is None
     assert entity_registry.async_get(current.entity_id) is not None
     await async_unload_control(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_remove_keeps_storage_if_a_heater_was_not_handed_back(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    await async_setup_control(hass, entry, coordinator)
+    feature: ControlFeature = hass.data[DOMAIN][entry.entry_id][DATA_CONTROL]
+    await feature.store.async_set_intent(MAC, {"intent_id": "i"}, "t")
+    control = feature.devices[MAC]
+    control.async_release = AsyncMock(return_value=False)  # type: ignore[method-assign]
+
+    await feature.async_remove()
+
+    control.async_release.assert_awaited_once()
+    assert storage_key(entry.entry_id) in hass_storage
+    assert feature.devices == {}

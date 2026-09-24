@@ -9,7 +9,8 @@ unavailable.
 
 **Status: experimental.** The feature is off by default. Enabling it starts in
 `shadow` mode, which plans and reports the reservation list it would write and
-writes nothing to the heater.
+writes nothing to the heater. Live mode is built but switched off in code
+until it has been trialled on a real heater.
 
 The complete specification is [`external-control-spec.md`](external-control-spec.md),
 also published as [issue #158](https://github.com/eman/ha_nwp500/issues/158).
@@ -27,15 +28,16 @@ and [`examples/`](examples/) holds sample plans.
 | 2 | Options toggle and the disabled-path regression test; intake, validation and the stored plan; the capability entity; `shadow` as the default mode; heartbeat; unload without writes | Done |
 | 3 | Shadow programming: the owner's program; segments into entries, the horizon, the budget and near-term entries; reading the list; surplus grants; the program, in-sync, programmed-until and wanted entities; people's changes | Done |
 | 4 | The device tests in section 8 of the specification | In progress: run on 2026-09-24 except tests 6, 8 and 11 |
-| 5 | Live list writes: segments with a single allowed mode, then more modes, then grants | Not started |
+| 5 | Live list writes: segments with a single allowed mode, then more modes, then grants | Built and tested against a simulated heater; switched off in code until a supervised trial |
 | 6 | Protocol `1` after a staged live cut-over | Not started |
 
-Until step 5, `live` cannot be selected, its switches are not in the options
-form, and nothing is ever written to the heater. Every write the planner asks
-for is committed as **simulated**: the last write entity shows it with
+Live mode is gated by the constant `CONTROL_LIVE_AVAILABLE` in `const.py`,
+which is off. While it is off, `live` and its switches are not in the options
+form, a `live` mode edited in by hand runs as shadow, and nothing is ever
+written to the heater. In shadow every write the planner asks for is
+committed as **simulated**: the last write entity shows it with
 `simulated: true`, and the program entities show the list as if it had been
-written. The per-entry read-back of section 5.11, and the `programmed`,
-`in_force` and `removed` statuses, need live writes and are not reported yet.
+written. See [Live mode](#live-mode) for what changes once it is on.
 
 ## Enabling the feature
 
@@ -47,7 +49,8 @@ the toggle on opens a second page:
 | Option | Default | Notes |
 |---|---|---|
 | Intent entity | none | Required. Any entity; see below |
-| Mode | `shadow` | `shadow` plans and reports and writes nothing. `disabled` removes the feature's entries once and then writes nothing |
+| Mode | `shadow` | `shadow` plans and reports and writes nothing. `live` writes the list (only offered once live mode is switched on in code). `disabled` hands the heater back to the owner's program once and then writes nothing |
+| Live: segments, surplus grants | off, off | Only with `live`. Segments off: live behaves as shadow. Grants need segments |
 | Surplus entity | none | A `binary_sensor` (on = surplus) or a kW `sensor`. Required for surplus grants |
 | Surplus threshold (kW) | 0.45 | For a numeric surplus sensor: surplus when the value is at or above this |
 | Setpoint minimum / maximum | device range | Optional tighter bounds. Empty follows the device's own `dhw_temperature_min` / `max`. A plan's `"min"` setpoint means the minimum |
@@ -230,8 +233,13 @@ All belong to the device. Unique ids are `<mac>_control_<key>`.
 | Control Heartbeat | Updated at least every 15 minutes | none |
 | Disable External Control (button) | | Switches the feature to `disabled` |
 
-Segment statuses are `shadow`, `scheduled`, `merged` and `ended` in shadow.
-Grant statuses are `waiting`, `raised`, `ended` and `rejected`.
+Segment statuses are `shadow`, `scheduled`, `merged` and `ended` in shadow;
+live adds `pending`, `programmed`, `in_force`, `failed` and `removed`.
+Grant statuses are `waiting`, `raised`, `ended` and `rejected`; live adds
+`failed`, and `shadow` with reason `not_live` while grants are not live. The
+last write's `reason` is one of `plan`, `cleanup`, `near_term`,
+`grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover` and
+`disable`.
 
 ### The capability declaration
 
@@ -246,6 +254,44 @@ Grant statuses are `waiting`, `raised`, `ended` and `rejected`.
 | `lower_trigger_f` | 104.9: the lower-tank turn-on temperature, which does not follow the setpoint |
 | `setpoint_write_starts_recovery`, `setpoint_write_stops_compressor`, `entry_mode_in_tou_window`, `list_write_starts_recovery`, `unchanged_entry_starts_recovery`, `entries_fire_when_powered_off`, `entries_fire_in_vacation` | Device facts a scheduler's model needs; the last four were measured on the unit tested |
 | `telemetry` | Entity ids for the delivery temperature, the compressor and power, and the delivery-temperature dip to ignore |
+
+## Live mode
+
+Live mode writes the plan into the heater's reservation list. It is off in
+code until trialled; this is what it does once switched on.
+
+- **Going live.** Choosing `live` shows the heater's current program for
+  confirmation: its mode, setpoint, reservation switch and entries. That is
+  the owner's program, which disabling restores. Live does not run without
+  it.
+- **Taking the list over.** The first write, once a plan is in force, turns
+  the reservation switch on and switches each of the owner's entries off by
+  its own flag. The entries stay on the heater.
+- **Every write** reads the list first, keeps entries the feature does not
+  own, writes the list whole, and counts only once the heater reads back the
+  new list. An unconfirmed write is retried once after a minute; after that
+  its segments or grants are `failed` with reason `write_not_confirmed`, and
+  writing pauses for 15 minutes. Changes that arrive during a write go into
+  the next one.
+- **Read-back.** After each entry's minute, plus the poll interval and a
+  minute, the heater's setpoint and mode are compared with the entry's. A
+  difference makes the segment `failed` with `not_applied_on_device`, unless
+  it is a mode held by a TOU window: then it stays `in_force` with
+  `held_in_tou_window`. A person's change in the meantime explains any
+  difference. The mode check uses the reported mode setting; confirming it
+  by the heater's behaviour is not built yet.
+- **Statuses** become `pending`, `programmed`, `in_force`, `failed` and
+  `removed`, and the acknowledgement's state `programmed`,
+  `partly_programmed` or `pending`.
+- **People's changes.** A plan entry a person deletes is not written again
+  (`removed`). A person turning the reservation switch off keeps it off.
+- **Leaving live** for shadow, or switching segments off, first hands the
+  heater back as disabling does, so shadow starts from the owner's program.
+- **Disabling** removes the feature's entries, gives the owner's entries
+  their flags and the reservation switch back, then writes the owner's
+  state: the one set by the owner's latest enabled entry, else the declared
+  mode and setpoint. That direct write is skipped in Vacation or power-off.
+  A failed hand-back is retried once after a minute, then at the next start.
 
 ## Auditing shadow mode
 

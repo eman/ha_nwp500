@@ -19,9 +19,16 @@
   the plan, its acknowledgement, the program and whether the device matches
   it, how far the programmed plan reaches, the next entry, the wanted state,
   any surplus raise, the last write, people's changes and a heartbeat, with
-  a Disable button. `shadow` is the only selectable mode. With the feature
-  off nothing of it loads, and a regression test holds set-up to what it was
-  before. (#158)
+  a Disable button. With the feature off nothing of it loads, and a
+  regression test holds set-up to what it was before. (#158)
+- **External control: live mode, switched off in code.** Delivery step 5
+  of #158 is built and tested against a simulated heater: confirmed
+  whole-list writes that read the list first, a retry after a minute and
+  then `failed`, taking the list over from the owner's entries, per-entry
+  read-back, a going-live step that declares the owner's program, and
+  handing the heater back on disabling, on leaving live and on switching
+  the feature off. It stays unselectable, and a hand-edited `live` runs as
+  shadow, until a supervised trial on a real heater. (#158)
 
 ### Fixed
 - **Turning the water heater off powers it off.** It sent the operation

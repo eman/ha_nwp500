@@ -1113,9 +1113,13 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # entities and its stored data -- before the entry comes back without
     # it. Only a running feature can do that, so it happens here rather
     # than on the next set-up, which must not touch the feature at all.
+    # Leaving live for options that no longer write hands the heater back
+    # to the owner's program first, for the same reason.
     feature = control_feature(hass, entry)
     if feature is not None and not control_enabled(entry):
         await feature.async_remove()
+    elif feature is not None:
+        await feature.async_options_changed()
     await hass.config_entries.async_reload(entry.entry_id)
 
 

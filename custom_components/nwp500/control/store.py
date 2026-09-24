@@ -105,6 +105,21 @@ class ControlStore:
         self._device(mac_address)["disabled_done"] = done
         await self._store.async_save(self._data)
 
+    def took_over(self, mac_address: str) -> bool:
+        """Whether the feature has taken over the heater's reservation list.
+
+        True from the first confirmed live write until disabling restores
+        the owner's program (spec sections 5.1 and 6.6).
+        """
+        return bool(self._device(mac_address).get("took_over", False))
+
+    async def async_set_took_over(self, mac_address: str, value: bool) -> None:
+        """Record whether the feature holds the heater's reservation list."""
+        if self.took_over(mac_address) == value:
+            return
+        self._device(mac_address)["took_over"] = value
+        await self._store.async_save(self._data)
+
     async def async_remove(self) -> None:
         """Delete the file (the feature was switched off)."""
         self._data = {"devices": {}}

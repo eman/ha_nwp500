@@ -16,8 +16,11 @@ from .const import (
     CONF_CONTROL_ASSISTED_MODE,
     CONF_CONTROL_ENABLED,
     CONF_CONTROL_INTENT_ENTITY,
+    CONF_CONTROL_LIVE_GRANTS,
+    CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
     CONF_CONTROL_MODE,
+    CONF_CONTROL_OWNER_PROGRAM,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
     CONF_CONTROL_SETPOINT_MAX_F,
@@ -25,6 +28,8 @@ from .const import (
     CONF_CONTROL_SURPLUS_ENTITY,
     CONF_CONTROL_SURPLUS_THRESHOLD_KW,
     CONF_SCAN_INTERVAL,
+    CONTROL_LIVE_AVAILABLE,
+    CONTROL_MODE_LIVE,
     CONTROL_MODE_NAMES,
     CONTROL_MODES_SELECTABLE,
     CONTROL_OBSOLETE_OPTIONS,
@@ -265,6 +270,20 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
         )
     )
     mode_name_options = list(CONTROL_MODE_NAMES)
+    modes: list[str] = list(CONTROL_MODES_SELECTABLE)
+    live: dict[Any, Any] = {}
+    if CONTROL_LIVE_AVAILABLE:
+        # Live writes the heater's reservation list; it is offered only
+        # once the gate in the constants is on (issue #158, step 5).
+        modes.insert(1, CONTROL_MODE_LIVE)
+        live = {
+            vol.Required(
+                CONF_CONTROL_LIVE_SEGMENTS, default=False
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_CONTROL_LIVE_GRANTS, default=False
+            ): selector.BooleanSelector(),
+        }
     return vol.Schema(
         {
             vol.Required(CONF_CONTROL_INTENT_ENTITY): selector.EntitySelector(),
@@ -272,10 +291,11 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
                 CONF_CONTROL_MODE, default=DEFAULT_CONTROL_MODE
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=list(CONTROL_MODES_SELECTABLE),
+                    options=modes,
                     translation_key="control_mode",
                 )
             ),
+            **live,
             vol.Optional(CONF_CONTROL_SURPLUS_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain=["binary_sensor", "sensor"]
@@ -391,7 +411,11 @@ def _control_suggested_values(
         for key, value in options.items()
         if key.startswith("control_")
         and key
-        not in (CONF_CONTROL_SETPOINT_MIN_F, CONF_CONTROL_SETPOINT_MAX_F)
+        not in (
+            CONF_CONTROL_SETPOINT_MIN_F,
+            CONF_CONTROL_SETPOINT_MAX_F,
+            CONF_CONTROL_OWNER_PROGRAM,
+        )
     }
     for form_key, option_key in _SETPOINT_FORM_KEYS.items():
         if (
@@ -449,8 +473,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for NWP500 integration."""
 
     def __init__(self) -> None:
-        """Hold the first page's answers while the second is shown."""
+        """Hold the earlier pages' answers while the next is shown."""
         self._init_input: dict[str, Any] = {}
+        self._control_data: dict[str, Any] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -504,6 +529,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     **self._init_input,
                     **_normalise_control_input(self.hass, user_input),
                 }
+                if data.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE and (
+                    options.get(CONF_CONTROL_MODE) != CONTROL_MODE_LIVE
+                    or not options.get(CONF_CONTROL_OWNER_PROGRAM)
+                ):
+                    self._control_data = data
+                    return await self.async_step_going_live()
                 return self.async_create_entry(title="", data=data)
 
         suggested = _control_suggested_values(self.hass, options)
@@ -514,6 +545,40 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             data_schema=self.add_suggested_values_to_schema(
                 _control_schema(self.hass), suggested
             ),
+            errors=errors,
+        )
+
+    async def async_step_going_live(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Declare the owner's program before going live (spec 6.3).
+
+        The heater's mode, setpoint, reservation switch and entries are
+        shown for confirmation. Disabling restores exactly this.
+        """
+        from .control.owner import declare_owner_programs
+
+        celsius = (
+            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        )
+        programs, summary = declare_owner_programs(
+            self.hass, self.config_entry, celsius=celsius
+        )
+        errors: dict[str, str] = {}
+        if programs is None:
+            errors["base"] = "owner_snapshot_unavailable"
+        elif user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={
+                    **self._control_data,
+                    CONF_CONTROL_OWNER_PROGRAM: programs,
+                },
+            )
+        return self.async_show_form(
+            step_id="going_live",
+            data_schema=vol.Schema({}),
+            description_placeholders={"program": summary},
             errors=errors,
         )
 

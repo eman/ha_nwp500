@@ -46,6 +46,7 @@ GRANT_RAISED = "raised"
 GRANT_ENDED = "ended"
 GRANT_REJECTED = "rejected"
 GRANT_SHADOW = "shadow"
+GRANT_FAILED = "failed"
 
 # Reasons a segment is scheduled rather than programmed.
 REASON_BEYOND_HORIZON = "beyond_horizon"
@@ -58,6 +59,10 @@ REASON_INVALID_WINDOW = "invalid_window"
 REASON_OVERLAPPING_GRANT = "overlapping_grant"
 REASON_IN_PAST = "in_past"
 REASON_NOT_LIVE = "not_live"
+# Live only (sections 5.4 and 5.11).
+REASON_WRITE_NOT_CONFIRMED = "write_not_confirmed"
+REASON_NOT_APPLIED = "not_applied_on_device"
+REASON_HELD_IN_TOU_WINDOW = "held_in_tou_window"
 
 # Warnings.
 WARNING_MOVED = "moved_1_min"

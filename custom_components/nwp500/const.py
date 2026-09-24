@@ -1318,11 +1318,18 @@ CONTROL_OBSOLETE_OPTIONS: Final = (
     "control_baseline",
 )
 
+CONF_CONTROL_OWNER_PROGRAM: Final = "control_owner_program"
+
 CONTROL_MODE_SHADOW: Final = "shadow"
 CONTROL_MODE_LIVE: Final = "live"
 CONTROL_MODE_DISABLED: Final = "disabled"
-# `live` is offered once live writes exist (issue #158, delivery step 5).
 CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
+
+# Whether live mode can be chosen at all (issue #158, delivery step 5). Live
+# writes the heater's reservation list; until a supervised trial on a real
+# heater has been agreed, it stays off. While it is off the options form
+# does not offer `live`, and a hand-edited `live` runs as shadow.
+CONTROL_LIVE_AVAILABLE: Final = False
 
 # The mode names a segment may use (spec section 3.4). Vacation and
 # power-off are never accepted. Entries are skipped during Vacation, so the

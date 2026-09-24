@@ -326,7 +326,7 @@ Each is a **state**, so history and statestream carry it:
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
 | `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `setpoint` |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `disable`), `added`, `removed`, `confirmed` |
+| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`), `added`, `removed`, `confirmed` |
 | `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | `field`, `value`, `detected_at`, `segment` |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
 
@@ -346,6 +346,12 @@ Each is a **state**, so history and statestream carry it:
 
 **Grant statuses:** `shadow`, `waiting`, `raised`, `ended`, `rejected`,
 `failed`.
+
+**Live reasons:** `write_not_confirmed` (a write and its retry were not
+confirmed, section 5.4), `not_applied_on_device` (read-back found the
+device's state differs, section 5.11; status `failed`), and
+`held_in_tou_window` (a mode held by a TOU window; status stays
+`in_force`).
 
 **In shadow,** the program and wanted entities show what the feature would
 program. `in_sync` compares that program with the device, so it is off
@@ -380,7 +386,7 @@ the owner's own reservation entries, the reservation switch, and the mode and
 setpoint the heater held. It is not a fallback inside a plan. It is what
 disabling restores.
 
-- **Declared** the first time `live` is chosen, from a snapshot of the device
+- **Declared** when `live` is chosen, from a snapshot of the device
   that the options flow shows for confirmation (section 6.3). **In shadow**
   the feature uses a provisional snapshot, marked `declared: false`.
 - **While live, the plan replaces the owner's program.** The feature turns the
@@ -445,7 +451,14 @@ disabling restores.
 - **Coalesced.** Changes that arrive while a write is in flight are folded
   into the next write.
 - **Retry once.** An unconfirmed write is retried once after 60 s. After that,
-  its segments or grants are `failed`.
+  its segments or grants are `failed`, and writing pauses for 15 min before
+  it tries again. A near-term entry in an unconfirmed write moves to the
+  first minute it can still make after the retry, so the retry never writes
+  an entry whose minute has passed. A surplus raise whose write failed is
+  withdrawn.
+- **Taking the list over.** The first live write, once a plan is in force,
+  switches the owner's entries off and the reservation switch on, even if
+  the plan has nothing of its own to add yet (reason `takeover`).
 - **A missing entry is not restored.** A plan entry missing from the device
   was removed by a person. It is not written again, and its segment is
   `removed`.
@@ -608,7 +621,11 @@ in shadow. That is how a consumer knows the feature is alive.
 - **`shadow`:** reads the device, validates, plans the list, and updates every
   entity with what it would write. Writes nothing. Statuses are `shadow`.
 - **`live`:** writes the list, for segments and for grants according to their
-  live switches. What is not live behaves as in shadow.
+  live switches. What is not live behaves as in shadow. Grants are written
+  only with segments live.
+- **Leaving live** for options that no longer write the list (`shadow`, or
+  segments no longer live) first hands the heater back as disabling does
+  (section 6.6), so shadow starts from the owner's program.
 - **`disabled`:** section 6.6.
 
 ### 6.2 Enabling
@@ -618,10 +635,13 @@ program.
 
 ### 6.3 Going live
 
-The first time `live` is chosen, the options flow shows a snapshot of the
-device for confirmation as the owner's program: the mode, the setpoint, the
-reservation switch and the owner's entries. It lists the owner entries that
-will be switched off while live (section 5.1).
+Each time `live` is chosen from another mode, the options flow shows a
+snapshot of the device for confirmation as the owner's program: the mode,
+the setpoint, the reservation switch and the owner's entries. It lists the
+owner entries that will be switched off while live (section 5.1). A heater
+that still holds the feature's list keeps the program declared before, since
+a snapshot would take the feature's own entries for the owner's. Live does
+not run without a declared program.
 
 ### 6.4 Unload and restart
 
@@ -652,12 +672,18 @@ Switching to `disabled`, by the Disable button or the options, is a
    flags (section 5.1).
 3. Write the owner's state now: the state set by the owner's latest enabled
    entry, else the declared mode and setpoint. This is the feature's only
-   direct write (section 5.5).
+   direct write (section 5.5). It is skipped while Vacation or power-off is
+   in force, which take precedence.
 4. Read back, and report on the last write entity.
+
+The list write is confirmed like any other (section 5.4) and retried once
+after 60 s. If that fails too, disabling is left unfinished and tried again
+at the next start; the last write entity shows `confirmed: false`.
 
 After that the feature writes nothing until the mode is changed in the
 options flow. Turning the toggle off does the same, then removes the entities
-and the stored data.
+and the stored data. If the heater could not be handed back, the stored data
+is kept, so turning the feature on and disabling can finish.
 
 ---
 
@@ -677,7 +703,7 @@ and the stored data.
 | Surplus entity | none (a `binary_sensor`, or a kW `sensor` with a threshold) |
 | Surplus threshold (kW, numeric entity only) | 0.45 |
 | Minimum run before lowering a raise | 120 min |
-| Owner's program | Declared from a snapshot the first time `live` is chosen (section 6.3) |
+| Owner's program | Declared from a snapshot when `live` is chosen from another mode (section 6.3) |
 
 Changing an option updates the capability entity, and so its version.
 
@@ -779,7 +805,13 @@ Before any live write, tests 6, 8 and 11 remain.
 4. **The device tests** in section 8. Most were run on 2026-09-24; tests 6,
    8 and 11 remain.
 5. **Live list writes** for segments, starting with a single allowed mode;
-   then more modes; then grants.
+   then more modes; then grants. Built on the feature branch and tested
+   against a simulated heater, not yet on a real one. It is switched off in
+   code (`CONTROL_LIVE_AVAILABLE`) until a supervised trial is agreed: until
+   then `live` is not offered, and a hand-edited `live` runs as shadow. The
+   mode read-back of section 5.11 compares the reported mode setting; the
+   confirmation by the heater's behaviour (elements, heat source) is not
+   built yet.
 6. **Protocol `1`** after a staged live cut-over.
 
 Related: #157 (`water_heater` service reports success in two failure cases);

@@ -8,15 +8,25 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, tzinfo
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nwp500.temperature import HalfCelsius
 
 from .entries import firings
-from .observed import Observed, raw_entry
+from .observed import (
+    DEVICE_BOOL_OFF,
+    DEVICE_BOOL_ON,
+    Observed,
+    observe,
+    raw_entry,
+)
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+    from homeassistant.core import HomeAssistant
 
 _MATCH_FIELDS = ("week", "hour", "min", "mode", "param")
 _DHW_ID_TO_MODE = {
@@ -67,6 +77,42 @@ class OwnerProgram:
                 mode = _DHW_ID_TO_MODE.get(int(chosen["mode"]), self.mode)
                 return mode, int(chosen["param"])
         return self.mode, self.setpoint_raw
+
+    def restore(
+        self, others: Iterable[tuple[dict[str, int], bool]]
+    ) -> dict[str, Any]:
+        """The list disabling writes (section 6.6).
+
+        `others` are the device's entries the feature does not own, each
+        with whether it is one of the owner's. The owner's get their own
+        enable flag back, anyone else's are kept as read, and the
+        reservation switch is set as the owner had it.
+        """
+        reservation: list[dict[str, int]] = []
+        for entry, is_owner in others:
+            kept = dict(entry)
+            if is_owner:
+                original = self._original(kept)
+                if original is not None:
+                    kept["enable"] = int(original.get("enable", kept["enable"]))
+            reservation.append(kept)
+        return {
+            "reservation_use": DEVICE_BOOL_ON
+            if self.reservations_enabled
+            else DEVICE_BOOL_OFF,
+            "reservation": reservation,
+        }
+
+    def _original(self, entry: Mapping[str, int]) -> Mapping[str, int] | None:
+        key = tuple(int(entry.get(f, 0)) for f in _MATCH_FIELDS)
+        return next(
+            (
+                own
+                for own in self.entries
+                if tuple(int(own.get(f, 0)) for f in _MATCH_FIELDS) == key
+            ),
+            None,
+        )
 
     @property
     def version(self) -> str:
@@ -133,3 +179,115 @@ class OwnerProgram:
             reservations_enabled=bool(observed.reservations_enabled),
             entries=tuple(observed.reservations),
         )
+
+
+_DAYS = (
+    (128, "Sun"),
+    (64, "Mon"),
+    (32, "Tue"),
+    (16, "Wed"),
+    (8, "Thu"),
+    (4, "Fri"),
+    (2, "Sat"),
+)
+_MODE_LABELS = {
+    "heat_pump": "Heat Pump",
+    "electric": "Electric",
+    "energy_saver": "Energy Saver",
+    "high_demand": "High Demand",
+    "vacation": "Vacation",
+    "power_off": "Power off",
+}
+
+
+def _temperature(raw: int, celsius: bool) -> str:
+    value = HalfCelsius(raw)
+    if celsius:
+        return f"{value.to_celsius():.1f} °C"
+    return f"{value.to_fahrenheit():.1f} °F"
+
+
+def describe(program: OwnerProgram, *, celsius: bool) -> str:
+    """The owner's program as the going-live step shows it (6.3)."""
+    lines = [
+        f"- Mode: {_MODE_LABELS.get(program.mode, program.mode)}",
+        f"- Setpoint: {_temperature(program.setpoint_raw, celsius)}",
+        "- Reservations: " + ("on" if program.reservations_enabled else "off"),
+    ]
+    if not program.entries:
+        lines.append("- Entries: none")
+    for entry in program.entries:
+        days = " ".join(
+            name for bit, name in _DAYS if int(entry.get("week", 0)) & bit
+        )
+        mode = _DHW_ID_TO_MODE.get(int(entry.get("mode", 0)), "?")
+        state = "on" if entry.get("enable") == DEVICE_BOOL_ON else "off"
+        switched = (
+            ", switched off while live"
+            if entry.get("enable") == DEVICE_BOOL_ON
+            else ""
+        )
+        lines.append(
+            f"- Entry {days or '(no days)'} "
+            f"{int(entry.get('hour', 0)):02d}:{int(entry.get('min', 0)):02d}, "
+            f"{_MODE_LABELS.get(mode, mode)} "
+            f"{_temperature(int(entry.get('param', 0)), celsius)}, "
+            f"{state}{switched}"
+        )
+    return "\n".join(lines)
+
+
+def declare_owner_programs(
+    hass: HomeAssistant, entry: ConfigEntry, *, celsius: bool
+) -> tuple[dict[str, dict[str, Any]] | None, str]:
+    """Snapshot every heater of the entry as its declared owner's program.
+
+    A heater whose device already holds the feature's list keeps the
+    program declared before: a snapshot now would take the feature's own
+    entries for the owner's. Returns the programs by MAC address, or None
+    if a heater cannot be snapshotted yet (its mode, setpoint or list not
+    read, or it is in vacation or powered off), and a summary to show.
+    """
+    # Imported here: the options flow calls this only while going live.
+    from ..const import CONF_CONTROL_OWNER_PROGRAM, control_feature
+
+    coordinator = entry.runtime_data
+    feature = control_feature(hass, entry)
+    previous = entry.options.get(CONF_CONTROL_OWNER_PROGRAM) or {}
+    programs: dict[str, dict[str, Any]] = {}
+    sections: list[str] = []
+    complete = True
+    for mac_address, data in (coordinator.data or {}).items():
+        control = feature.devices.get(mac_address) if feature else None
+        program: OwnerProgram | None = None
+        if control is not None and control.holds_device:
+            program = OwnerProgram.from_document(previous.get(mac_address, {}))
+        if program is None:
+            program = OwnerProgram.from_observed(
+                observe(
+                    data.get("status"),
+                    coordinator.reservation_schedules.get(mac_address),
+                )
+            )
+        if program is None:
+            complete = False
+            sections.append(
+                f"**{mac_address}**: not readable yet (the mode, setpoint "
+                "or reservation list has not been read, or the heater is "
+                "in vacation or powered off)."
+            )
+            continue
+        program = OwnerProgram(
+            mode=program.mode,
+            setpoint_raw=program.setpoint_raw,
+            reservations_enabled=program.reservations_enabled,
+            entries=program.entries,
+            declared=True,
+        )
+        programs[mac_address] = program.as_document()
+        sections.append(
+            f"**{mac_address}**\n{describe(program, celsius=celsius)}"
+        )
+    if not programs:
+        complete = False
+    return (programs if complete else None), "\n\n".join(sections)

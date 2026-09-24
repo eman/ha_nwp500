@@ -5,9 +5,10 @@ the option is on; `control_enabled` in the shared constants is the whole of
 the check the integration makes while it is off.
 
 The specification is issue #158, kept in `docs/external-control-spec.md`.
-Delivery steps 2 (the skeleton) and 3 (shadow programming) are here: the
-feature reads the device, plans the reservation list it would program, and
-reports it, writing nothing. Live writes are step 5.
+Delivery steps 2 (the skeleton), 3 (shadow programming) and 5 (live list
+writes) are here. Shadow, the default, reads the device, plans the
+reservation list it would program, and reports it, writing nothing. Live
+writes the list; it cannot be chosen until `CONTROL_LIVE_AVAILABLE` is on.
 """
 
 from __future__ import annotations
@@ -17,9 +18,16 @@ from typing import TYPE_CHECKING
 
 from homeassistant.const import Platform
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
-from ..const import DATA_CONTROL, DATA_PLATFORMS, DOMAIN
-from .device import DeviceControl
+from ..const import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
+    DATA_CONTROL,
+    DATA_PLATFORMS,
+    DOMAIN,
+)
+from .device import DeviceControl, live_writes
 from .store import ControlStore
 
 if TYPE_CHECKING:
@@ -105,13 +113,47 @@ class ControlFeature:
         """Turn the feature off for good: entities and stored data go.
 
         Called when the option is switched off, before the entry reloads
-        without the feature (spec section 1.1.6). Nothing has ever been
-        written to the device, so there is nothing to remove from it; the
-        live disabling clean-up (section 6.6) arrives with live writes.
+        without the feature (spec section 1.1.6). A heater that holds the
+        feature's list is handed back first, as disabling does (section
+        6.6). If that fails, the stored state is kept, so switching the
+        feature on again and disabling can finish the job.
         """
+        released = True
+        for control in self.devices.values():
+            if not await control.async_release(dt_util.utcnow()):
+                released = False
         await self.async_stop()
         self._remove_entities(stale_only=False)
-        await self.store.async_remove()
+        if released:
+            await self.store.async_remove()
+            return
+        _LOGGER.error(
+            "External control was switched off, but the owner's reservation "
+            "list could not be restored on every heater. Its state is kept: "
+            "switch the feature on and press Disable to finish"
+        )
+
+    async def async_options_changed(self) -> None:
+        """Before the entry reloads with new options: leave live cleanly.
+
+        A heater that holds the feature's list, under options that no
+        longer write it (shadow, or segments no longer live), is handed back
+        first, as disabling does. Otherwise shadow would plan as if nothing
+        were on the heater while the feature's entries kept firing. Going
+        to `disabled` is left to the disabled start, which records it.
+        """
+        options = self.entry.options
+        if options.get(CONF_CONTROL_MODE) == CONTROL_MODE_DISABLED:
+            return
+        for mac_address, control in self.devices.items():
+            if not control.holds_device or live_writes(options, mac_address):
+                continue
+            if not await control.async_release(dt_util.utcnow()):
+                _LOGGER.error(
+                    "Leaving live on %s: the owner's reservation list could "
+                    "not be restored. Press Disable to hand the heater back",
+                    mac_address,
+                )
 
     def _remove_entities(self, *, stale_only: bool) -> None:
         """Remove the feature's entities: all of them, or only stale ones."""
