@@ -95,6 +95,11 @@ across restarts too. A discovery payload for it:
 A REST sensor or a template sensor works the same way. Exclude the intent
 entity from the recorder: its attributes are a document, not history.
 
+For a quick test without a scheduler, a state posted to the REST API
+(`POST /api/states/sensor.water_heater_intent` with the document as
+`attributes`) is picked up the same way. Such a state does not survive a
+restart; the feature then falls back to its stored copy of the intent.
+
 ## The intent document
 
 ### Top level
@@ -215,7 +220,7 @@ knows to re-read. The attributes:
 
 | Entity | State | Attributes |
 |---|---|---|
-| `sensor.<device>_control_intent` | The `intent_id` being worked on, or `none` | `issued_at`, `valid_until`, `received_at`, the opaque top-level keys |
+| `sensor.<device>_control_intent` | The `intent_id` being worked on, or `none` | `issued_at`, `valid_until`, `received_at`, `directive_count`, the opaque top-level keys |
 | `sensor.<device>_control_ack` | `applied`, `partly_applied`, `rejected`, `shadow` or `none`, for the most recent document | `intent_id`, `reason` (document-level rejection), `directives`: one entry per directive with `id`, `status` (`applied`, `pending`, `partly_applied`, `rejected`, `shadow`), `reason`, and its opaque keys |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every 15 minutes, including in shadow. This is how a consumer knows the feature is alive | none |
 | `sensor.<device>_control_wanted_mode`, `..._wanted_setpoint`, `binary_sensor...._wanted_tou`, `sensor...._wanted_reservation_hash` | What the feature wants now. In shadow, what it would write | step 3 |
