@@ -3,6 +3,7 @@
 import logging
 from typing import TYPE_CHECKING, Any, override
 
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -111,6 +112,53 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         if not self.device_data:
             return None
         return self.device_data.get("status")
+
+    def _feature_float(self, name: str) -> float | None:
+        """Return a numeric field from the device's feature data.
+
+        Feature data arrives some time after setup, so this is None until
+        then, and callers fall back to their own defaults.
+        """
+        features = self.coordinator.device_features.get(self.mac_address)
+        if features is None:
+            return None
+        try:
+            value = getattr(features, name, None)
+            return float(value) if value is not None else None
+        except TypeError, ValueError:
+            return None
+
+    async def _async_dispatch_command(
+        self, command: str, **kwargs: Any
+    ) -> None:
+        """Send a control command, raising if it did not go through.
+
+        The coordinator reports a failure as False after logging it, which
+        covers a failed publish, a value the library rejects, and a command
+        the device does not support. Returning quietly would let the service
+        call succeed while nothing changed, so automations and scripts could
+        not tell the command failed.
+
+        Raises:
+            HomeAssistantError: The command was not sent to the device.
+        """
+        if not await self.coordinator.async_control_device(
+            self.mac_address, command, **kwargs
+        ):
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="command_failed",
+                translation_placeholders={"command": command},
+            )
+
+    async def _async_send_command(self, command: str, **kwargs: Any) -> None:
+        """Send a control command, then refresh so entities show the result.
+
+        Raises:
+            HomeAssistantError: The command was not sent to the device.
+        """
+        await self._async_dispatch_command(command, **kwargs)
+        await self.coordinator.async_request_refresh()
 
     def _get_status_attrs(self, *attrs: str) -> dict[str, Any]:
         """Efficiently get multiple status attributes at once.

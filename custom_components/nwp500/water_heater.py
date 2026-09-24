@@ -18,12 +18,14 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import (
+    HomeAssistantError,
     ServiceValidationError,
 )
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from nwp500.enums import DhwOperationSetting
+from nwp500.temperature import HalfCelsius
 
 from .const import (
     DOMAIN,
@@ -110,14 +112,35 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             attrs = {**attrs, "pre_vacation_mode": self._pre_vacation_mode}
         return attrs
 
+    def _device_limit(self, raw_field: str) -> float | None:
+        """Convert a raw half-degree-Celsius feature limit to this entity's unit.
+
+        Converted here rather than read from the library's converted field,
+        which follows the library's global unit system. The coordinator
+        updates that only on its next poll, while `temperature_unit` follows
+        Home Assistant at once, so after a unit change the converted field
+        would be in the other scale for up to a poll interval.
+        """
+        features = self.coordinator.device_features.get(self.mac_address)
+        raw = getattr(features, raw_field, None) if features else None
+        if not isinstance(raw, int) or isinstance(raw, bool):
+            return None
+        return HalfCelsius(raw).to_preferred(
+            self.temperature_unit == UnitOfTemperature.CELSIUS
+        )
+
     @property
     @override
     def min_temp(self) -> float:
-        """Return the minimum temperature.
+        """Return the lowest setpoint the device accepts.
 
-        Uses platform constants for safe operating ranges.
-        Device setpoint limits are controlled separately via number entities.
+        Taken from the device's feature data. The platform constant is wider
+        than the device's own range, so offering it would let the UI propose
+        a setpoint the library then rejects. It is used only until the
+        feature data arrives.
         """
+        if (limit := self._device_limit("dhw_temperature_min_raw")) is not None:
+            return limit
         return (
             float(MIN_TEMPERATURE_C)
             if self.temperature_unit == UnitOfTemperature.CELSIUS
@@ -127,11 +150,13 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
     @property
     @override
     def max_temp(self) -> float:
-        """Return the maximum temperature.
+        """Return the highest setpoint the device accepts.
 
-        Uses platform constants for safe operating ranges.
-        Device setpoint limits are controlled separately via number entities.
+        Taken from the device's feature data, falling back to the platform
+        constant until that arrives, as `min_temp` does.
         """
+        if (limit := self._device_limit("dhw_temperature_max_raw")) is not None:
+            return limit
         return (
             float(MAX_TEMPERATURE_C)
             if self.temperature_unit == UnitOfTemperature.CELSIUS
@@ -311,19 +336,6 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
         return attrs
 
-    async def _control_device(
-        self, command: str, error_message: str, **kwargs: Any
-    ) -> bool:
-        """Send a command and request refresh on success, log error on failure."""
-        success = await self.coordinator.async_control_device(
-            self.mac_address, command, **kwargs
-        )
-        if success:
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error(error_message)
-        return success
-
     @override
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set new target temperature.
@@ -348,7 +360,18 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             # Validate temperature range. Raising rather than returning:
             # silently dropping the call left the user looking at a setpoint
             # they thought they had changed, with the reason only in the log.
-            if not (self.min_temp <= temperature <= self.max_temp):
+            #
+            # The UI shows the limits rounded to the display precision, so a
+            # device maximum of 149.9 degF is offered as 150. Values within
+            # that rounding are accepted and clamped to the device's range,
+            # which the library checks exactly; the clamped value encodes to
+            # the same half-degree step the device stores.
+            tolerance = self.precision / 2
+            if not (
+                self.min_temp - tolerance
+                <= temperature
+                <= self.max_temp + tolerance
+            ):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
                     translation_key="temperature_out_of_range",
@@ -359,19 +382,17 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                     },
                 )
 
-            success = await self.coordinator.async_control_device(
-                self.mac_address,
+            await self._async_dispatch_command(
                 "set_temperature",
-                temperature=float(temperature),
+                temperature=min(
+                    max(float(temperature), self.min_temp), self.max_temp
+                ),
             )
 
         # Refreshing is deliberately outside the guard: it needs no unit
         # context of its own, and holding the lock across a coordinator
         # refresh would stall a pending transition for no reason.
-        if success:
-            await self.coordinator.async_request_refresh()
-        else:
-            _LOGGER.error("Failed to set temperature")
+        await self.coordinator.async_request_refresh()
 
     @override
     async def async_set_operation_mode(self, operation_mode: str) -> None:
@@ -390,11 +411,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             "Setting DHW mode to %s (value: %d)", operation_mode, dhw_mode_value
         )
 
-        await self._control_device(
-            "set_dhw_mode",
-            f"Failed to set operation mode to {operation_mode}",
-            mode=dhw_mode_value,
-        )
+        await self._async_send_command("set_dhw_mode", mode=dhw_mode_value)
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -407,12 +424,16 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
         For a custom duration use the nwp500.set_vacation_days service instead.
         """
+        previous_mode = self._pre_vacation_mode
         self._pre_vacation_mode = self.current_operation
-        await self._control_device(
-            "set_vacation_days",
-            "Failed to set vacation mode",
-            days=1,
-        )
+        try:
+            await self._async_dispatch_command("set_vacation_days", days=1)
+        except HomeAssistantError:
+            # The device never entered vacation mode, so the mode saved by
+            # an earlier request is still the one to restore.
+            self._pre_vacation_mode = previous_mode
+            raise
+        await self.coordinator.async_request_refresh()
 
     @override
     async def async_turn_away_mode_off(self) -> None:
@@ -438,8 +459,6 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
         """Turn the water heater off by setting to power off mode."""
         # Use DHW mode 6 (POWER_OFF) instead of the uncertain set_power method
         # This maps to the "off" operation mode in our DHW_MODE_TO_HA mapping
-        await self._control_device(
-            "set_dhw_mode",
-            "Failed to set water heater to power off mode",
-            mode=DhwOperationSetting.POWER_OFF,
+        await self._async_send_command(
+            "set_dhw_mode", mode=DhwOperationSetting.POWER_OFF
         )

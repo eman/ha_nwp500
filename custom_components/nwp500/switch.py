@@ -86,21 +86,11 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Turn the switch on."""
-        success = await self.coordinator.async_control_device(
-            self.mac_address, "set_power", power_on=True
-        )
-
-        if success:
-            await self.coordinator.async_request_refresh()
+        await self._async_send_command("set_power", power_on=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Turn the switch off."""
-        success = await self.coordinator.async_control_device(
-            self.mac_address, "set_power", power_on=False
-        )
-
-        if success:
-            await self.coordinator.async_request_refresh()
+        await self._async_send_command("set_power", power_on=False)
 
 
 class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -133,21 +123,11 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable Time of Use mode."""
-        success = await self.coordinator.async_control_device(
-            self.mac_address, "set_tou_enabled", enabled=True
-        )
-
-        if success:
-            await self.coordinator.async_request_refresh()
+        await self._async_send_command("set_tou_enabled", enabled=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable Time of Use mode."""
-        success = await self.coordinator.async_control_device(
-            self.mac_address, "set_tou_enabled", enabled=False
-        )
-
-        if success:
-            await self.coordinator.async_request_refresh()
+        await self._async_send_command("set_tou_enabled", enabled=False)
 
 
 class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -180,18 +160,8 @@ class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[re
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable anti-legionella with default 14-day period."""
-        success = await self.coordinator.async_control_device(
-            self.mac_address, "enable_anti_legionella", period_days=14
-        )
-
-        if success:
-            await self.coordinator.async_request_refresh()
+        await self._async_send_command("enable_anti_legionella", period_days=14)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable anti-legionella."""
-        success = await self.coordinator.async_control_device(
-            self.mac_address, "disable_anti_legionella"
-        )
-
-        if success:
-            await self.coordinator.async_request_refresh()
+        await self._async_send_command("disable_anti_legionella")

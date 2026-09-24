@@ -70,12 +70,8 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
     @property
     def native_min_value(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the minimum value."""
-        if (
-            features := self.coordinator.device_features.get(self.mac_address)
-        ) and (
-            val := getattr(features, "dhw_temperature_min", None)
-        ) is not None:
-            return float(val)
+        if (limit := self._feature_float("dhw_temperature_min")) is not None:
+            return limit
 
         return (
             float(MIN_TEMPERATURE_C)
@@ -86,12 +82,8 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
     @property
     def native_max_value(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the maximum value."""
-        if (
-            features := self.coordinator.device_features.get(self.mac_address)
-        ) and (
-            val := getattr(features, "dhw_temperature_max", None)
-        ) is not None:
-            return float(val)
+        if (limit := self._feature_float("dhw_temperature_max")) is not None:
+            return limit
 
         return (
             float(MAX_TEMPERATURE_C)
@@ -155,13 +147,10 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         async with self.coordinator.unit_transition_guard(
             "set the temperature"
         ):
-            success = await self.coordinator.async_control_device(
-                self.mac_address,
-                "set_temperature",
-                temperature=float(value),
+            await self._async_dispatch_command(
+                "set_temperature", temperature=float(value)
             )
 
         # Outside the guard: refreshing needs no unit context, and holding
         # the lock across it would stall a pending transition for nothing.
-        if success:
-            await self.coordinator.async_request_refresh()
+        await self.coordinator.async_request_refresh()

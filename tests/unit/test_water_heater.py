@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -693,3 +696,154 @@ class TestSetTemperatureRejectsBadInput:
             await heater.async_set_temperature(temperature=125)
 
         mock_coordinator.async_control_device.assert_not_called()
+
+
+class TestCommandFailuresAreReported:
+    """A command the coordinator could not send must fail the service call.
+
+    The coordinator logs the failure and returns False. Returning quietly
+    after that let automations and scripts believe the heater had changed.
+    """
+
+    @staticmethod
+    def _heater(mock_coordinator, mock_device, mock_hass):
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+        mock_coordinator.async_control_device = AsyncMock(return_value=False)
+        mock_coordinator.async_request_refresh = AsyncMock()
+        return heater
+
+    @pytest.mark.asyncio
+    async def test_set_temperature_failure_raises(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """A setpoint the device did not receive is reported to the caller."""
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await heater.async_set_temperature(temperature=125)
+
+        assert exc_info.value.translation_key == "command_failed"
+        assert exc_info.value.translation_placeholders == {
+            "command": "set_temperature"
+        }
+        mock_coordinator.async_request_refresh.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_set_operation_mode_failure_raises(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """A mode change the device did not receive is reported."""
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+
+        with pytest.raises(HomeAssistantError):
+            await heater.async_set_operation_mode(STATE_HEAT_PUMP)
+
+        mock_coordinator.async_request_refresh.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_turn_off_failure_raises(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Turning off goes through the same check."""
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+
+        with pytest.raises(HomeAssistantError):
+            await heater.async_turn_off()
+
+    @pytest.mark.asyncio
+    async def test_away_mode_on_failure_keeps_previous_restore_mode(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """A failed vacation request must not overwrite the restore mode.
+
+        The device never entered vacation, so the mode saved from an
+        earlier, successful request is still the one to restore.
+        """
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+        heater._pre_vacation_mode = STATE_ELECTRIC
+
+        with pytest.raises(HomeAssistantError):
+            await heater.async_turn_away_mode_on()
+
+        assert heater._pre_vacation_mode == STATE_ELECTRIC
+
+    @pytest.mark.asyncio
+    async def test_away_mode_off_failure_keeps_restore_mode(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """If restoring fails, the mode to restore is kept for a retry."""
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+        heater._pre_vacation_mode = STATE_HIGH_DEMAND
+
+        with pytest.raises(HomeAssistantError):
+            await heater.async_turn_away_mode_off()
+
+        assert heater._pre_vacation_mode == STATE_HIGH_DEMAND
+
+    @pytest.mark.asyncio
+    async def test_away_mode_on_keeps_restore_mode_once_the_device_accepted(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Only a failed dispatch rolls back the restore mode.
+
+        Once the device has the vacation command, a failure in the refresh
+        that follows must not discard the mode to restore.
+        """
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock(
+            side_effect=HomeAssistantError("refresh failed")
+        )
+        heater._pre_vacation_mode = STATE_ELECTRIC
+
+        with pytest.raises(HomeAssistantError):
+            await heater.async_turn_away_mode_on()
+
+        assert heater._pre_vacation_mode == STATE_HEAT_PUMP
+
+    @pytest.mark.asyncio
+    async def test_failed_setpoint_releases_the_unit_guard(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """The failure is raised inside the guard, which must still unlock.
+
+        A lock left held would block every later setpoint and the next
+        unit-system change.
+        """
+        lock = asyncio.Lock()
+
+        @asynccontextmanager
+        async def locking_guard(action: str) -> AsyncIterator[None]:
+            async with lock:
+                yield
+
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+        mock_coordinator.unit_transition_guard = locking_guard
+
+        with pytest.raises(HomeAssistantError):
+            await heater.async_set_temperature(temperature=125)
+
+        assert not lock.locked()

@@ -171,8 +171,10 @@ class TestNWP500TargetTemperature:
         )
         number.hass = mock_hass
 
-        await number.async_set_native_value(135.0)
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await number.async_set_native_value(135.0)
 
+        assert exc_info.value.translation_key == "command_failed"
         # Should not request refresh if control failed
         mock_coordinator.async_request_refresh.assert_not_called()
 
