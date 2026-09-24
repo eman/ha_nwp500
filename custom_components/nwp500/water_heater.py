@@ -415,8 +415,16 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
     @override
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Turn the water heater on by setting it to energy saver mode."""
-        await self.async_set_operation_mode(STATE_ECO)
+        """Turn the water heater on with the device's power command.
+
+        The pair of `async_turn_off`. The heater comes back in the mode it
+        had before it was powered off. A heater that already reports it is
+        on is left alone: turning it on is not a request to change its
+        mode, which is what setting Energy Saver here used to do (#160).
+        """
+        if self._status is not None and self.current_operation != STATE_OFF:
+            return
+        await self._async_send_command("set_power", power_on=True)
 
     @override
     async def async_turn_away_mode_on(self) -> None:
@@ -456,9 +464,11 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
     @override
     async def async_turn_off(self, **kwargs: Any) -> None:
-        """Turn the water heater off by setting to power off mode."""
-        # Use DHW mode 6 (POWER_OFF) instead of the uncertain set_power method
-        # This maps to the "off" operation mode in our DHW_MODE_TO_HA mapping
-        await self._async_send_command(
-            "set_dhw_mode", mode=DhwOperationSetting.POWER_OFF
-        )
+        """Turn the water heater off with the device's power command.
+
+        Not the DHW mode command with mode 6: that is the value the device
+        reports while powered off, not a way to power it off. Sent as a
+        mode, it switched the unit tested to Energy Saver and left it
+        running (#160). The Power switch has always used this command.
+        """
+        await self._async_send_command("set_power", power_on=False)

@@ -463,11 +463,55 @@ class TestNWP500WaterHeater:
 
         await heater.async_turn_on()
 
-        # Turn on sets to ECO mode (mode=3), not power_on
+        # Already on (Heat Pump): nothing is sent, and the mode is kept.
+        mock_coordinator.async_control_device.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_turn_on_powers_on_a_heater_that_is_off(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """An off heater gets the power command, not a mode."""
+        mock_device_status.dhw_operation_setting = DhwOperationSetting.POWER_OFF
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        assert heater.current_operation == STATE_OFF
+        await heater.async_turn_on()
+
         mock_coordinator.async_control_device.assert_called_once_with(
-            mac_address, "set_dhw_mode", mode=3
+            mac_address, "set_power", power_on=True
         )
         mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_turn_on_without_a_status_powers_on(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """With no status yet the heater may be off, so the command is sent."""
+        mac_address = mock_device.device_info.mac_address
+        mock_coordinator.data = {
+            mac_address: {"device": mock_device, "status": None}
+        }
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        await heater.async_turn_on()
+
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address, "set_power", power_on=True
+        )
 
     @pytest.mark.asyncio
     async def test_async_turn_off(
@@ -487,13 +531,54 @@ class TestNWP500WaterHeater:
 
         await heater.async_turn_off()
 
-        # Turn off sets to POWER_OFF mode (mode=6)
+        # The power command, not the DHW mode command with mode 6: sent as
+        # a mode, 6 switched the unit tested to Energy Saver (#160).
         mock_coordinator.async_control_device.assert_called_once_with(
-            mac_address,
-            "set_dhw_mode",
-            mode=DhwOperationSetting.POWER_OFF,
+            mac_address, "set_power", power_on=False
         )
         mock_coordinator.async_request_refresh.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_operation_mode_off_powers_off(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """Setting the operation mode to off goes through the power command."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        await heater.async_set_operation_mode(STATE_OFF)
+
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address, "set_power", power_on=False
+        )
+
+    @pytest.mark.asyncio
+    async def test_away_mode_off_restoring_off_powers_off(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_hass: MagicMock,
+    ):
+        """A heater that was off before vacation is powered off again."""
+        mac_address = mock_device.device_info.mac_address
+        heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
+        heater.hass = mock_hass
+        heater._pre_vacation_mode = STATE_OFF
+        mock_coordinator.async_control_device = AsyncMock(return_value=True)
+        mock_coordinator.async_request_refresh = AsyncMock()
+
+        await heater.async_turn_away_mode_off()
+
+        mock_coordinator.async_control_device.assert_called_once_with(
+            mac_address, "set_power", power_on=False
+        )
+        assert heater._pre_vacation_mode is None
 
     @pytest.mark.asyncio
     async def test_async_turn_away_mode_on(
