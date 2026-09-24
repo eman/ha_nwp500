@@ -1470,7 +1470,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 time_since_request,
             )
 
-            if self.data is not None:
+            # HA types `data` as never None but leaves it None until the
+            # first refresh, and an MQTT status can arrive before that.
+            if self.data is not None:  # type: ignore[reportUnnecessaryComparison,unused-ignore]
                 if mac_address not in self.data:
                     # Create device entry if device is known but not in data
                     device = self._devices_by_mac.get(mac_address)
@@ -2375,7 +2377,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Step 4: CRITICAL - Clear all cached data to prevent mixed-unit states
             # This must happen AFTER unit system updates but BEFORE any new data processing
-            if self.data is not None:
+            # HA types `data` as never None but leaves it None until the
+            # first refresh, which may not have run before a unit change.
+            if self.data is not None:  # type: ignore[reportUnnecessaryComparison,unused-ignore]
                 self.data.clear()
             self.device_features.clear()
 

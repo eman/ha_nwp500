@@ -1435,6 +1435,57 @@ async def test_a_capability_refusal_is_reported_not_logged_as_an_error(
 
 
 @pytest.mark.asyncio
+async def test_a_refused_control_command_is_visible_at_the_default_level(
+    manager, mock_mqtt_client, mock_device, caplog
+):
+    """The entity tells the user to check the log, so the reason must be there.
+
+    HA logs at WARNING by default. The library's own message is logged,
+    because a refusal is also raised when feature data has not arrived,
+    which is not the same as the device lacking the feature.
+    """
+    from nwp500.exceptions import DeviceCapabilityError
+
+    await manager.setup()
+    mock_mqtt_client.set_dhw_temperature.side_effect = DeviceCapabilityError(
+        "dhw_temperature_setting_use",
+        "Device features not available. Unable to validate temperature range.",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        result = await manager.send_command(
+            mock_device, "set_temperature", temperature=120
+        )
+
+    assert result is False
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "Device features not available" in warnings[0].getMessage()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_query_stays_below_the_default_level(
+    manager, mock_mqtt_client, mock_device, caplog
+):
+    """Queries run on a timer, so a refusal would repeat every cycle."""
+    from nwp500.exceptions import DeviceCapabilityError
+
+    await manager.setup()
+    mock_mqtt_client.request_recirculation_schedule.side_effect = (
+        DeviceCapabilityError("recirculation_use")
+    )
+
+    with caplog.at_level(logging.INFO):
+        result = await manager.send_command(
+            mock_device, "request_recirculation_schedule"
+        )
+
+    assert result is False
+    assert "recirculation_use" in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "command",
     [

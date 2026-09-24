@@ -676,10 +676,20 @@ class NWP500MqttManager:
             # to publish. Nothing went wrong on the wire, and the device
             # will not grow the feature, so this is not an error to report
             # on every attempt -- the caller is told it was refused.
-            _LOGGER.info(
-                "Command %s refused: the device does not support %s",
+            #
+            # A control command comes from a user or an automation, and the
+            # entity tells them it failed and to check the log, so the
+            # reason has to be visible at the default log level. Queries run
+            # on a timer and stay quiet. The library's own message is logged
+            # because the refusal is not always a missing feature: it is
+            # also raised when the feature data has not arrived yet.
+            _LOGGER.log(
+                logging.INFO
+                if command.startswith("request_")
+                else logging.WARNING,
+                "Command %s refused: %s",
                 command,
-                err.feature_name,
+                err,
             )
             return False
         except Exception as err:

@@ -807,6 +807,9 @@
   "exceptions": {
     "temperature_out_of_range": {
       "message": "Temperature {temperature} is outside the allowed range of {min_temp} to {max_temp}."
+    },
+    "command_failed": {
+      "message": "The device did not receive the command ({command}). Check the Home Assistant log for the reason."
     }
   }
 }

@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed
+- **The water heater's setpoint range is the device's own.** Its minimum
+  and maximum now come from the range the device reports in its feature
+  data, instead of the wider 80-150 °F platform constants. A setpoint
+  between 80 °F and the device's minimum (104.9 °F on a typical unit) was
+  accepted, rejected by the library, and reported as a success. It is now
+  refused up front with the device's range in the message. A value the UI
+  shows only because it rounds the limit, such as 150 °F for a maximum of
+  149.9 °F, is accepted and sent as the device's limit. The constants still
+  apply until the feature data arrives. (#157)
+- **Failed commands fail the service call.** When the water heater, the
+  Target Temperature number or any switch could not send a command, the
+  failure was only logged and the call reported success, so automations and
+  scripts could not tell nothing had changed. The call now raises an error.
+  This covers a failed publish, a value the library rejects, and a command
+  the device refuses. A refused command is now logged as a warning with the
+  library's reason, so it is visible at the default log level; periodic
+  queries that are refused stay at info. (#157)
+- **Away mode keeps the mode to restore when a command fails.** A failed
+  "away mode on" no longer overwrites the saved mode, and a failed "away
+  mode off" keeps it so the next attempt restores the same mode. (#157)
+
 ## [0.21.0] - 2026-09-17
 
 ### Added

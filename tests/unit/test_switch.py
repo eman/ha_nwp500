@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from nwp500.enums import DhwOperationSetting
 
 from custom_components.nwp500.switch import (
@@ -172,8 +173,10 @@ class TestNWP500PowerSwitch:
         mac_address = mock_device.device_info.mac_address
         switch = NWP500PowerSwitch(mock_coordinator, mac_address, mock_device)
 
-        await switch.async_turn_on()
+        with pytest.raises(HomeAssistantError) as exc_info:
+            await switch.async_turn_on()
 
+        assert exc_info.value.translation_key == "command_failed"
         # Should not request refresh if control failed
         mock_coordinator.async_request_refresh.assert_not_called()
 
@@ -376,3 +379,29 @@ class TestNWP500AntiLegionellaSwitch:
             mac_address, "disable_anti_legionella"
         )
         mock_coordinator.async_request_refresh.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "switch_class",
+    [NWP500PowerSwitch, NWP500TOUOverrideSwitch, NWP500AntiLegionellaSwitch],
+)
+@pytest.mark.parametrize("action", ["async_turn_on", "async_turn_off"])
+async def test_every_switch_action_reports_a_failed_command(
+    mock_coordinator: MagicMock,
+    mock_device: MagicMock,
+    switch_class: type,
+    action: str,
+):
+    """A command the device did not receive fails the service call."""
+    mock_coordinator.async_control_device = AsyncMock(return_value=False)
+    mock_coordinator.async_request_refresh = AsyncMock()
+
+    mac_address = mock_device.device_info.mac_address
+    switch = switch_class(mock_coordinator, mac_address, mock_device)
+
+    with pytest.raises(HomeAssistantError) as exc_info:
+        await getattr(switch, action)()
+
+    assert exc_info.value.translation_key == "command_failed"
+    mock_coordinator.async_request_refresh.assert_not_called()
