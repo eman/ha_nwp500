@@ -1052,10 +1052,20 @@ class Planner:
         timeline = self._timeline()
         for index, (segment, _state, merged) in enumerate(timeline):
             info = self._info.get(segment.id, _SegmentInfo(False))
+            fires_at = info.fires_at
+            if fires_at is None:
+                # A segment put in force by a near-term entry.
+                fires_at = next(
+                    (
+                        e.fires_at
+                        for e in (*self.owned, *self.extra)
+                        if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+                        and e.serves == segment.id
+                    ),
+                    None,
+                )
             detail: dict[str, Any] = {
-                "fires_at": info.fires_at.isoformat()
-                if info.fires_at
-                else None,
+                "fires_at": fires_at.isoformat() if fires_at else None,
                 "in_force": anchor is not None and anchor[0].id == segment.id,
             }
             reason = info.reason

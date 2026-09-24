@@ -980,6 +980,8 @@ class TestAck:
         assert items["past"].status == "ended"
         assert items["now"].status == "shadow"
         assert items["now"].detail["in_force"] is True
+        # Put in force by a near-term entry, which the ack names.
+        assert items["now"].detail["fires_at"] == minutes(2).isoformat()
         assert items["same"].status == "merged"
         assert items["future"].status == "shadow"
         assert items["future"].detail["fires_at"] == minutes(60).isoformat()
