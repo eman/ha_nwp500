@@ -12,6 +12,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+from .const import control_feature
 from .coordinator import (
     NWP500ConfigEntry,
     NWP500DataUpdateCoordinator,
@@ -342,7 +343,7 @@ async def async_setup_entry(
     """Set up binary sensor entities from a config entry."""
     coordinator = config_entry.runtime_data
 
-    entities = []
+    entities: list[BinarySensorEntity] = []
     for mac_address, device_data in coordinator.data.items():
         device = device_data["device"]
         for description in BINARY_SENSOR_DESCRIPTIONS:
@@ -351,6 +352,14 @@ async def async_setup_entry(
                     coordinator, mac_address, device, description
                 )
             )
+
+    # The external control feature's binary sensors, when it is on. The
+    # import is inside the branch: nothing of the feature loads while it
+    # is off.
+    if (feature := control_feature(hass, config_entry)) is not None:
+        from .control.binary_sensor import create_control_binary_sensors
+
+        entities.extend(create_control_binary_sensors(feature))
 
     async_add_entities(entities, True)
 

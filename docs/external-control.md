@@ -29,15 +29,15 @@ feature branch.
 |---|---|---|
 | 1 | This page, the JSON Schema and the examples | Done |
 | 2 | Options toggle and the disabled-path regression test; intake, validation and the stored intent; the capability entity; `shadow` as the default mode; heartbeat; unload without writes | Done |
-| 3 | Shadow execution: translation into entries and direct writes, the entry budget, closing and daily-revert entries, overrides, the "wanted" state entities, the Disable button's restore, simulated restore | Not started |
+| 3 | Shadow execution: translation into entries and direct writes, the entry budget, closing and daily-revert entries, overrides, the "wanted" state entities, the Disable button's restore, simulated restore | Done |
 | 4 | Live writes, per directive type, after owner-present tests on a real unit | Not started |
 | 5 | Protocol `1` after a staged live cut-over | Not started |
 
-Until step 3 lands, the ack entity reports validation only, the `wanted_*`,
-`last_restore`, `restore_matched` and `override` entities do not exist yet,
-and the `entry_budget` and `floor_prevents_hold_off` rejection reasons are
-never produced. Until step 4 lands, `live` cannot be selected and
-`live_types` is always empty.
+Until step 4 lands, `live` cannot be selected, `live_types` is always empty,
+and nothing is written to the heater. The baseline is **provisional**: taken
+from the device's settings when the feature starts, and marked
+`provisional: true` in the capability entity, until a baseline is declared
+on the first switch to `live`.
 
 ## Enabling the feature
 
@@ -223,15 +223,33 @@ knows to re-read. The attributes:
 | `sensor.<device>_control_intent` | The `intent_id` being worked on, or `none` | `issued_at`, `valid_until`, `received_at`, `directive_count`, the opaque top-level keys |
 | `sensor.<device>_control_ack` | `applied`, `partly_applied`, `rejected`, `shadow` or `none`, for the most recent document | `intent_id`, `reason` (document-level rejection), `directives`: one entry per directive with `id`, `status` (`applied`, `pending`, `partly_applied`, `rejected`, `shadow`), `reason`, and its opaque keys |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every 15 minutes, including in shadow. This is how a consumer knows the feature is alive | none |
-| `sensor.<device>_control_wanted_mode`, `..._wanted_setpoint`, `binary_sensor...._wanted_tou`, `sensor...._wanted_reservation_hash` | What the feature wants now. In shadow, what it would write | step 3 |
-| `sensor.<device>_control_last_restore`, `binary_sensor.<device>_control_restore_matched` | The last restore's reason and whether it read back as the baseline | step 3 |
-| `binary_sensor.<device>_control_override` | On while a person's change is being honoured | step 3 |
+| `sensor.<device>_control_wanted_mode` | The mode the feature wants now. In shadow, what it would write | `suspended_by` (vacation, power_off, anti_legionella or null), `holds` (why the wanted setpoint is being held: `compressor_min_run`, `request_cycle`, `no_reversal_in_cycle`, `daily_revert`), `restore_pending`, `baseline_version`, `baseline_provisional` |
+| `sensor.<device>_control_wanted_setpoint` | The setpoint it wants now, in Home Assistant's unit | `setpoint_raw` (half-degrees Celsius), `surplus_raised`, `holds` |
+| `binary_sensor.<device>_control_wanted_tou` | Whether it wants TOU on | none |
+| `sensor.<device>_control_wanted_reservation_hash` | The `schedule_hash` its wanted reservation list would produce, comparable with the Reservation Schedule sensor | `entry_count`, `enabled`, `entries`, `owned` (the entries the feature owns: kind `start`, `closing` or `daily_revert`, the directive, when it fires) |
+| `sensor.<device>_control_last_restore` | The last restore's reason: `expiry`, `intent_ended`, `stale_intent`, `startup`, `override_expired`, `daily_revert` or `disabled` | `at`, `matches_baseline`, `pending` (a restore waiting for the compressor) |
+| `binary_sensor.<device>_control_restore_matched` | Whether the last restore read back as the baseline. In shadow, whether the device is at the baseline | none |
+| `binary_sensor.<device>_control_override` | On while a person's change is being honoured | `field`, `value`, `detected_at`, `expires_at`, `fields` |
 
 ### Controls
 
 `button.<device>_control_disable` switches the feature to `disabled`.
 Nothing on the dashboard switches it to `live`: that, enabling, and
 changing bounds happen in the options flow.
+
+### Auditing shadow mode
+
+In shadow the "wanted" entities are what the feature would write. Compare
+them with the device's own entities: the water heater's mode and setpoint,
+the TOU switch, and the Reservation Schedule sensor's `schedule_hash`. A
+difference is the feature's intended change; the acknowledgement entity says
+which directive caused it, and the wanted-mode entity's `holds` says when a
+change is being deferred and why.
+
+Overrides work the same way in shadow: any change to the setpoint, mode, TOU
+or the reservation list that the feature did not make itself is a person's,
+and the wanted state follows it until it is reverted or the daily revert
+time passes.
 
 ## Behaviour in brief
 

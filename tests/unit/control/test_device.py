@@ -389,3 +389,248 @@ class TestCapabilities:
         remove()
         control._notify()
         assert calls == []
+
+
+# --- Shadow execution (delivery step 3) --------------------------------------
+
+
+def _status(**overrides) -> MagicMock:
+    """A device status at a typical baseline: energy saver, 139 degF."""
+    status = MagicMock()
+    status.dhw_operation_setting = 3  # energy_saver
+    status.dhw_target_temperature_setting_raw = 119
+    status.tou_status = True
+    status.comp_use = False
+    status.tank_upper_temperature_raw = 575  # 57.5 degC, 115 half-degrees
+    status.anti_legionella_operation_busy = False
+    for key, value in overrides.items():
+        setattr(status, key, value)
+    return status
+
+
+@pytest.fixture
+async def shadow_factory(hass: HomeAssistant, hass_storage, mock_device):
+    """Like `control_factory`, with a device status the engine can plan on."""
+    started: list[DeviceControl] = []
+
+    async def _make(status="typical", **options) -> DeviceControl:
+        entry = _entry(hass, **options)
+        store = ControlStore(hass, entry.entry_id)
+        await store.async_load()
+        coordinator = _coordinator(mock_device, FakeFeatures())
+        coordinator.data[MAC]["status"] = (
+            _status() if status == "typical" else status
+        )
+        coordinator.reservation_schedules = {
+            MAC: {"reservation_use": 1, "reservation": []}
+        }
+        control = DeviceControl(
+            hass, entry, coordinator, MAC, mock_device, store
+        )
+        await control.async_start()
+        started.append(control)
+        return control
+
+    yield _make
+
+    for control in started:
+        await control.async_stop()
+
+
+class TestShadowExecution:
+    @pytest.mark.asyncio
+    async def test_a_provisional_baseline_is_taken_from_the_device(
+        self, shadow_factory
+    ):
+        control = await shadow_factory()
+
+        baseline = control.baseline
+        assert baseline is not None
+        assert baseline.provisional is True
+        assert baseline.mode == "energy_saver"
+        assert baseline.setpoint_raw == 119
+        assert baseline.tou_enabled is True
+        declared = control.capabilities.as_attributes()["baseline"]
+        assert declared["provisional"] is True
+        assert declared["setpoint_f"] == 139.1
+        assert control.last_restore is not None
+        assert control.last_restore.reason == "startup"
+        assert control.wanted.mode == "energy_saver"
+        assert control.wanted.setpoint_raw == 119
+
+    @pytest.mark.asyncio
+    async def test_the_baseline_waits_for_a_status(
+        self, hass, shadow_factory, now
+    ):
+        control = await shadow_factory(status=None)
+        assert control.baseline is None
+        assert control.wanted.setpoint_raw is None
+
+        control.coordinator.data[MAC]["status"] = _status()
+        control.coordinator.async_add_listener.call_args.args[0]()
+        await hass.async_block_till_done()
+
+        assert control.baseline is not None
+        assert control.wanted.setpoint_raw == 119
+
+    @pytest.mark.asyncio
+    async def test_a_charge_in_force_is_wanted_and_its_entries_stored(
+        self, hass, shadow_factory, now
+    ):
+        _publish(
+            hass,
+            make_document(
+                now,
+                [
+                    directive(
+                        now, "charge", "c", start=-5, end=180, target_f=140
+                    )
+                ],
+            ),
+        )
+        control = await shadow_factory()
+
+        assert control.wanted.setpoint_raw == 120
+        assert control.ack.state == STATUS_SHADOW
+        assert [e.kind for e in control.wanted.entries] == [
+            "closing",
+            "daily_revert",
+        ]
+        stored = control.store.stored_engine(MAC)
+        assert stored is not None
+        assert [e["kind"] for e in stored["owned"]] == ["closing"]
+
+    @pytest.mark.asyncio
+    async def test_the_plan_advances_on_its_own_timer(
+        self, hass, shadow_factory, now, freezer
+    ):
+        freezer.move_to(now)
+        _publish(
+            hass,
+            make_document(
+                now,
+                [
+                    directive(
+                        now, "charge", "c", start=10, end=180, target_f=140
+                    )
+                ],
+                valid_for=300,
+            ),
+        )
+        control = await shadow_factory()
+        assert control.wanted.setpoint_raw == 119
+        assert len(control.wanted.entries) == 3
+
+        later = now + timedelta(minutes=10, seconds=2)
+        freezer.move_to(later)
+        async_fire_time_changed(hass, later)
+        await hass.async_block_till_done()
+
+        assert control.wanted.setpoint_raw == 120
+        assert [e.kind for e in control.wanted.entries] == [
+            "closing",
+            "daily_revert",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_a_stale_intent_restores(
+        self, hass, shadow_factory, now, freezer
+    ):
+        freezer.move_to(now)
+        _publish(
+            hass,
+            make_document(
+                now,
+                [
+                    directive(
+                        now, "charge", "c", start=-5, end=180, target_f=140
+                    )
+                ],
+                valid_for=30,
+            ),
+        )
+        control = await shadow_factory()
+        assert control.wanted.setpoint_raw == 120
+
+        later = now + timedelta(minutes=31)
+        freezer.move_to(later)
+        async_fire_time_changed(hass, later)
+        await hass.async_block_till_done()
+
+        assert control.wanted.setpoint_raw == 119
+        assert control.last_restore.reason == "stale_intent"
+        assert control.wanted.entries == ()
+
+    @pytest.mark.asyncio
+    async def test_disabled_reverts_once_unconditionally(
+        self, hass, shadow_factory, now
+    ):
+        control = await shadow_factory(
+            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
+        )
+        assert control.last_restore.reason == "disabled"
+        assert control.wanted.setpoint_raw == 119
+
+    @pytest.mark.asyncio
+    async def test_a_manual_change_is_an_override(self, hass, shadow_factory):
+        control = await shadow_factory()
+        control.coordinator.data[MAC]["status"] = _status(
+            dhw_target_temperature_setting_raw=100
+        )
+        control.coordinator.async_add_listener.call_args.args[0]()
+        await hass.async_block_till_done()
+
+        assert "setpoint" in control.overrides
+        assert control.wanted.setpoint_raw == 100
+        assert (
+            control.store.stored_engine(MAC)["overrides"][0]["field"]
+            == "setpoint"
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_surplus_entity_is_read(self, hass, shadow_factory):
+        hass.states.async_set("sensor.export", "0.6")
+        control = await shadow_factory(
+            control_surplus_entity="sensor.export",
+            control_surplus_threshold_kw=0.45,
+        )
+        assert control.observe().surplus_on is True
+        hass.states.async_set("sensor.export", "0.1")
+        await hass.async_block_till_done()
+        assert control.observe().surplus_on is False
+        hass.states.async_set("sensor.export", "unavailable")
+        await hass.async_block_till_done()
+        assert control.observe().surplus_on is None
+
+    @pytest.mark.asyncio
+    async def test_a_binary_surplus_entity(self, hass, shadow_factory):
+        hass.states.async_set("binary_sensor.surplus", "on")
+        control = await shadow_factory(
+            control_surplus_entity="binary_sensor.surplus"
+        )
+        assert control.observe().surplus_on is True
+        assert "surplus_grant" in control.capabilities.supported_directives
+
+    @pytest.mark.asyncio
+    async def test_engine_state_survives_a_restart(
+        self, hass, hass_storage, shadow_factory, now
+    ):
+        _publish(
+            hass,
+            make_document(
+                now,
+                [
+                    directive(
+                        now, "charge", "c", start=60, end=240, target_f=140
+                    )
+                ],
+            ),
+        )
+        first = await shadow_factory()
+        assert len(first.engine.owned) == 2
+        await first.async_stop()
+
+        second = await shadow_factory()
+        assert [e.as_entry() for e in second.engine.owned] == [
+            e.as_entry() for e in first.engine.owned
+        ]

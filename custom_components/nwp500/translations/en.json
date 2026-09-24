@@ -469,6 +469,18 @@
       },
       "control_heartbeat": {
         "name": "Control Heartbeat"
+      },
+      "control_wanted_mode": {
+        "name": "Control Wanted Mode"
+      },
+      "control_wanted_setpoint": {
+        "name": "Control Wanted Setpoint"
+      },
+      "control_wanted_reservation_hash": {
+        "name": "Control Wanted Reservation Hash"
+      },
+      "control_last_restore": {
+        "name": "Control Last Restore"
       }
     },
     "binary_sensor": {
@@ -549,6 +561,15 @@
       },
       "tou_status": {
         "name": "TOU Status"
+      },
+      "control_wanted_tou": {
+        "name": "Control Wanted TOU"
+      },
+      "control_restore_matched": {
+        "name": "Control Restore Matched"
+      },
+      "control_override": {
+        "name": "Control Override"
       }
     },
     "switch": {

@@ -107,7 +107,7 @@ class TestSensors:
         feature = MagicMock()
         feature.devices = {MAC: control, "11:22:33:44:55:66": control}
         entities = create_control_sensors(feature)
-        assert len(entities) == 8
+        assert len(entities) == 16
 
 
 class TestButton:
@@ -203,4 +203,174 @@ class TestPlatformHooks:
             f"{MAC}_control_intent",
             f"{MAC}_control_ack",
             f"{MAC}_control_heartbeat",
+            f"{MAC}_control_wanted_mode",
+            f"{MAC}_control_wanted_setpoint",
+            f"{MAC}_control_wanted_reservation_hash",
+            f"{MAC}_control_last_restore",
+        ]
+
+
+class TestStateEntities:
+    """The wanted, restore and override entities (spec section 4.2)."""
+
+    @pytest.fixture
+    def planned(self, control, now):
+        from zoneinfo import ZoneInfo
+
+        from custom_components.nwp500.control.engine import (
+            Override,
+            Restore,
+            Wanted,
+        )
+        from custom_components.nwp500.control.entries import (
+            ALL_DAYS,
+            OwnedEntry,
+        )
+
+        entry = OwnedEntry(
+            kind="daily_revert",
+            directive_id=None,
+            fires_at=now.astimezone(ZoneInfo("UTC")),
+            mode="energy_saver",
+            param=119,
+            week=ALL_DAYS,
+        )
+        control.wanted = Wanted(
+            mode="heat_pump",
+            setpoint_raw=120,
+            tou_on=False,
+            schedule={"reservation_use": 2, "reservation": [entry.as_entry()]},
+            entries=(entry,),
+            holds=("compressor_min_run",),
+            restore_pending="expiry",
+            surplus_raised=True,
+        )
+        control.baseline = MagicMock(version="b1", provisional=True)
+        control.last_restore = Restore(
+            reason="expiry", at=now, matches_baseline=True
+        )
+        control.overrides = {
+            "setpoint": Override("setpoint", 100, now, now),
+        }
+        return control
+
+    def test_wanted_mode(self, planned):
+        from custom_components.nwp500.control.sensor import (
+            ControlWantedModeSensor,
+        )
+
+        sensor = ControlWantedModeSensor(planned, "wanted_mode")
+        assert sensor.native_value == "heat_pump"
+        attrs = sensor.extra_state_attributes
+        assert attrs["holds"] == ["compressor_min_run"]
+        assert attrs["restore_pending"] == "expiry"
+        assert attrs["baseline_provisional"] is True
+
+    def test_wanted_setpoint_in_the_configured_unit(self, planned, hass):
+        from homeassistant.util.unit_system import (
+            METRIC_SYSTEM,
+            US_CUSTOMARY_SYSTEM,
+        )
+
+        from custom_components.nwp500.control.sensor import (
+            ControlWantedSetpointSensor,
+        )
+
+        sensor = ControlWantedSetpointSensor(planned, "wanted_setpoint")
+        sensor.hass = hass
+        hass.config.units = US_CUSTOMARY_SYSTEM
+        assert sensor.native_value == 140.0
+        assert sensor.native_unit_of_measurement == "°F"
+        hass.config.units = METRIC_SYSTEM
+        assert sensor.native_value == 60.0
+        assert sensor.extra_state_attributes["surplus_raised"] is True
+
+    def test_wanted_reservation_hash(self, planned):
+        from custom_components.nwp500.control.entries import schedule_hash
+        from custom_components.nwp500.control.sensor import (
+            ControlWantedReservationHashSensor,
+        )
+
+        sensor = ControlWantedReservationHashSensor(
+            planned, "wanted_reservation_hash"
+        )
+        assert sensor.native_value == schedule_hash(planned.wanted.schedule)
+        attrs = sensor.extra_state_attributes
+        assert attrs["entry_count"] == 1
+        assert attrs["enabled"] is True
+        assert attrs["owned"][0]["kind"] == "daily_revert"
+
+    def test_last_restore(self, planned, now):
+        from custom_components.nwp500.control.sensor import (
+            ControlLastRestoreSensor,
+        )
+
+        sensor = ControlLastRestoreSensor(planned, "last_restore")
+        assert sensor.native_value == "expiry"
+        assert sensor.extra_state_attributes["at"] == now.isoformat()
+        assert sensor.extra_state_attributes["pending"] == "expiry"
+        planned.last_restore = None
+        assert sensor.native_value == "none"
+
+    def test_binary_sensors(self, planned, now):
+        from custom_components.nwp500.control.binary_sensor import (
+            ControlOverrideBinarySensor,
+            ControlRestoreMatchedBinarySensor,
+            ControlWantedTouBinarySensor,
+            create_control_binary_sensors,
+        )
+
+        assert (
+            ControlWantedTouBinarySensor(planned, "wanted_tou").is_on is False
+        )
+        assert (
+            ControlRestoreMatchedBinarySensor(planned, "restore_matched").is_on
+            is True
+        )
+        override = ControlOverrideBinarySensor(planned, "override")
+        assert override.is_on is True
+        assert override.extra_state_attributes["field"] == "setpoint"
+        assert override.extra_state_attributes["fields"] == ["setpoint"]
+        planned.overrides = {}
+        assert override.is_on is False
+        assert override.extra_state_attributes["fields"] == []
+        feature = MagicMock()
+        feature.devices = {MAC: planned}
+        assert len(create_control_binary_sensors(feature)) == 3
+
+    @pytest.mark.asyncio
+    async def test_binary_sensor_platform_adds_the_control_entities(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator,
+        mock_config_entry,
+        mock_device,
+        mock_device_status,
+        planned,
+    ):
+        from custom_components.nwp500 import binary_sensor as binary_platform
+
+        mock_coordinator.data = {
+            MAC: {"device": mock_device, "status": mock_device_status}
+        }
+        mock_config_entry.runtime_data = mock_coordinator
+        feature = MagicMock()
+        feature.devices = {MAC: planned}
+        hass.data[DOMAIN] = {
+            mock_config_entry.entry_id: {DATA_CONTROL: feature}
+        }
+        add_entities = MagicMock()
+
+        await binary_platform.async_setup_entry(
+            hass, mock_config_entry, add_entities
+        )
+
+        entities = add_entities.call_args.args[0]
+        control_ids = [
+            e.unique_id for e in entities if "_control_" in (e.unique_id or "")
+        ]
+        assert control_ids == [
+            f"{MAC}_control_wanted_tou",
+            f"{MAC}_control_restore_matched",
+            f"{MAC}_control_override",
         ]

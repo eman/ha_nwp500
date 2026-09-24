@@ -65,6 +65,20 @@ class ControlStore:
         if self._device(mac_address).pop("intent", None) is not None:
             await self._store.async_save(self._data)
 
+    def stored_engine(self, mac_address: str) -> dict[str, Any] | None:
+        """The engine state kept across a restart, or None."""
+        record = self._device(mac_address).get("engine")
+        return dict(record) if record else None
+
+    async def async_set_engine(
+        self, mac_address: str, document: dict[str, Any]
+    ) -> None:
+        """Remember the engine state, if it changed."""
+        if self._device(mac_address).get("engine") == document:
+            return
+        self._device(mac_address)["engine"] = document
+        await self._store.async_save(self._data)
+
     async def async_remove(self) -> None:
         """Delete the file (the feature was switched off)."""
         self._data = {"devices": {}}

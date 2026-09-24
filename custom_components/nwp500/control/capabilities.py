@@ -148,13 +148,15 @@ def build_capabilities(
     features: Any,
     feature_version: str,
     telemetry: Mapping[str, str | None],
+    baseline: Mapping[str, Any] | None = None,
 ) -> Capabilities:
     """Build the declaration from options, feature data and entity ids.
 
     `features` is the device's `DeviceFeature`, or None before it arrives.
     `telemetry` maps `delivery_temperature`, `compressor_running` and
     `power` to their entity ids, or None where the entity is not
-    registered.
+    registered. `baseline` is the declared or provisional baseline's
+    attributes; without one the option's declaration is used.
     """
     mode = str(options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE))
     live_types = tuple(options.get(CONF_CONTROL_LIVE_TYPES, ()))
@@ -236,5 +238,7 @@ def build_capabilities(
             "delivery_temperature_dip_f": DELIVERY_TEMPERATURE_DIP_F,
             "delivery_temperature_dip_min": DELIVERY_TEMPERATURE_DIP_MIN,
         },
-        baseline=options.get(CONF_CONTROL_BASELINE),
+        baseline=dict(baseline)
+        if baseline is not None
+        else options.get(CONF_CONTROL_BASELINE),
     )

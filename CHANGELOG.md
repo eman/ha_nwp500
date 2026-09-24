@@ -8,13 +8,21 @@
   intent entity: the scheduler publishes what the heater should do and when,
   and the integration validates it, reports through entities and, in later
   steps, carries it out and restores the heater afterwards. This release has
-  the first two delivery steps of #158: the specification page with the JSON
-  Schema and examples (`docs/external-control.md`); the options toggle and
-  form; intake and validation of intent documents with the stored intent
+  the first three delivery steps of #158: the specification page with the
+  JSON Schema and examples (`docs/external-control.md`); the options toggle
+  and form; intake and validation of intent documents with the stored intent
   surviving a restart; the Control Capabilities, Intent, Acknowledgement and
-  Heartbeat sensors; the Disable button; and `shadow` as the only mode, which
-  writes nothing to the heater. With the feature off nothing of it loads,
-  and a regression test holds set-up to what it was before. (#158)
+  Heartbeat sensors; the Disable button; and shadow execution, which plans
+  what it would write without writing it: directives become reservation
+  entries and direct writes within an entry budget, with closing and
+  daily-revert entries; a person's change is honoured as an override; a
+  running compressor is never stopped early; surplus grants raise once per
+  cycle; and every restore to the baseline is simulated and reported. The
+  Wanted Mode, Wanted Setpoint, Wanted TOU, Wanted Reservation Hash, Last
+  Restore, Restore Matched and Override entities show the result. `shadow`
+  is the only selectable mode; the baseline is provisional until `live`
+  exists. With the feature off nothing of it loads, and a regression test
+  holds set-up to what it was before. (#158)
 
 ### Fixed
 - **The water heater's setpoint range is the device's own.** Its minimum
