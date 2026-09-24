@@ -14,12 +14,9 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from .const import (
     CONF_CONTROL_ALLOWED_MODES,
     CONF_CONTROL_ASSISTED_MODE,
-    CONF_CONTROL_DAILY_REVERT_TIME,
     CONF_CONTROL_ENABLED,
-    CONF_CONTROL_HOLD_OFF_MARGIN_F,
-    CONF_CONTROL_HOLD_OFF_SUPPORTED,
     CONF_CONTROL_INTENT_ENTITY,
-    CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+    CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
     CONF_CONTROL_MODE,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
@@ -27,15 +24,13 @@ from .const import (
     CONF_CONTROL_SETPOINT_MIN_F,
     CONF_CONTROL_SURPLUS_ENTITY,
     CONF_CONTROL_SURPLUS_THRESHOLD_KW,
-    CONF_CONTROL_TOU_OFF_FOR_MODE,
     CONF_SCAN_INTERVAL,
     CONTROL_MODE_NAMES,
     CONTROL_MODES_SELECTABLE,
+    CONTROL_OBSOLETE_OPTIONS,
     DEFAULT_CONTROL_ALLOWED_MODES,
     DEFAULT_CONTROL_ASSISTED_MODE,
-    DEFAULT_CONTROL_DAILY_REVERT_TIME,
-    DEFAULT_CONTROL_HOLD_OFF_MARGIN_F,
-    DEFAULT_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+    DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
     DEFAULT_CONTROL_MODE,
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
@@ -281,21 +276,6 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
                     translation_key="control_mode",
                 )
             ),
-            vol.Required(
-                CONF_CONTROL_HOLD_OFF_SUPPORTED, default=False
-            ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_CONTROL_HOLD_OFF_MARGIN_F,
-                default=DEFAULT_CONTROL_HOLD_OFF_MARGIN_F,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.5,
-                    max=20,
-                    step=0.5,
-                    unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
             vol.Optional(CONF_CONTROL_SURPLUS_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain=["binary_sensor", "sensor"]
@@ -335,11 +315,8 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
                 )
             ),
             vol.Required(
-                CONF_CONTROL_TOU_OFF_FOR_MODE, default=False
-            ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
-                default=DEFAULT_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+                CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
+                default=DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0,
@@ -371,10 +348,6 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
-            vol.Required(
-                CONF_CONTROL_DAILY_REVERT_TIME,
-                default=f"{DEFAULT_CONTROL_DAILY_REVERT_TIME}:00",
-            ): selector.TimeSelector(),
         }
     )
 
@@ -425,10 +398,8 @@ def _control_suggested_values(
             value := _to_display_unit(hass, options.get(option_key))
         ) is not None:
             suggested[form_key] = value
-    if (revert := options.get(CONF_CONTROL_DAILY_REVERT_TIME)) is not None:
-        suggested[CONF_CONTROL_DAILY_REVERT_TIME] = (
-            revert if revert.count(":") == 2 else f"{revert}:00"
-        )
+    for key in CONTROL_OBSOLETE_OPTIONS:
+        suggested.pop(key, None)
     return suggested
 
 
@@ -466,15 +437,11 @@ def _normalise_control_input(
         if value is not None:
             stored[option_key] = value
     for key in (
-        CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+        CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
         CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
         CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
     ):
         stored[key] = int(stored[key])
-    # The time selector gives HH:MM:SS; the declaration carries HH:MM.
-    stored[CONF_CONTROL_DAILY_REVERT_TIME] = stored[
-        CONF_CONTROL_DAILY_REVERT_TIME
-    ][:5]
     return stored
 
 
@@ -530,7 +497,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             errors = _validate_control_input(user_input)
             if not errors:
-                for key in _OPTIONAL_CONTROL_KEYS:
+                for key in (*_OPTIONAL_CONTROL_KEYS, *CONTROL_OBSOLETE_OPTIONS):
                     options.pop(key, None)
                 data = {
                     **options,

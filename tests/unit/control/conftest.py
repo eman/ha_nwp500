@@ -12,7 +12,7 @@ from custom_components.nwp500.control.capabilities import (
     Capabilities,
     build_capabilities,
 )
-from custom_components.nwp500.control.intent import Intent, parse_intent
+from custom_components.nwp500.control.intent import Plan, parse_plan
 
 # The NWP500's usual range in half-degrees C: 40.5-65.5 degC, 104.9-149.9 degF.
 DEVICE_MIN_RAW = 81
@@ -24,56 +24,79 @@ def ts(base: datetime, minutes: float) -> str:
     return (base + timedelta(minutes=minutes)).isoformat()
 
 
+def segment(
+    base: datetime,
+    segment_id: str,
+    start: float,
+    *,
+    mode: str | None = None,
+    **setpoint: Any,
+) -> dict[str, Any]:
+    """A segment starting `start` minutes after `base`.
+
+    Pass the setpoint as `setpoint_f=...`, `setpoint_c=...` or
+    `setpoint="min"`, and any opaque keys.
+    """
+    doc: dict[str, Any] = {
+        "id": segment_id,
+        "start": ts(base, start),
+        **setpoint,
+    }
+    if mode is not None:
+        doc["mode"] = mode
+    return doc
+
+
+def grant(
+    base: datetime,
+    grant_id: str,
+    start: float,
+    end: float,
+    **maximum: Any,
+) -> dict[str, Any]:
+    """A grant whose window is given in minutes from `base`."""
+    return {
+        "id": grant_id,
+        "start": ts(base, start),
+        "end": ts(base, end),
+        **maximum,
+    }
+
+
 def make_document(
     now: datetime,
-    directives: list[dict[str, Any]] | None = None,
+    segments: list[dict[str, Any]] | None = None,
     *,
+    grants: list[dict[str, Any]] | None = None,
     intent_id: str = "i-1",
-    valid_for: float = 60,
+    issued_at: datetime | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
-    """A valid document issued now, with the given directives."""
-    return {
+    """A valid document issued now."""
+    doc: dict[str, Any] = {
         "protocol": "0",
         "intent_id": intent_id,
-        "issued_at": now.isoformat(),
-        "valid_until": ts(now, valid_for),
-        "directives": directives if directives is not None else [],
+        "issued_at": (issued_at or now).isoformat(),
+        "segments": segments if segments is not None else [],
         **extra,
     }
-
-
-def directive(
-    now: datetime,
-    kind: str,
-    directive_id: str = "d1",
-    *,
-    start: float = 0,
-    end: float = 180,
-    **extra: Any,
-) -> dict[str, Any]:
-    """A directive of `kind` whose window is given in minutes from now."""
-    return {
-        "id": directive_id,
-        "type": kind,
-        "start": ts(now, start),
-        "end": ts(now, end),
-        **extra,
-    }
+    if grants is not None:
+        doc["grants"] = grants
+    return doc
 
 
 @pytest.fixture
 def now() -> datetime:
-    """A fixed, aware 'now' for building documents."""
-    return dt_util.utcnow().replace(microsecond=0)
+    """A fixed, aware 'now' for building documents, on a whole minute."""
+    return dt_util.utcnow().replace(second=0, microsecond=0)
 
 
 @pytest.fixture
-def parse(now: datetime):
-    """Parse a document as received now."""
+def parse():
+    """Parse a document."""
 
-    def _parse(document: dict[str, Any]) -> Intent:
-        return parse_intent(document, now=now)
+    def _parse(document: dict[str, Any]) -> Plan:
+        return parse_plan(document)
 
     return _parse
 
@@ -87,6 +110,10 @@ class FakeFeatures:
 
 def capabilities(**options: Any) -> Capabilities:
     """A declaration from options, with the device range known."""
+    options.setdefault(
+        "control_allowed_modes",
+        ["heat_pump", "energy_saver", "high_demand", "electric"],
+    )
     return build_capabilities(
         options,
         features=FakeFeatures(),

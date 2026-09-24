@@ -54,40 +54,32 @@
       },
       "external_control": {
         "title": "External control (experimental, protocol 0)",
-        "description": "The scheduler publishes each intent to the intent entity: its state is the intent id and its attributes are the document. Shadow mode evaluates and reports but writes nothing to the heater. Live mode arrives with a later step.",
+        "description": "The scheduler publishes each plan to the intent entity: its state is the intent id and its attributes are the plan. The feature programs the plan into the heater's reservation list, so the heater keeps following it if Home Assistant is unavailable. Shadow mode plans and reports what it would program, and writes nothing. Live mode arrives with a later step.",
         "data": {
           "control_intent_entity": "Intent entity",
           "control_mode": "Mode",
-          "control_hold_off_supported": "Support hold-off directives",
-          "control_hold_off_margin_f": "Hold-off margin",
           "control_surplus_entity": "Surplus entity",
           "control_surplus_threshold_kw": "Surplus threshold",
           "control_setpoint_min": "Setpoint minimum",
           "control_setpoint_max": "Setpoint maximum",
           "control_allowed_modes": "Allowed modes",
           "control_assisted_mode": "Assisted mode",
-          "control_tou_off_for_mode": "May switch TOU off to land a mode",
-          "control_min_run_before_stop_min": "Minimum run before stop",
           "control_reservation_entry_limit": "Reservation entry limit",
           "control_reservation_entry_reserve": "Reservation entry reserve",
-          "control_daily_revert_time": "Daily revert time"
+          "control_min_run_before_lower_min": "Minimum run before lowering a surplus raise"
         },
         "data_description": {
           "control_intent_entity": "Any entity whose state changes on every new intent and whose attributes carry the intent document.",
-          "control_mode": "Shadow evaluates and reports what it would write. Disabled reverts to the baseline once and then writes nothing.",
-          "control_hold_off_supported": "Only after testing hold-off on your unit. A hold-off lowers the setpoint below the upper tank; it cannot stop the lower-tank trigger.",
-          "control_hold_off_margin_f": "How far below the upper-tank temperature a hold-off sets the setpoint.",
-          "control_surplus_entity": "A binary sensor (on = surplus) or a power sensor in kW. Required for surplus_grant directives.",
+          "control_mode": "Shadow plans the reservation list and reports it without writing anything. Disabled removes the feature's entries and writes nothing further.",
+          "control_surplus_entity": "A binary sensor (on = surplus) or a power sensor in kW. Required for surplus grants.",
           "control_surplus_threshold_kw": "For a power sensor: surplus when its value is at or above this. Default is the heat pump's running power.",
-          "control_setpoint_min": "Leave empty to follow the device's own minimum. A tighter floor, such as 120 °F, keeps every directive above it.",
+          "control_setpoint_min": "Leave empty to follow the device's own minimum. A plan's \"min\" setpoint means this value.",
           "control_setpoint_max": "Leave empty to follow the device's own maximum.",
-          "control_allowed_modes": "Modes a mode directive may name. Vacation and power-off are never allowed.",
+          "control_allowed_modes": "Modes a plan's segments may use. Vacation and power-off are never allowed. Start a cut-over with one mode, so no entry changes the mode.",
           "control_assisted_mode": "The mode a scheduler should use for faster recovery. Must be one of the allowed modes.",
-          "control_tou_off_for_mode": "A mode written inside a TOU window is held until the window ends. With this on, the feature switches TOU off first and back on afterwards.",
-          "control_min_run_before_stop_min": "A running compressor is never stopped before it has run this long, except by the daily revert and by disabling.",
-          "control_reservation_entry_limit": "The most reservation entries the feature asks the device to hold. The device's true limit is unverified.",
-          "control_reservation_entry_reserve": "Entries held back for closing and daily-revert entries. Must be below the limit.",
-          "control_daily_revert_time": "Local time at which the heater reverts itself to the baseline through a device-side entry."
+          "control_reservation_entry_limit": "The most reservation entries the device holds. The device's true limit is unverified; the library's docs say about 16.",
+          "control_reservation_entry_reserve": "Entries kept free for changes needed now: a segment already begun, and surplus raises. Must be below the limit.",
+          "control_min_run_before_lower_min": "A surplus raise is lowered once surplus has been gone for 15 minutes, but not before the compressor has run this long. It is always lowered when the compressor stops."
         }
       }
     },
@@ -462,7 +454,7 @@
         "name": "Control Capabilities"
       },
       "control_intent": {
-        "name": "Control Intent"
+        "name": "Control Plan"
       },
       "control_ack": {
         "name": "Control Acknowledgement"
@@ -476,11 +468,17 @@
       "control_wanted_setpoint": {
         "name": "Control Wanted Setpoint"
       },
-      "control_wanted_reservation_hash": {
-        "name": "Control Wanted Reservation Hash"
+      "control_program_hash": {
+        "name": "Control Program Hash"
       },
-      "control_last_restore": {
-        "name": "Control Last Restore"
+      "control_programmed_until": {
+        "name": "Control Programmed Until"
+      },
+      "control_next_entry": {
+        "name": "Control Next Entry"
+      },
+      "control_last_write": {
+        "name": "Control Last Write"
       }
     },
     "binary_sensor": {
@@ -562,14 +560,14 @@
       "tou_status": {
         "name": "TOU Status"
       },
-      "control_wanted_tou": {
-        "name": "Control Wanted TOU"
-      },
-      "control_restore_matched": {
-        "name": "Control Restore Matched"
-      },
       "control_override": {
         "name": "Control Override"
+      },
+      "control_in_sync": {
+        "name": "Control In Sync"
+      },
+      "control_grant_raised": {
+        "name": "Control Surplus Raise"
       }
     },
     "switch": {

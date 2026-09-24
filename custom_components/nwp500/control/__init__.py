@@ -4,9 +4,10 @@ The feature is optional and additive. This package is imported only when
 the option is on; `control_enabled` in the shared constants is the whole of
 the check the integration makes while it is off.
 
-Delivery step 2 (the skeleton): intake, validation and the stored intent,
-the capability entity, the heartbeat, and unload without writes. Shadow
-execution and live writes follow in later steps.
+The specification is issue #158, kept in `docs/external-control-spec.md`.
+Delivery steps 2 (the skeleton) and 3 (shadow programming) are here: the
+feature reads the device, plans the reservation list it would program, and
+reports it, writing nothing. Live writes are step 5.
 """
 
 from __future__ import annotations
@@ -36,6 +37,27 @@ CONTROL_PLATFORMS: tuple[Platform, ...] = (Platform.BUTTON,)
 # Unique ids of the feature's entities carry this marker after the MAC.
 UNIQUE_ID_MARKER = "_control_"
 
+# The key of every entity the feature creates. An entity whose key is not
+# here belongs to an earlier version of the feature and is removed.
+ENTITY_KEYS = frozenset(
+    {
+        "capabilities",
+        "intent",
+        "ack",
+        "program_hash",
+        "programmed_until",
+        "next_entry",
+        "wanted_mode",
+        "wanted_setpoint",
+        "last_write",
+        "heartbeat",
+        "in_sync",
+        "grant_raised",
+        "override",
+        "disable",
+    }
+)
+
 
 class ControlFeature:
     """The external control feature for one config entry.
@@ -59,6 +81,7 @@ class ControlFeature:
 
     async def async_start(self) -> None:
         """Load the stored state and start a controller per device."""
+        self._remove_entities(stale_only=True)
         await self.store.async_load()
         for mac_address, device_data in self.coordinator.data.items():
             control = DeviceControl(
@@ -82,20 +105,29 @@ class ControlFeature:
         """Turn the feature off for good: entities and stored data go.
 
         Called when the option is switched off, before the entry reloads
-        without the feature (spec section 1.1.6). The restore that precedes
-        the deletion arrives with shadow execution.
+        without the feature (spec section 1.1.6). Nothing has ever been
+        written to the device, so there is nothing to remove from it; the
+        live disabling clean-up (section 6.6) arrives with live writes.
         """
         await self.async_stop()
+        self._remove_entities(stale_only=False)
+        await self.store.async_remove()
+
+    def _remove_entities(self, *, stale_only: bool) -> None:
+        """Remove the feature's entities: all of them, or only stale ones."""
         registry = er.async_get(self.hass)
         for entity_entry in er.async_entries_for_config_entry(
             registry, self.entry.entry_id
         ):
             if (
-                entity_entry.platform == DOMAIN
-                and UNIQUE_ID_MARKER in entity_entry.unique_id
+                entity_entry.platform != DOMAIN
+                or UNIQUE_ID_MARKER not in entity_entry.unique_id
             ):
-                registry.async_remove(entity_entry.entity_id)
-        await self.store.async_remove()
+                continue
+            key = entity_entry.unique_id.split(UNIQUE_ID_MARKER, 1)[1]
+            if stale_only and key in ENTITY_KEYS:
+                continue
+            registry.async_remove(entity_entry.entity_id)
 
 
 async def async_setup_control(

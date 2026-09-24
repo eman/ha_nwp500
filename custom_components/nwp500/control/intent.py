@@ -1,52 +1,45 @@
-"""The intent document: parsing and document-level validation.
+"""The intent document: a plan of segments, and surplus grants.
 
-Spec sections 3.1 to 3.3 (issue #158). A document is either accepted whole
-or rejected whole with a reason; the per-directive checks against the
-capability declaration are in `evaluate.py`, because they depend on the
-declaration and on the time of evaluation, not on the document alone.
+Spec section 3 of issue #158. Parsing checks what the document says on its
+own terms: types, required keys, ids and the order of segments. Checks that
+depend on the capability declaration (bounds, allowed modes) are in
+`evaluate.py`; the superseded check needs the plan in force and is made by
+the device controller.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from nwp500.temperature import HalfCelsius
 
-from ..const import CONTROL_DIRECTIVE_TYPES, CONTROL_MODE_NAMES
+from ..const import CONTROL_MODE_NAMES
 
 SUPPORTED_PROTOCOLS: tuple[str, ...] = ("0",)
 INTENT_ID_MAX_LENGTH = 64
 
-# Document-level rejection reasons.
+# The one setpoint keyword: the lowest setpoint the feature will write.
+SETPOINT_MIN = "min"
+
+# Document-level rejection reasons (spec section 3.5).
 REASON_INVALID_DOCUMENT = "invalid_document"
 REASON_UNSUPPORTED_PROTOCOL = "unsupported_protocol"
-REASON_INVALID_VALIDITY = "invalid_validity"
-REASON_STALE_ON_RECEIPT = "stale_on_receipt"
-REASON_DUPLICATE_DIRECTIVE_ID = "duplicate_directive_id"
-REASON_INVALID_WINDOW = "invalid_window"
-REASON_CHARGE_OVERLAPS_HOLD_OFF = "charge_overlaps_hold_off"
-REASON_GRANT_OVERLAPS_MODE = "grant_overlaps_mode"
+REASON_DUPLICATE_ID = "duplicate_id"
+REASON_UNORDERED_SEGMENTS = "unordered_segments"
+REASON_OUT_OF_BOUNDS = "out_of_bounds"
+REASON_MODE_NOT_ALLOWED = "mode_not_allowed"
+REASON_SUPERSEDED = "superseded"
 
 _TOP_LEVEL_KEYS = frozenset(
-    {"protocol", "intent_id", "issued_at", "valid_until", "directives"}
+    {"protocol", "intent_id", "issued_at", "segments", "grants"}
 )
-_DIRECTIVE_KEYS = frozenset(
-    {
-        "id",
-        "type",
-        "start",
-        "end",
-        "target_f",
-        "target_c",
-        "max_f",
-        "max_c",
-        "mode",
-        "request",
-    }
+_SEGMENT_KEYS = frozenset(
+    {"id", "start", "setpoint", "setpoint_f", "setpoint_c", "mode"}
 )
+_GRANT_KEYS = frozenset({"id", "start", "end", "max_f", "max_c"})
 
 # Attributes Home Assistant adds to a state for presentation. They are not
 # part of the document and are not echoed as opaque keys.
@@ -77,85 +70,124 @@ class IntentRejected(Exception):  # noqa: N818 - the spec's own word for it
 
 
 @dataclass(frozen=True)
-class Directive:
-    """One directive of an accepted intent.
+class Segment:
+    """One segment: a state from its start until the next segment's start.
 
-    Temperatures are held in the device's own resolution, half degrees
-    Celsius, so a value converts exactly once, on parsing.
+    The setpoint is held in the device's own resolution, half-degrees
+    Celsius, so a value converts exactly once, on parsing. `setpoint_raw` is
+    None for the `"min"` keyword, which resolves against the declaration at
+    planning time, because the bounds can change after the plan arrives.
     """
 
     id: str
-    type: str
     start: datetime
-    end: datetime
-    # The charge target or the surplus-grant maximum, in half-degrees C,
-    # and the unit it was given in (`f` or `c`), so it is echoed the same.
-    temperature_raw: int | None = None
-    temperature_unit: str | None = None
-    mode: str | None = None
-    request: bool = False
+    mode: str
+    setpoint_raw: int | None
+    # How the setpoint was given: `f`, `c` or `min`, so that it is echoed
+    # and stored the way it arrived.
+    setpoint_form: str
+    # Whether `mode` was given, or kept from the previous segment.
+    mode_given: bool = True
     extra: dict[str, Any] = field(default_factory=dict)
 
-    @property
-    def duration(self) -> timedelta:
-        """Length of the window."""
-        return self.end - self.start
-
-    def overlaps(self, other: Directive) -> bool:
-        """Whether the two windows share any time."""
-        return self.start < other.end and other.start < self.end
-
     def as_document(self) -> dict[str, Any]:
-        """The directive as it was given, minus what did not parse.
-
-        Temperatures come back in the unit they were given in, so a stored
-        document round-trips through the parser unchanged.
-        """
+        """The segment as it was given."""
         doc: dict[str, Any] = {
             **self.extra,
             "id": self.id,
-            "type": self.type,
             "start": self.start.isoformat(),
-            "end": self.end.isoformat(),
         }
-        if self.type == "mode":
-            doc["mode"] = self.mode
-            doc["request"] = self.request
-        elif self.temperature_raw is not None:
-            key = "target" if self.type == "charge" else "max"
-            unit = self.temperature_unit or "f"
-            value = HalfCelsius(self.temperature_raw)
-            doc[f"{key}_{unit}"] = round(
-                value.to_celsius() if unit == "c" else value.to_fahrenheit(),
+        if self.setpoint_form == SETPOINT_MIN:
+            doc["setpoint"] = SETPOINT_MIN
+        elif self.setpoint_raw is not None:
+            value = HalfCelsius(self.setpoint_raw)
+            doc[f"setpoint_{self.setpoint_form}"] = round(
+                value.to_celsius()
+                if self.setpoint_form == "c"
+                else value.to_fahrenheit(),
                 1,
             )
+        if self.mode_given:
+            doc["mode"] = self.mode
         return doc
 
 
 @dataclass(frozen=True)
-class Intent:
+class Grant:
+    """A surplus grant: permission to raise up to a ceiling in a window.
+
+    A window whose end is not after its start is kept rather than rejected
+    here: the spec rejects that grant alone, in `evaluate.py`, while the
+    plan proceeds.
+    """
+
+    id: str
+    start: datetime
+    end: datetime
+    max_raw: int
+    max_form: str
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def contains(self, when: datetime) -> bool:
+        """Whether `when` falls inside the window."""
+        return self.start <= when < self.end
+
+    def as_document(self) -> dict[str, Any]:
+        """The grant as it was given."""
+        value = HalfCelsius(self.max_raw)
+        return {
+            **self.extra,
+            "id": self.id,
+            "start": self.start.isoformat(),
+            "end": self.end.isoformat(),
+            f"max_{self.max_form}": round(
+                value.to_celsius()
+                if self.max_form == "c"
+                else value.to_fahrenheit(),
+                1,
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class Plan:
     """An accepted intent document."""
 
     intent_id: str
     issued_at: datetime
-    valid_until: datetime
-    directives: tuple[Directive, ...]
+    segments: tuple[Segment, ...]
+    grants: tuple[Grant, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)
 
-    def is_stale(self, now: datetime) -> bool:
-        """Whether `valid_until` has passed."""
-        return now >= self.valid_until
+    def segment_at(self, when: datetime) -> Segment | None:
+        """The segment in force at `when`, or None before the first."""
+        current: Segment | None = None
+        for segment in self.segments:
+            if segment.start <= when:
+                current = segment
+            else:
+                break
+        return current
+
+    def next_segment_after(self, when: datetime) -> Segment | None:
+        """The first segment that starts after `when`."""
+        for segment in self.segments:
+            if segment.start > when:
+                return segment
+        return None
 
     def as_document(self) -> dict[str, Any]:
-        """The intent as a document, for storage and for echoing."""
-        return {
+        """The plan as a document, for storage."""
+        doc: dict[str, Any] = {
             **self.extra,
             "protocol": SUPPORTED_PROTOCOLS[0],
             "intent_id": self.intent_id,
             "issued_at": self.issued_at.isoformat(),
-            "valid_until": self.valid_until.isoformat(),
-            "directives": [d.as_document() for d in self.directives],
+            "segments": [s.as_document() for s in self.segments],
         }
+        if self.grants:
+            doc["grants"] = [g.as_document() for g in self.grants]
+        return doc
 
 
 def document_from_attributes(attributes: Mapping[str, Any]) -> dict[str, Any]:
@@ -188,108 +220,161 @@ def _parse_timestamp(value: Any, where: str) -> datetime:
     return parsed
 
 
+def truncate_to_minute(when: datetime) -> datetime:
+    """The start of the minute; entries fire at the start of their minute."""
+    return when.replace(second=0, microsecond=0)
+
+
 def _is_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
 
 
-def _parse_temperature(
-    directive: Mapping[str, Any], key: str, where: str
-) -> tuple[int, str]:
-    """Exactly one of `<key>_f` / `<key>_c`, as half-degrees C and its unit."""
-    given = [unit for unit in ("f", "c") if f"{key}_{unit}" in directive]
+def _to_raw(value: float, unit: str) -> int:
+    temperature = (
+        HalfCelsius.from_celsius(value)
+        if unit == "c"
+        else HalfCelsius.from_fahrenheit(value)
+    )
+    return int(temperature.raw_value)
+
+
+def _parse_segment_setpoint(
+    raw: Mapping[str, Any], where: str
+) -> tuple[int | None, str]:
+    """Exactly one of `setpoint_f`, `setpoint_c` or `setpoint: "min"`."""
+    given = [k for k in ("setpoint", "setpoint_f", "setpoint_c") if k in raw]
     if len(given) != 1:
         raise _reject(
             REASON_INVALID_DOCUMENT,
-            f"{where} needs exactly one of {key}_f or {key}_c",
+            f"{where} needs exactly one of setpoint_f, setpoint_c or "
+            'setpoint: "min"',
         )
-    unit = given[0]
-    value = directive[f"{key}_{unit}"]
+    key = given[0]
+    value = raw[key]
+    if key == "setpoint":
+        if value != SETPOINT_MIN:
+            raise _reject(
+                REASON_INVALID_DOCUMENT,
+                f'{where} setpoint must be "min"; give a number as '
+                "setpoint_f or setpoint_c",
+            )
+        return None, SETPOINT_MIN
     if not _is_number(value):
         raise _reject(
-            REASON_INVALID_DOCUMENT, f"{where} {key}_{unit} must be a number"
+            REASON_INVALID_DOCUMENT, f"{where} {key} must be a number"
         )
-    temperature = (
-        HalfCelsius.from_celsius(float(value))
-        if unit == "c"
-        else HalfCelsius.from_fahrenheit(float(value))
-    )
-    return int(temperature.raw_value), unit
+    unit = key.rsplit("_", 1)[1]
+    return _to_raw(float(value), unit), unit
 
 
-def _parse_directive(raw: Any, index: int) -> Directive:
-    where = f"directives[{index}]"
-    if not isinstance(raw, Mapping):
-        raise _reject(REASON_INVALID_DOCUMENT, f"{where} must be an object")
-    for key in ("id", "type", "start", "end"):
-        if key not in raw:
-            raise _reject(REASON_INVALID_DOCUMENT, f"{where} lacks {key}")
-    directive_id = raw["id"]
-    if not isinstance(directive_id, str) or not directive_id:
+def _parse_id(raw: Mapping[str, Any], where: str) -> str:
+    if "id" not in raw:
+        raise _reject(REASON_INVALID_DOCUMENT, f"{where} lacks id")
+    value = raw["id"]
+    if not isinstance(value, str) or not value:
         raise _reject(
             REASON_INVALID_DOCUMENT, f"{where} id must be a non-empty string"
         )
-    directive_type = raw["type"]
-    if directive_type not in CONTROL_DIRECTIVE_TYPES:
-        raise _reject(
-            REASON_INVALID_DOCUMENT,
-            f"{where} type {directive_type!r} is not one of "
-            f"{', '.join(CONTROL_DIRECTIVE_TYPES)}",
-        )
-    start = _parse_timestamp(raw["start"], f"{where} start")
-    end = _parse_timestamp(raw["end"], f"{where} end")
-    if end <= start:
-        raise _reject(
-            REASON_INVALID_WINDOW,
-            f"{where} ({directive_id}) end is not later than start",
-        )
+    return value
 
-    extra = {k: v for k, v in raw.items() if k not in _DIRECTIVE_KEYS}
-    temperature_raw: int | None = None
-    temperature_unit: str | None = None
-    mode: str | None = None
-    request = False
 
-    if directive_type == "charge":
-        temperature_raw, temperature_unit = _parse_temperature(
-            raw, "target", where
+def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
+    if not isinstance(raw_segments, list | tuple):
+        raise _reject(REASON_INVALID_DOCUMENT, "segments must be a list")
+    segments: list[Segment] = []
+    previous_mode: str | None = None
+    for index, raw in enumerate(raw_segments):
+        where = f"segments[{index}]"
+        if not isinstance(raw, Mapping):
+            raise _reject(REASON_INVALID_DOCUMENT, f"{where} must be an object")
+        segment_id = _parse_id(raw, where)
+        if "start" not in raw:
+            raise _reject(REASON_INVALID_DOCUMENT, f"{where} lacks start")
+        start = truncate_to_minute(
+            _parse_timestamp(raw["start"], f"{where} start")
         )
-    elif directive_type == "surplus_grant":
-        temperature_raw, temperature_unit = _parse_temperature(
-            raw, "max", where
-        )
-    elif directive_type == "mode":
-        mode = raw.get("mode")
-        if mode not in CONTROL_MODE_NAMES:
+        setpoint_raw, setpoint_form = _parse_segment_setpoint(raw, where)
+
+        mode_given = "mode" in raw
+        if mode_given:
+            mode = raw["mode"]
+            if not isinstance(mode, str):
+                raise _reject(
+                    REASON_INVALID_DOCUMENT, f"{where} mode must be a string"
+                )
+        elif previous_mode is None:
             raise _reject(
                 REASON_INVALID_DOCUMENT,
-                f"{where} mode {mode!r} is not one of "
-                f"{', '.join(CONTROL_MODE_NAMES)}",
+                f"{where} is the first segment and must give a mode",
             )
-        request = raw.get("request", False)
-        if not isinstance(request, bool):
+        else:
+            mode = previous_mode
+        previous_mode = mode
+
+        if segments and start <= segments[-1].start:
             raise _reject(
-                REASON_INVALID_DOCUMENT, f"{where} request must be a boolean"
+                REASON_UNORDERED_SEGMENTS,
+                f"{where} ({segment_id}) does not start after "
+                f"{segments[-1].id}",
             )
+        segments.append(
+            Segment(
+                id=segment_id,
+                start=start,
+                mode=mode,
+                setpoint_raw=setpoint_raw,
+                setpoint_form=setpoint_form,
+                mode_given=mode_given,
+                extra={k: v for k, v in raw.items() if k not in _SEGMENT_KEYS},
+            )
+        )
+    return tuple(segments)
 
-    return Directive(
-        id=directive_id,
-        type=directive_type,
-        start=start,
-        end=end,
-        temperature_raw=temperature_raw,
-        temperature_unit=temperature_unit,
-        mode=mode,
-        request=request,
-        extra=extra,
-    )
+
+def _parse_grants(raw_grants: Any) -> tuple[Grant, ...]:
+    if not isinstance(raw_grants, list | tuple):
+        raise _reject(REASON_INVALID_DOCUMENT, "grants must be a list")
+    grants: list[Grant] = []
+    for index, raw in enumerate(raw_grants):
+        where = f"grants[{index}]"
+        if not isinstance(raw, Mapping):
+            raise _reject(REASON_INVALID_DOCUMENT, f"{where} must be an object")
+        grant_id = _parse_id(raw, where)
+        for key in ("start", "end"):
+            if key not in raw:
+                raise _reject(REASON_INVALID_DOCUMENT, f"{where} lacks {key}")
+        start = truncate_to_minute(
+            _parse_timestamp(raw["start"], f"{where} start")
+        )
+        end = truncate_to_minute(_parse_timestamp(raw["end"], f"{where} end"))
+        given = [unit for unit in ("f", "c") if f"max_{unit}" in raw]
+        if len(given) != 1:
+            raise _reject(
+                REASON_INVALID_DOCUMENT,
+                f"{where} needs exactly one of max_f or max_c",
+            )
+        unit = given[0]
+        value = raw[f"max_{unit}"]
+        if not _is_number(value):
+            raise _reject(
+                REASON_INVALID_DOCUMENT, f"{where} max_{unit} must be a number"
+            )
+        grants.append(
+            Grant(
+                id=grant_id,
+                start=start,
+                end=end,
+                max_raw=_to_raw(float(value), unit),
+                max_form=unit,
+                extra={k: v for k, v in raw.items() if k not in _GRANT_KEYS},
+            )
+        )
+    return tuple(grants)
 
 
-def parse_intent(document: Mapping[str, Any], *, now: datetime) -> Intent:
-    """Parse and validate a document. Raises `IntentRejected` on failure.
-
-    `now` is the receipt time, used for the stale-on-receipt check only.
-    """
-    for key in _TOP_LEVEL_KEYS:
+def parse_plan(document: Mapping[str, Any]) -> Plan:
+    """Parse a document. Raises `IntentRejected` on failure."""
+    for key in ("protocol", "intent_id", "issued_at", "segments"):
         if key not in document:
             raise _reject(REASON_INVALID_DOCUMENT, f"document lacks {key}")
 
@@ -316,58 +401,26 @@ def parse_intent(document: Mapping[str, Any], *, now: datetime) -> Intent:
         )
 
     issued_at = _parse_timestamp(document["issued_at"], "issued_at")
-    valid_until = _parse_timestamp(document["valid_until"], "valid_until")
-    if valid_until <= issued_at:
-        raise _reject(
-            REASON_INVALID_VALIDITY, "valid_until is not later than issued_at"
-        )
-    if valid_until <= now:
-        raise _reject(
-            REASON_STALE_ON_RECEIPT,
-            f"valid_until {valid_until.isoformat()} has passed",
-        )
-
-    raw_directives = document["directives"]
-    if not isinstance(raw_directives, list | tuple):
-        raise _reject(REASON_INVALID_DOCUMENT, "directives must be a list")
-    directives = tuple(
-        _parse_directive(raw, index) for index, raw in enumerate(raw_directives)
-    )
+    segments = _parse_segments(document["segments"])
+    grants = _parse_grants(document.get("grants", []))
 
     seen: set[str] = set()
-    for directive in directives:
-        if directive.id in seen:
+    for item_id in [s.id for s in segments] + [g.id for g in grants]:
+        if item_id in seen:
             raise _reject(
-                REASON_DUPLICATE_DIRECTIVE_ID,
-                f"directive id {directive.id!r} appears more than once",
+                REASON_DUPLICATE_ID, f"id {item_id!r} appears more than once"
             )
-        seen.add(directive.id)
+        seen.add(item_id)
 
-    _check_overlaps(directives)
-
-    extra = {k: v for k, v in document.items() if k not in _TOP_LEVEL_KEYS}
-    return Intent(
+    return Plan(
         intent_id=intent_id,
         issued_at=issued_at,
-        valid_until=valid_until,
-        directives=tuple(sorted(directives, key=lambda d: d.start)),
-        extra=extra,
+        segments=segments,
+        grants=grants,
+        extra={k: v for k, v in document.items() if k not in _TOP_LEVEL_KEYS},
     )
 
 
-def _check_overlaps(directives: tuple[Directive, ...]) -> None:
-    """The two forbidden overlaps: charge/hold_off and surplus_grant/mode."""
-    forbidden = (
-        ("charge", "hold_off", REASON_CHARGE_OVERLAPS_HOLD_OFF),
-        ("surplus_grant", "mode", REASON_GRANT_OVERLAPS_MODE),
-    )
-    for first_type, second_type, reason in forbidden:
-        firsts = [d for d in directives if d.type == first_type]
-        seconds = [d for d in directives if d.type == second_type]
-        for a in firsts:
-            for b in seconds:
-                if a.overlaps(b):
-                    raise _reject(
-                        reason,
-                        f"{a.type} {a.id!r} overlaps {b.type} {b.id!r}",
-                    )
+def mode_is_valid(mode: str) -> bool:
+    """Whether a mode name is one a segment may ever use."""
+    return mode in CONTROL_MODE_NAMES

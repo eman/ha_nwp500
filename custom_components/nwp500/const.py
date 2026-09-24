@@ -1290,33 +1290,43 @@ INSTALLER_DIAGNOSTICS_SENSORS: Final[dict[str, dict[str, Any]]] = {
 CONF_CONTROL_ENABLED: Final = "control_enabled"
 CONF_CONTROL_MODE: Final = "control_mode"
 CONF_CONTROL_INTENT_ENTITY: Final = "control_intent_entity"
-CONF_CONTROL_LIVE_TYPES: Final = "control_live_types"
-CONF_CONTROL_HOLD_OFF_SUPPORTED: Final = "control_hold_off_supported"
-CONF_CONTROL_HOLD_OFF_MARGIN_F: Final = "control_hold_off_margin_f"
+CONF_CONTROL_LIVE_SEGMENTS: Final = "control_live_segments"
+CONF_CONTROL_LIVE_GRANTS: Final = "control_live_grants"
 CONF_CONTROL_SURPLUS_ENTITY: Final = "control_surplus_entity"
 CONF_CONTROL_SURPLUS_THRESHOLD_KW: Final = "control_surplus_threshold_kw"
 CONF_CONTROL_SETPOINT_MIN_F: Final = "control_setpoint_min_f"
 CONF_CONTROL_SETPOINT_MAX_F: Final = "control_setpoint_max_f"
 CONF_CONTROL_ALLOWED_MODES: Final = "control_allowed_modes"
 CONF_CONTROL_ASSISTED_MODE: Final = "control_assisted_mode"
-CONF_CONTROL_TOU_OFF_FOR_MODE: Final = "control_tou_off_for_mode"
-CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN: Final = "control_min_run_before_stop_min"
+CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN: Final = (
+    "control_min_run_before_lower_min"
+)
 CONF_CONTROL_RESERVATION_ENTRY_LIMIT: Final = "control_reservation_entry_limit"
 CONF_CONTROL_RESERVATION_ENTRY_RESERVE: Final = (
     "control_reservation_entry_reserve"
 )
-CONF_CONTROL_DAILY_REVERT_TIME: Final = "control_daily_revert_time"
-CONF_CONTROL_BASELINE: Final = "control_baseline"
+
+# Options the first draft of the specification had. They are dropped from
+# an entry's options whenever the control form is saved.
+CONTROL_OBSOLETE_OPTIONS: Final = (
+    "control_live_types",
+    "control_hold_off_supported",
+    "control_hold_off_margin_f",
+    "control_tou_off_for_mode",
+    "control_min_run_before_stop_min",
+    "control_daily_revert_time",
+    "control_baseline",
+)
 
 CONTROL_MODE_SHADOW: Final = "shadow"
 CONTROL_MODE_LIVE: Final = "live"
 CONTROL_MODE_DISABLED: Final = "disabled"
-# `live` is offered once live writes exist (issue #158, delivery step 4).
+# `live` is offered once live writes exist (issue #158, delivery step 5).
 CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 
-CONTROL_DIRECTIVE_TYPES: Final = ("charge", "hold_off", "mode", "surplus_grant")
-# The mode names a directive may use (spec section 3.4). Vacation and
-# power-off are never accepted in a directive.
+# The mode names a segment may use (spec section 3.4). Vacation and
+# power-off are never accepted: reservations do not run in either, so the
+# plan's next entry would never fire to end them.
 CONTROL_MODE_NAMES: Final = (
     "heat_pump",
     "energy_saver",
@@ -1325,16 +1335,14 @@ CONTROL_MODE_NAMES: Final = (
 )
 
 DEFAULT_CONTROL_MODE: Final = CONTROL_MODE_SHADOW
-DEFAULT_CONTROL_HOLD_OFF_MARGIN_F: Final = 2.0
 DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW: Final = 0.45
 DEFAULT_CONTROL_ALLOWED_MODES: Final = ("energy_saver",)
 DEFAULT_CONTROL_ASSISTED_MODE: Final = "energy_saver"
-DEFAULT_CONTROL_MIN_RUN_BEFORE_STOP_MIN: Final = 120
-# The device's true entry limit is unverified: the docs say 16, older notes
-# said 7. The default stays at the smaller figure until it is measured.
+DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN: Final = 120
+# The device's true entry limit is unverified: the library's docs say about
+# 16. The default stays at 7 until it is measured (spec section 8).
 DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 7
 DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE: Final = 2
-DEFAULT_CONTROL_DAILY_REVERT_TIME: Final = "03:00"
 MAX_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 16
 
 # Keys into hass.data[DOMAIN][entry_id].

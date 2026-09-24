@@ -1,8 +1,8 @@
 """What the feature reads from the device (spec section 4.3).
 
 One immutable snapshot per evaluation, built from the coordinator's status,
-the stored reservation schedule and the surplus entity, so the planning
-engine never touches Home Assistant objects.
+the stored reservation and TOU schedules and the surplus entity, so the
+planner never touches Home Assistant objects.
 """
 
 from __future__ import annotations
@@ -17,6 +17,23 @@ _DHW_ID_TO_MODE = {v: k for k, v in MODE_TO_DHW_ID.items()}
 
 # Device booleans are 2 = on, 1 = off in the reservation payloads.
 DEVICE_BOOL_ON = 2
+DEVICE_BOOL_OFF = 1
+
+ENTRY_FIELDS = ("enable", "week", "hour", "min", "mode", "param")
+_TOU_FIELDS = (
+    "season",
+    "week",
+    "start_hour",
+    "start_min",
+    "end_hour",
+    "end_min",
+    "price_max",
+)
+
+
+def raw_entry(entry: Mapping[str, Any]) -> dict[str, int]:
+    """Only the protocol fields of a reservation entry."""
+    return {field: int(entry.get(field, 0) or 0) for field in ENTRY_FIELDS}
 
 
 def _bool(value: Any) -> bool | None:
@@ -34,6 +51,12 @@ def _int(value: Any) -> int | None:
         return None
 
 
+def mode_name(setting: Any) -> str | None:
+    """The spec's name for a DHW operation setting value."""
+    value = _int(get_enum_value(setting))
+    return _DHW_ID_TO_MODE.get(value) if value is not None else None
+
+
 @dataclass(frozen=True)
 class Observed:
     """The device's state as far as the feature reads it."""
@@ -45,41 +68,49 @@ class Observed:
     setpoint_raw: int | None = None
     tou_on: bool | None = None
     compressor_on: bool | None = None
-    # The upper tank temperature, in half-degrees Celsius, for comparison
-    # with setpoints.
+    # The upper tank temperature, in half-degrees Celsius.
     upper_tank_raw: int | None = None
     anti_legionella_busy: bool = False
+    # The reservation list as the device last reported it; None until read.
     reservations_enabled: bool | None = None
     reservations: tuple[dict[str, int], ...] | None = None
+    # The TOU program's periods, each with its price; empty if unknown.
+    tou_periods: tuple[dict[str, int], ...] = ()
     surplus_on: bool | None = None
 
     @property
     def suspended_by(self) -> str | None:
-        """Why the feature must not write (spec section 5.10), or None."""
+        """Why the feature must not write the list (section 5.9), or None."""
         if self.mode in ("vacation", "power_off"):
             return self.mode
         if self.anti_legionella_busy:
             return "anti_legionella"
         return None
 
-
-def mode_name(setting: Any) -> str | None:
-    """The spec's name for a DHW operation setting value."""
-    value = _int(get_enum_value(setting))
-    return _DHW_ID_TO_MODE.get(value) if value is not None else None
+    @property
+    def schedule(self) -> dict[str, Any] | None:
+        """The device's list in the stored-schedule shape, or None."""
+        if self.reservations is None:
+            return None
+        return {
+            "reservation_use": DEVICE_BOOL_ON
+            if self.reservations_enabled
+            else DEVICE_BOOL_OFF,
+            "reservation": [dict(e) for e in self.reservations],
+        }
 
 
 def observe(
     status: Any,
     schedule: Mapping[str, Any] | None,
+    tou_schedule: Mapping[str, Any] | None = None,
     *,
-    surplus_on: bool | None,
+    surplus_on: bool | None = None,
 ) -> Observed:
     """Build a snapshot from the coordinator's data."""
-    if status is None:
-        mode = setpoint_raw = tou_on = compressor_on = upper_tank_raw = None
-        anti_legionella = False
-    else:
+    mode = setpoint_raw = tou_on = compressor_on = upper_tank_raw = None
+    anti_legionella = False
+    if status is not None:
         mode = mode_name(getattr(status, "dhw_operation_setting", None))
         setpoint_raw = _int(
             getattr(status, "dhw_target_temperature_setting_raw", None)
@@ -96,11 +127,17 @@ def observe(
     reservations_enabled: bool | None = None
     reservations: tuple[dict[str, int], ...] | None = None
     if schedule is not None:
-        from .baseline import raw_entry
-
         reservations_enabled = schedule.get("reservation_use") == DEVICE_BOOL_ON
         reservations = tuple(
             raw_entry(e) for e in schedule.get("reservation") or []
+        )
+
+    tou_periods: tuple[dict[str, int], ...] = ()
+    if tou_schedule is not None:
+        tou_periods = tuple(
+            {k: int(p.get(k, 0) or 0) for k in _TOU_FIELDS}
+            for p in tou_schedule.get("reservation") or []
+            if isinstance(p, Mapping)
         )
 
     return Observed(
@@ -112,5 +149,6 @@ def observe(
         anti_legionella_busy=anti_legionella,
         reservations_enabled=reservations_enabled,
         reservations=reservations,
+        tou_periods=tou_periods,
         surplus_on=surplus_on,
     )

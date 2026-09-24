@@ -1,29 +1,46 @@
-"""Reservation entries the feature owns (spec sections 5.2 to 5.4).
+"""Reservation entries: the ones the feature owns, and weekly timing.
 
-Entries use the device's native weekly reservations, with the weekday bit
-of the directive's date. Every entry the feature writes is recorded as its
-own, so that on start-up it can delete what is no longer wanted.
+A device entry is a single moment: at its weekday and minute it sets a mode
+and a setpoint once. It repeats every week on the weekdays its bitfield
+names. The feature's entries each name one weekday, the one of the date
+they are meant for (spec section 5.2).
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
-from datetime import datetime
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, tzinfo
 from typing import Any
 
 from .. import schedule_state
 from ..const import MODE_TO_DHW_ID
 from .observed import DEVICE_BOOL_ON
 
-KIND_START = "start"
-KIND_CLOSING = "closing"
-KIND_DAILY_REVERT = "daily_revert"
+# What an owned entry is for.
+KIND_PLAN = "plan"
+KIND_NEAR_TERM = "near_term"
+KIND_PRECEDENCE_EXIT = "precedence_exit"
+KIND_GRANT_RAISE = "grant_raise"
+KIND_GRANT_LOWER = "grant_lower"
+KIND_GUARD = "guard"
+NEAR_TERM_KINDS = frozenset(
+    {KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT, KIND_GRANT_RAISE, KIND_GRANT_LOWER}
+)
+
+# The owner label the program entity reports for each kind (section 4.2).
+OWNER_LABELS = {
+    KIND_PLAN: "plan",
+    KIND_NEAR_TERM: "near_term",
+    KIND_PRECEDENCE_EXIT: "near_term",
+    KIND_GRANT_RAISE: "near_term",
+    KIND_GRANT_LOWER: "near_term",
+    KIND_GUARD: "guard",
+}
 
 # Reservation bitfield: Sunday is bit 7, Saturday bit 1. Python's weekday()
 # has Monday as 0 and Sunday as 6.
 _WEEK_BITS = (64, 32, 16, 8, 4, 2, 128)
-ALL_DAYS = 0xFE
 
 
 def week_bit(local: datetime) -> int:
@@ -31,95 +48,122 @@ def week_bit(local: datetime) -> int:
     return _WEEK_BITS[local.weekday()]
 
 
+def near_term_minute(now: datetime, lead: timedelta) -> datetime:
+    """The first minute that starts at least `lead` from now."""
+    earliest = now + lead
+    minute = earliest.replace(second=0, microsecond=0)
+    return minute if minute >= earliest else minute + timedelta(minutes=1)
+
+
 @dataclass(frozen=True)
 class OwnedEntry:
     """A reservation entry the feature wrote, or would write."""
 
     kind: str
-    directive_id: str | None
-    # When it fires: the local minute, as an aware datetime. The daily
-    # revert entry repeats, so this is its next occurrence.
+    serves: str | None
     fires_at: datetime
     mode: str
-    param: int
-    week: int | None = None
+    setpoint_raw: int
 
     @property
     def slot(self) -> tuple[int, int, int]:
-        """The device slot: (week, hour, minute)."""
-        return (self.week_field, self.fires_at.hour, self.fires_at.minute)
+        """The device slot: (weekday bit, hour, minute), local time."""
+        return (
+            week_bit(self.fires_at),
+            self.fires_at.hour,
+            self.fires_at.minute,
+        )
 
-    @property
-    def week_field(self) -> int:
-        """The weekday bitfield."""
-        return self.week if self.week is not None else week_bit(self.fires_at)
+    def localised(self, tz: tzinfo) -> OwnedEntry:
+        """The same entry with its time in the device's time zone."""
+        return replace(self, fires_at=self.fires_at.astimezone(tz))
 
     def as_entry(self) -> dict[str, int]:
         """The device payload."""
+        week, hour, minute = self.slot
         return {
             "enable": DEVICE_BOOL_ON,
-            "week": self.week_field,
-            "hour": self.fires_at.hour,
-            "min": self.fires_at.minute,
+            "week": week,
+            "hour": hour,
+            "min": minute,
             "mode": MODE_TO_DHW_ID[self.mode],
-            "param": self.param,
+            "param": self.setpoint_raw,
         }
 
     def as_document(self) -> dict[str, Any]:
-        """For storage and for the wanted-schedule entity's attributes."""
+        """For storage."""
         return {
             "kind": self.kind,
-            "directive_id": self.directive_id,
+            "serves": self.serves,
             "fires_at": self.fires_at.isoformat(),
             "mode": self.mode,
-            "param": self.param,
-            "week": self.week_field,
+            "setpoint_raw": self.setpoint_raw,
         }
 
     @classmethod
-    def from_document(cls, document: dict[str, Any]) -> OwnedEntry:
+    def from_document(cls, document: Mapping[str, Any]) -> OwnedEntry:
         """The inverse of `as_document`."""
         return cls(
             kind=str(document["kind"]),
-            directive_id=document.get("directive_id"),
+            serves=document.get("serves"),
             fires_at=datetime.fromisoformat(document["fires_at"]),
             mode=str(document["mode"]),
-            param=int(document["param"]),
-            week=int(document["week"]) if document.get("week") else None,
+            setpoint_raw=int(document["setpoint_raw"]),
         )
 
 
-def merge_by_slot(entries: Iterable[OwnedEntry]) -> list[OwnedEntry]:
-    """One entry per device slot.
-
-    Two windows can meet at a minute: a hold-off closing as a charge
-    starts. The start entry carries the wanted state at that minute, so it
-    wins; a closing entry there would restore a baseline the charge is
-    about to replace.
-    """
-    rank = {KIND_START: 0, KIND_DAILY_REVERT: 1, KIND_CLOSING: 2}
-    chosen: dict[tuple[int, int, int], OwnedEntry] = {}
-    for entry in sorted(entries, key=lambda e: rank.get(e.kind, 9)):
-        chosen.setdefault(entry.slot, entry)
-    return sorted(chosen.values(), key=lambda e: e.fires_at)
+def entry_slot(entry: Mapping[str, int]) -> tuple[int, int, int]:
+    """The slot of a raw device entry. Its weekday bits may be several."""
+    return (int(entry["week"]), int(entry["hour"]), int(entry["min"]))
 
 
-def wanted_schedule(
-    baseline_entries: Iterable[dict[str, int]],
-    owned: Iterable[OwnedEntry],
-    *,
-    enabled: bool,
-) -> dict[str, Any]:
-    """The reservation list the feature wants the device to hold."""
-    return {
-        "reservation_use": DEVICE_BOOL_ON if enabled else 1,
-        "reservation": [dict(e) for e in baseline_entries]
-        + [e.as_entry() for e in merge_by_slot(owned)],
-    }
+def slots_collide(a: tuple[int, int, int], b: tuple[int, int, int]) -> bool:
+    """Whether two slots share a weekday and a minute."""
+    return bool(a[0] & b[0]) and a[1:] == b[1:]
 
 
-def schedule_hash(schedule: dict[str, Any]) -> str:
+def firings(
+    entry: Mapping[str, int], after: datetime, until: datetime, tz: tzinfo
+) -> list[datetime]:
+    """Each time a weekly device entry fires in (after, until]."""
+    result: list[datetime] = []
+    local_after = after.astimezone(tz)
+    local_until = until.astimezone(tz)
+    day = local_after.replace(hour=0, minute=0, second=0, microsecond=0)
+    while day <= local_until:
+        if int(entry.get("week", 0)) & week_bit(day):
+            fire = day.replace(
+                hour=int(entry["hour"]), minute=int(entry["min"])
+            )
+            if local_after < fire <= local_until:
+                result.append(fire)
+        day += timedelta(days=1)
+    return result
+
+
+def schedule_hash(schedule: Mapping[str, Any]) -> str:
     """The same hash the Reservation Schedule sensor reports."""
     return schedule_state.schedule_hash(
-        schedule_state.reservation_canonical(schedule)
+        schedule_state.reservation_canonical(dict(schedule))
     )
+
+
+def compose_program(
+    others: Iterable[tuple[dict[str, int], bool]],
+    owned: Iterable[OwnedEntry],
+) -> dict[str, Any]:
+    """The list the feature wants on the device while live.
+
+    `others` are the entries the feature does not own, each with whether it
+    is one of the owner's: the owner's are switched off by their own enable
+    flag (section 5.1), anyone else's are kept as read. The reservation
+    switch is on.
+    """
+    reservation: list[dict[str, int]] = []
+    for entry, is_owner in others:
+        kept = dict(entry)
+        if is_owner:
+            kept["enable"] = 1
+        reservation.append(kept)
+    reservation.extend(e.as_entry() for e in owned)
+    return {"reservation_use": DEVICE_BOOL_ON, "reservation": reservation}

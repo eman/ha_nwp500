@@ -632,16 +632,12 @@ class TestExternalControlOptions:
         return {
             "control_intent_entity": "sensor.intent",
             "control_mode": "shadow",
-            "control_hold_off_supported": False,
-            "control_hold_off_margin_f": 2.0,
             "control_surplus_threshold_kw": 0.45,
             "control_allowed_modes": ["energy_saver", "heat_pump"],
             "control_assisted_mode": "energy_saver",
-            "control_tou_off_for_mode": False,
-            "control_min_run_before_stop_min": 120.0,
+            "control_min_run_before_lower_min": 120.0,
             "control_reservation_entry_limit": 7.0,
             "control_reservation_entry_reserve": 2.0,
-            "control_daily_revert_time": "03:00:00",
             **overrides,
         }
 
@@ -709,8 +705,7 @@ class TestExternalControlOptions:
         assert data["control_mode"] == "shadow"
         assert data["control_setpoint_min_f"] == 120.0
         assert data["control_setpoint_max_f"] == 145.0
-        assert data["control_daily_revert_time"] == "03:00"
-        assert data["control_min_run_before_stop_min"] == 120
+        assert data["control_min_run_before_lower_min"] == 120
         assert isinstance(data["control_reservation_entry_limit"], int)
         assert "control_setpoint_min" not in data
         assert "control_surplus_entity" not in data
@@ -771,8 +766,8 @@ class TestExternalControlOptions:
             hass,
             {
                 "control_intent_entity": "sensor.i",
-                "control_daily_revert_time": "04:30",
                 "control_allowed_modes": ["electric"],
+                "control_daily_revert_time": "04:30",
             },
         )
         await handler.async_step_init(
@@ -787,8 +782,9 @@ class TestExternalControlOptions:
             if key.description
         }
         assert suggested["control_intent_entity"] == "sensor.i"
-        assert suggested["control_daily_revert_time"] == "04:30:00"
         assert suggested["control_allowed_modes"] == ["electric"]
+        # A first-draft option has no field any more.
+        assert "control_daily_revert_time" not in suggested
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -848,3 +844,30 @@ class TestExternalControlOptions:
 
         with pytest.raises(vol.Invalid):
             form["data_schema"](self._control_input(control_mode="live"))
+
+    @pytest.mark.asyncio
+    async def test_saving_drops_first_draft_options(self, hass: HomeAssistant):
+        handler, _ = self._handler(
+            hass,
+            {
+                "control_hold_off_supported": True,
+                "control_daily_revert_time": "03:00",
+                "control_tou_off_for_mode": False,
+                "control_baseline": {"mode": "energy_saver"},
+            },
+        )
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input()
+        )
+
+        for key in (
+            "control_hold_off_supported",
+            "control_daily_revert_time",
+            "control_tou_off_for_mode",
+            "control_baseline",
+        ):
+            assert key not in result["data"]

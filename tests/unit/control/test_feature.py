@@ -45,6 +45,8 @@ def coordinator(mock_device) -> MagicMock:
     coordinator = MagicMock()
     coordinator.data = {MAC: {"device": mock_device, "status": None}}
     coordinator.device_features = {}
+    coordinator.reservation_schedules = {}
+    coordinator.tou_schedules = {}
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
     return coordinator
 
@@ -96,3 +98,24 @@ async def test_remove_deletes_entities_and_storage(
     assert entity_registry.async_get(other_entity.entity_id) is not None
     assert storage_key(entry.entry_id) not in hass_storage
     assert feature.devices == {}
+
+
+@pytest.mark.asyncio
+async def test_start_removes_entities_of_an_earlier_version(
+    hass: HomeAssistant,
+    hass_storage,
+    entry,
+    coordinator,
+    entity_registry: er.EntityRegistry,
+):
+    stale = entity_registry.async_get_or_create(
+        "sensor", DOMAIN, f"{MAC}_control_last_restore", config_entry=entry
+    )
+    current = entity_registry.async_get_or_create(
+        "sensor", DOMAIN, f"{MAC}_control_ack", config_entry=entry
+    )
+    await async_setup_control(hass, entry, coordinator)
+
+    assert entity_registry.async_get(stale.entity_id) is None
+    assert entity_registry.async_get(current.entity_id) is not None
+    await async_unload_control(hass, entry)

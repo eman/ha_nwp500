@@ -1,6 +1,6 @@
-"""The planning engine (spec section 5, issue #158), in shadow.
+"""The planner (spec section 5, issue #158), in shadow.
 
-Every scenario drives the engine with times and `Observed` snapshots only,
+Every scenario drives the planner with times and `Observed` snapshots only,
 as the device controller does, so the rules are tested without Home
 Assistant, timers or a device.
 """
@@ -12,65 +12,66 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from custom_components.nwp500.const import (
-    CONF_CONTROL_HOLD_OFF_SUPPORTED,
-    CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
-    CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
-    CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
-    CONF_CONTROL_SETPOINT_MIN_F,
-    CONF_CONTROL_SURPLUS_ENTITY,
-    CONF_CONTROL_TOU_OFF_FOR_MODE,
-)
-from custom_components.nwp500.control.baseline import Baseline
 from custom_components.nwp500.control.engine import (
-    HOLD_COMPRESSOR_MIN_RUN,
-    HOLD_NO_REVERSAL,
-    HOLD_REQUEST_CYCLE,
-    REASON_ENTRY_BUDGET,
-    REASON_FLOOR_PREVENTS_HOLD_OFF,
-    RESTORE_DAILY_REVERT,
-    RESTORE_DISABLED,
-    RESTORE_EXPIRY,
-    RESTORE_INTENT_ENDED,
-    RESTORE_OVERRIDE_EXPIRED,
-    RESTORE_STALE_INTENT,
-    RESTORE_STARTUP,
-    ControlEngine,
+    CLEANUP_DEFER,
+    REPORT_FOREIGN,
+    REPORT_MODE,
+    REPORT_REMOVED,
+    REPORT_SETPOINT,
+    REPORT_SWITCHED_OFF,
+    WRITE_DISABLE,
+    WRITE_GRANT_LOWER,
+    WRITE_GRANT_RAISE,
+    WRITE_NEAR_TERM,
+    WRITE_PLAN,
+    WRITE_PRECEDENCE_EXIT,
+    Planner,
+    State,
 )
 from custom_components.nwp500.control.entries import (
-    ALL_DAYS,
-    KIND_CLOSING,
-    KIND_DAILY_REVERT,
-    KIND_START,
+    KIND_GRANT_LOWER,
+    KIND_GRANT_RAISE,
+    KIND_GUARD,
+    KIND_NEAR_TERM,
+    KIND_PLAN,
+    KIND_PRECEDENCE_EXIT,
+    near_term_minute,
     schedule_hash,
 )
-from custom_components.nwp500.control.evaluate import evaluate_intent
-from custom_components.nwp500.control.intent import parse_intent
+from custom_components.nwp500.control.evaluate import (
+    REASON_BEYOND_HORIZON,
+    REASON_BOUNDS_UNKNOWN,
+    REASON_ENTRY_BUDGET,
+    WARNING_MODE_IN_TOU_WINDOW,
+    WARNING_MOVED,
+    check_plan,
+)
+from custom_components.nwp500.control.intent import parse_plan
 from custom_components.nwp500.control.observed import Observed
+from custom_components.nwp500.control.owner import OwnerProgram
 
-from .conftest import capabilities, directive, make_document
+from .conftest import capabilities, grant, make_document, segment
 
 TZ = ZoneInfo("America/Los_Angeles")
-# A Monday morning, local time, well clear of the 03:00 daily revert.
+# A Monday morning, local time.
 NOW = datetime(2026, 10, 5, 10, 0, tzinfo=TZ)
-# 119 half-degrees is 59.5 degC / 139.1 degF; a typical setpoint.
-BASELINE_SETPOINT = 119
-BASELINE = Baseline(
+MONDAY = 64
+# 119 half-degrees is 59.5 degC / 139.1 degF.
+OWNER_SETPOINT = 119
+OWNER = OwnerProgram(
     mode="energy_saver",
-    setpoint_raw=BASELINE_SETPOINT,
-    tou_enabled=True,
+    setpoint_raw=OWNER_SETPOINT,
     reservations_enabled=False,
 )
-HOLD_OFF = {CONF_CONTROL_HOLD_OFF_SUPPORTED: True}
-SURPLUS = {CONF_CONTROL_SURPLUS_ENTITY: "binary_sensor.surplus"}
+SURPLUS = {"control_surplus_entity": "binary_sensor.surplus"}
 
 
 def obs(**overrides) -> Observed:
-    """The device at the baseline, idle, tank a little below setpoint."""
+    """The device on the owner's state, idle, reservations switched off."""
     values = {
         "mode": "energy_saver",
-        "setpoint_raw": BASELINE_SETPOINT,
-        "tou_on": True,
+        "setpoint_raw": OWNER_SETPOINT,
+        "tou_on": False,
         "compressor_on": False,
         "upper_tank_raw": 115,
         "reservations_enabled": False,
@@ -81,864 +82,972 @@ def obs(**overrides) -> Observed:
     return Observed(**values)
 
 
-def engine_with(
-    directives: list[dict] | None = None,
-    *,
-    now: datetime = NOW,
-    observed: Observed | None = None,
-    baseline: Baseline | None = BASELINE,
-    intent_kwargs: dict | None = None,
-    **options,
-) -> ControlEngine:
-    """An engine with the baseline and, if given, an accepted intent."""
-    engine = ControlEngine(capabilities(**options), TZ)
-    engine.baseline = baseline
-    observed = observed or obs()
-    engine.evaluate(now, observed)
-    if directives is not None:
-        give(
-            engine,
-            directives,
-            now=now,
-            observed=observed,
-            **(intent_kwargs or {}),
-        )
-    return engine
+def minutes(m: float, base: datetime = NOW) -> datetime:
+    return base + timedelta(minutes=m)
+
+
+def run(planner: Planner, now: datetime, observed: Observed | None = None):
+    """One planning pass, committing its write as the controller does."""
+    write = planner.step(now, observed or obs())
+    if write is not None:
+        planner.commit(write)
+    return write
 
 
 def give(
-    engine: ControlEngine,
-    directives: list[dict],
+    planner: Planner,
+    segments: list[dict],
     *,
+    grants: list[dict] | None = None,
     now: datetime = NOW,
     observed: Observed | None = None,
-    **intent_kwargs,
-) -> None:
-    """Hand the engine a validated intent."""
-    intent = parse_intent(
-        make_document(now, directives, valid_for=24 * 60, **intent_kwargs),
-        now=now,
+    restoring: bool = False,
+    **document_kwargs,
+):
+    """Hand the planner a checked plan, and run a pass."""
+    plan = parse_plan(
+        make_document(now, segments, grants=grants, **document_kwargs)
     )
-    ack = evaluate_intent(intent, engine.capabilities, now=now)
-    engine.set_intent(intent, ack, now, observed or obs())
+    check_plan(plan, planner.capabilities)
+    planner.set_plan(plan, now, observed or obs(), restoring=restoring)
+    return run(planner, now, observed)
 
 
-def entries_of(engine: ControlEngine, kind: str | None = None):
-    return [e for e in engine.wanted.entries if kind is None or e.kind == kind]
+def planner_with(
+    segments: list[dict] | None = None,
+    *,
+    grants: list[dict] | None = None,
+    observed: Observed | None = None,
+    owner: OwnerProgram | None = OWNER,
+    shadow: bool = True,
+    **options,
+) -> Planner:
+    planner = Planner(capabilities(**options), TZ, shadow=shadow)
+    planner.owner = owner
+    run(planner, NOW, observed)
+    if segments is not None:
+        give(planner, segments, grants=grants, observed=observed)
+    return planner
 
 
-def minutes(m: float) -> datetime:
-    return NOW + timedelta(minutes=m)
+def kinds(planner: Planner) -> list[tuple[str, str | None, str]]:
+    """(kind, serves, HH:MM) of the owned entries, in time order."""
+    return [
+        (e.kind, e.serves, e.fires_at.astimezone(TZ).strftime("%H:%M"))
+        for e in sorted(planner.owned, key=lambda e: e.fires_at)
+    ]
+
+
+def statuses(planner: Planner) -> dict[str, tuple[str, str | None]]:
+    return {a.id: (a.status, a.reason) for a in planner.ack("i-1").segments}
+
+
+class TestSpecExample:
+    """Section 3.6, on the Sunday it describes."""
+
+    SUNDAY = datetime(2026, 10, 4, 5, 0, 12, tzinfo=TZ)
+
+    def _planner(self) -> Planner:
+        base = self.SUNDAY.replace(second=0)
+        planner = Planner(capabilities(**SURPLUS), TZ)
+        planner.owner = OWNER
+        plan = parse_plan(
+            make_document(
+                self.SUNDAY,
+                [
+                    segment(
+                        base,
+                        "s1",
+                        0,
+                        mode="heat_pump",
+                        setpoint="min",
+                        purpose="hold_off",
+                    ),
+                    segment(base, "s2", 330, setpoint_f=140, purpose="charge"),
+                    segment(
+                        base, "s3", 570, mode="energy_saver", setpoint_f=135
+                    ),
+                    segment(base, "s4", 1020, setpoint="min"),
+                ],
+                grants=[grant(base, "g1", 360, 540, max_f=146)],
+            )
+        )
+        check_plan(plan, planner.capabilities)
+        planner.set_plan(plan, self.SUNDAY, obs())
+        return planner
+
+    def test_one_list_is_written(self):
+        planner = self._planner()
+        write = run(planner, self.SUNDAY)
+
+        assert write is not None
+        assert write.simulated is True
+        assert kinds(planner) == [
+            (KIND_NEAR_TERM, "s1", "05:03"),
+            (KIND_PLAN, "s2", "10:30"),
+            (KIND_PLAN, "s3", "14:30"),
+            (KIND_PLAN, "s4", "22:00"),
+        ]
+        entries = [
+            e.as_entry()
+            for e in sorted(planner.owned, key=lambda e: e.fires_at)
+        ]
+        assert entries == [
+            {
+                "enable": 2,
+                "week": 128,
+                "hour": 5,
+                "min": 3,
+                "mode": 1,
+                "param": 81,
+            },
+            {
+                "enable": 2,
+                "week": 128,
+                "hour": 10,
+                "min": 30,
+                "mode": 1,
+                "param": 120,
+            },
+            {
+                "enable": 2,
+                "week": 128,
+                "hour": 14,
+                "min": 30,
+                "mode": 3,
+                "param": 114,
+            },
+            {
+                "enable": 2,
+                "week": 128,
+                "hour": 22,
+                "min": 0,
+                "mode": 3,
+                "param": 81,
+            },
+        ]
+        assert planner.programmed_complete is True
+        assert planner.wanted_state(self.SUNDAY) == State("heat_pump", 81)
+
+    def test_the_surplus_raise(self):
+        planner = self._planner()
+        run(planner, self.SUNDAY)
+        base = self.SUNDAY.replace(second=0)
+        running = obs(
+            mode="heat_pump",
+            setpoint_raw=120,
+            compressor_on=True,
+            surplus_on=True,
+        )
+
+        run(planner, minutes(380, base), running)  # 11:20: surplus appears
+        write = run(planner, minutes(390, base), running)  # 11:30
+
+        assert write is not None
+        assert write.reason == WRITE_GRANT_RAISE
+        added = {
+            (e.kind, e.fires_at.strftime("%H:%M"), e.mode, e.setpoint_raw)
+            for e in write.added
+        }
+        assert added == {
+            (KIND_GRANT_RAISE, "11:32", "heat_pump", 127),
+            (KIND_GUARD, "14:00", "heat_pump", 120),
+        }
+
+        stopped = obs(
+            mode="heat_pump",
+            setpoint_raw=127,
+            compressor_on=False,
+            surplus_on=True,
+        )
+        write = run(planner, minutes(460, base), stopped)  # 12:40
+
+        assert write is not None
+        assert write.reason == WRITE_GRANT_LOWER
+        assert {
+            (e.kind, e.fires_at.strftime("%H:%M")) for e in write.added
+        } == {(KIND_GRANT_LOWER, "12:42")}
+        # The fired raise goes with the guard. Entries that fired earlier
+        # were removed with the 11:30 write.
+        removed = {
+            (e.kind, e.fires_at.strftime("%H:%M")) for e in write.removed
+        }
+        assert removed == {(KIND_GUARD, "14:00"), (KIND_GRANT_RAISE, "11:32")}
 
 
 class TestTranslation:
-    """Section 5.2: directives into entries and direct writes."""
+    """Section 5.2."""
 
-    def test_a_future_charge_gets_a_start_and_a_closing_entry(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
+    def test_future_segments_become_entries(self):
+        planner = planner_with(
+            [
+                segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140),
+                segment(NOW, "b", 120, setpoint_f=130),
+            ]
+        )
+        assert kinds(planner) == [
+            (KIND_PLAN, "a", "11:00"),
+            (KIND_PLAN, "b", "12:00"),
+        ]
+        # Before the first segment, what was in force continues.
+        assert planner.wanted_state(NOW) == State(
+            "energy_saver", OWNER_SETPOINT
+        )
+        assert planner.wanted_state(minutes(61)) == State("energy_saver", 120)
+
+    def test_a_segment_in_force_matching_the_device_needs_no_entry(self):
+        planner = planner_with(
+            [
+                segment(NOW, "now", -5, mode="energy_saver", setpoint_f=139.1),
+                segment(NOW, "later", 60, setpoint_f=130),
+            ]
+        )
+        assert kinds(planner) == [(KIND_PLAN, "later", "11:00")]
+
+    def test_merged_segments_need_one_entry(self):
+        planner = planner_with(
+            [
+                segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140),
+                segment(NOW, "b", 90, setpoint_f=140, purpose="same"),
+                segment(NOW, "c", 120, setpoint_f=130),
+            ]
+        )
+        assert kinds(planner) == [
+            (KIND_PLAN, "a", "11:00"),
+            (KIND_PLAN, "c", "12:00"),
+        ]
+        assert statuses(planner)["b"] == ("merged", None)
+
+    def test_min_resolves_to_the_floor_option(self):
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
+            control_setpoint_min_f=120,
+        )
+        assert planner.owned[0].setpoint_raw == 98
+
+    def test_min_waits_for_the_bounds(self):
+        from custom_components.nwp500.control.capabilities import (
+            build_capabilities,
         )
 
-        wanted = engine.wanted
-        assert wanted.mode == "energy_saver"
-        assert wanted.setpoint_raw == BASELINE_SETPOINT
-        start = entries_of(engine, KIND_START)
-        closing = entries_of(engine, KIND_CLOSING)
-        assert [e.directive_id for e in start] == ["c"]
-        assert start[0].fires_at == minutes(60).astimezone(TZ)
-        assert start[0].as_entry() == {
-            "enable": 2,
-            "week": 64,  # Monday
+        planner = Planner(
+            build_capabilities(
+                {"control_allowed_modes": ["energy_saver"]},
+                features=None,
+                feature_version="v",
+                telemetry={},
+            ),
+            TZ,
+        )
+        planner.owner = OWNER
+        give(
+            planner,
+            [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
+        )
+        assert planner.owned == []
+        assert statuses(planner)["a"] == ("scheduled", REASON_BOUNDS_UNKNOWN)
+
+    def test_a_segment_too_close_is_asserted_when_it_begins(self):
+        planner = planner_with(
+            [segment(NOW, "soon", 1, mode="energy_saver", setpoint_f=140)]
+        )
+        assert planner.owned == []
+        run(planner, minutes(1))
+        assert kinds(planner) == [(KIND_NEAR_TERM, "soon", "10:03")]
+
+    def test_a_near_term_entry_is_skipped_if_the_next_segment_is_sooner(self):
+        planner = planner_with(
+            [
+                segment(NOW, "now", -5, mode="energy_saver", setpoint_f=140),
+                segment(NOW, "next", 2, setpoint_f=130),
+            ]
+        )
+        assert [k for k, _, _ in kinds(planner)] == [KIND_PLAN]
+
+    def test_mode_change_in_a_tou_window_is_flagged(self):
+        periods = (
+            {
+                "season": 4095,
+                "week": 254,
+                "start_hour": 0,
+                "start_min": 0,
+                "end_hour": 15,
+                "end_min": 59,
+                "price_max": 28000,
+            },
+            {
+                "season": 4095,
+                "week": 254,
+                "start_hour": 16,
+                "start_min": 0,
+                "end_hour": 20,
+                "end_min": 59,
+                "price_max": 32000,
+            },
+        )
+        observed = obs(tou_on=True, tou_periods=periods)
+        planner = planner_with(
+            [
+                segment(NOW, "noon", 120, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "peak", 420, mode="energy_saver", setpoint_f=140),
+                segment(NOW, "peak-setpoint", 480, setpoint_f=130),
+            ],
+            observed=observed,
+        )
+        warnings = {a.id: a.warnings for a in planner.ack("i").segments}
+        assert warnings["noon"] == ()
+        assert warnings["peak"] == (WARNING_MODE_IN_TOU_WINDOW,)
+        assert warnings["peak-setpoint"] == ()
+
+    def test_a_collision_with_another_entry_moves_one_minute(self):
+        owner_entry = {
+            "enable": 1,
+            "week": MONDAY | 2,
             "hour": 11,
             "min": 0,
-            "mode": 3,  # energy_saver, the baseline mode
-            "param": 120,  # 140 degF
+            "mode": 3,
+            "param": 110,
         }
-        assert closing[0].as_entry()["param"] == BASELINE_SETPOINT
-        assert closing[0].fires_at.hour == 14
-        revert = entries_of(engine, KIND_DAILY_REVERT)
-        assert len(revert) == 1
-        assert revert[0].week_field == ALL_DAYS
-        assert revert[0].as_entry()["hour"] == 3
-        assert wanted.schedule is not None
-        assert wanted.schedule["reservation_use"] == 2
-        assert len(wanted.schedule["reservation"]) == 3
-        assert wanted.schedule_hash == schedule_hash(wanted.schedule)
-
-    def test_a_charge_already_under_way_is_a_direct_write(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-10, end=180, target_f=140)]
+        observed = obs(reservations=(owner_entry,))
+        owner = OwnerProgram(
+            "energy_saver", OWNER_SETPOINT, False, (owner_entry,)
         )
-        assert engine.wanted.setpoint_raw == 120
-        assert entries_of(engine, KIND_START) == []
-        assert len(entries_of(engine, KIND_CLOSING)) == 1
-
-    def test_the_wanted_state_follows_the_windows(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)],
+            observed=observed,
+            owner=owner,
         )
-        engine.evaluate(minutes(61), obs())
-        assert engine.wanted.setpoint_raw == 120
-        # The start entry fired and is gone; the closing entry remains.
-        assert entries_of(engine, KIND_START) == []
-        assert len(entries_of(engine, KIND_CLOSING)) == 1
-
-        engine.evaluate(minutes(241), obs())
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert entries_of(engine, KIND_CLOSING) == []
-        assert engine.last_restore is not None
-        assert engine.last_restore.reason == RESTORE_EXPIRY
-        assert engine.last_restore.matches_baseline is True
-
-    def test_a_mode_directive_is_direct_with_the_daily_revert_as_closing(
-        self,
-    ):
-        heat_pump_baseline = Baseline(
-            mode="heat_pump",
-            setpoint_raw=BASELINE_SETPOINT,
-            tou_enabled=True,
-            reservations_enabled=False,
-        )
-        engine = engine_with(
-            [
-                directive(
-                    NOW, "mode", "m", start=-5, end=120, mode="energy_saver"
-                )
-            ],
-            observed=obs(mode="heat_pump"),
-            baseline=heat_pump_baseline,
-        )
-        assert engine.wanted.mode == "energy_saver"
-        assert entries_of(engine, KIND_START) == []
-        assert entries_of(engine, KIND_CLOSING) == []
-        revert = entries_of(engine, KIND_DAILY_REVERT)
-        assert revert[0].as_entry()["mode"] == 1  # heat_pump, the baseline
-        engine.evaluate(minutes(121), obs(mode="heat_pump"))
-        assert engine.wanted.mode == "heat_pump"
-
-    def test_tou_lever_for_a_mode(self):
-        engine = engine_with(
-            [
-                directive(
-                    NOW, "mode", "m", start=-5, end=120, mode="energy_saver"
-                )
-            ],
-            **{CONF_CONTROL_TOU_OFF_FOR_MODE: True},
-        )
-        assert engine.wanted.tou_on is False
-        engine.evaluate(minutes(121), obs())
-        assert engine.wanted.tou_on is True
-
-    def test_without_the_lever_tou_stays_on(self):
-        engine = engine_with(
-            [
-                directive(
-                    NOW, "mode", "m", start=-5, end=120, mode="energy_saver"
-                )
-            ]
-        )
-        assert engine.wanted.tou_on is True
-
-    def test_nothing_in_force_means_no_daily_revert_entry(self):
-        engine = engine_with([])
-        assert engine.wanted.entries == ()
-        assert engine.wanted.schedule["reservation_use"] == 1
-
-    def test_baseline_reservations_are_preserved_and_enabled(self):
-        base = Baseline(
-            mode="energy_saver",
-            setpoint_raw=BASELINE_SETPOINT,
-            tou_enabled=True,
-            reservations_enabled=False,
-            reservations=(
-                {
-                    "enable": 2,
-                    "week": 4,
-                    "hour": 6,
-                    "min": 0,
-                    "mode": 3,
-                    "param": 110,
-                },
-            ),
-        )
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)],
-            baseline=base,
-        )
-        schedule = engine.wanted.schedule
-        assert schedule["reservation_use"] == 2
-        assert schedule["reservation"][0]["param"] == 110
-        assert len(schedule["reservation"]) == 4
+        assert kinds(planner) == [(KIND_PLAN, "a", "11:01")]
+        ack = {a.id: a for a in planner.ack("i").segments}
+        assert ack["a"].warnings == (WARNING_MOVED,)
 
 
-class TestHoldOff:
-    """Section 5.6."""
-
-    def test_setpoint_is_fixed_from_the_tank_at_start(self):
-        engine = engine_with(
-            [directive(NOW, "hold_off", "h", start=0, end=120)],
-            observed=obs(upper_tank_raw=118),
-            **HOLD_OFF,
-        )
-        # 2 degF is 2.2 half-degrees, so at least 3 below the tank.
-        assert engine.wanted.setpoint_raw == 115
-        engine.evaluate(minutes(30), obs(upper_tank_raw=125))
-        assert engine.wanted.setpoint_raw == 115, "fixed at start, not tracking"
-        assert entries_of(engine, KIND_START) == []
-        assert entries_of(engine, KIND_CLOSING)[0].as_entry()["param"] == (
-            BASELINE_SETPOINT
-        )
-
-    def test_waits_for_the_tank_reading(self):
-        engine = engine_with(
-            [directive(NOW, "hold_off", "h", start=0, end=120)],
-            observed=obs(upper_tank_raw=None),
-            **HOLD_OFF,
-        )
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        engine.evaluate(minutes(1), obs(upper_tank_raw=118))
-        assert engine.wanted.setpoint_raw == 115
-
-    def test_floor_prevents_hold_off(self):
-        engine = engine_with(
-            [directive(NOW, "hold_off", "h", start=0, end=120)],
-            observed=obs(upper_tank_raw=100),
-            **{**HOLD_OFF, CONF_CONTROL_SETPOINT_MIN_F: 120},
-        )
-        run = engine.runs["h"]
-        assert run.status == "rejected"
-        assert run.reason == REASON_FLOOR_PREVENTS_HOLD_OFF
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert entries_of(engine, KIND_CLOSING) == []
-        ack = engine.ack
-        assert ack.state == "rejected"
-        assert ack.directives[0].reason == REASON_FLOOR_PREVENTS_HOLD_OFF
-
-    def test_unsupported_without_the_option(self):
-        engine = engine_with(
-            [directive(NOW, "hold_off", "h", start=0, end=120)]
-        )
-        assert engine.runs["h"].reason == "type_unsupported"
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-
-
-class TestEntryBudget:
+class TestHorizonAndBudget:
     """Section 5.3."""
 
-    def test_directives_beyond_the_budget_are_rejected_in_start_order(self):
-        # limit 4, reserve 2: two start entries fit, the third does not.
-        engine = engine_with(
+    def test_segments_beyond_the_horizon_are_scheduled(self):
+        planner = planner_with(
             [
-                directive(NOW, "charge", "a", start=60, end=200, target_f=130),
-                directive(NOW, "charge", "b", start=300, end=500, target_f=130),
-                directive(NOW, "charge", "c", start=600, end=800, target_f=130),
-            ],
-            **{
-                CONF_CONTROL_RESERVATION_ENTRY_LIMIT: 4,
-                CONF_CONTROL_RESERVATION_ENTRY_RESERVE: 2,
-            },
-        )
-        assert engine.runs["a"].status == "shadow"
-        assert engine.runs["b"].status == "rejected"
-        assert engine.runs["b"].reason == REASON_ENTRY_BUDGET
-        assert engine.runs["c"].reason == REASON_ENTRY_BUDGET
-        assert engine.ack.state == "partly_applied"
-
-    def test_closing_entries_come_out_of_the_reserve(self):
-        # limit 7, reserve 2: three charges need three starts (<= 5) and
-        # three closings plus the daily revert (7 in all), which fits.
-        engine = engine_with(
-            [
-                directive(NOW, "charge", "a", start=60, end=200, target_f=130),
-                directive(NOW, "charge", "b", start=300, end=500, target_f=130),
-                directive(NOW, "charge", "c", start=600, end=800, target_f=130),
+                segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140),
+                segment(NOW, "far", 145 * 60, setpoint_f=130),
             ]
         )
-        assert all(run.status == "shadow" for run in engine.runs.values())
-        assert len(engine.wanted.entries) == 7
+        assert kinds(planner) == [(KIND_PLAN, "a", "11:00")]
+        assert statuses(planner)["far"] == ("scheduled", REASON_BEYOND_HORIZON)
+        assert planner.programmed_until == minutes(145 * 60)
+        assert planner.programmed_complete is False
+        assert planner.next_event_at == minutes(60)
 
-    def test_the_whole_limit_is_respected(self):
-        # limit 5, reserve 1: starts alone would fit, but not with closings.
-        engine = engine_with(
-            [
-                directive(NOW, "charge", "a", start=60, end=200, target_f=130),
-                directive(NOW, "charge", "b", start=300, end=500, target_f=130),
-                directive(NOW, "charge", "c", start=600, end=800, target_f=130),
-            ],
-            **{
-                CONF_CONTROL_RESERVATION_ENTRY_LIMIT: 5,
-                CONF_CONTROL_RESERVATION_ENTRY_RESERVE: 1,
-            },
-        )
-        assert engine.runs["a"].status == "shadow"
-        assert engine.runs["b"].status == "shadow"
-        assert engine.runs["c"].reason == REASON_ENTRY_BUDGET
+        run(planner, minutes(61))
+        run(planner, minutes(60 + 1 + 60))
+        assert statuses(planner)["far"] == ("shadow", None)
+        assert planner.programmed_complete is True
 
-    def test_fired_entries_are_deleted(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
-        )
-        assert len(engine.owned) == 2
-        engine.evaluate(minutes(61), obs())
-        assert [e.kind for e in engine.owned] == [KIND_CLOSING]
-        engine.evaluate(minutes(241), obs())
-        assert engine.owned == []
-
-    def test_one_entry_per_slot(self):
-        engine = engine_with(
-            [
-                directive(NOW, "hold_off", "h", start=0, end=60),
-                directive(NOW, "charge", "c", start=60, end=240, target_f=140),
-            ],
-            observed=obs(upper_tank_raw=118),
-            **HOLD_OFF,
-        )
-        at_60 = [
-            e
-            for e in engine.wanted.entries
-            if e.fires_at == minutes(60).astimezone(TZ)
+    def _alternating(self, count: int, step: int = 60) -> list[dict]:
+        segments = [
+            segment(NOW, "s0", step, mode="energy_saver", setpoint_f=140)
         ]
-        assert len(at_60) == 1
-        assert at_60[0].kind == KIND_START
-        assert len(engine.wanted.schedule["reservation"]) == 3
-
-
-class TestCharge:
-    def test_completion_is_the_compressor_stopping(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)]
-        )
-        assert engine.wanted.setpoint_raw == 120
-        engine.evaluate(minutes(1), obs(compressor_on=True))
-        engine.evaluate(minutes(50), obs(compressor_on=True))
-        engine.evaluate(minutes(90), obs(compressor_on=False))
-        assert engine.runs["c"].complete is True
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert engine.ack.directives[0].status == "shadow"
-
-    def test_a_cycle_that_never_ran_does_not_complete(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)]
-        )
-        engine.evaluate(minutes(90), obs(compressor_on=False))
-        assert engine.runs["c"].complete is False
-        assert engine.wanted.setpoint_raw == 120
-
-
-class TestRestore:
-    """Section 5.4: every reason, and the wait for the compressor."""
-
-    def test_intent_ended_when_a_directive_is_dropped(self):
-        engine = engine_with(
-            [
-                directive(NOW, "charge", "c", start=-5, end=180, target_f=140),
-                directive(
-                    NOW, "charge", "later", start=300, end=500, target_f=130
-                ),
-            ]
-        )
-        later_entries = [e for e in engine.owned if e.directive_id == "later"]
-        give(
-            engine,
-            [
-                directive(
-                    NOW, "charge", "later", start=300, end=500, target_f=130
-                )
-            ],
-            now=minutes(1),
-            intent_id="i-2",
-        )
-        assert engine.last_restore.reason == RESTORE_INTENT_ENDED
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        # The kept directive kept its entries.
-        assert [
-            e for e in engine.owned if e.directive_id == "later"
-        ] == later_entries
-        assert all(e.directive_id != "c" for e in engine.owned)
-
-    def test_a_changed_directive_is_a_new_one(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
-        )
-        give(
-            engine,
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=130)],
-            now=minutes(1),
-            intent_id="i-2",
-        )
-        assert entries_of(engine, KIND_START)[0].param == 109  # 130 degF
-
-    def test_an_empty_intent_ends_the_state(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)]
-        )
-        give(engine, [], now=minutes(1), intent_id="i-2")
-        assert engine.last_restore.reason == RESTORE_INTENT_ENDED
-        assert engine.wanted.entries == ()
-
-    def test_stale_intent(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)]
-        )
-        engine.clear_intent(RESTORE_STALE_INTENT, minutes(30), obs())
-        assert engine.last_restore.reason == RESTORE_STALE_INTENT
-        assert engine.owned == []
-        assert engine.intent is None
-        assert engine.ack.state == "none"
-
-    def test_startup_with_nothing(self):
-        engine = engine_with()
-        engine.clear_intent(RESTORE_STARTUP, NOW, obs())
-        assert engine.last_restore.reason == RESTORE_STARTUP
-        assert engine.last_restore.matches_baseline is True
-
-    def test_matches_baseline_is_false_when_the_device_differs(self):
-        engine = engine_with(observed=obs(setpoint_raw=100))
-        engine.clear_intent(RESTORE_STARTUP, NOW, obs(setpoint_raw=100))
-        assert engine.last_restore.matches_baseline is False
-
-    def test_disabled_is_unconditional(self):
-        running = obs(compressor_on=True, upper_tank_raw=121)
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)],
-            observed=running,
-        )
-        assert engine.wanted.setpoint_raw == 120
-        engine.clear_intent(
-            RESTORE_DISABLED, minutes(1), running, unconditional=True
-        )
-        assert engine.last_restore.reason == RESTORE_DISABLED
-        assert engine.wanted.restore_pending is None
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert engine.wanted.holds == ()
-
-    def test_daily_revert_displaces_the_intent_briefly(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=24 * 60, target_f=140)]
-        )
-        revert = engine.next_daily_revert(NOW)
-        assert revert.hour == 3
-        engine.evaluate(revert + timedelta(seconds=30), obs())
-        assert engine.last_restore.reason == RESTORE_DAILY_REVERT
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert "daily_revert" in engine.wanted.holds
-        engine.evaluate(revert + timedelta(minutes=6), obs())
-        assert engine.wanted.setpoint_raw == 120
-        assert engine.wanted.holds == ()
-
-    def test_a_restore_waits_for_the_compressor(self):
-        running = obs(compressor_on=True, upper_tank_raw=121)
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)]
-        )
-        engine.evaluate(minutes(100), running)  # the cycle starts
-        # The window ends while the compressor has run 81 minutes: the
-        # baseline setpoint (119) is below the tank (121), so writing it
-        # would stop the compressor before its 120 minutes.
-        engine.evaluate(minutes(181), running)
-        assert engine.wanted.setpoint_raw == 120
-        assert HOLD_COMPRESSOR_MIN_RUN in engine.wanted.holds
-        assert engine.wanted.restore_pending == RESTORE_EXPIRY
-        assert engine.last_restore is None
-
-        engine.evaluate(minutes(221), running)
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert engine.last_restore.reason == RESTORE_EXPIRY
-        assert engine.wanted.restore_pending is None
-
-    def test_a_restore_proceeds_once_the_compressor_stops(self):
-        running = obs(compressor_on=True, upper_tank_raw=121)
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)]
-        )
-        engine.evaluate(minutes(100), running)
-        engine.evaluate(minutes(181), running)
-        assert engine.wanted.restore_pending == RESTORE_EXPIRY
-        engine.evaluate(
-            minutes(190), obs(compressor_on=False, upper_tank_raw=121)
-        )
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert engine.last_restore.reason == RESTORE_EXPIRY
-
-    def test_a_restore_that_would_not_stop_the_compressor_is_immediate(self):
-        # The tank is below the baseline setpoint, so restoring keeps the
-        # compressor going.
-        running = obs(compressor_on=True, upper_tank_raw=110)
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)]
-        )
-        engine.evaluate(minutes(100), running)
-        engine.evaluate(minutes(181), running)
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert engine.last_restore.reason == RESTORE_EXPIRY
-
-    def test_a_request_cycle_runs_to_completion(self):
-        running = obs(compressor_on=True, upper_tank_raw=121)
-        engine = engine_with(
-            [
-                directive(
+        for i in range(1, count):
+            segments.append(
+                segment(
                     NOW,
-                    "mode",
-                    "m",
-                    start=-5,
-                    end=30,
-                    mode="energy_saver",
-                    request=True,
-                ),
-                directive(NOW, "charge", "c", start=-5, end=180, target_f=140),
-            ],
-            observed=running,
-            **{CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN: 10},
-        )
-        engine.evaluate(minutes(181), running)
-        assert HOLD_REQUEST_CYCLE in engine.wanted.holds
-        assert engine.wanted.setpoint_raw == 120
-        engine.evaluate(minutes(400), running)
-        assert HOLD_REQUEST_CYCLE in engine.wanted.holds, (
-            "min_run does not release it"
-        )
-        engine.evaluate(
-            minutes(401), obs(compressor_on=False, upper_tank_raw=121)
-        )
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-
-    def test_no_reversal_within_a_cycle(self):
-        running = obs(compressor_on=True, upper_tank_raw=121)
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)],
-            observed=running,
-            **{CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN: 10},
-        )
-        engine.evaluate(minutes(181), running)
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT, "lowered"
-        give(
-            engine,
-            [
-                directive(
-                    NOW, "charge", "again", start=-5, end=400, target_f=140
+                    f"s{i}",
+                    step * (i + 1),
+                    setpoint_f=140 if i % 2 == 0 else 130,
                 )
-            ],
-            now=minutes(182),
-            observed=running,
-            intent_id="i-2",
-        )
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert HOLD_NO_REVERSAL in engine.wanted.holds
-        engine.evaluate(
-            minutes(183), obs(compressor_on=False, upper_tank_raw=121)
-        )
-        assert engine.wanted.setpoint_raw == 120
+            )
+        return segments
 
+    def test_segments_beyond_the_budget_wait_in_order(self):
+        planner = planner_with(self._alternating(7))
+        # 7 entries, 2 kept in reserve: 5 programmed.
+        assert [s for _, s, _ in kinds(planner)] == [
+            "s0",
+            "s1",
+            "s2",
+            "s3",
+            "s4",
+        ]
+        assert statuses(planner)["s5"] == ("scheduled", REASON_ENTRY_BUDGET)
+        assert planner.programmed_until == minutes(6 * 60)
+        assert planner.scheduled_count == 2
 
-class TestOverrides:
-    """Section 5.7."""
+    def test_a_fired_entry_makes_room(self):
+        planner = planner_with(self._alternating(7))
+        write = run(planner, minutes(61))
+        assert write is not None
+        assert write.reason == WRITE_PLAN
+        assert [e.serves for e in write.removed] == ["s0"]
+        assert [e.serves for e in write.added] == ["s5"]
 
-    def test_setpoint_change_is_an_override_that_is_honoured(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=180, target_f=140)]
-        )
-        engine.evaluate(minutes(1), obs(setpoint_raw=100))
-        override = engine.overrides["setpoint"]
-        assert override.value == 100
-        assert override.detected_at == minutes(1)
-        assert override.expires_at == engine.next_daily_revert(minutes(1))
-        assert engine.wanted.setpoint_raw == 100, (
-            "not reverted, even for the charge"
-        )
-        assert len(entries_of(engine, KIND_DAILY_REVERT)) == 1
-
-    @pytest.mark.parametrize(
-        ("change", "field", "value"),
-        [
-            ({"mode": "electric"}, "mode", "electric"),
-            ({"tou_on": False}, "tou", False),
-        ],
-    )
-    def test_other_fields(self, change, field, value):
-        engine = engine_with([])
-        engine.evaluate(minutes(1), obs(**change))
-        assert engine.overrides[field].value == value
-        wanted = engine.wanted
-        assert {"mode": wanted.mode, "tou": wanted.tou_on}[field] == value
-
-    def test_reservation_list_change(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
-        )
-        edited = (
+    def test_owner_entries_count_against_the_budget(self):
+        owner_entries = tuple(
             {
                 "enable": 2,
                 "week": 2,
-                "hour": 7,
+                "hour": h,
                 "min": 0,
-                "mode": 1,
-                "param": 100,
-            },
+                "mode": 3,
+                "param": 110,
+            }
+            for h in (6, 7)
         )
-        engine.evaluate(
-            minutes(1), obs(reservations=edited, reservations_enabled=True)
+        observed = obs(reservations=owner_entries)
+        owner = OwnerProgram(
+            "energy_saver", OWNER_SETPOINT, False, owner_entries
         )
-        assert "reservations" in engine.overrides
-        assert engine.wanted.schedule["reservation"] == list(edited)
-        assert engine.wanted.entries == ()
-
-    def test_expires_when_the_person_reverts_it(self):
-        engine = engine_with([])
-        engine.evaluate(minutes(1), obs(setpoint_raw=100))
-        engine.evaluate(minutes(2), obs())
-        assert engine.overrides == {}
-        assert engine.last_restore.reason == RESTORE_OVERRIDE_EXPIRED
-
-    def test_expires_at_the_daily_revert(self):
-        engine = engine_with([])
-        engine.evaluate(minutes(1), obs(setpoint_raw=100))
-        revert = engine.next_daily_revert(NOW)
-        engine.evaluate(revert + timedelta(seconds=30), obs(setpoint_raw=100))
-        assert engine.overrides == {}
-        assert engine.last_restore.reason == RESTORE_DAILY_REVERT
-        # After the revert the observed value is the new expectation.
-        engine.evaluate(revert + timedelta(minutes=6), obs(setpoint_raw=100))
-        assert engine.overrides == {}
-
-    def test_vacation_is_precedence_not_an_override(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
+        planner = planner_with(
+            self._alternating(7), observed=observed, owner=owner
         )
-        assert engine.owned
-        engine.evaluate(minutes(1), obs(mode="vacation"))
-        assert engine.overrides == {}
-        assert engine.wanted.suspended_by == "vacation"
-        assert engine.owned == [], "pending entries withdrawn"
-        assert engine.wanted.schedule["reservation"] == []
-        engine.evaluate(minutes(2), obs(mode="power_off"))
-        assert engine.wanted.suspended_by == "power_off"
+        assert len(planner.owned) == 3
 
-    def test_anti_legionella_suspends(self):
-        engine = engine_with([])
-        engine.evaluate(minutes(1), obs(anti_legionella_busy=True))
-        assert engine.wanted.suspended_by == "anti_legionella"
-        engine.evaluate(minutes(2), obs())
-        assert engine.wanted.suspended_by is None
-
-    def test_a_baseline_entry_firing_is_not_an_override(self):
-        base = Baseline(
-            mode="energy_saver",
-            setpoint_raw=BASELINE_SETPOINT,
-            tou_enabled=True,
-            reservations_enabled=True,
-            # Monday at 10:30 local: energy_saver, 110 half-degrees.
-            reservations=(
-                {
-                    "enable": 2,
-                    "week": 64,
-                    "hour": 10,
-                    "min": 30,
-                    "mode": 3,
-                    "param": 110,
-                },
-            ),
+    def test_cleanup_alone_waits_up_to_a_day(self):
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)]
         )
-        engine = engine_with([], baseline=base)
-        engine.evaluate(minutes(31), obs(setpoint_raw=110))
-        assert engine.overrides == {}
-        assert engine.expected["setpoint"] == 110
+        assert run(planner, minutes(62)) is None
+        assert len(planner.owned) == 1
+        assert planner.next_event_at == minutes(60) + CLEANUP_DEFER
+        write = run(planner, minutes(60) + CLEANUP_DEFER)
+        assert write is not None
+        assert write.reason == "cleanup"
+        assert planner.owned == []
 
-    def test_a_change_at_another_time_is_an_override(self):
-        base = Baseline(
-            mode="energy_saver",
-            setpoint_raw=BASELINE_SETPOINT,
-            tou_enabled=True,
-            reservations_enabled=True,
-            reservations=(
-                {
-                    "enable": 2,
-                    "week": 64,
-                    "hour": 10,
-                    "min": 30,
-                    "mode": 3,
-                    "param": 110,
-                },
-            ),
+
+class TestReplacingAPlan:
+    """Section 5.6."""
+
+    SEGMENTS = [
+        segment(NOW, "now", -5, mode="heat_pump", setpoint_f=140),
+        segment(NOW, "later", 60, setpoint_f=130),
+    ]
+
+    def test_republishing_unchanged_writes_nothing(self):
+        planner = planner_with(self.SEGMENTS)
+        assert (
+            give(planner, self.SEGMENTS, now=minutes(1), intent_id="i-2")
+            is None
         )
-        engine = engine_with([], baseline=base)
-        engine.evaluate(minutes(50), obs(setpoint_raw=110))
-        assert "setpoint" in engine.overrides
 
-
-class TestSurplusGrant:
-    """Section 5.8."""
-
-    @staticmethod
-    def _grant(**options):
-        running = obs(compressor_on=True, mode="heat_pump", surplus_on=True)
-        engine = engine_with(
+    def test_a_new_state_now_gets_a_near_term_entry(self):
+        planner = planner_with(self.SEGMENTS)
+        write = give(
+            planner,
             [
-                directive(
-                    NOW, "surplus_grant", "g", start=-5, end=300, max_f=146
-                )
+                segment(NOW, "now", -5, mode="heat_pump", setpoint_f=145),
+                segment(NOW, "later", 60, setpoint_f=130),
             ],
-            observed=running,
-            **{**SURPLUS, **options},
-        )
-        return engine, running
-
-    def test_raises_once_after_ten_minutes_of_surplus(self):
-        engine, running = self._grant()
-        engine.evaluate(minutes(9), running)
-        assert engine.wanted.surplus_raised is False
-        engine.evaluate(minutes(10), running)
-        assert engine.wanted.surplus_raised is True
-        assert engine.wanted.setpoint_raw == 127  # 146 degF
-
-    def test_never_raises_to_start_a_cycle(self):
-        engine, _ = self._grant()
-        idle = obs(compressor_on=False, mode="heat_pump", surplus_on=True)
-        engine.evaluate(minutes(10), idle)
-        assert engine.wanted.surplus_raised is False
-
-    def test_only_in_heat_pump_mode(self):
-        engine, _ = self._grant()
-        saver = obs(compressor_on=True, mode="energy_saver", surplus_on=True)
-        engine.evaluate(minutes(10), saver)
-        assert engine.wanted.surplus_raised is False
-
-    def test_lowered_when_the_compressor_stops(self):
-        engine, running = self._grant()
-        engine.evaluate(minutes(10), running)
-        engine.evaluate(
-            minutes(20),
-            obs(compressor_on=False, mode="heat_pump", surplus_on=True),
-        )
-        assert engine.wanted.surplus_raised is False
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-
-    def test_one_raise_per_cycle(self):
-        engine, running = self._grant(
-            **{CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN: 5}
-        )
-        engine.evaluate(minutes(10), running)
-        assert engine.wanted.surplus_raised
-        off = obs(compressor_on=True, mode="heat_pump", surplus_on=False)
-        engine.evaluate(minutes(11), off)
-        engine.evaluate(minutes(26), off)
-        assert engine.wanted.surplus_raised is False, "off 15 min after min run"
-        engine.evaluate(minutes(27), running)
-        engine.evaluate(minutes(40), running)
-        assert engine.wanted.surplus_raised is False, "not twice in a cycle"
-
-    def test_not_lowered_before_min_run(self):
-        engine, running = self._grant()
-        engine.evaluate(minutes(10), running)
-        off = obs(compressor_on=True, mode="heat_pump", surplus_on=False)
-        engine.evaluate(minutes(30), off)
-        assert engine.wanted.surplus_raised is True, "min run is 120 min"
-
-    def test_lowered_when_a_mode_starts(self):
-        engine, running = self._grant()
-        engine.evaluate(minutes(10), running)
-        give(
-            engine,
-            [
-                directive(
-                    NOW, "surplus_grant", "g", start=-5, end=300, max_f=146
-                ),
-                directive(
-                    NOW, "mode", "m", start=400, end=500, mode="energy_saver"
-                ),
-            ],
-            now=minutes(11),
-            observed=running,
+            now=minutes(5),
             intent_id="i-2",
         )
-        assert engine.wanted.surplus_raised is True, (
-            "the mode is not in force yet"
+        assert write is not None
+        assert write.reason == WRITE_NEAR_TERM
+        assert {
+            (e.kind, e.fires_at.strftime("%H:%M")) for e in write.added
+        } == {(KIND_NEAR_TERM, "10:07")}
+        # The old plan's unfired near-term entry went; the later entry stayed.
+        assert (KIND_PLAN, "later", "11:00") in kinds(planner)
+
+    def test_a_dropped_segment_is_removed(self):
+        planner = planner_with(self.SEGMENTS)
+        write = give(
+            planner, self.SEGMENTS[:1], now=minutes(1), intent_id="i-2"
         )
-        engine.evaluate(minutes(401), running)
-        assert engine.wanted.surplus_raised is False
+        assert write is not None
+        # The unfired near-term entry for the kept segment stays.
+        assert [e.serves for e in write.removed] == ["later"]
+
+    def test_an_empty_plan_withdraws_everything_and_keeps_the_state(self):
+        planner = planner_with(self.SEGMENTS)
+        give(planner, [], now=minutes(5), intent_id="i-2")
+        assert planner.owned == []
+        assert planner.wanted_state(minutes(5)) == State("heat_pump", 120)
+
+    def test_restoring_at_start_up_writes_nothing_for_the_segment_in_force(
+        self,
+    ):
+        planner = Planner(capabilities(), TZ)
+        planner.owner = OWNER
+        run(planner, NOW)
+        write = give(planner, self.SEGMENTS, restoring=True)
+        assert [e.kind for e in write.added] == [KIND_PLAN]
+
+
+class TestPrecedence:
+    """Section 5.9."""
+
+    def test_no_writes_while_suspended_and_a_re_assert_after(self):
+        planner = planner_with(
+            [segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1)]
+        )
+        assert planner.owned == []
+        assert run(planner, minutes(1), obs(mode="vacation")) is None
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1),
+                segment(NOW, "b", 60, setpoint_f=130),
+            ],
+            now=minutes(2),
+            observed=obs(mode="vacation"),
+            intent_id="i-2",
+        )
+        assert planner.owned == []
+        write = run(planner, minutes(3))
+        assert write is not None
+        assert write.reason == WRITE_PRECEDENCE_EXIT
+        assert {e.kind for e in write.added} == {
+            KIND_PRECEDENCE_EXIT,
+            KIND_PLAN,
+        }
+        assert planner.reports == {}
+
+    def test_anti_legionella_suspends_without_a_re_assert(self):
+        planner = planner_with(
+            [segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1)]
+        )
+        assert run(planner, minutes(1), obs(anti_legionella_busy=True)) is None
+        assert run(planner, minutes(2)) is None
+
+
+class TestPeoplesChanges:
+    """Section 5.10."""
+
+    OWNER_ENTRY = {
+        "enable": 2,
+        "week": MONDAY,
+        "hour": 10,
+        "min": 30,
+        "mode": 3,
+        "param": 110,
+    }
+    OWNER_PROGRAM = OwnerProgram(
+        "energy_saver", OWNER_SETPOINT, True, (OWNER_ENTRY,)
+    )
+
+    def test_an_unexplained_change_is_reported_not_undone(self):
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)]
+        )
+        assert run(planner, minutes(5), obs(setpoint_raw=100)) is None
+        report = planner.reports[REPORT_SETPOINT]
+        assert report.value == 100
+        assert report.detected_at == minutes(5)
+        run(planner, minutes(6), obs(mode="heat_pump", setpoint_raw=100))
+        assert planner.reports[REPORT_MODE].value == "heat_pump"
+
+    def test_an_entry_firing_explains_a_change(self):
+        observed = obs(
+            reservations_enabled=True, reservations=(self.OWNER_ENTRY,)
+        )
+        planner = planner_with(observed=observed, owner=self.OWNER_PROGRAM)
+        run(
+            planner,
+            minutes(31),
+            obs(
+                reservations_enabled=True,
+                reservations=(self.OWNER_ENTRY,),
+                setpoint_raw=110,
+            ),
+        )
+        assert planner.reports == {}
+
+    def test_a_report_lasts_until_the_next_entry_fires(self):
+        observed = obs(
+            reservations_enabled=True, reservations=(self.OWNER_ENTRY,)
+        )
+        planner = planner_with(observed=observed, owner=self.OWNER_PROGRAM)
+        run(
+            planner,
+            minutes(5),
+            obs(
+                reservations_enabled=True,
+                reservations=(self.OWNER_ENTRY,),
+                setpoint_raw=100,
+            ),
+        )
+        assert REPORT_SETPOINT in planner.reports
+        run(
+            planner,
+            minutes(31),
+            obs(
+                reservations_enabled=True,
+                reservations=(self.OWNER_ENTRY,),
+                setpoint_raw=110,
+            ),
+        )
+        assert REPORT_SETPOINT not in planner.reports
+
+    def test_switching_reservations_off_is_reported(self):
+        planner = planner_with(observed=obs(reservations_enabled=True))
+        run(planner, minutes(1), obs(reservations_enabled=False))
+        assert REPORT_SWITCHED_OFF in planner.reports
+        run(planner, minutes(2), obs(reservations_enabled=True))
+        assert REPORT_SWITCHED_OFF not in planner.reports
+
+    def test_an_added_entry_is_foreign(self):
+        planner = planner_with()
+        added = {
+            "enable": 2,
+            "week": 2,
+            "hour": 7,
+            "min": 0,
+            "mode": 1,
+            "param": 100,
+        }
+        run(planner, minutes(1), obs(reservations=(added,)))
+        (report,) = planner.reports.values()
+        assert report.field == REPORT_FOREIGN
+        assert report.value == added
+        run(planner, minutes(2), obs(reservations=()))
+        assert planner.reports == {}
+
+    def test_vacation_is_not_a_change(self):
+        planner = planner_with()
+        run(planner, minutes(1), obs(mode="vacation"))
+        run(planner, minutes(2), obs(mode="energy_saver", setpoint_raw=100))
+        assert planner.reports == {}
+
+    def test_live_a_deleted_entry_is_not_restored(self):
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)],
+            shadow=False,
+        )
+        (entry,) = planner.owned
+        on_device = obs(
+            reservations_enabled=True, reservations=(entry.as_entry(),)
+        )
+        assert run(planner, minutes(1), on_device) is None
+        assert (
+            run(
+                planner,
+                minutes(2),
+                obs(reservations_enabled=True, reservations=()),
+            )
+            is None
+        )
+        assert planner.owned == []
+        assert f"{REPORT_REMOVED}:a" in planner.reports
+        assert statuses(planner)["a"][0] == "removed"
+        assert planner.ack("i").state == "partly_programmed"
+
+
+class TestSurplusGrants:
+    """Section 5.7."""
+
+    RUNNING = obs(
+        mode="heat_pump", setpoint_raw=120, compressor_on=True, surplus_on=True
+    )
+
+    def _planner(self, segments=None, grant_max=146, **options) -> Planner:
+        planner = planner_with(
+            segments
+            or [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
+            grants=[grant(NOW, "g", -5, 180, max_f=grant_max)],
+            observed=self.RUNNING,
+            **{**SURPLUS, **options},
+        )
+        return planner
+
+    def test_raises_after_ten_minutes_with_a_guard(self):
+        planner = self._planner()
+        assert run(planner, minutes(9), self.RUNNING) is None
+        write = run(planner, minutes(10), self.RUNNING)
+        assert write is not None
+        assert write.reason == WRITE_GRANT_RAISE
+        assert {
+            (e.kind, e.fires_at.strftime("%H:%M"), e.setpoint_raw)
+            for e in write.added
+        } == {
+            (KIND_GRANT_RAISE, "10:12", 127),
+            (KIND_GUARD, "13:00", 120),
+        }
+        assert planner.wanted_state(minutes(11)) == State("heat_pump", 120)
+        assert planner.wanted_state(minutes(13)) == State("heat_pump", 127)
+        grants = {g.id: g.status for g in planner.ack("i").grants}
+        assert grants == {"g": "raised"}
+
+    def test_no_guard_when_a_segment_ends_the_raise_first(self):
+        planner = self._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "next", 60, setpoint_f=135),
+            ]
+        )
+        write = run(planner, minutes(10), self.RUNNING)
+        assert {e.kind for e in write.added} == {KIND_GRANT_RAISE}
+        run(planner, minutes(61), self.RUNNING)
+        assert planner.raise_state is None
+
+    def test_capped_at_the_setpoint_maximum(self):
+        """The cap still applies if the bounds tighten after acceptance.
+
+        A grant is checked against the bounds when accepted.
+        """
+        planner = self._planner()
+        planner.capabilities = capabilities(
+            control_setpoint_max_f=142, **SURPLUS
+        )
+        run(planner, minutes(10), self.RUNNING)
+        assert planner.raise_state is not None
+        assert planner.raise_state.entry.setpoint_raw == 122
+
+    def test_no_raise_below_the_segment(self):
+        planner = self._planner(grant_max=130)
+        assert run(planner, minutes(10), self.RUNNING) is None
+
+    def test_never_to_start_a_cycle(self):
+        planner = self._planner()
+        idle = obs(
+            mode="heat_pump",
+            setpoint_raw=120,
+            compressor_on=False,
+            surplus_on=True,
+        )
+        assert run(planner, minutes(10), idle) is None
+
+    def test_only_in_heat_pump(self):
+        planner = planner_with(
+            [segment(NOW, "s", -5, mode="energy_saver", setpoint_f=140)],
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            observed=self.RUNNING,
+            **SURPLUS,
+        )
+        assert run(planner, minutes(10), self.RUNNING) is None
+
+    def test_lowered_when_the_compressor_stops(self):
+        planner = self._planner()
+        run(planner, minutes(10), self.RUNNING)
+        stopped = obs(
+            mode="heat_pump",
+            setpoint_raw=127,
+            compressor_on=False,
+            surplus_on=True,
+        )
+        write = run(planner, minutes(30), stopped)
+        assert write.reason == WRITE_GRANT_LOWER
+        assert {(e.kind, e.setpoint_raw) for e in write.added} == {
+            (KIND_GRANT_LOWER, 120)
+        }
+        assert KIND_GUARD in {e.kind for e in write.removed}
+        assert planner.raise_state is None
+
+    def test_an_unfired_raise_is_withdrawn_instead(self):
+        planner = self._planner()
+        run(planner, minutes(10), self.RUNNING)
+        stopped = obs(
+            mode="heat_pump",
+            setpoint_raw=120,
+            compressor_on=False,
+            surplus_on=True,
+        )
+        write = run(planner, minutes(11), stopped)
+        assert write.added == ()
+        assert {e.kind for e in write.removed} == {KIND_GRANT_RAISE, KIND_GUARD}
+
+    def test_lowered_after_min_run_and_surplus_gone(self):
+        planner = self._planner(control_min_run_before_lower_min=30)
+        run(planner, minutes(10), self.RUNNING)
+        gone = obs(
+            mode="heat_pump",
+            setpoint_raw=127,
+            compressor_on=True,
+            surplus_on=False,
+        )
+        assert run(planner, minutes(20), gone) is None
+        assert run(planner, minutes(34), gone) is None
+        write = run(planner, minutes(35), gone)
+        assert write.reason == WRITE_GRANT_LOWER
+
+    def test_one_raise_per_cycle(self):
+        planner = self._planner(control_min_run_before_lower_min=0)
+        run(planner, minutes(10), self.RUNNING)
+        gone = obs(
+            mode="heat_pump",
+            setpoint_raw=127,
+            compressor_on=True,
+            surplus_on=False,
+        )
+        run(planner, minutes(20), gone)
+        run(planner, minutes(35), gone)
+        assert planner.raise_state is None
+        run(planner, minutes(36), self.RUNNING)
+        assert run(planner, minutes(50), self.RUNNING) is None
+        assert planner.raise_state is None
+
+    def test_the_guard_ends_it_on_the_device(self):
+        planner = self._planner()
+        run(planner, minutes(10), self.RUNNING)
+        run(planner, minutes(181), self.RUNNING)
+        assert planner.raise_state is None
+        assert {g.id: g.status for g in planner.ack("i").grants} == {
+            "g": "ended"
+        }
+
+    def test_a_new_plan_without_the_grant_lowers(self):
+        planner = self._planner()
+        run(planner, minutes(13), self.RUNNING)
+        run(planner, minutes(23), self.RUNNING)
+        assert planner.raise_state is not None
+        write = give(
+            planner,
+            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
+            now=minutes(24),
+            observed=self.RUNNING,
+            intent_id="i-2",
+        )
+        assert planner.raise_state is None
+        assert KIND_GRANT_LOWER in {e.kind for e in write.added}
+
+
+class TestDisable:
+    def test_removes_everything_and_restores_the_owner(self):
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140)]
+        )
+        write = planner.disable(minutes(1))
+        assert write.reason == WRITE_DISABLE
+        assert [e.serves for e in write.removed] == ["a"]
+        assert write.owner_state == ("energy_saver", OWNER_SETPOINT)
+        assert planner.owned == []
+        assert planner.plan is None
+
+    def test_the_owner_state_follows_their_last_entry(self):
+        owner = OwnerProgram(
+            "energy_saver",
+            OWNER_SETPOINT,
+            True,
+            (
+                {
+                    "enable": 2,
+                    "week": MONDAY,
+                    "hour": 6,
+                    "min": 0,
+                    "mode": 1,
+                    "param": 110,
+                },
+            ),
+        )
+        assert owner.state_now(NOW, TZ) == ("heat_pump", 110)
+        switched_off = OwnerProgram(
+            "energy_saver", OWNER_SETPOINT, False, owner.entries
+        )
+        assert switched_off.state_now(NOW, TZ) == (
+            "energy_saver",
+            OWNER_SETPOINT,
+        )
+
+
+class TestProgram:
+    def test_owner_entries_are_switched_off_in_the_program(self):
+        owner_entry = {
+            "enable": 2,
+            "week": 2,
+            "hour": 7,
+            "min": 0,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations=(owner_entry,))
+        owner = OwnerProgram(
+            "energy_saver", OWNER_SETPOINT, False, (owner_entry,)
+        )
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140)],
+            observed=observed,
+            owner=owner,
+        )
+        program = planner.program(observed)
+        assert program["reservation_use"] == 2
+        assert program["reservation"][0] == {**owner_entry, "enable": 1}
+        assert program["reservation"][1]["hour"] == 11
+        assert planner.program_hash(observed) == schedule_hash(program)
+
+
+class TestAck:
+    def test_statuses(self):
+        planner = planner_with(
+            [
+                segment(NOW, "past", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "now", -5, setpoint_f=130),
+                segment(NOW, "same", 30, setpoint_f=130),
+                segment(NOW, "future", 60, setpoint_f=140),
+            ]
+        )
+        ack = planner.ack("i-1")
+        assert ack.state == "shadow"
+        items = {a.id: a for a in ack.segments}
+        assert items["past"].status == "ended"
+        assert items["now"].status == "shadow"
+        assert items["now"].detail["in_force"] is True
+        assert items["same"].status == "merged"
+        assert items["future"].status == "shadow"
+        assert items["future"].detail["fires_at"] == minutes(60).isoformat()
+
+    def test_live_statuses(self):
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140)],
+            shadow=False,
+        )
+        assert planner.ack("i").state == "programmed"
+        assert statuses(planner)["a"] == ("programmed", None)
+
+    def test_live_grants_not_switched_on(self):
+        planner = planner_with(
+            [segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140)],
+            grants=[grant(NOW, "g", 0, 60, max_f=146)],
+            shadow=False,
+            **SURPLUS,
+        )
+        (item,) = planner.ack("i").grants
+        assert (item.status, item.reason) == ("shadow", "not_live")
+
+    def test_no_plan(self):
+        assert planner_with().ack(None).state == "none"
 
 
 class TestPersistence:
     def test_round_trip(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
+        planner = planner_with(
+            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            observed=TestSurplusGrants.RUNNING,
+            **SURPLUS,
         )
-        engine.evaluate(minutes(1), obs(setpoint_raw=100))
-        engine.clear_intent(
-            RESTORE_STALE_INTENT, minutes(2), obs(setpoint_raw=100)
-        )
-        document = engine.as_document()
+        run(planner, minutes(10), TestSurplusGrants.RUNNING)
+        run(planner, minutes(11), obs(setpoint_raw=100))
+        document = planner.as_document()
 
-        again = ControlEngine(engine.capabilities, TZ)
+        again = Planner(planner.capabilities, TZ)
         again.load_document(document)
 
-        assert again.overrides == engine.overrides
-        assert again.expected == engine.expected
-        assert again.last_restore == engine.last_restore
-        assert again.owned == engine.owned
+        assert again.owned == planner.owned
+        assert again.extra == planner.extra
+        assert again.asserted == planner.asserted
+        assert again.reports == planner.reports
+        assert again.raise_state == planner.raise_state
+        assert again.last_write == planner.last_write
+        assert again.as_document() == document
 
-    def test_owned_entries_survive(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
-        )
-        again = ControlEngine(engine.capabilities, TZ)
-        again.load_document(engine.as_document())
-        assert [e.as_entry() for e in again.owned] == [
-            e.as_entry() for e in engine.owned
+    def test_tolerates_an_empty_document(self):
+        planner = Planner(capabilities(), TZ)
+        planner.load_document({})
+        assert planner.owned == []
+
+
+def test_near_term_minute():
+    lead = timedelta(minutes=2)
+    assert near_term_minute(NOW, lead) == minutes(2)
+    assert near_term_minute(NOW + timedelta(seconds=12), lead) == minutes(3)
+
+
+@pytest.mark.parametrize("hours", [0, 143])
+def test_next_event_includes_the_horizon_edge(hours):
+    planner = planner_with(
+        [
+            segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "far", (144 + hours) * 60 + 30, setpoint_f=130),
         ]
-
-    def test_load_tolerates_an_empty_document(self):
-        engine = ControlEngine(capabilities(), TZ)
-        engine.load_document({})
-        assert engine.owned == []
-
-
-class TestTiming:
-    def test_next_event_is_the_earliest_boundary(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)]
-        )
-        assert engine.next_event_at == minutes(60)
-        engine.evaluate(minutes(61), obs())
-        assert engine.next_event_at == minutes(240)
-
-    def test_next_event_without_an_intent_is_the_daily_revert(self):
-        engine = engine_with()
-        assert engine.next_event_at == engine.next_daily_revert(NOW)
-
-    def test_no_baseline_means_no_plan(self):
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=-5, end=240, target_f=140)],
-            baseline=None,
-        )
-        assert engine.wanted.setpoint_raw is None
-        assert engine.ack.state == "shadow"
-        assert engine.owned == []
-
-    def test_a_late_baseline_builds_the_entries(self):
-        """The device may report after the intent arrived."""
-        engine = engine_with(
-            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)],
-            baseline=None,
-        )
-        engine.set_baseline(BASELINE, minutes(1), obs())
-        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
-        assert [e.kind for e in engine.owned] == [KIND_START, KIND_CLOSING]
-        # Setting it again does not duplicate anything.
-        engine.set_baseline(BASELINE, minutes(2), obs())
-        assert len(engine.owned) == 2
-
-    def test_ack_details(self):
-        engine = engine_with(
-            [
-                directive(NOW, "charge", "c", start=-5, end=180, target_f=140),
-                directive(NOW, "hold_off", "h", start=200, end=400),
-            ],
-            observed=obs(upper_tank_raw=118),
-            **HOLD_OFF,
-        )
-        acks = {a.id: a.as_attribute() for a in engine.ack.directives}
-        assert acks["c"]["complete"] is False
-        assert acks["h"]["hold_setpoint_raw"] is None
-        engine.evaluate(minutes(201), obs(upper_tank_raw=118))
-        acks = {a.id: a.as_attribute() for a in engine.ack.directives}
-        assert acks["h"]["hold_setpoint_raw"] == 115
+    )
+    edge = minutes((144 + hours) * 60 + 30) - timedelta(hours=144)
+    assert planner.next_event_at == min(minutes(60), edge)

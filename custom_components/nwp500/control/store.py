@@ -1,8 +1,9 @@
 """Persistent state of the feature, one file per config entry.
 
-Holds the last accepted intent per device, so a restart with the intent
-source unavailable does not lose it (spec section 2.1). Later steps add the
-reservation entries the feature owns and the overrides it is honouring.
+Per device: the last accepted plan, so a restart with the intent source
+unavailable does not lose it (spec section 2.1); the planner's state, which
+includes the entries the feature owns; the owner's program; and whether the
+disabling clean-up has run.
 """
 
 from __future__ import annotations
@@ -77,6 +78,31 @@ class ControlStore:
         if self._device(mac_address).get("engine") == document:
             return
         self._device(mac_address)["engine"] = document
+        await self._store.async_save(self._data)
+
+    def stored_owner(self, mac_address: str) -> dict[str, Any] | None:
+        """The owner's program kept across a restart, or None."""
+        record = self._device(mac_address).get("owner")
+        return dict(record) if record else None
+
+    async def async_set_owner(
+        self, mac_address: str, document: dict[str, Any]
+    ) -> None:
+        """Remember the owner's program."""
+        self._device(mac_address)["owner"] = document
+        await self._store.async_save(self._data)
+
+    def disabled_done(self, mac_address: str) -> bool:
+        """Whether the disabling clean-up has run since `disabled` began."""
+        return bool(self._device(mac_address).get("disabled_done", False))
+
+    async def async_set_disabled_done(
+        self, mac_address: str, done: bool
+    ) -> None:
+        """Record that the disabling clean-up has run, or reset it."""
+        if self.disabled_done(mac_address) == done:
+            return
+        self._device(mac_address)["disabled_done"] = done
         await self._store.async_save(self._data)
 
     async def async_remove(self) -> None:

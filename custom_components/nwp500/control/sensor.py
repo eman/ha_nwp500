@@ -7,14 +7,23 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import UnitOfTemperature
+from homeassistant.util import dt as dt_util
 
 from nwp500.temperature import HalfCelsius
 
 from .entity import NWP500ControlEntity
-from .evaluate import STATUS_NONE
+from .evaluate import STATE_NONE
 
 if TYPE_CHECKING:
     from . import ControlFeature
+
+
+def _temperatures(raw: int) -> dict[str, float]:
+    value = HalfCelsius(raw)
+    return {
+        "setpoint_f": round(value.to_fahrenheit(), 1),
+        "setpoint_c": round(value.to_celsius(), 1),
+    }
 
 
 class ControlCapabilitiesSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -34,46 +43,189 @@ class ControlCapabilitiesSensor(NWP500ControlEntity, SensorEntity):  # type: ign
 
 
 class ControlIntentSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """State: the intent being worked on, or `none`."""
+    """State: the plan in force, or `none`."""
 
     _attr_icon = "mdi:calendar-clock"
 
     @property
     def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The intent id."""
-        intent = self.control.intent
-        return intent.intent_id if intent is not None else STATUS_NONE
+        """The plan's intent id."""
+        plan = self.control.plan
+        return plan.intent_id if plan is not None else STATE_NONE
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Its validity and the opaque top-level keys."""
-        intent = self.control.intent
-        if intent is None:
-            return {"issued_at": None, "valid_until": None, "received_at": None}
+        """When it was issued and received, and the opaque keys."""
+        plan = self.control.plan
+        if plan is None:
+            return {"issued_at": None, "received_at": None}
         received_at = self.control.received_at
         return {
-            **intent.extra,
-            "issued_at": intent.issued_at.isoformat(),
-            "valid_until": intent.valid_until.isoformat(),
+            **plan.extra,
+            "issued_at": plan.issued_at.isoformat(),
             "received_at": received_at.isoformat() if received_at else None,
-            "directive_count": len(intent.directives),
+            "segment_count": len(plan.segments),
+            "grant_count": len(plan.grants),
         }
 
 
 class ControlAckSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """State: the most recent document's acknowledgement."""
+    """State: the acknowledgement of the plan, or of a rejected document."""
 
     _attr_icon = "mdi:check-decagram-outline"
 
     @property
     def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """applied, partly_applied, rejected, shadow or none."""
+        """programmed, partly_programmed, pending, rejected, shadow or none."""
         return self.control.ack.state
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Per-directive statuses and the document-level reason."""
+        """Per-segment and per-grant statuses, and any rejection reason."""
         return self.control.ack.as_attributes()
+
+
+class ControlProgramHashSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """The hash of the list the feature wants on the device."""
+
+    _attr_icon = "mdi:calendar-check"
+
+    @property
+    def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Comparable with the Reservation Schedule sensor's hash."""
+        return str(self.control.program_details()["hash"])
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Every entry, and whose it is."""
+        details = self.control.program_details()
+        return {
+            "entry_count": details["entry_count"],
+            "entries": details["entries"],
+        }
+
+
+class ControlProgrammedUntilSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """How far the device's copy of the plan reaches."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:calendar-end"
+
+    @property
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The first segment not programmed, or the last once all are."""
+        return self.control.planner.programmed_until
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Whether everything is programmed, and how much waits."""
+        planner = self.control.planner
+        return {
+            "complete": planner.programmed_complete
+            if planner.plan is not None
+            else None,
+            "scheduled": planner.scheduled_count,
+        }
+
+
+class ControlNextEntrySensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """When the next entry the feature owns fires."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:calendar-arrow-right"
+
+    @property
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The next entry's minute."""
+        entry = self.control.planner.next_entry(dt_util.utcnow())
+        return entry.fires_at if entry is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """What it sets, and what it serves."""
+        entry = self.control.planner.next_entry(dt_util.utcnow())
+        if entry is None:
+            return {"mode": None, "setpoint_f": None, "setpoint_c": None}
+        return {
+            "mode": entry.mode,
+            **_temperatures(entry.setpoint_raw),
+            "kind": entry.kind,
+            "serves": entry.serves,
+        }
+
+
+class ControlWantedModeSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """The mode the plan puts the heater in now."""
+
+    _attr_icon = "mdi:state-machine"
+
+    @property
+    def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """A mode name, unknown without a plan."""
+        wanted = self.control.wanted
+        return wanted.mode if wanted is not None else None
+
+
+class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """The setpoint the plan puts the heater in now, with any surplus raise."""
+
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_icon = "mdi:thermometer-auto"
+
+    @property
+    def native_unit_of_measurement(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Home Assistant's configured unit."""
+        return self.hass.config.units.temperature_unit
+
+    @property
+    def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The wanted setpoint."""
+        wanted = self.control.wanted
+        if wanted is None:
+            return None
+        celsius = self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+        return round(HalfCelsius(wanted.setpoint_raw).to_preferred(celsius), 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The segment it comes from, and the grant raising it, if any."""
+        planner = self.control.planner
+        plan = planner.plan
+        segment = plan.segment_at(dt_util.utcnow()) if plan else None
+        raised = planner.raise_state
+        return {
+            "segment": segment.id if segment else None,
+            "grant": raised.grant_id if raised else None,
+        }
+
+
+class ControlLastWriteSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """When the reservation list was last written, sent or simulated."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:content-save-edit-outline"
+
+    @property
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The time of the write."""
+        write = self.control.last_write
+        return write.at if write is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Why, what changed, and whether it was confirmed."""
+        write = self.control.last_write
+        if write is None:
+            return {"reason": None}
+        document = write.as_document()
+        return {
+            "reason": document["reason"],
+            "added": document["added"],
+            "removed": document["removed"],
+            "confirmed": document["confirmed"],
+            "simulated": document["simulated"],
+            "owner_state": document["owner_state"],
+        }
 
 
 class ControlHeartbeatSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -87,126 +239,26 @@ class ControlHeartbeatSensor(NWP500ControlEntity, SensorEntity):  # type: ignore
         return self.control.heartbeat
 
 
-class ControlWantedModeSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """The mode the feature wants now; in shadow, what it would write."""
-
-    _attr_icon = "mdi:state-machine"
-
-    @property
-    def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """A mode name, unknown until there is a baseline."""
-        return self.control.wanted.mode
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Why the wanted state is what it is."""
-        wanted = self.control.wanted
-        baseline = self.control.baseline
-        return {
-            "suspended_by": wanted.suspended_by,
-            "holds": list(wanted.holds),
-            "restore_pending": wanted.restore_pending,
-            "baseline_version": baseline.version if baseline else None,
-            "baseline_provisional": baseline.provisional if baseline else None,
-        }
-
-
-class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """The setpoint the feature wants now, in Home Assistant's unit."""
-
-    _attr_device_class = SensorDeviceClass.TEMPERATURE
-    _attr_icon = "mdi:thermometer-auto"
-
-    @property
-    def native_unit_of_measurement(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Home Assistant's configured unit."""
-        return self.hass.config.units.temperature_unit
-
-    @property
-    def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The wanted setpoint."""
-        raw = self.control.wanted.setpoint_raw
-        if raw is None:
-            return None
-        celsius = self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
-        return round(HalfCelsius(raw).to_preferred(celsius), 1)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The device-resolution value and whether a surplus raise is on."""
-        wanted = self.control.wanted
-        return {
-            "setpoint_raw": wanted.setpoint_raw,
-            "surplus_raised": wanted.surplus_raised,
-            "holds": list(wanted.holds),
-        }
-
-
-class ControlWantedReservationHashSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """The hash the wanted reservation list would produce on the device."""
-
-    _attr_icon = "mdi:calendar-check"
-
-    @property
-    def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Comparable with the Reservation Schedule sensor's hash."""
-        return self.control.wanted.schedule_hash
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The entries, and which of them the feature owns."""
-        wanted = self.control.wanted
-        schedule = wanted.schedule or {}
-        return {
-            "entry_count": len(schedule.get("reservation", [])),
-            "enabled": schedule.get("reservation_use") == 2
-            if schedule
-            else None,
-            "entries": list(schedule.get("reservation", [])),
-            "owned": [e.as_document() for e in wanted.entries],
-        }
-
-
-class ControlLastRestoreSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """The reason for the last restore to the baseline."""
-
-    _attr_icon = "mdi:restore"
-
-    @property
-    def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """A reason from spec section 5.4, or `none`."""
-        restore = self.control.last_restore
-        return restore.reason if restore is not None else STATUS_NONE
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """When, and whether it read back as the baseline."""
-        restore = self.control.last_restore
-        if restore is None:
-            return {"at": None, "matches_baseline": None, "pending": None}
-        return {
-            "at": restore.at.isoformat(),
-            "matches_baseline": restore.matches_baseline,
-            "pending": self.control.wanted.restore_pending,
-        }
+SENSOR_KEYS: tuple[tuple[str, type[NWP500ControlEntity]], ...] = (
+    ("capabilities", ControlCapabilitiesSensor),
+    ("intent", ControlIntentSensor),
+    ("ack", ControlAckSensor),
+    ("program_hash", ControlProgramHashSensor),
+    ("programmed_until", ControlProgrammedUntilSensor),
+    ("next_entry", ControlNextEntrySensor),
+    ("wanted_mode", ControlWantedModeSensor),
+    ("wanted_setpoint", ControlWantedSetpointSensor),
+    ("last_write", ControlLastWriteSensor),
+    ("heartbeat", ControlHeartbeatSensor),
+)
 
 
 def create_control_sensors(feature: ControlFeature) -> list[SensorEntity]:
     """The sensors for every device the feature controls."""
     entities: list[SensorEntity] = []
     for control in feature.devices.values():
-        entities.extend(
-            (
-                ControlCapabilitiesSensor(control, "capabilities"),
-                ControlIntentSensor(control, "intent"),
-                ControlAckSensor(control, "ack"),
-                ControlHeartbeatSensor(control, "heartbeat"),
-                ControlWantedModeSensor(control, "wanted_mode"),
-                ControlWantedSetpointSensor(control, "wanted_setpoint"),
-                ControlWantedReservationHashSensor(
-                    control, "wanted_reservation_hash"
-                ),
-                ControlLastRestoreSensor(control, "last_restore"),
-            )
-        )
+        for key, cls in SENSOR_KEYS:
+            entity = cls(control, key)
+            assert isinstance(entity, SensorEntity)  # noqa: S101 - for typing
+            entities.append(entity)
     return entities
