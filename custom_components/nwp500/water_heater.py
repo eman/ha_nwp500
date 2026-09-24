@@ -103,7 +103,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
     @property
     @override
-    def extra_state_attributes(self) -> dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return extra state attributes, including persisted vacation restore mode."""
         attrs: dict[str, Any] = dict(super().extra_state_attributes or {})
         if self._pre_vacation_mode is not None:
