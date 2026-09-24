@@ -171,6 +171,17 @@ class TestRejectedDocuments:
     def test_minor_versions_are_accepted(self, now, parse):
         assert parse(make_document(now, protocol="0.2")).intent_id == "i-1"
 
+    @pytest.mark.parametrize(
+        "protocol", ["0.foo", "0.", "0.1.2", "", " 0", "v0"]
+    )
+    def test_malformed_versions_are_invalid(self, now, parse, protocol):
+        """The schema's pattern: a major version and an optional minor."""
+        self._rejects(
+            parse,
+            make_document(now, protocol=protocol),
+            REASON_INVALID_DOCUMENT,
+        )
+
     def test_intent_id(self, now, parse):
         self._rejects(
             parse,

@@ -26,7 +26,7 @@ and [`examples/`](examples/) holds sample plans.
 | 1 | The specification, the JSON Schema and the examples | Done |
 | 2 | Options toggle and the disabled-path regression test; intake, validation and the stored plan; the capability entity; `shadow` as the default mode; heartbeat; unload without writes | Done |
 | 3 | Shadow programming: the owner's program; segments into entries, the horizon, the budget and near-term entries; reading the list; surplus grants; the program, in-sync, programmed-until and wanted entities; people's changes | Done |
-| 4 | The device tests in section 8 of the specification | Not started |
+| 4 | The device tests in section 8 of the specification | In progress: run on 2026-09-24 except tests 6, 8 and 11 |
 | 5 | Live list writes: segments with a single allowed mode, then more modes, then grants | Not started |
 | 6 | Protocol `1` after a staged live cut-over | Not started |
 
@@ -125,8 +125,10 @@ to the minute.
 | `setpoint_f`, `setpoint_c` or `setpoint: "min"` | exactly one | The setpoint. Numbers are quantised to half a degree Celsius. `"min"` is the setpoint minimum option, else the device's minimum |
 | `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand` or `electric`. A later segment without one keeps the previous mode |
 
-`vacation` and `power_off` are never accepted: reservations do not run in
-either, so the plan's next entry would never fire to end them. Use
+`vacation` and `power_off` are never accepted. Entries are skipped during
+Vacation, so the plan's next entry would never end it. Whether an entry with
+the power-off mode powers the heater off is untested, and the mode command
+with that value switched the unit tested to Energy Saver (#160). Use
 `setpoint: "min"` for effectively off.
 
 ### Surplus grants

@@ -1053,3 +1053,68 @@ def test_next_event_includes_the_horizon_edge(hours):
     )
     edge = minutes((144 + hours) * 60 + 30) - timedelta(hours=144)
     assert planner.next_event_at == min(minutes(60), edge)
+
+
+class TestReviewFindings:
+    """Cases from the review of the draft pull request (#162)."""
+
+    def test_a_moved_segment_does_not_keep_its_old_minute(self):
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140)]
+        )
+        assert kinds(planner) == [(KIND_PLAN, "a", "11:00")]
+
+        write = give(
+            planner,
+            [segment(NOW, "a", 120, mode="heat_pump", setpoint_f=140)],
+            now=minutes(1),
+            intent_id="i-2",
+        )
+
+        assert write is not None
+        assert kinds(planner) == [(KIND_PLAN, "a", "12:00")]
+        assert [e.fires_at.strftime("%H:%M") for e in write.removed] == [
+            "11:00"
+        ]
+
+    def test_a_near_term_entry_is_not_shifted_past_the_next_segment(self):
+        # Another entry holds 10:02, where the near-term entry for the
+        # segment in force would go. Moving it to 10:03 collides with the
+        # next segment's entry, and 10:04 would undo that segment.
+        other = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": 10,
+            "min": 2,
+            "mode": 3,
+            "param": 110,
+        }
+        owner = OwnerProgram("energy_saver", OWNER_SETPOINT, False, (other,))
+        observed = obs(reservations=(other,))
+        planner = planner_with(
+            [
+                segment(NOW, "now", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "next", 3, setpoint_f=130),
+            ],
+            observed=observed,
+            owner=owner,
+        )
+        assert kinds(planner) == [(KIND_PLAN, "next", "10:03")]
+
+    def test_no_raise_in_the_last_two_minutes_of_a_grant(self):
+        running = obs(
+            mode="heat_pump",
+            setpoint_raw=120,
+            compressor_on=True,
+            surplus_on=True,
+        )
+        planner = planner_with(
+            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
+            grants=[grant(NOW, "g", -5, 11, max_f=146)],
+            observed=running,
+            **SURPLUS,
+        )
+        # Surplus has lasted ten minutes, but the raise could only fire at
+        # 10:12, after the grant ends at 10:11.
+        assert run(planner, minutes(10), running) is None
+        assert planner.raise_state is None

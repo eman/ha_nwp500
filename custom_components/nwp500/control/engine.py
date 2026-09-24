@@ -743,6 +743,10 @@ class Planner:
         target = min(grant.max_raw, ceiling) if ceiling else grant.max_raw
         if target <= state.setpoint_raw:
             return
+        if near_term_minute(now, NEAR_TERM_LEAD) >= grant.end:
+            # The raise would fire at or after the grant's end, with or
+            # after its guard, and nothing on the device would end it.
+            return
         entry = self._near_term(
             KIND_GRANT_RAISE, grant.id, State("heat_pump", target), now
         )
@@ -881,17 +885,14 @@ class Planner:
                 state.mode,
                 state.setpoint_raw,
             )
-            already = next(
-                (
-                    e
-                    for e in owned_now
-                    if e.kind == KIND_PLAN
-                    and e.serves == segment.id
-                    and State(e.mode, e.setpoint_raw) == state
-                ),
-                None,
-            )
-            if already is None and segment.start < now + NEAR_TERM_LEAD:
+            # Placed now, past any collision, so that an entry already on
+            # the device is reused only if it is this entry exactly: same
+            # segment, state and minute (section 5.6). A plan that moves a
+            # segment's start must not keep the old minute's entry.
+            placed = self._place(entry, occupied)
+            if placed != entry:
+                warnings.append(WARNING_MOVED)
+            if placed not in owned_now and segment.start < now + NEAR_TERM_LEAD:
                 # Too close to program; it is asserted when it begins.
                 info[segment.id] = _SegmentInfo(False, warnings=tuple(warnings))
                 continue
@@ -900,8 +901,11 @@ class Planner:
                     False, REASON_BEYOND_HORIZON, tuple(warnings)
                 )
                 continue
-            candidates.append((segment, already or entry))
-            info[segment.id] = _SegmentInfo(True, warnings=tuple(warnings))
+            occupied.append(placed.slot)
+            candidates.append((segment, placed))
+            info[segment.id] = _SegmentInfo(
+                True, warnings=tuple(warnings), fires_at=placed.fires_at
+            )
 
         room = min(
             cap.entry_limit - len(others) - cap.entry_reserve,
@@ -915,24 +919,29 @@ class Planner:
                 previous, candidate=False, reason=REASON_ENTRY_BUDGET
             )
 
-        desired: list[OwnedEntry] = []
-        for entry in [e for _, e in chosen] + extra:
-            placed = entry
-            while any(slots_collide(placed.slot, slot) for slot in occupied):
-                placed = replace(
-                    placed, fires_at=placed.fires_at + timedelta(minutes=1)
-                )
-            if placed is not entry and entry.kind == KIND_PLAN and entry.serves:
-                previous = info[entry.serves]
-                info[entry.serves] = replace(
-                    previous, warnings=(*previous.warnings, WARNING_MOVED)
-                )
+        desired: list[OwnedEntry] = [e for _, e in chosen]
+        # Slots of the plan entries that will not be written go free again.
+        occupied = [entry_slot(entry) for entry, _ in others] + [
+            e.slot for e in desired
+        ]
+        for entry in extra:
+            placed = self._place(entry, occupied)
+            # A near-term or guard entry moved to, or past, the next
+            # segment's start would undo that segment. The segment's own
+            # entry supersedes it there, so it is dropped instead.
+            nxt = (
+                self.plan.next_segment_after(entry.fires_at)
+                if self.plan is not None
+                else None
+            )
+            if (
+                placed != entry
+                and nxt is not None
+                and placed.fires_at >= nxt.start
+            ):
+                continue
             occupied.append(placed.slot)
             desired.append(placed)
-            if entry.kind == KIND_PLAN and entry.serves:
-                info[entry.serves] = replace(
-                    info[entry.serves], fires_at=placed.fires_at
-                )
 
         self._info = info
         scheduled = [
@@ -949,6 +958,18 @@ class Planner:
         else:
             self._programmed_until = None
         return desired
+
+    @staticmethod
+    def _place(
+        entry: OwnedEntry, occupied: list[tuple[int, int, int]]
+    ) -> OwnedEntry:
+        """The entry, moved a minute at a time past any occupied slot."""
+        placed = entry
+        while any(slots_collide(placed.slot, slot) for slot in occupied):
+            placed = replace(
+                placed, fires_at=placed.fires_at + timedelta(minutes=1)
+            )
+        return placed
 
     def _diff(self, desired: list[OwnedEntry], now: datetime) -> Write | None:
         added = [e for e in desired if e not in self.owned]

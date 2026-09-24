@@ -1325,8 +1325,10 @@ CONTROL_MODE_DISABLED: Final = "disabled"
 CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 
 # The mode names a segment may use (spec section 3.4). Vacation and
-# power-off are never accepted: reservations do not run in either, so the
-# plan's next entry would never fire to end them.
+# power-off are never accepted. Entries are skipped during Vacation, so the
+# plan's next entry would never end it; whether an entry with the power-off
+# mode powers the heater off is untested, and the mode command with that
+# value switched the unit tested to Energy Saver (#160).
 CONTROL_MODE_NAMES: Final = (
     "heat_pump",
     "energy_saver",

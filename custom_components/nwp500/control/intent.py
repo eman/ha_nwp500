@@ -9,6 +9,7 @@ the device controller.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -19,6 +20,9 @@ from nwp500.temperature import HalfCelsius
 from ..const import CONTROL_MODE_NAMES
 
 SUPPORTED_PROTOCOLS: tuple[str, ...] = ("0",)
+# A major version, and optionally a minor one: "0" or "0.1". The schema
+# carries the same pattern.
+_PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
 INTENT_ID_MAX_LENGTH = 64
 
 # The one setpoint keyword: the lowest setpoint the feature will write.
@@ -381,6 +385,11 @@ def parse_plan(document: Mapping[str, Any]) -> Plan:
     protocol = document["protocol"]
     if not isinstance(protocol, str):
         raise _reject(REASON_INVALID_DOCUMENT, "protocol must be a string")
+    if not _PROTOCOL_PATTERN.fullmatch(protocol):
+        raise _reject(
+            REASON_INVALID_DOCUMENT,
+            f'protocol {protocol!r} is not a version such as "0" or "0.1"',
+        )
     if protocol.split(".", 1)[0] not in SUPPORTED_PROTOCOLS:
         raise _reject(
             REASON_UNSUPPORTED_PROTOCOL,

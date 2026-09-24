@@ -117,3 +117,36 @@ class TestVersion:
             declaration, telemetry={"delivery_temperature": "sensor.x"}
         )
         assert renamed.version == declaration.version
+
+
+class TestBoundsOnlyTighten:
+    """Options narrow the device's range; they never widen it (#162)."""
+
+    def test_a_wider_option_keeps_the_device_limit(self):
+        declaration = capabilities(
+            control_setpoint_min_f=90, control_setpoint_max_f=160
+        )
+        assert declaration.setpoint_min_raw == 81
+        assert declaration.setpoint_max_raw == 131
+
+    def test_a_narrower_option_applies(self):
+        declaration = capabilities(
+            control_setpoint_min_f=120, control_setpoint_max_f=140
+        )
+        assert declaration.setpoint_min_raw == 98
+        assert declaration.setpoint_max_raw == 120
+
+    def test_options_that_leave_no_range_are_ignored(self):
+        declaration = capabilities(control_setpoint_min_f=155)
+        assert declaration.setpoint_min_raw == 81
+        assert declaration.setpoint_max_raw == 131
+
+    def test_options_apply_before_the_device_range_is_known(self):
+        declaration = build_capabilities(
+            {"control_setpoint_min_f": 120},
+            features=None,
+            feature_version="v",
+            telemetry={},
+        )
+        assert declaration.setpoint_min_raw == 98
+        assert declaration.setpoint_max_raw is None

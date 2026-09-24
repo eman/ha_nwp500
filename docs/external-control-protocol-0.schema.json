@@ -43,7 +43,7 @@
     "mode_name": {
       "type": "string",
       "enum": ["heat_pump", "energy_saver", "high_demand", "electric"],
-      "description": "vacation and power_off are never accepted: reservations do not run in either, so the heater would stay off. Use setpoint \"min\" instead."
+      "description": "vacation and power_off are never accepted. Entries are skipped during Vacation, so the next entry would never end it; an entry with the power-off mode is untested, and the mode command with that value switched the unit tested to Energy Saver (#160). Use setpoint \"min\" instead."
     },
     "segment": {
       "type": "object",

@@ -135,7 +135,7 @@ class DeviceControl:
 
         self.planner = Planner(
             build_capabilities(
-                options,
+                self._effective_options(),
                 features=coordinator.device_features.get(mac_address),
                 feature_version=self._feature_version,
                 telemetry={},
@@ -250,10 +250,18 @@ class DeviceControl:
         self.planner.capabilities = capabilities
         return capabilities
 
+    def _effective_options(self) -> dict[str, Any]:
+        """The options, with the mode that is actually running.
+
+        A hand-edited `live` runs as shadow, and the declaration must say
+        so: a consumer reading `live` would believe writes reach the heater.
+        """
+        return {**self.entry.options, CONF_CONTROL_MODE: self.mode}
+
     def _build_capabilities(self) -> Capabilities:
         owner = self.planner.owner
         capabilities = build_capabilities(
-            self.entry.options,
+            self._effective_options(),
             features=self.coordinator.device_features.get(self.mac_address),
             feature_version=self._feature_version,
             telemetry=self._telemetry_entity_ids(),

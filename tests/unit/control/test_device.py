@@ -267,6 +267,9 @@ class TestStart:
     async def test_live_is_run_as_shadow(self, control_factory):
         control = await control_factory(**{CONF_CONTROL_MODE: "live"})
         assert control.mode == "shadow"
+        # The declaration says what actually runs (#162).
+        assert control.capabilities.mode == "shadow"
+        assert control.planner.capabilities.mode == "shadow"
 
 
 class TestIntake:

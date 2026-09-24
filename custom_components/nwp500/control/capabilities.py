@@ -163,6 +163,40 @@ def _raw_from_feature(features: Any, name: str) -> int | None:
     return raw
 
 
+def _bounds(
+    options: Mapping[str, Any], features: Any
+) -> tuple[int | None, int | None]:
+    """The setpoint bounds: the device's range, tightened by the options.
+
+    An option can only narrow the range. A minimum below the device's, or a
+    maximum above it, would let a plan carry setpoints the heater cannot
+    apply, so the device's own limit wins. If the options leave no range at
+    all within the device's, they are ignored.
+    """
+    device_min = _raw_from_feature(features, "dhw_temperature_min_raw")
+    device_max = _raw_from_feature(features, "dhw_temperature_max_raw")
+    option_min = _raw_from_option_f(options.get(CONF_CONTROL_SETPOINT_MIN_F))
+    option_max = _raw_from_option_f(options.get(CONF_CONTROL_SETPOINT_MAX_F))
+
+    low = (
+        option_min
+        if device_min is None
+        else max(
+            device_min, option_min if option_min is not None else device_min
+        )
+    )
+    high = (
+        option_max
+        if device_max is None
+        else min(
+            device_max, option_max if option_max is not None else device_max
+        )
+    )
+    if low is not None and high is not None and low > high:
+        return device_min, device_max
+    return low, high
+
+
 def build_capabilities(
     options: Mapping[str, Any],
     *,
@@ -179,20 +213,7 @@ def build_capabilities(
     `power` to their entity ids, or None where the entity is not
     registered.
     """
-    setpoint_min_raw = _raw_from_option_f(
-        options.get(CONF_CONTROL_SETPOINT_MIN_F)
-    )
-    if setpoint_min_raw is None:
-        setpoint_min_raw = _raw_from_feature(
-            features, "dhw_temperature_min_raw"
-        )
-    setpoint_max_raw = _raw_from_option_f(
-        options.get(CONF_CONTROL_SETPOINT_MAX_F)
-    )
-    if setpoint_max_raw is None:
-        setpoint_max_raw = _raw_from_feature(
-            features, "dhw_temperature_max_raw"
-        )
+    setpoint_min_raw, setpoint_max_raw = _bounds(options, features)
 
     return Capabilities(
         mode=str(options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)),
