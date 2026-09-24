@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Fixed
+- **Turning the water heater off powers it off.** It sent the operation
+  mode command with mode 6, the value the heater reports while powered
+  off. The unit tested took that as Energy Saver and kept running, and a
+  recovery started two minutes later. Turning off now sends the heater's
+  power command, as the Power switch always has; the heater then reports
+  itself off. This covers the card's off control, `water_heater.turn_off`,
+  and restoring "off" when away mode ends. (#160)
+- **Turning the water heater on no longer changes its mode.** It set
+  Energy Saver whatever the heater was doing. It now sends the power
+  command, and only when the heater reports it is off or has not reported
+  yet; a heater that is already on is left as it is. (#160)
 - **The water heater's setpoint range is the device's own.** Its minimum
   and maximum now come from the range the device reports in its feature
   data, instead of the wider 80-150 °F platform constants. A setpoint
