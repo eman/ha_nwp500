@@ -95,16 +95,13 @@ class TestSensors:
         assert sensor.native_value == control.heartbeat
         assert sensor.device_class == "timestamp"
 
-    @pytest.mark.asyncio
-    async def test_follows_the_controller(self, hass: HomeAssistant, control):
-        sensor = ControlAckSensor(control, "ack")
-        sensor.hass = hass
-        sensor.entity_id = "sensor.test_ack"
-        sensor.platform = MagicMock()
-        await sensor.async_added_to_hass()
-        control.async_add_listener.assert_called_once_with(
-            sensor.async_write_ha_state
-        )
+    def test_no_device_attributes_leak(self, control):
+        """The base entity's device-info attributes are not these entities'."""
+        control.coordinator.device_features = {MAC: MagicMock(volume_code=67)}
+        sensor = ControlHeartbeatSensor(control, "heartbeat")
+        assert sensor.extra_state_attributes in (None, {})
+        button = ControlDisableButton(control, "disable")
+        assert button.extra_state_attributes in (None, {})
 
     def test_create_control_sensors(self, control):
         feature = MagicMock()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Any, override
 
 from ..entity import NWP500Entity
 
@@ -39,3 +39,8 @@ class NWP500ControlEntity(NWP500Entity):
     def available(self) -> bool:
         """The feature is available while it is loaded."""
         return True
+
+    @override
+    def _build_extra_state_attributes(self) -> dict[str, Any]:
+        """No device attributes: each entity's attributes are its own."""
+        return {}

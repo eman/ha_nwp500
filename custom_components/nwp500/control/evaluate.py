@@ -41,9 +41,8 @@ class DirectiveAck:
 
     def as_attribute(self) -> dict[str, Any]:
         """The directive's entry in the ack entity's attributes."""
-        echoed = {k: v for k, v in self.extra.items() if not k.startswith("_")}
         return {
-            **echoed,
+            **self.extra,
             "id": self.id,
             "type": self.type,
             "status": self.status,

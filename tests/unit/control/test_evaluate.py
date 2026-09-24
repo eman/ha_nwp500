@@ -176,12 +176,17 @@ class TestEvaluateIntent:
         assert ack.directives[1].status == STATUS_SHADOW
         assert ack.directives[1].reason == REASON_TYPE_NOT_LIVE
 
-    def test_private_keys_are_not_echoed(self, now, parse):
+    def test_only_the_document_keys_are_echoed(self, now, parse):
         intent = parse(
             make_document(now, [directive(now, "charge", target_c=55)])
         )
         ack = evaluate_intent(intent, capabilities(), now=now)
-        assert "_unit" not in ack.as_attributes()["directives"][0]
+        assert set(ack.as_attributes()["directives"][0]) == {
+            "id",
+            "type",
+            "status",
+            "reason",
+        }
 
     def test_rejected_ack(self):
         ack = rejected_ack("i-9", "unsupported_protocol", "protocol '2'")

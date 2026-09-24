@@ -157,6 +157,10 @@ class TestAcceptedDocuments:
         assert stored["directives"][0]["target_c"] == 52.5
         assert "target_f" not in stored["directives"][0]
         assert stored["directives"][2]["max_f"] == pytest.approx(146, abs=0.5)
+        assert intent.directives[0].temperature_unit == "c"
+        assert not [
+            k for d in stored["directives"] for k in d if k.startswith("_")
+        ]
 
     def test_is_stale(self, now, parse):
         intent = parse(make_document(now, valid_for=10))

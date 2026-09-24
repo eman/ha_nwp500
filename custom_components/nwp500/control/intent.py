@@ -88,8 +88,10 @@ class Directive:
     type: str
     start: datetime
     end: datetime
-    # The charge target or the surplus-grant maximum, in half-degrees C.
+    # The charge target or the surplus-grant maximum, in half-degrees C,
+    # and the unit it was given in (`f` or `c`), so it is echoed the same.
     temperature_raw: int | None = None
+    temperature_unit: str | None = None
     mode: str | None = None
     request: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
@@ -121,17 +123,13 @@ class Directive:
             doc["request"] = self.request
         elif self.temperature_raw is not None:
             key = "target" if self.type == "charge" else "max"
-            unit = self.extra_unit
+            unit = self.temperature_unit or "f"
             value = HalfCelsius(self.temperature_raw)
-            doc[f"{key}_{unit}"] = (
-                value.to_celsius() if unit == "c" else value.to_fahrenheit()
+            doc[f"{key}_{unit}"] = round(
+                value.to_celsius() if unit == "c" else value.to_fahrenheit(),
+                1,
             )
         return doc
-
-    @property
-    def extra_unit(self) -> str:
-        """The unit the temperature was given in, `f` or `c`."""
-        return str(self.extra.get("_unit", "f"))
 
 
 @dataclass(frozen=True)
@@ -247,15 +245,18 @@ def _parse_directive(raw: Any, index: int) -> Directive:
 
     extra = {k: v for k, v in raw.items() if k not in _DIRECTIVE_KEYS}
     temperature_raw: int | None = None
+    temperature_unit: str | None = None
     mode: str | None = None
     request = False
 
     if directive_type == "charge":
-        temperature_raw, unit = _parse_temperature(raw, "target", where)
-        extra["_unit"] = unit
+        temperature_raw, temperature_unit = _parse_temperature(
+            raw, "target", where
+        )
     elif directive_type == "surplus_grant":
-        temperature_raw, unit = _parse_temperature(raw, "max", where)
-        extra["_unit"] = unit
+        temperature_raw, temperature_unit = _parse_temperature(
+            raw, "max", where
+        )
     elif directive_type == "mode":
         mode = raw.get("mode")
         if mode not in CONTROL_MODE_NAMES:
@@ -276,6 +277,7 @@ def _parse_directive(raw: Any, index: int) -> Directive:
         start=start,
         end=end,
         temperature_raw=temperature_raw,
+        temperature_unit=temperature_unit,
         mode=mode,
         request=request,
         extra=extra,
