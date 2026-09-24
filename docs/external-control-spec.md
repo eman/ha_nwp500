@@ -63,7 +63,7 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
    that no entry changes the mode until setpoints have been proven.
 3. **The dashboard gets only a Disable button** (section 4.4). Enabling, going
    live and changing bounds happen in the options flow.
-4. **Nothing goes live before the device tests in section 8.**
+4. **Nothing goes live before the remaining device tests in section 8.**
 5. **Experimental until proven.** Protocol `0` ships in pre-releases. Protocol
    `1`, with compatibility promises, follows only after a staged live
    cut-over on a real heater.
@@ -111,7 +111,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 |---|---|
 | The scheduler stops publishing | The feature keeps programming the stored plan's remaining segments as room frees up. The heater runs the plan to its last segment, and that state holds until a new plan. Nothing is withdrawn. |
 | Home Assistant, or this feature | The heater runs the entries already programmed, up to `programmed_until` (section 4.2), then holds the last programmed segment. A surplus raise in progress ends at its guard entry (section 5.7). Entries that have fired are not removed, so after a week the device repeats the programmed run in order. |
-| The Navien cloud, or the device's connection | Entries already on the device fire, since the device runs them locally (section 8 confirms this). List writes fail and are retried. |
+| The Navien cloud, or the device's connection | Entries already on the device should fire, since the device runs them locally; this is untested (section 8, test 11). List writes fail and are retried. |
 | Home Assistant comes back | The feature reads the device's list and reconciles (section 6.5). It never removes an unfired entry of the stored plan. |
 
 ---
@@ -163,10 +163,11 @@ example:
   heats only to the minimum.
 - **An assisted recovery** is a segment in the declared `assisted_mode`.
 
-`vacation` and `power_off` are never accepted as a segment's mode. According
-to the library's docs, reservations do not execute while the heater is powered
-off and are suspended during vacation, so the plan's next entry would never
-fire and the heater would stay off. Use `setpoint: "min"` instead.
+`vacation` and `power_off` are never accepted as a segment's mode. Entries are
+skipped during Vacation (section 8), so the plan's next entry would never fire
+to end it. Whether an entry with the power-off mode powers the heater off is
+untested, and the mode command with that value switched the unit tested to
+Energy Saver instead (#160). Use `setpoint: "min"` instead.
 
 ### 3.3 Surplus grants
 
@@ -294,7 +295,7 @@ All belong to the device. Names are indicative; unique ids are
 | `assisted_mode` | The mode a scheduler should use for faster recovery. Option; default `energy_saver`. It MUST be one of `allowed_modes`. A scheduler reads it instead of naming a mode, so its plans work with other heaters |
 | `horizon_h` | How far ahead an entry may be programmed: 144 (section 5.3) |
 | `near_term_lead_min` | How far ahead a near-term entry is written: 2 (section 5.2) |
-| `entry_limit` | The most entries the device holds. Option, default **7** until section 8 measures it; the library's docs say about 16 |
+| `entry_limit` | The most entries the feature will use on the device. Option, default **16**. The unit tested accepted and read back a list of 32 (section 8); larger lists are untested |
 | `entry_reserve` | Entries kept free for near-term entries and surplus raises. Option, default 2 |
 | `entries_available` | `entry_limit` minus every entry on the device and the reserve |
 | `grants_supported` | Whether a surplus entity is configured |
@@ -304,6 +305,10 @@ All belong to the device. Names are indicative; unique ids are
 | `setpoint_write_starts_recovery` | True on the NWP500. Outside a TOU window, a setpoint left above the upper tank started the compressor within about 30 s in 112 of 117 writes, whether the write came from an entry or directly |
 | `setpoint_write_stops_compressor` | True on the NWP500. A setpoint lowered well below the upper tank stopped a running compressor within 5 s |
 | `entry_mode_in_tou_window` | `held` on the NWP500: an entry's mode does not take effect inside a TOU window, while its setpoint does (section 5.8) |
+| `list_write_starts_recovery` | False on the NWP500. Writing the list, with no entry firing, started no recovery in 8 writes, with the tank below the setpoint (section 8) |
+| `unchanged_entry_starts_recovery` | False on the NWP500, from one observation: an entry repeating the heater's mode and setpoint started nothing (section 8) |
+| `entries_fire_when_powered_off` | True on the NWP500. An entry fires while the heater is powered off, and powers it on in the entry's mode (section 8). The library's docs say otherwise |
+| `entries_fire_in_vacation` | False on the NWP500. An entry is skipped during Vacation, and does not run late when Vacation ends (section 8) |
 | `telemetry` | Entity ids a consumer can read for this heater: `delivery_temperature` (the upper tank temperature), `compressor_running`, `power`; and `delivery_temperature_dip_f` with `delivery_temperature_dip_min`, the transient dip the delivery-temperature entity shows during a draw without the tank being depleted, which a consumer must not read as depletion (3.4 °F sustained for about 3 minutes on the NWP500's upper probe) |
 
 ### 4.2 State entities
@@ -391,8 +396,8 @@ disabling restores.
 2. **Merged segments.** A segment whose mode and setpoint equal those of the
    segment before it gets no entry. Its status is `merged`.
 3. **Weekday and time.** Each entry has the weekday bit of its local date and
-   its local hour and minute. The feature assumes the device fires entries in
-   Home Assistant's time zone until section 8 confirms it.
+   its local hour and minute. The device fires entries in Home Assistant's
+   time zone (section 8, test 1).
 4. **Near-term entries.** A change that must happen now is written as an entry
    for the first minute that starts at least `near_term_lead_min` (2) minutes
    ahead. This covers a segment already begun when its plan arrives, surplus
@@ -401,9 +406,12 @@ disabling restores.
    would fire a week later. If a write confirms only after its near-term
    entry's minute, the feature checks the read-back. If the heater did not
    change, it removes that entry and writes a new near-term entry.
-6. **One entry per slot.** A plan entry never shares a weekday and minute with
-   another entry on the device, including a switched-off owner entry. It moves
-   to the next free minute, and its segment gets the warning `moved_1_min`.
+6. **One enabled entry per slot.** A plan entry never shares a weekday and
+   minute with another enabled entry on the device. It moves to the next free
+   minute, and its segment gets the warning `moved_1_min`. It may share one
+   with an entry switched off by its own flag, such as an owner entry while
+   live: the device stores both and fires only the enabled one (section 8).
+   Which of two enabled entries in one slot wins is untested.
 7. **Ownership.** Every entry the feature writes is recorded in storage as its
    own, with the segment or grant it serves.
 
@@ -430,7 +438,10 @@ disabling restores.
   Entries it does not own are kept as read, apart from the owner entries'
   enable flags while live (section 5.1).
 - **Whole-list, confirmed.** The list is written whole with the library's
-  confirmed write (`update_reservations_confirmed`), never slot by slot.
+  confirmed write (`update_reservations_confirmed`), never slot by slot. A
+  write counts only once the device reads back the new list: on the unit
+  tested, 2 of about 30 writes were lost with no error, and the device kept
+  its previous list (section 8).
 - **Coalesced.** Changes that arrive while a write is in flight are folded
   into the next write.
 - **Retry once.** An unconfirmed write is retried once after 60 s. After that,
@@ -521,16 +532,26 @@ Documented in `nwp500-python` `docs/how-to/schedule-operation.rst`,
 ### 5.9 Precedence
 
 **While Vacation or power-off is active, or an Anti-Legionella cycle is
-running** (`anti_legionella_operation_busy`), the feature does not write the
-list. Its entries stay on the device.
+running** (`anti_legionella_operation_busy`), the feature makes no setpoint or
+mode writes.
 
-- **Vacation and power-off.** According to the library's docs, reservations
-  are suspended in Vacation and do not execute while the heater is powered
-  off. Entries whose minute passes then are missed, not run late (section 8
-  confirms this). When Vacation or power-off ends, the feature re-asserts the
-  segment in force with a near-term entry (`precedence_exit`).
-- **Anti-Legionella.** Whether an entry firing mid-cycle interrupts the cycle
-  is untested (section 8).
+- **Vacation.** The device skips entries during Vacation, and an entry whose
+  minute passes is missed, not run late (section 8). The feature does not
+  write the list; its entries stay on the device. When Vacation ends, it
+  re-asserts the segment in force with a near-term entry (`precedence_exit`).
+- **Power-off.** The device does **not** skip entries while powered off. An
+  entry fires, and powers the heater back on in the entry's mode (section 8).
+  Without intervention, a person who switches the heater off would have it
+  switched back on by the plan's next entry. So when the feature sees the
+  heater powered off, it turns off its own entries' enable flags, which the
+  device honours (section 8). This is the one list write it makes under
+  precedence. When power returns, it turns them back on and re-asserts the
+  segment in force with a near-term entry (`precedence_exit`). This depends on
+  Home Assistant being up when the heater is switched off. If it is not, the
+  next entry turns the heater back on.
+- **Anti-Legionella.** The feature does not write the list during a cycle.
+  Whether an entry firing mid-cycle interrupts the cycle is untested
+  (section 8).
 - **Vacation and power-off are precedence**, not a person's change to the
   setpoint or mode.
 
@@ -651,7 +672,7 @@ and the stored data.
 | Setpoint min / max | The device's `dhw_temperature_min` / `max` |
 | Allowed modes | `energy_saver` |
 | Assisted mode | `energy_saver` |
-| Entry limit | 7, until section 8 measures it |
+| Entry limit | 16 (the unit tested held 32; section 8) |
 | Entry reserve | 2 |
 | Surplus entity | none (a `binary_sensor`, or a kW `sensor` with a threshold) |
 | Surplus threshold (kW, numeric entity only) | 0.45 |
@@ -662,32 +683,46 @@ Changing an option updates the capability entity, and so its version.
 
 ---
 
-## 8. Device tests before any live write
+## 8. Device tests
 
-Each needs the owner present. Each result updates a capability fact or a rule
+Run on one NWP500 on 2026-09-24, through the integration's own services,
+with the owner's reservation list saved beforehand and restored, confirmed by
+read-back, after each test. Each result updates a capability fact or a rule
 in this document.
 
-1. **Clock.** An entry written three minutes ahead fires at that minute in
-   Home Assistant's time zone.
-2. **Near-term entries.** An entry written `near_term_lead_min` ahead fires
-   reliably at its minute, including when the confirmation arrives late.
-3. **Entry limit.** The largest list the device confirms.
-4. **Writing the list.** Whether writing the list, with no entry firing,
-   starts a recovery.
-5. **Same-mode entries.** Whether an entry whose mode equals the current mode
-   still counts as a mode write and starts a recovery.
-6. **Entry mode in a TOU window.** Whether the mode is held until the window
-   ends, applied at the end, or discarded.
-7. **Power-off and Vacation.** Whether entries are skipped, and whether a
-   missed entry runs late when they end.
-8. **Anti-Legionella.** Whether an entry firing mid-cycle interrupts it.
-9. **Per-entry enable flag.** Whether an entry with its own flag off is
-   skipped while the reservation switch is on.
-10. **Slots.** Whether the device accepts two entries on the same weekday and
-    minute when one is switched off.
-11. **Offline.** Whether an entry fires while the device is disconnected from
-    the cloud, and whether the list survives a power cut with the clock
-    resynchronised.
+| # | Test | Result |
+|---|---|---|
+| 1 | **Clock.** An entry fires at its minute in Home Assistant's time zone | **Passed.** Six entries fired at their minute; each change was seen within 5 s |
+| 2 | **Near-term entries.** An entry written `near_term_lead_min` ahead fires at its minute | **Passed** for a write confirmed within 5 s. A confirmation arriving after the minute was not exercised |
+| 3 | **Entry limit.** The largest list the device confirms | **At least 32.** Lists of 7, 16, 17, 20 and 32 entries were confirmed and read back. Larger lists were not tried. One write, of 12 entries, was lost: no error, and the device kept its previous list |
+| 4 | **Writing the list.** Whether a write, with no entry firing, starts a recovery | **No.** 8 writes with the tank 2.2 °F below the setpoint and the compressor off; none started it within 3 minutes |
+| 5 | **Unchanged entries.** Whether an entry repeating the heater's mode and setpoint starts a recovery | **No**, from one observation, in the same conditions as test 4. That it fired is inferred from tests 1 and 2, since it changes nothing observable |
+| 6 | **Entry mode in a TOU window.** Held until the window ends, applied at the end, or discarded | **Not run yet.** It needs a weekday peak window, 16:00–21:10, free of other testing. The library's docs report the mode held in-window |
+| 7 | **Vacation and power-off.** Whether entries are skipped, and whether a missed entry runs late | **Vacation: skipped, and not run late** when Vacation ended. **Power-off: not skipped.** In two runs an entry fired while the heater was powered off by the power command and turned it on: once in Heat Pump, and once in Energy Saver, the entry's mode rather than the mode the heater had. Powered off for 6 minutes with no entries, it stayed off, so the entry did it. This contradicts the library's docs |
+| 8 | **Anti-Legionella.** Whether an entry firing mid-cycle interrupts it | **Not run.** It needs a cycle to be running |
+| 9 | **Per-entry enable flag.** Whether an entry with its own flag off is skipped | **Passed.** The switched-off entry was skipped and the next enabled entry fired |
+| 10 | **Slots.** Two entries on the same weekday and minute, one switched off | **Accepted.** The device stored both and fired only the enabled one |
+| 11 | **Offline.** Whether entries fire while the device is off the cloud, and survive a power cut | **Not run.** It needs physical access to the network or the breaker |
+
+Also observed:
+
+- **Fired entries stay on the device.** An entry is not removed when it
+  fires, so it fires again a week later unless the feature removes it
+  (section 5.3).
+- **A setpoint entry starts a recovery** when it leaves the tank below the
+  new setpoint: the compressor started 35 s after one, as the library reports
+  for direct writes.
+- **An entry's mode takes effect outside a TOU window.** An entry switched the
+  heater from Energy Saver to Heat Pump at its minute.
+- **Powering on re-evaluates.** The heater came back in the mode and setpoint
+  it had, and once, with the tank below the setpoint, started a recovery 30 s
+  later.
+- **The mode command with the power-off value does not power the heater
+  off.** It switched it to Energy Saver. The power command does power it off,
+  and the heater then reports the power-off mode (#160).
+
+Before any live write, tests 6, 8 and 11 remain, and a repeat of test 5 would
+firm up its single observation.
 
 ---
 
@@ -721,10 +756,10 @@ in this document.
 | An override blocked its field until 03:00, including the reservation list | People's changes are reported, never undone or adopted; they last until the next entry | With the list as the interface, a day-long pause would stop the controller |
 | A constant baseline restored after every directive | The owner's program, switched off while live and restored only by disabling | There is no fallback inside a plan |
 | Enabling reservations could re-activate disabled owner entries | Owner entries are switched off by their own enable flags while live | The owner's entries must not fire against the plan |
-| `vacation` and `power_off` excluded without a reason | Still excluded: reservations do not run in power-off or Vacation, so the heater would stay off | `"min"` gives an off that the next entry can end |
+| `vacation` and `power_off` excluded without a reason | Still excluded: entries are skipped in Vacation, and an entry's power-off mode is untested | `"min"` gives an off that the next entry can end |
 | The entry's mode unstated | Every entry carries the full state; a segment may inherit the previous mode | A device entry always sets both |
 | No limit on how far ahead | A 144-hour horizon, and segments programmed in order as the budget allows, reported by `programmed_until` | A weekly entry fires at its next weekday occurrence, and the device holds few entries |
-| Precedence deleted pending entries | Entries stay; the segment in force is re-asserted when Vacation or power-off ends | The device suspends reservations itself |
+| Precedence deleted pending entries | In Vacation, entries stay and the segment in force is re-asserted afterwards. At power-off, the feature switches its own entries off, and back on when power returns | The device skips entries in Vacation, but fires them while powered off and turns the heater back on |
 | `applied` meant a write read back | `programmed`, `in_force` and `ended`, with read-back after each entry | An entry's effect is only observable when it fires |
 | The TOU lever | Removed | Nothing on the device could undo it |
 
@@ -742,12 +777,14 @@ in this document.
    reconciling; surplus grants; the program, in-sync, programmed-until and
    wanted entities; people's changes. This replaces the first draft's shadow
    engine.
-4. **The device tests** in section 8.
+4. **The device tests** in section 8. Most were run on 2026-09-24; tests 6,
+   8 and 11 remain.
 5. **Live list writes** for segments, starting with a single allowed mode;
    then more modes; then grants.
 6. **Protocol `1`** after a staged live cut-over.
 
-Related: #157 (`water_heater` service reports success in two failure cases).
+Related: #157 (`water_heater` service reports success in two failure cases);
+#160 (turning the water heater off switched it to Energy Saver).
 Device behaviour this relies on is documented in `nwp500-python`
 (`docs/explanation/what-starts-a-recovery.rst`, eman/nwp500-python#147;
 `docs/explanation/tou-recovery-cap.rst`; `docs/how-to/schedule-operation.rst`).
