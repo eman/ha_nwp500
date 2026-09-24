@@ -5,24 +5,23 @@
 ### Added
 - **External control (experimental, protocol 0).** An optional, off-by-default
   feature that lets an external scheduler control the heater through an
-  intent entity: the scheduler publishes what the heater should do and when,
-  and the integration validates it, reports through entities and, in later
-  steps, carries it out and restores the heater afterwards. This release has
-  the first three delivery steps of #158: the specification page with the
-  JSON Schema and examples (`docs/external-control.md`); the options toggle
-  and form; intake and validation of intent documents with the stored intent
-  surviving a restart; the Control Capabilities, Intent, Acknowledgement and
-  Heartbeat sensors; the Disable button; and shadow execution, which plans
-  what it would write without writing it: directives become reservation
-  entries and direct writes within an entry budget, with closing and
-  daily-revert entries; a person's change is honoured as an override; a
-  running compressor is never stopped early; surplus grants raise once per
-  cycle; and every restore to the baseline is simulated and reported. The
-  Wanted Mode, Wanted Setpoint, Wanted TOU, Wanted Reservation Hash, Last
-  Restore, Restore Matched and Override entities show the result. `shadow`
-  is the only selectable mode; the baseline is provisional until `live`
-  exists. With the feature off nothing of it loads, and a regression test
-  holds set-up to what it was before. (#158)
+  intent entity. The scheduler publishes a plan, a timeline of setpoints and
+  modes, and the feature programs it into the heater's own reservation list,
+  so the heater keeps following it if Home Assistant or the scheduler becomes
+  unavailable. This release has the first three delivery steps of #158: the
+  specification with its JSON Schema and examples (`docs/`); the options
+  toggle and form; intake and validation of plans, kept across a restart; and
+  shadow programming, which plans the reservation list it would write without
+  writing it. That covers one entry per segment, near-term entries for
+  changes needed now, a 144-hour horizon and an entry budget, surplus grants
+  with a guard entry at the grant's end, the owner's own entries kept aside,
+  and reports of people's changes. Entities show the capability declaration,
+  the plan, its acknowledgement, the program and whether the device matches
+  it, how far the programmed plan reaches, the next entry, the wanted state,
+  any surplus raise, the last write, people's changes and a heartbeat, with
+  a Disable button. `shadow` is the only selectable mode. With the feature
+  off nothing of it loads, and a regression test holds set-up to what it was
+  before. (#158)
 
 ### Fixed
 - **The water heater's setpoint range is the device's own.** Its minimum

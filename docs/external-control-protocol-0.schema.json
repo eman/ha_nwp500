@@ -1,36 +1,35 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/eman/ha_nwp500/docs/external-control-protocol-0.schema.json",
-  "title": "NWP500 external control intent, protocol 0",
-  "description": "An intent document tells the integration's external control feature what the heater should do and when. Top-level keys are attributes of the intent entity. Rules that span fields (valid_until after issued_at, unique directive ids, window ordering, the overlap rules, and the device's capability limits) are checked by the feature and are listed in docs/external-control.md.",
+  "title": "NWP500 external control plan, protocol 0",
+  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, bounds, allowed modes, the horizon and the entry budget) are checked by the feature and are listed in docs/external-control-spec.md.",
   "type": "object",
-  "required": ["protocol", "intent_id", "issued_at", "valid_until", "directives"],
+  "required": ["protocol", "intent_id", "issued_at", "segments"],
   "properties": {
     "protocol": {
       "type": "string",
-      "const": "0",
+      "pattern": "^0(\\.[0-9]+)?$",
       "description": "Protocol version. A major version the feature does not support rejects the document (unsupported_protocol)."
     },
     "intent_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 64,
-      "description": "Unique per intent. The intent entity's state must change on every new intent; use this."
+      "description": "Unique per plan. The intent entity's state must change on every new plan; use this."
     },
     "issued_at": {
-      "type": "string",
-      "format": "date-time",
-      "description": "When the scheduler made the intent. ISO 8601 with a UTC offset."
+      "$ref": "#/$defs/timestamp",
+      "description": "When the scheduler made the plan. An older document never replaces a newer one (superseded)."
     },
-    "valid_until": {
-      "type": "string",
-      "format": "date-time",
-      "description": "After this the intent is stale and the heater is restored to the baseline. Must be later than issued_at. ISO 8601 with a UTC offset."
-    },
-    "directives": {
+    "segments": {
       "type": "array",
-      "description": "Ordered by start. An empty list is an explicit 'no intent': run on the baseline.",
-      "items": { "$ref": "#/$defs/directive" }
+      "description": "The timeline, in strictly increasing order of start. Each segment holds until the next segment's start; the last holds until a new plan. An empty list stops the plan: every programmed entry is withdrawn and the heater keeps its state.",
+      "items": { "$ref": "#/$defs/segment" }
+    },
+    "grants": {
+      "type": "array",
+      "description": "Surplus grants: permission to raise the setpoint while surplus power is available and the compressor is already running.",
+      "items": { "$ref": "#/$defs/grant" }
     }
   },
   "additionalProperties": true,
@@ -39,108 +38,63 @@
       "type": "string",
       "format": "date-time",
       "pattern": "(Z|[+-][0-9]{2}:?[0-9]{2})$",
-      "description": "ISO 8601 with a UTC offset. Naive timestamps are rejected."
+      "description": "ISO 8601 with a UTC offset. Naive timestamps are rejected. Truncated to the minute."
     },
     "mode_name": {
       "type": "string",
       "enum": ["heat_pump", "energy_saver", "high_demand", "electric"],
-      "description": "vacation and power_off are never accepted in a directive."
+      "description": "vacation and power_off are never accepted: reservations do not run in either, so the heater would stay off. Use setpoint \"min\" instead."
     },
-    "directive_base": {
+    "segment": {
       "type": "object",
-      "required": ["id", "type", "start", "end"],
+      "required": ["id", "start"],
       "properties": {
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "Unique within the intent. Named in acknowledgements."
+          "description": "Unique in the document, across segments and grants."
         },
-        "type": {
+        "start": { "$ref": "#/$defs/timestamp" },
+        "setpoint_f": { "type": "number" },
+        "setpoint_c": { "type": "number" },
+        "setpoint": {
+          "const": "min",
+          "description": "The lowest setpoint the feature will write (setpoint_min). Effectively off: it applies inside TOU windows, and the next segment's entry restores normal operation."
+        },
+        "mode": {
+          "$ref": "#/$defs/mode_name",
+          "description": "Required on the first segment. A later segment that omits it keeps the previous segment's mode."
+        }
+      },
+      "oneOf": [
+        { "required": ["setpoint_f"], "not": { "anyOf": [{ "required": ["setpoint_c"] }, { "required": ["setpoint"] }] } },
+        { "required": ["setpoint_c"], "not": { "anyOf": [{ "required": ["setpoint_f"] }, { "required": ["setpoint"] }] } },
+        { "required": ["setpoint"], "not": { "anyOf": [{ "required": ["setpoint_f"] }, { "required": ["setpoint_c"] }] } }
+      ],
+      "additionalProperties": true
+    },
+    "grant": {
+      "type": "object",
+      "required": ["id", "start", "end"],
+      "properties": {
+        "id": {
           "type": "string",
-          "enum": ["charge", "hold_off", "mode", "surplus_grant"]
+          "minLength": 1,
+          "description": "Unique in the document, across segments and grants."
         },
         "start": { "$ref": "#/$defs/timestamp" },
         "end": {
           "$ref": "#/$defs/timestamp",
-          "description": "Must be later than start."
-        }
+          "description": "Must be later than start after truncation, or the grant alone is rejected (invalid_window)."
+        },
+        "max_f": { "type": "number" },
+        "max_c": { "type": "number" }
       },
-      "additionalProperties": true
-    },
-    "one_temperature": {
-      "description": "Exactly one unit, _f or _c.",
-      "oneOf": [
-        { "required": ["target_f"], "not": { "required": ["target_c"] } },
-        { "required": ["target_c"], "not": { "required": ["target_f"] } }
-      ]
-    },
-    "one_maximum": {
-      "description": "Exactly one unit, _f or _c.",
       "oneOf": [
         { "required": ["max_f"], "not": { "required": ["max_c"] } },
         { "required": ["max_c"], "not": { "required": ["max_f"] } }
-      ]
-    },
-    "charge": {
-      "allOf": [
-        { "$ref": "#/$defs/directive_base" },
-        { "$ref": "#/$defs/one_temperature" },
-        {
-          "properties": {
-            "type": { "const": "charge" },
-            "target_f": { "type": "number" },
-            "target_c": { "type": "number" }
-          }
-        }
       ],
-      "description": "From start, heat until the tank reaches the target or end arrives, whichever is first. end is the latest the charge may run. Completion is the compressor stopping, never 'reached setpoint'."
-    },
-    "hold_off": {
-      "allOf": [
-        { "$ref": "#/$defs/directive_base" },
-        { "properties": { "type": { "const": "hold_off" } } }
-      ],
-      "description": "No heating starts in the window, whether or not the heater would start on its own, within the limits of what a lowered setpoint can prevent. Supported only once the owner has enabled it in the options."
-    },
-    "mode": {
-      "allOf": [
-        { "$ref": "#/$defs/directive_base" },
-        {
-          "required": ["mode"],
-          "properties": {
-            "type": { "const": "mode" },
-            "mode": { "$ref": "#/$defs/mode_name" },
-            "request": {
-              "type": "boolean",
-              "default": false,
-              "description": "true marks a person's request: a cycle it starts, or one already running when it arrives, runs to completion."
-            }
-          }
-        }
-      ],
-      "description": "Run in that operation mode for the window. The mode must be in the capability entity's allowed_modes."
-    },
-    "surplus_grant": {
-      "allOf": [
-        { "$ref": "#/$defs/directive_base" },
-        { "$ref": "#/$defs/one_maximum" },
-        {
-          "properties": {
-            "type": { "const": "surplus_grant" },
-            "max_f": { "type": "number" },
-            "max_c": { "type": "number" }
-          }
-        }
-      ],
-      "description": "While the compressor is already running and the configured surplus signal is on, the setpoint may be raised up to the maximum. Requires a configured surplus entity."
-    },
-    "directive": {
-      "oneOf": [
-        { "$ref": "#/$defs/charge" },
-        { "$ref": "#/$defs/hold_off" },
-        { "$ref": "#/$defs/mode" },
-        { "$ref": "#/$defs/surplus_grant" }
-      ]
+      "additionalProperties": true
     }
   }
 }
