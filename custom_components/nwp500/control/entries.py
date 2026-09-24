@@ -15,7 +15,7 @@ from typing import Any
 
 from .. import schedule_state
 from ..const import MODE_TO_DHW_ID
-from .observed import DEVICE_BOOL_ON
+from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
 
 # What an owned entry is for.
 KIND_PLAN = "plan"
@@ -64,6 +64,9 @@ class OwnedEntry:
     fires_at: datetime
     mode: str
     setpoint_raw: int
+    # False while the heater is powered off: entries fire then and would
+    # power it back on, so the feature switches its own off (section 5.9).
+    enabled: bool = True
 
     @property
     def slot(self) -> tuple[int, int, int]:
@@ -82,7 +85,7 @@ class OwnedEntry:
         """The device payload."""
         week, hour, minute = self.slot
         return {
-            "enable": DEVICE_BOOL_ON,
+            "enable": DEVICE_BOOL_ON if self.enabled else DEVICE_BOOL_OFF,
             "week": week,
             "hour": hour,
             "min": minute,
@@ -98,6 +101,7 @@ class OwnedEntry:
             "fires_at": self.fires_at.isoformat(),
             "mode": self.mode,
             "setpoint_raw": self.setpoint_raw,
+            "enabled": self.enabled,
         }
 
     @classmethod
@@ -109,6 +113,7 @@ class OwnedEntry:
             fires_at=datetime.fromisoformat(document["fires_at"]),
             mode=str(document["mode"]),
             setpoint_raw=int(document["setpoint_raw"]),
+            enabled=bool(document.get("enabled", True)),
         )
 
 

@@ -54,7 +54,7 @@ the toggle on opens a second page:
 | Allowed modes | `energy_saver` | Modes a segment may use. A cut-over should start with one |
 | Assisted mode | `energy_saver` | The mode a scheduler should use for faster recovery. Must be one of the allowed modes |
 | Minimum run before lowering a surplus raise (min) | 120 | Section 5.7 |
-| Reservation entry limit / reserve | 7 / 2 | The most entries the device holds, and how many are kept free for changes needed now. The device's true limit is unverified |
+| Reservation entry limit / reserve | 16 / 2 | The most entries the feature uses, and how many are kept free for changes needed now. The unit tested held 32; larger lists are untested |
 
 Changing any option updates the capability entity, and so its version.
 Options from the first draft of the specification are removed the next time
@@ -202,8 +202,10 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
   each one off by its own enable flag, so none fires against the plan, and
   switches them back on when it is disabled. They count against the entry
   limit.
-- **One entry per minute.** A plan entry that would share a weekday and minute
-  with another entry moves a minute later, with the warning `moved_1_min`.
+- **One enabled entry per minute.** A plan entry that would share a weekday
+  and minute with another enabled entry moves a minute later, with the
+  warning `moved_1_min`. It may share one with a switched-off entry, such as
+  your own while live: the device fires only the enabled one.
 - **Replacing a plan.** Entries the new plan also wants are kept. A plan
   republished unchanged writes nothing, so it does not undo a person's
   change.
@@ -242,7 +244,7 @@ Grant statuses are `waiting`, `raised`, `ended` and `rejected`.
 | `grants_supported`, `grant_rules` | Whether grants can run, and their timing |
 | `owner_program` | What disabling restores: `declared`, `mode`, `setpoint_f`, `setpoint_c`, `reservations_enabled`, `entries`. `declared: false` is the provisional snapshot shadow uses |
 | `lower_trigger_f` | 104.9: the lower-tank turn-on temperature, which does not follow the setpoint |
-| `setpoint_write_starts_recovery`, `setpoint_write_stops_compressor`, `entry_mode_in_tou_window` | Device facts a scheduler's model needs |
+| `setpoint_write_starts_recovery`, `setpoint_write_stops_compressor`, `entry_mode_in_tou_window`, `list_write_starts_recovery`, `unchanged_entry_starts_recovery`, `entries_fire_when_powered_off`, `entries_fire_in_vacation` | Device facts a scheduler's model needs; the last four were measured on the unit tested |
 | `telemetry` | Entity ids for the delivery temperature, the compressor and power, and the delivery-temperature dip to ignore |
 
 ## Auditing shadow mode
@@ -269,9 +271,14 @@ the reservation switch turned off. It never undoes them.
 - **The device fires an entry whatever the compressor is doing.** Cycle
   policy, such as a minimum run before stopping, is the scheduler's: it
   chooses segment times.
-- **While Vacation or power-off is active, or an Anti-Legionella cycle is
-  running**, the feature does not write the list. After Vacation or power-off
-  it re-asserts the segment in force.
+- **While Vacation is active, or an Anti-Legionella cycle is running**, the
+  feature does not write the list. The device skips entries during Vacation,
+  and the feature re-asserts the segment in force when it ends.
+- **Power-off is different: entries still fire, and power the heater back
+  on.** So when the heater is switched off, the feature switches its own
+  entries off by their own flag, and back on when power returns, re-asserting
+  the segment in force. This needs Home Assistant running when the heater is
+  switched off; otherwise the next entry turns it back on.
 - **Unload and restart write nothing.** The programmed entries keep running.
 
 Device behaviour these rules rest on is documented in `nwp500-python`:

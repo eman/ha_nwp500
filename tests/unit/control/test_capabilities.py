@@ -22,7 +22,7 @@ class TestDeclaration:
         assert attrs["assisted_mode"] == "energy_saver"
         assert attrs["horizon_h"] == 144
         assert attrs["near_term_lead_min"] == 2
-        assert attrs["entry_limit"] == 7
+        assert attrs["entry_limit"] == 16
         assert attrs["entry_reserve"] == 2
         assert attrs["grants_supported"] is False
         assert attrs["grant_rules"] == {
@@ -35,6 +35,11 @@ class TestDeclaration:
         assert attrs["setpoint_write_starts_recovery"] is True
         assert attrs["setpoint_write_stops_compressor"] is True
         assert attrs["entry_mode_in_tou_window"] == "held"
+        # Measured on the unit tested (spec section 8).
+        assert attrs["list_write_starts_recovery"] is False
+        assert attrs["unchanged_entry_starts_recovery"] is False
+        assert attrs["entries_fire_when_powered_off"] is True
+        assert attrs["entries_fire_in_vacation"] is False
         assert attrs["setpoint_resolution_c"] == 0.5
         assert attrs["entries_available"] is None
 

@@ -450,7 +450,7 @@ class TestReading:
         control = await control_factory()
         attrs = control.capabilities.as_attributes()
         assert attrs["owner_program"]["mode"] == "energy_saver"
-        assert attrs["entries_available"] == 5
+        assert attrs["entries_available"] == 14
 
     @pytest.mark.asyncio
     async def test_telemetry_resolves_registered_entities(

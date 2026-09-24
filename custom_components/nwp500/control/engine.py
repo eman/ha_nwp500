@@ -90,6 +90,7 @@ WRITE_NEAR_TERM = "near_term"
 WRITE_GRANT_RAISE = "grant_raise"
 WRITE_GRANT_LOWER = "grant_lower"
 WRITE_PRECEDENCE_EXIT = "precedence_exit"
+WRITE_POWER_OFF = "power_off"
 WRITE_DISABLE = "disable"
 
 # People's changes, as the override entity reports them (section 5.10).
@@ -519,9 +520,33 @@ class Planner:
 
         desired = self._desired(now, observed)
         self.next_event_at = self._next_event(now)
+        if self.suspended_by == "power_off":
+            return self._switch_off_owned(now)
         if self.suspended_by:
             return None
         return self._diff(desired, now)
+
+    def _switch_off_owned(self, now: datetime) -> Write | None:
+        """Section 5.9: switch the feature's entries off while powered off.
+
+        The device fires entries while the heater is powered off, and an
+        entry powers it back on. So the feature's own unfired entries are
+        switched off by their enable flag, unchanged otherwise. This is the
+        one list write made under precedence. When power returns, the next
+        pass writes them enabled again and re-asserts the segment in force.
+        """
+        unfired = [e for e in self.owned if e.fires_at + FIRED_GRACE > now]
+        desired = [replace(e, enabled=False) for e in unfired]
+        if all(not e.enabled for e in unfired):
+            return None
+        return Write(
+            reason=WRITE_POWER_OFF,
+            at=now,
+            added=tuple(e for e in desired if e not in self.owned),
+            removed=tuple(e for e in self.owned if e not in desired),
+            result=tuple(desired),
+            simulated=self.shadow,
+        )
 
     def commit(self, write: Write) -> None:
         """Record a write as done: confirmed in live, simulated in shadow."""
@@ -847,7 +872,7 @@ class Planner:
         """The owned entries the device should hold now (sections 5.2-5.3)."""
         cap = self.capabilities
         others = self.others(observed)
-        occupied = [entry_slot(entry) for entry, _ in others]
+        occupied = self._occupied(others)
         extra = [e.localised(self.tz) for e in self.extra]
         owned_now = {e for e in self.owned if e.fires_at + FIRED_GRACE > now}
 
@@ -921,9 +946,7 @@ class Planner:
 
         desired: list[OwnedEntry] = [e for _, e in chosen]
         # Slots of the plan entries that will not be written go free again.
-        occupied = [entry_slot(entry) for entry, _ in others] + [
-            e.slot for e in desired
-        ]
+        occupied = self._occupied(others) + [e.slot for e in desired]
         for entry in extra:
             placed = self._place(entry, occupied)
             # A near-term or guard entry moved to, or past, the next
@@ -958,6 +981,22 @@ class Planner:
         else:
             self._programmed_until = None
         return desired
+
+    @staticmethod
+    def _occupied(
+        others: list[tuple[dict[str, int], bool]],
+    ) -> list[tuple[int, int, int]]:
+        """Slots a plan entry must not share (section 5.2.6).
+
+        Only enabled entries count. The device stores two entries in one
+        minute and fires only the enabled one (section 8, test 10), and the
+        owner's entries are switched off by their own flag while live.
+        """
+        return [
+            entry_slot(entry)
+            for entry, is_owner in others
+            if not is_owner and entry.get("enable") == 2
+        ]
 
     @staticmethod
     def _place(

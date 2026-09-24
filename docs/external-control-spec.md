@@ -326,7 +326,7 @@ Each is a **state**, so history and statestream carry it:
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
 | `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `setpoint` |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `disable`), `added`, `removed`, `confirmed` |
+| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `disable`), `added`, `removed`, `confirmed` |
 | `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | `field`, `value`, `detected_at`, `segment` |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
 

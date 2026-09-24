@@ -1341,11 +1341,12 @@ DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW: Final = 0.45
 DEFAULT_CONTROL_ALLOWED_MODES: Final = ("energy_saver",)
 DEFAULT_CONTROL_ASSISTED_MODE: Final = "energy_saver"
 DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN: Final = 120
-# The device's true entry limit is unverified: the library's docs say about
-# 16. The default stays at 7 until it is measured (spec section 8).
-DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 7
+# The unit tested accepted and read back a list of 32 entries (spec
+# section 8); larger lists are untested. The default stays at the library's
+# documented 16, and the option goes no higher than what was measured.
+DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 16
 DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE: Final = 2
-MAX_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 16
+MAX_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 32
 
 # Keys into hass.data[DOMAIN][entry_id].
 DATA_PLATFORMS: Final = "platforms"

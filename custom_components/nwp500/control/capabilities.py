@@ -126,6 +126,11 @@ class Capabilities:
             "setpoint_write_starts_recovery": True,
             "setpoint_write_stops_compressor": True,
             "entry_mode_in_tou_window": "held",
+            # Measured on the unit tested (spec section 8).
+            "list_write_starts_recovery": False,
+            "unchanged_entry_starts_recovery": False,
+            "entries_fire_when_powered_off": True,
+            "entries_fire_in_vacation": False,
         }
         for name, raw in (
             ("min", self.setpoint_min_raw),

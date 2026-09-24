@@ -24,6 +24,7 @@ from custom_components.nwp500.control.engine import (
     WRITE_GRANT_RAISE,
     WRITE_NEAR_TERM,
     WRITE_PLAN,
+    WRITE_POWER_OFF,
     WRITE_PRECEDENCE_EXIT,
     Planner,
     State,
@@ -399,27 +400,52 @@ class TestTranslation:
         assert warnings["peak"] == (WARNING_MODE_IN_TOU_WINDOW,)
         assert warnings["peak-setpoint"] == ()
 
-    def test_a_collision_with_another_entry_moves_one_minute(self):
-        owner_entry = {
-            "enable": 1,
+    def test_an_enabled_entry_in_the_slot_moves_the_plan_entry(self):
+        foreign = {
+            "enable": 2,
             "week": MONDAY | 2,
             "hour": 11,
             "min": 0,
             "mode": 3,
             "param": 110,
         }
-        observed = obs(reservations=(owner_entry,))
-        owner = OwnerProgram(
-            "energy_saver", OWNER_SETPOINT, False, (owner_entry,)
+        observed = obs(reservations=(foreign,))
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)],
+            observed=observed,
+        )
+        assert kinds(planner) == [(KIND_PLAN, "a", "11:01")]
+        ack = {a.id: a for a in planner.ack("i").segments}
+        assert ack["a"].warnings == (WARNING_MOVED,)
+
+    @pytest.mark.parametrize("owner_entry", [True, False])
+    def test_a_switched_off_entry_shares_the_slot(self, owner_entry):
+        """Section 5.2.6: only enabled entries hold a slot.
+
+        The owner's entries are switched off while live, and a foreign
+        entry may be switched off by its own flag. The device stores both
+        and fires only the enabled one (section 8, test 10).
+        """
+        other = {
+            "enable": 2 if owner_entry else 1,
+            "week": MONDAY | 2,
+            "hour": 11,
+            "min": 0,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations=(other,))
+        owner = (
+            OwnerProgram("energy_saver", OWNER_SETPOINT, False, (other,))
+            if owner_entry
+            else OWNER
         )
         planner = planner_with(
             [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)],
             observed=observed,
             owner=owner,
         )
-        assert kinds(planner) == [(KIND_PLAN, "a", "11:01")]
-        ack = {a.id: a for a in planner.ack("i").segments}
-        assert ack["a"].warnings == (WARNING_MOVED,)
+        assert kinds(planner) == [(KIND_PLAN, "a", "11:00")]
 
 
 class TestHorizonAndBudget:
@@ -459,7 +485,9 @@ class TestHorizonAndBudget:
         return segments
 
     def test_segments_beyond_the_budget_wait_in_order(self):
-        planner = planner_with(self._alternating(7))
+        planner = planner_with(
+            self._alternating(7), control_reservation_entry_limit=7
+        )
         # 7 entries, 2 kept in reserve: 5 programmed.
         assert [s for _, s, _ in kinds(planner)] == [
             "s0",
@@ -473,7 +501,9 @@ class TestHorizonAndBudget:
         assert planner.scheduled_count == 2
 
     def test_a_fired_entry_makes_room(self):
-        planner = planner_with(self._alternating(7))
+        planner = planner_with(
+            self._alternating(7), control_reservation_entry_limit=7
+        )
         write = run(planner, minutes(61))
         assert write is not None
         assert write.reason == WRITE_PLAN
@@ -497,7 +527,10 @@ class TestHorizonAndBudget:
             "energy_saver", OWNER_SETPOINT, False, owner_entries
         )
         planner = planner_with(
-            self._alternating(7), observed=observed, owner=owner
+            self._alternating(7),
+            observed=observed,
+            owner=owner,
+            control_reservation_entry_limit=7,
         )
         assert len(planner.owned) == 3
 
@@ -1089,7 +1122,8 @@ class TestReviewFindings:
             "mode": 3,
             "param": 110,
         }
-        owner = OwnerProgram("energy_saver", OWNER_SETPOINT, False, (other,))
+        # An enabled entry that is not the owner's: only enabled entries
+        # hold a slot (section 5.2.6).
         observed = obs(reservations=(other,))
         planner = planner_with(
             [
@@ -1097,7 +1131,6 @@ class TestReviewFindings:
                 segment(NOW, "next", 3, setpoint_f=130),
             ],
             observed=observed,
-            owner=owner,
         )
         assert kinds(planner) == [(KIND_PLAN, "next", "10:03")]
 
@@ -1118,3 +1151,68 @@ class TestReviewFindings:
         # 10:12, after the grant ends at 10:11.
         assert run(planner, minutes(10), running) is None
         assert planner.raise_state is None
+
+
+class TestPowerOff:
+    """Section 5.9: the feature's own entries are off while powered off.
+
+    Entries fire while the heater is powered off and power it back on, so
+    they are switched off by their own flag until power returns.
+    """
+
+    SEGMENTS = [
+        segment(NOW, "now", -5, mode="energy_saver", setpoint_f=139.1),
+        segment(NOW, "a", 60, setpoint_f=140),
+        segment(NOW, "b", 120, setpoint_f=130),
+    ]
+
+    def test_entries_are_switched_off_once(self):
+        planner = planner_with(self.SEGMENTS)
+        assert [e.enabled for e in planner.owned] == [True, True]
+
+        write = run(planner, minutes(5), obs(mode="power_off"))
+
+        assert write is not None
+        assert write.reason == WRITE_POWER_OFF
+        assert [e.enabled for e in planner.owned] == [False, False]
+        assert [e.as_entry()["enable"] for e in planner.owned] == [1, 1]
+        # The same entries, only switched off.
+        assert [(e.serves, e.fires_at) for e in planner.owned] == [
+            ("a", minutes(60)),
+            ("b", minutes(120)),
+        ]
+        # Staying off writes nothing more.
+        assert run(planner, minutes(6), obs(mode="power_off")) is None
+
+    def test_power_returning_switches_them_on_and_re_asserts(self):
+        planner = planner_with(self.SEGMENTS)
+        run(planner, minutes(5), obs(mode="power_off"))
+
+        write = run(planner, minutes(10))
+
+        assert write is not None
+        assert write.reason == WRITE_PRECEDENCE_EXIT
+        assert all(e.enabled for e in planner.owned)
+        assert KIND_PRECEDENCE_EXIT in {e.kind for e in planner.owned}
+
+    def test_nothing_to_switch_off(self):
+        planner = planner_with()
+        assert run(planner, minutes(5), obs(mode="power_off")) is None
+
+    def test_vacation_writes_nothing(self):
+        planner = planner_with(self.SEGMENTS)
+        assert run(planner, minutes(5), obs(mode="vacation")) is None
+        assert all(e.enabled for e in planner.owned)
+
+    def test_the_program_shows_them_switched_off(self):
+        planner = planner_with(self.SEGMENTS)
+        run(planner, minutes(5), obs(mode="power_off"))
+        program = planner.program(obs(mode="power_off"))
+        assert [e["enable"] for e in program["reservation"]] == [1, 1]
+
+    def test_switched_off_entries_survive_a_restart(self):
+        planner = planner_with(self.SEGMENTS)
+        run(planner, minutes(5), obs(mode="power_off"))
+        again = Planner(planner.capabilities, TZ)
+        again.load_document(planner.as_document())
+        assert again.owned == planner.owned
