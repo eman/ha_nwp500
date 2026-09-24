@@ -307,7 +307,7 @@ class DeviceControl:
             return
         baseline = Baseline.from_observed(observed)
         if baseline is not None:
-            self.engine.baseline = baseline
+            self.engine.set_baseline(baseline, dt_util.utcnow(), observed)
             _LOGGER.info(
                 "Provisional baseline for %s: %s at %d half-degrees, TOU %s",
                 self.mac_address,

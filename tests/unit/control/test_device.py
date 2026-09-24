@@ -474,6 +474,34 @@ class TestShadowExecution:
         assert control.wanted.setpoint_raw == 119
 
     @pytest.mark.asyncio
+    async def test_an_intent_adopted_before_the_status_gets_its_entries(
+        self, hass, shadow_factory, now
+    ):
+        _publish(
+            hass,
+            make_document(
+                now,
+                [
+                    directive(
+                        now, "charge", "c", start=60, end=240, target_f=140
+                    )
+                ],
+            ),
+        )
+        control = await shadow_factory(status=None)
+        assert control.wanted.entries == ()
+
+        control.coordinator.data[MAC]["status"] = _status()
+        control.coordinator.async_add_listener.call_args.args[0]()
+        await hass.async_block_till_done()
+
+        assert sorted(e.kind for e in control.wanted.entries) == [
+            "closing",
+            "daily_revert",
+            "start",
+        ]
+
+    @pytest.mark.asyncio
     async def test_a_charge_in_force_is_wanted_and_its_entries_stored(
         self, hass, shadow_factory, now
     ):

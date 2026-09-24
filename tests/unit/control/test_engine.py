@@ -912,3 +912,33 @@ class TestTiming:
         )
         assert engine.wanted.setpoint_raw is None
         assert engine.ack.state == "shadow"
+        assert engine.owned == []
+
+    def test_a_late_baseline_builds_the_entries(self):
+        """The device may report after the intent arrived."""
+        engine = engine_with(
+            [directive(NOW, "charge", "c", start=60, end=240, target_f=140)],
+            baseline=None,
+        )
+        engine.set_baseline(BASELINE, minutes(1), obs())
+        assert engine.wanted.setpoint_raw == BASELINE_SETPOINT
+        assert [e.kind for e in engine.owned] == [KIND_START, KIND_CLOSING]
+        # Setting it again does not duplicate anything.
+        engine.set_baseline(BASELINE, minutes(2), obs())
+        assert len(engine.owned) == 2
+
+    def test_ack_details(self):
+        engine = engine_with(
+            [
+                directive(NOW, "charge", "c", start=-5, end=180, target_f=140),
+                directive(NOW, "hold_off", "h", start=200, end=400),
+            ],
+            observed=obs(upper_tank_raw=118),
+            **HOLD_OFF,
+        )
+        acks = {a.id: a.as_attribute() for a in engine.ack.directives}
+        assert acks["c"]["complete"] is False
+        assert acks["h"]["hold_setpoint_raw"] is None
+        engine.evaluate(minutes(201), obs(upper_tank_raw=118))
+        acks = {a.id: a.as_attribute() for a in engine.ack.directives}
+        assert acks["h"]["hold_setpoint_raw"] == 115

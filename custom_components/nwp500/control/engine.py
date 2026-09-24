@@ -251,6 +251,7 @@ class ControlEngine:
                 status=run.status,
                 reason=run.reason,
                 extra=run.directive.extra,
+                detail=self._run_detail(run),
             )
             for run in self._runs_in_order()
         )
@@ -263,6 +264,16 @@ class ControlEngine:
             state = STATUS_SHADOW if self.shadow else STATUS_PENDING
         return replace(self.document_ack, state=state, directives=acks)
 
+    @staticmethod
+    def _run_detail(run: DirectiveRun) -> dict[str, Any]:
+        """What execution knows about a directive beyond its status."""
+        detail: dict[str, Any] = {}
+        if run.directive.type == "charge":
+            detail["complete"] = run.complete
+        elif run.directive.type == "hold_off":
+            detail["hold_setpoint_raw"] = run.hold_setpoint_raw
+        return detail
+
     def _runs_in_order(self) -> list[DirectiveRun]:
         if self.intent is None:
             return []
@@ -270,7 +281,30 @@ class ControlEngine:
             self.runs[d.id] for d in self.intent.directives if d.id in self.runs
         ]
 
-    # -- intents -----------------------------------------------------------
+    # -- baseline and intents ------------------------------------------------
+
+    def set_baseline(
+        self, baseline: Baseline, now: datetime, observed: Observed
+    ) -> None:
+        """Adopt a baseline; directives admitted without one get entries.
+
+        An intent can arrive before the device has reported, in which case
+        it was admitted against no baseline and owns no entries. Admitting
+        again is idempotent, so every directive is simply re-admitted.
+        """
+        self.baseline = baseline
+        if self.intent is not None:
+            for directive in sorted(
+                self.intent.directives, key=lambda d: d.start
+            ):
+                run = self.runs.get(directive.id)
+                if run is None or (
+                    run.status == STATUS_REJECTED
+                    and run.reason != REASON_ENTRY_BUDGET
+                ):
+                    continue
+                self._admit(directive, now)
+        self.evaluate(now, observed)
 
     def set_intent(
         self, intent: Intent, ack: Ack, now: datetime, observed: Observed

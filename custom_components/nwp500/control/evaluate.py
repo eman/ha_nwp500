@@ -38,6 +38,9 @@ class DirectiveAck:
     status: str
     reason: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    # What execution knows beyond the status: a charge's completion, a
+    # hold-off's fixed setpoint.
+    detail: dict[str, Any] = field(default_factory=dict)
 
     def as_attribute(self) -> dict[str, Any]:
         """The directive's entry in the ack entity's attributes."""
@@ -47,6 +50,7 @@ class DirectiveAck:
             "type": self.type,
             "status": self.status,
             "reason": self.reason,
+            **self.detail,
         }
 
 
