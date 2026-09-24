@@ -306,7 +306,7 @@ All belong to the device. Names are indicative; unique ids are
 | `setpoint_write_stops_compressor` | True on the NWP500. A setpoint lowered well below the upper tank stopped a running compressor within 5 s |
 | `entry_mode_in_tou_window` | `held` on the NWP500: an entry's mode does not take effect inside a TOU window, while its setpoint does (section 5.8) |
 | `list_write_starts_recovery` | False on the NWP500. Writing the list, with no entry firing, started no recovery in 8 writes, with the tank below the setpoint (section 8) |
-| `unchanged_entry_starts_recovery` | False on the NWP500, from one observation: an entry repeating the heater's mode and setpoint started nothing (section 8) |
+| `unchanged_entry_starts_recovery` | False on the NWP500: an entry repeating the heater's mode and setpoint started nothing in 4 runs, with the tank below the setpoint (section 8) |
 | `entries_fire_when_powered_off` | True on the NWP500. An entry fires while the heater is powered off, and powers it on in the entry's mode (section 8). The library's docs say otherwise |
 | `entries_fire_in_vacation` | False on the NWP500. An entry is skipped during Vacation, and does not run late when Vacation ends (section 8) |
 | `telemetry` | Entity ids a consumer can read for this heater: `delivery_temperature` (the upper tank temperature), `compressor_running`, `power`; and `delivery_temperature_dip_f` with `delivery_temperature_dip_min`, the transient dip the delivery-temperature entity shows during a draw without the tank being depleted, which a consumer must not read as depletion (3.4 °F sustained for about 3 minutes on the NWP500's upper probe) |
@@ -696,7 +696,7 @@ in this document.
 | 2 | **Near-term entries.** An entry written `near_term_lead_min` ahead fires at its minute | **Passed** for a write confirmed within 5 s. A confirmation arriving after the minute was not exercised |
 | 3 | **Entry limit.** The largest list the device confirms | **At least 32.** Lists of 7, 16, 17, 20 and 32 entries were confirmed and read back. Larger lists were not tried. One write, of 12 entries, was lost: no error, and the device kept its previous list |
 | 4 | **Writing the list.** Whether a write, with no entry firing, starts a recovery | **No.** 8 writes with the tank 2.2 °F below the setpoint and the compressor off; none started it within 3 minutes |
-| 5 | **Unchanged entries.** Whether an entry repeating the heater's mode and setpoint starts a recovery | **No**, from one observation, in the same conditions as test 4. That it fired is inferred from tests 1 and 2, since it changes nothing observable |
+| 5 | **Unchanged entries.** Whether an entry repeating the heater's mode and setpoint starts a recovery | **No**, in 4 runs with the tank 1.3–2.2 °F below the setpoint, the compressor off and no hot water drawn. That each fired is inferred from tests 1 and 2, since it changes nothing observable |
 | 6 | **Entry mode in a TOU window.** Held until the window ends, applied at the end, or discarded | **Not run yet.** It needs a weekday peak window, 16:00–21:10, free of other testing. The library's docs report the mode held in-window |
 | 7 | **Vacation and power-off.** Whether entries are skipped, and whether a missed entry runs late | **Vacation: skipped, and not run late** when Vacation ended. **Power-off: not skipped.** In two runs an entry fired while the heater was powered off by the power command and turned it on: once in Heat Pump, and once in Energy Saver, the entry's mode rather than the mode the heater had. Powered off for 6 minutes with no entries, it stayed off, so the entry did it. This contradicts the library's docs |
 | 8 | **Anti-Legionella.** Whether an entry firing mid-cycle interrupts it | **Not run.** It needs a cycle to be running |
@@ -721,8 +721,7 @@ Also observed:
   off.** It switched it to Energy Saver. The power command does power it off,
   and the heater then reports the power-off mode (#160).
 
-Before any live write, tests 6, 8 and 11 remain, and a repeat of test 5 would
-firm up its single observation.
+Before any live write, tests 6, 8 and 11 remain.
 
 ---
 
