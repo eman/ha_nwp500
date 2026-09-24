@@ -5,14 +5,44 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import selector
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
+    CONF_CONTROL_ALLOWED_MODES,
+    CONF_CONTROL_ASSISTED_MODE,
+    CONF_CONTROL_DAILY_REVERT_TIME,
+    CONF_CONTROL_ENABLED,
+    CONF_CONTROL_HOLD_OFF_MARGIN_F,
+    CONF_CONTROL_HOLD_OFF_SUPPORTED,
+    CONF_CONTROL_INTENT_ENTITY,
+    CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+    CONF_CONTROL_MODE,
+    CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
+    CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
+    CONF_CONTROL_SETPOINT_MAX_F,
+    CONF_CONTROL_SETPOINT_MIN_F,
+    CONF_CONTROL_SURPLUS_ENTITY,
+    CONF_CONTROL_SURPLUS_THRESHOLD_KW,
+    CONF_CONTROL_TOU_OFF_FOR_MODE,
     CONF_SCAN_INTERVAL,
+    CONTROL_MODE_NAMES,
+    CONTROL_MODES_SELECTABLE,
+    DEFAULT_CONTROL_ALLOWED_MODES,
+    DEFAULT_CONTROL_ASSISTED_MODE,
+    DEFAULT_CONTROL_DAILY_REVERT_TIME,
+    DEFAULT_CONTROL_HOLD_OFF_MARGIN_F,
+    DEFAULT_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+    DEFAULT_CONTROL_MODE,
+    DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
+    DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
+    DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
 )
@@ -207,15 +237,265 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
         )
 
 
+# The setpoint bounds are stored in degF whatever Home Assistant displays,
+# so a later change of unit system cannot misread them. The form shows and
+# takes them in the configured unit.
+_SETPOINT_FORM_KEYS: dict[str, str] = {
+    "control_setpoint_min": CONF_CONTROL_SETPOINT_MIN_F,
+    "control_setpoint_max": CONF_CONTROL_SETPOINT_MAX_F,
+}
+
+# Options the form may leave empty. An empty field clears the stored value
+# rather than keeping it, so "follow the device" can be chosen again.
+_OPTIONAL_CONTROL_KEYS = (
+    CONF_CONTROL_SURPLUS_ENTITY,
+    CONF_CONTROL_SETPOINT_MIN_F,
+    CONF_CONTROL_SETPOINT_MAX_F,
+)
+
+
+def _control_schema(hass: HomeAssistant) -> vol.Schema:
+    """The external control options form."""
+    celsius = hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+    unit = (
+        UnitOfTemperature.CELSIUS if celsius else UnitOfTemperature.FAHRENHEIT
+    )
+    setpoint_selector = selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=20 if celsius else 70,
+            max=70 if celsius else 160,
+            step=0.1,
+            unit_of_measurement=unit,
+            mode=selector.NumberSelectorMode.BOX,
+        )
+    )
+    mode_name_options = list(CONTROL_MODE_NAMES)
+    return vol.Schema(
+        {
+            vol.Required(CONF_CONTROL_INTENT_ENTITY): selector.EntitySelector(),
+            vol.Required(
+                CONF_CONTROL_MODE, default=DEFAULT_CONTROL_MODE
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(CONTROL_MODES_SELECTABLE),
+                    translation_key="control_mode",
+                )
+            ),
+            vol.Required(
+                CONF_CONTROL_HOLD_OFF_SUPPORTED, default=False
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_CONTROL_HOLD_OFF_MARGIN_F,
+                default=DEFAULT_CONTROL_HOLD_OFF_MARGIN_F,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.5,
+                    max=20,
+                    step=0.5,
+                    unit_of_measurement=UnitOfTemperature.FAHRENHEIT,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(CONF_CONTROL_SURPLUS_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain=["binary_sensor", "sensor"]
+                )
+            ),
+            vol.Required(
+                CONF_CONTROL_SURPLUS_THRESHOLD_KW,
+                default=DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=50,
+                    step=0.01,
+                    unit_of_measurement="kW",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional("control_setpoint_min"): setpoint_selector,
+            vol.Optional("control_setpoint_max"): setpoint_selector,
+            vol.Required(
+                CONF_CONTROL_ALLOWED_MODES,
+                default=list(DEFAULT_CONTROL_ALLOWED_MODES),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=mode_name_options,
+                    multiple=True,
+                    translation_key="control_mode_name",
+                )
+            ),
+            vol.Required(
+                CONF_CONTROL_ASSISTED_MODE,
+                default=DEFAULT_CONTROL_ASSISTED_MODE,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=mode_name_options,
+                    translation_key="control_mode_name",
+                )
+            ),
+            vol.Required(
+                CONF_CONTROL_TOU_OFF_FOR_MODE, default=False
+            ): selector.BooleanSelector(),
+            vol.Required(
+                CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+                default=DEFAULT_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=600,
+                    step=1,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Required(
+                CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
+                default=DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1,
+                    max=MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Required(
+                CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
+                default=DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Required(
+                CONF_CONTROL_DAILY_REVERT_TIME,
+                default=f"{DEFAULT_CONTROL_DAILY_REVERT_TIME}:00",
+            ): selector.TimeSelector(),
+        }
+    )
+
+
+def _to_display_unit(hass: HomeAssistant, fahrenheit: Any) -> float | None:
+    if fahrenheit is None:
+        return None
+    if hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS:
+        return round(
+            TemperatureConverter.convert(
+                float(fahrenheit),
+                UnitOfTemperature.FAHRENHEIT,
+                UnitOfTemperature.CELSIUS,
+            ),
+            1,
+        )
+    return float(fahrenheit)
+
+
+def _to_fahrenheit(hass: HomeAssistant, value: Any) -> float | None:
+    if value is None:
+        return None
+    if hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS:
+        return round(
+            TemperatureConverter.convert(
+                float(value),
+                UnitOfTemperature.CELSIUS,
+                UnitOfTemperature.FAHRENHEIT,
+            ),
+            1,
+        )
+    return float(value)
+
+
+def _control_suggested_values(
+    hass: HomeAssistant, options: dict[str, Any]
+) -> dict[str, Any]:
+    """What the form shows for an entry that already has the options."""
+    suggested = {
+        key: value
+        for key, value in options.items()
+        if key.startswith("control_")
+        and key
+        not in (CONF_CONTROL_SETPOINT_MIN_F, CONF_CONTROL_SETPOINT_MAX_F)
+    }
+    for form_key, option_key in _SETPOINT_FORM_KEYS.items():
+        if (
+            value := _to_display_unit(hass, options.get(option_key))
+        ) is not None:
+            suggested[form_key] = value
+    if (revert := options.get(CONF_CONTROL_DAILY_REVERT_TIME)) is not None:
+        suggested[CONF_CONTROL_DAILY_REVERT_TIME] = (
+            revert if revert.count(":") == 2 else f"{revert}:00"
+        )
+    return suggested
+
+
+def _validate_control_input(user_input: dict[str, Any]) -> dict[str, str]:
+    """Cross-field checks the schema cannot express."""
+    errors: dict[str, str] = {}
+    minimum = user_input.get("control_setpoint_min")
+    maximum = user_input.get("control_setpoint_max")
+    if minimum is not None and maximum is not None and minimum >= maximum:
+        errors["control_setpoint_min"] = "setpoint_range"
+    if (
+        user_input[CONF_CONTROL_RESERVATION_ENTRY_RESERVE]
+        >= (user_input[CONF_CONTROL_RESERVATION_ENTRY_LIMIT])
+    ):
+        errors[CONF_CONTROL_RESERVATION_ENTRY_RESERVE] = "reserve_exceeds_limit"
+    allowed = user_input.get(CONF_CONTROL_ALLOWED_MODES) or []
+    if not allowed:
+        errors[CONF_CONTROL_ALLOWED_MODES] = "allowed_modes_empty"
+    elif user_input[CONF_CONTROL_ASSISTED_MODE] not in allowed:
+        errors[CONF_CONTROL_ASSISTED_MODE] = "assisted_mode_not_allowed"
+    return errors
+
+
+def _normalise_control_input(
+    hass: HomeAssistant, user_input: dict[str, Any]
+) -> dict[str, Any]:
+    """Turn form values into stored options."""
+    stored: dict[str, Any] = {
+        key: value
+        for key, value in user_input.items()
+        if key not in _SETPOINT_FORM_KEYS
+    }
+    for form_key, option_key in _SETPOINT_FORM_KEYS.items():
+        value = _to_fahrenheit(hass, user_input.get(form_key))
+        if value is not None:
+            stored[option_key] = value
+    for key in (
+        CONF_CONTROL_MIN_RUN_BEFORE_STOP_MIN,
+        CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
+        CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
+    ):
+        stored[key] = int(stored[key])
+    # The time selector gives HH:MM:SS; the declaration carries HH:MM.
+    stored[CONF_CONTROL_DAILY_REVERT_TIME] = stored[
+        CONF_CONTROL_DAILY_REVERT_TIME
+    ][:5]
+    return stored
+
+
 class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for NWP500 integration."""
+
+    def __init__(self) -> None:
+        """Hold the first page's answers while the second is shown."""
+        self._init_input: dict[str, Any] = {}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            self._init_input = user_input
+            if user_input.get(CONF_CONTROL_ENABLED):
+                return await self.async_step_external_control()
+            return self.async_create_entry(
+                title="", data={**self.config_entry.options, **user_input}
+            )
 
         return self.async_show_form(
             step_id="init",
@@ -230,8 +510,44 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                         vol.Coerce(int),
                         vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                     ),
+                    vol.Optional(
+                        CONF_CONTROL_ENABLED,
+                        default=self.config_entry.options.get(
+                            CONF_CONTROL_ENABLED, False
+                        ),
+                    ): selector.BooleanSelector(),
                 }
             ),
+        )
+
+    async def async_step_external_control(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Configure the external control feature (issue #158)."""
+        errors: dict[str, str] = {}
+        options = dict(self.config_entry.options)
+
+        if user_input is not None:
+            errors = _validate_control_input(user_input)
+            if not errors:
+                for key in _OPTIONAL_CONTROL_KEYS:
+                    options.pop(key, None)
+                data = {
+                    **options,
+                    **self._init_input,
+                    **_normalise_control_input(self.hass, user_input),
+                }
+                return self.async_create_entry(title="", data=data)
+
+        suggested = _control_suggested_values(self.hass, options)
+        if user_input is not None:
+            suggested.update(user_input)
+        return self.async_show_form(
+            step_id="external_control",
+            data_schema=self.add_suggested_values_to_schema(
+                _control_schema(self.hass), suggested
+            ),
+            errors=errors,
         )
 
 

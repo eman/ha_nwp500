@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+- **External control (experimental, protocol 0).** An optional, off-by-default
+  feature that lets an external scheduler control the heater through an
+  intent entity: the scheduler publishes what the heater should do and when,
+  and the integration validates it, reports through entities and, in later
+  steps, carries it out and restores the heater afterwards. This release has
+  the first two delivery steps of #158: the specification page with the JSON
+  Schema and examples (`docs/external-control.md`); the options toggle and
+  form; intake and validation of intent documents with the stored intent
+  surviving a restart; the Control Capabilities, Intent, Acknowledgement and
+  Heartbeat sensors; the Disable button; and `shadow` as the only mode, which
+  writes nothing to the heater. With the feature off nothing of it loads,
+  and a regression test holds set-up to what it was before. (#158)
+
 ### Fixed
 - **The water heater's setpoint range is the device's own.** Its minimum
   and maximum now come from the range the device reports in its feature

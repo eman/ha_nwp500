@@ -23,7 +23,11 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import schedule_state
-from .const import INSTALLER_DIAGNOSTICS_SENSORS, SENSOR_CONFIGS
+from .const import (
+    INSTALLER_DIAGNOSTICS_SENSORS,
+    SENSOR_CONFIGS,
+    control_feature,
+)
 from .coordinator import (
     NWP500ConfigEntry,
     NWP500DataUpdateCoordinator,
@@ -259,6 +263,13 @@ async def async_setup_entry(
                 ),
             ]
         )
+
+    # The external control feature's sensors, when it is on. The import is
+    # inside the branch: nothing of the feature loads while it is off.
+    if (feature := control_feature(hass, config_entry)) is not None:
+        from .control.sensor import create_control_sensors
+
+        entities.extend(create_control_sensors(feature))
 
     async_add_entities(entities, True)
 

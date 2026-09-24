@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryNotReady
 
 from custom_components.nwp500 import (
@@ -24,6 +26,7 @@ from custom_components.nwp500 import (
     async_setup_entry,
     async_unload_entry,
 )
+from custom_components.nwp500.const import DOMAIN
 
 
 @pytest.fixture(autouse=True)
@@ -455,3 +458,178 @@ async def test_async_setup_registers_every_asset_when_all_present():
         CARD_URL,
         VISUAL_CARD_URL,
     ]
+
+
+# --- External control (issue #158): the set-up hook -------------------------
+
+# The platforms the release before the feature forwarded. Spelled out rather
+# than read from PLATFORMS so that a change to the disabled path fails here.
+_PRE_FEATURE_PLATFORMS = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.WATER_HEATER,
+    Platform.SWITCH,
+    Platform.NUMBER,
+]
+
+
+def _hass_for_setup() -> MagicMock:
+    mock_hass = MagicMock()
+    mock_hass.data = {}
+    mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
+    mock_hass.services.has_service = MagicMock(return_value=False)
+    mock_hass.services.async_register = MagicMock()
+    return mock_hass
+
+
+def _entry(options: dict) -> MagicMock:
+    entry = MagicMock()
+    entry.entry_id = "test_entry"
+    entry.options = options
+    return entry
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("options", [{}, {"control_enabled": False}])
+async def test_setup_with_control_off_is_the_pre_feature_setup(options):
+    """Spec section 1.1.5: with the feature off, set-up is unchanged.
+
+    The same platforms are forwarded, nothing of the feature is imported,
+    and nothing of it is registered or stored.
+    """
+    mock_hass = _hass_for_setup()
+    mock_entry = _entry(options)
+    control_modules = [
+        name
+        for name in sys.modules
+        if name.startswith("custom_components.nwp500.control")
+    ]
+
+    with (
+        patch.dict(sys.modules),
+        patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
+    ):
+        for name in control_modules:
+            del sys.modules[name]
+        cls.return_value.async_config_entry_first_refresh = AsyncMock()
+
+        assert await async_setup_entry(mock_hass, mock_entry) is True
+
+        assert not [
+            name
+            for name in sys.modules
+            if name.startswith("custom_components.nwp500.control")
+        ]
+
+    mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
+        mock_entry, _PRE_FEATURE_PLATFORMS
+    )
+    assert mock_hass.data[DOMAIN][mock_entry.entry_id] == {
+        "platforms": _PRE_FEATURE_PLATFORMS
+    }
+    mock_entry.add_update_listener.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_setup_with_control_on_starts_the_feature():
+    mock_hass = _hass_for_setup()
+    mock_entry = _entry({"control_enabled": True})
+
+    with (
+        patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
+        patch(
+            "custom_components.nwp500.control.async_setup_control",
+            new=AsyncMock(return_value=[Platform.BUTTON]),
+        ) as setup_control,
+    ):
+        cls.return_value.async_config_entry_first_refresh = AsyncMock()
+
+        assert await async_setup_entry(mock_hass, mock_entry) is True
+
+    setup_control.assert_awaited_once_with(
+        mock_hass, mock_entry, cls.return_value
+    )
+    mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
+        mock_entry, [*_PRE_FEATURE_PLATFORMS, Platform.BUTTON]
+    )
+
+
+@pytest.mark.asyncio
+async def test_only_the_boolean_true_enables_the_feature():
+    """A truthy option value that is not True must not enable writes."""
+    mock_hass = _hass_for_setup()
+    mock_entry = _entry({"control_enabled": "yes"})
+
+    with patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls:
+        cls.return_value.async_config_entry_first_refresh = AsyncMock()
+        assert await async_setup_entry(mock_hass, mock_entry) is True
+
+    mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
+        mock_entry, _PRE_FEATURE_PLATFORMS
+    )
+
+
+@pytest.mark.asyncio
+async def test_unload_undoes_the_platforms_that_were_forwarded():
+    """Options change before the reload, so unload must not recompute."""
+    mock_hass = MagicMock()
+    mock_hass.config_entries.async_unload_platforms = AsyncMock(
+        return_value=True
+    )
+    mock_hass.services.async_remove = MagicMock()
+    mock_entry = _entry({"control_enabled": False})
+    mock_entry.runtime_data.async_shutdown = AsyncMock()
+    feature = MagicMock()
+    feature.async_stop = AsyncMock()
+    forwarded = [*_PRE_FEATURE_PLATFORMS, Platform.BUTTON]
+    mock_hass.data = {
+        DOMAIN: {
+            mock_entry.entry_id: {"platforms": forwarded, "control": feature}
+        }
+    }
+
+    assert await async_unload_entry(mock_hass, mock_entry) is True
+
+    mock_hass.config_entries.async_unload_platforms.assert_awaited_once_with(
+        mock_entry, forwarded
+    )
+    feature.async_stop.assert_awaited_once()
+    assert mock_entry.entry_id not in mock_hass.data[DOMAIN]
+    mock_entry.runtime_data.async_shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_switching_the_feature_off_removes_it_before_the_reload():
+    """Spec section 1.1.6: entities and stored data go with the toggle."""
+    from custom_components.nwp500 import async_reload_entry
+
+    mock_hass = MagicMock()
+    mock_hass.config_entries.async_reload = AsyncMock()
+    mock_entry = _entry({"control_enabled": False})
+    feature = MagicMock()
+    feature.async_remove = AsyncMock()
+    mock_hass.data = {DOMAIN: {mock_entry.entry_id: {"control": feature}}}
+
+    await async_reload_entry(mock_hass, mock_entry)
+
+    feature.async_remove.assert_awaited_once()
+    mock_hass.config_entries.async_reload.assert_awaited_once_with(
+        mock_entry.entry_id
+    )
+
+
+@pytest.mark.asyncio
+async def test_an_options_change_with_the_feature_on_keeps_it():
+    from custom_components.nwp500 import async_reload_entry
+
+    mock_hass = MagicMock()
+    mock_hass.config_entries.async_reload = AsyncMock()
+    mock_entry = _entry({"control_enabled": True})
+    feature = MagicMock()
+    feature.async_remove = AsyncMock()
+    mock_hass.data = {DOMAIN: {mock_entry.entry_id: {"control": feature}}}
+
+    await async_reload_entry(mock_hass, mock_entry)
+
+    feature.async_remove.assert_not_awaited()
+    mock_hass.config_entries.async_reload.assert_awaited_once()

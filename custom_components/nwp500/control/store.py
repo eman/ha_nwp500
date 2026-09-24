@@ -1,0 +1,71 @@
+"""Persistent state of the feature, one file per config entry.
+
+Holds the last accepted intent per device, so a restart with the intent
+source unavailable does not lose it (spec section 2.1). Later steps add the
+reservation entries the feature owns and the overrides it is honouring.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from homeassistant.helpers.storage import Store
+
+from ..const import DOMAIN
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+STORAGE_VERSION = 1
+
+
+def storage_key(entry_id: str) -> str:
+    """The storage key for an entry's control state."""
+    return f"{DOMAIN}.control.{entry_id}"
+
+
+class ControlStore:
+    """Typed access to the feature's storage file."""
+
+    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+        """Bind to the entry's file; nothing is read until `async_load`."""
+        self._store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, storage_key(entry_id)
+        )
+        self._data: dict[str, Any] = {"devices": {}}
+
+    async def async_load(self) -> None:
+        """Read the file, if there is one."""
+        loaded = await self._store.async_load()
+        if loaded:
+            self._data = loaded
+            self._data.setdefault("devices", {})
+
+    def _device(self, mac_address: str) -> dict[str, Any]:
+        devices: dict[str, dict[str, Any]] = self._data["devices"]
+        return devices.setdefault(mac_address, {})
+
+    def stored_intent(self, mac_address: str) -> dict[str, Any] | None:
+        """The stored document and its receipt time, or None."""
+        record = self._device(mac_address).get("intent")
+        return dict(record) if record else None
+
+    async def async_set_intent(
+        self, mac_address: str, document: dict[str, Any], received_at: str
+    ) -> None:
+        """Remember the last accepted document."""
+        self._device(mac_address)["intent"] = {
+            "document": document,
+            "received_at": received_at,
+        }
+        await self._store.async_save(self._data)
+
+    async def async_clear_intent(self, mac_address: str) -> None:
+        """Forget the stored document, once it is stale or withdrawn."""
+        if self._device(mac_address).pop("intent", None) is not None:
+            await self._store.async_save(self._data)
+
+    async def async_remove(self) -> None:
+        """Delete the file (the feature was switched off)."""
+        self._data = {"devices": {}}
+        await self._store.async_remove()

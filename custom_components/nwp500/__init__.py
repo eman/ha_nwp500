@@ -31,6 +31,8 @@ from homeassistant.util import dt as dt_util
 
 from . import energy_report
 from .const import (
+    DATA_CONTROL,
+    DATA_PLATFORMS,
     DEFAULT_TEMPERATURE_C,
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
@@ -39,6 +41,8 @@ from .const import (
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
     MODE_TO_DHW_ID,
+    control_enabled,
+    control_feature,
 )
 from .coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
 
@@ -1077,7 +1081,22 @@ async def async_setup_entry(
 
     entry.runtime_data = coordinator
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # The external control feature (issue #158) is optional and additive.
+    # This is its set-up hook: when the option is on, the subpackage is
+    # imported, started, and adds its own platforms. The platforms actually
+    # forwarded are recorded so that unload can undo exactly that set --
+    # an options change reloads the entry after the options have already
+    # changed, so unload cannot recompute them.
+    platforms = list(PLATFORMS)
+    if control_enabled(entry):
+        from .control import async_setup_control
+
+        platforms.extend(await async_setup_control(hass, entry, coordinator))
+    hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})[
+        DATA_PLATFORMS
+    ] = platforms
+
+    await hass.config_entries.async_forward_entry_setups(entry, platforms)
 
     # Register update listener for options changes
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -1090,6 +1109,13 @@ async def async_setup_entry(
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when options are updated."""
+    # Switching external control off removes what it created -- its
+    # entities and its stored data -- before the entry comes back without
+    # it. Only a running feature can do that, so it happens here rather
+    # than on the next set-up, which must not touch the feature at all.
+    feature = control_feature(hass, entry)
+    if feature is not None and not control_enabled(entry):
+        await feature.async_remove()
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -1213,9 +1239,18 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: NWP500ConfigEntry
 ) -> bool:
     """Unload a config entry."""
+    entry_data: dict[str, Any] = hass.data.get(DOMAIN, {}).get(
+        entry.entry_id, {}
+    )
+    platforms = entry_data.get(DATA_PLATFORMS, PLATFORMS)
     if unload_ok := await hass.config_entries.async_unload_platforms(
-        entry, PLATFORMS
+        entry, platforms
     ):
+        if DATA_CONTROL in entry_data:
+            from .control import async_unload_control
+
+            await async_unload_control(hass, entry)
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         await entry.runtime_data.async_shutdown()
 
         for service_name, _handler_attr, _schema in _SERVICES:

@@ -44,12 +44,58 @@
         "title": "NWP500 Options",
         "description": "Configure advanced settings for your Navien NWP500 integration.",
         "data": {
-          "scan_interval": "Update interval (seconds)"
+          "scan_interval": "Update interval (seconds)",
+          "control_enabled": "External control (experimental)"
         },
         "data_description": {
-          "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds."
+          "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds.",
+          "control_enabled": "Let an external scheduler control the heater through an intent entity. Off by default; enabling starts in shadow mode, which writes nothing. See docs/external-control.md."
+        }
+      },
+      "external_control": {
+        "title": "External control (experimental, protocol 0)",
+        "description": "The scheduler publishes each intent to the intent entity: its state is the intent id and its attributes are the document. Shadow mode evaluates and reports but writes nothing to the heater. Live mode arrives with a later step.",
+        "data": {
+          "control_intent_entity": "Intent entity",
+          "control_mode": "Mode",
+          "control_hold_off_supported": "Support hold-off directives",
+          "control_hold_off_margin_f": "Hold-off margin",
+          "control_surplus_entity": "Surplus entity",
+          "control_surplus_threshold_kw": "Surplus threshold",
+          "control_setpoint_min": "Setpoint minimum",
+          "control_setpoint_max": "Setpoint maximum",
+          "control_allowed_modes": "Allowed modes",
+          "control_assisted_mode": "Assisted mode",
+          "control_tou_off_for_mode": "May switch TOU off to land a mode",
+          "control_min_run_before_stop_min": "Minimum run before stop",
+          "control_reservation_entry_limit": "Reservation entry limit",
+          "control_reservation_entry_reserve": "Reservation entry reserve",
+          "control_daily_revert_time": "Daily revert time"
+        },
+        "data_description": {
+          "control_intent_entity": "Any entity whose state changes on every new intent and whose attributes carry the intent document.",
+          "control_mode": "Shadow evaluates and reports what it would write. Disabled reverts to the baseline once and then writes nothing.",
+          "control_hold_off_supported": "Only after testing hold-off on your unit. A hold-off lowers the setpoint below the upper tank; it cannot stop the lower-tank trigger.",
+          "control_hold_off_margin_f": "How far below the upper-tank temperature a hold-off sets the setpoint.",
+          "control_surplus_entity": "A binary sensor (on = surplus) or a power sensor in kW. Required for surplus_grant directives.",
+          "control_surplus_threshold_kw": "For a power sensor: surplus when its value is at or above this. Default is the heat pump's running power.",
+          "control_setpoint_min": "Leave empty to follow the device's own minimum. A tighter floor, such as 120 °F, keeps every directive above it.",
+          "control_setpoint_max": "Leave empty to follow the device's own maximum.",
+          "control_allowed_modes": "Modes a mode directive may name. Vacation and power-off are never allowed.",
+          "control_assisted_mode": "The mode a scheduler should use for faster recovery. Must be one of the allowed modes.",
+          "control_tou_off_for_mode": "A mode written inside a TOU window is held until the window ends. With this on, the feature switches TOU off first and back on afterwards.",
+          "control_min_run_before_stop_min": "A running compressor is never stopped before it has run this long, except by the daily revert and by disabling.",
+          "control_reservation_entry_limit": "The most reservation entries the feature asks the device to hold. The device's true limit is unverified.",
+          "control_reservation_entry_reserve": "Entries held back for closing and daily-revert entries. Must be below the limit.",
+          "control_daily_revert_time": "Local time at which the heater reverts itself to the baseline through a device-side entry."
         }
       }
+    },
+    "error": {
+      "setpoint_range": "The minimum must be below the maximum.",
+      "reserve_exceeds_limit": "The reserve must be below the entry limit.",
+      "allowed_modes_empty": "Allow at least one mode.",
+      "assisted_mode_not_allowed": "The assisted mode must be one of the allowed modes."
     }
   },
   "entity": {
@@ -411,6 +457,18 @@
       },
       "abnormal_suction_temperature_count": {
         "name": "Abnormal Suction Temperature Count"
+      },
+      "control_capabilities": {
+        "name": "Control Capabilities"
+      },
+      "control_intent": {
+        "name": "Control Intent"
+      },
+      "control_ack": {
+        "name": "Control Acknowledgement"
+      },
+      "control_heartbeat": {
+        "name": "Control Heartbeat"
       }
     },
     "binary_sensor": {
@@ -507,6 +565,11 @@
     "number": {
       "target_temperature": {
         "name": "Target Temperature"
+      }
+    },
+    "button": {
+      "control_disable": {
+        "name": "Disable External Control"
       }
     }
   },
@@ -810,6 +873,23 @@
     },
     "command_failed": {
       "message": "The device did not receive the command ({command}). Check the Home Assistant log for the reason."
+    }
+  },
+  "selector": {
+    "control_mode": {
+      "options": {
+        "shadow": "Shadow (evaluate and report, write nothing)",
+        "live": "Live",
+        "disabled": "Disabled (revert once, then write nothing)"
+      }
+    },
+    "control_mode_name": {
+      "options": {
+        "heat_pump": "Heat Pump",
+        "energy_saver": "Energy Saver",
+        "high_demand": "High Demand",
+        "electric": "Electric"
+      }
     }
   }
 }

@@ -5,8 +5,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from nwp500.exceptions import AuthenticationError, InvalidCredentialsError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -600,3 +603,248 @@ class TestReconfigureFlow:
         assert result["reason"] == "wrong_account"
         assert entry.data[CONF_EMAIL] == "test@example.com"
         assert entry.data[CONF_PASSWORD] == "old-password"
+
+
+# --- Options: external control (issue #158) ----------------------------------
+
+
+class TestExternalControlOptions:
+    """The options step that configures the feature."""
+
+    @staticmethod
+    def _handler(hass: HomeAssistant, options: dict | None = None):
+        from custom_components.nwp500.config_flow import OptionsFlowHandler
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={CONF_EMAIL: "a@b.c", CONF_PASSWORD: "x"},
+            options=options or {},
+        )
+        entry.add_to_hass(hass)
+        handler = OptionsFlowHandler()
+        handler.hass = hass
+        handler.handler = entry.entry_id
+        return handler, entry
+
+    @staticmethod
+    def _control_input(**overrides):
+        """What the frontend sends for the second page, validated by it."""
+        return {
+            "control_intent_entity": "sensor.intent",
+            "control_mode": "shadow",
+            "control_hold_off_supported": False,
+            "control_hold_off_margin_f": 2.0,
+            "control_surplus_threshold_kw": 0.45,
+            "control_allowed_modes": ["energy_saver", "heat_pump"],
+            "control_assisted_mode": "energy_saver",
+            "control_tou_off_for_mode": False,
+            "control_min_run_before_stop_min": 120.0,
+            "control_reservation_entry_limit": 7.0,
+            "control_reservation_entry_reserve": 2.0,
+            "control_daily_revert_time": "03:00:00",
+            **overrides,
+        }
+
+    @pytest.mark.asyncio
+    async def test_init_form_offers_the_toggle(self, hass: HomeAssistant):
+        handler, _ = self._handler(hass)
+
+        result = await handler.async_step_init()
+
+        assert result["type"] == FlowResultType.FORM
+        keys = {str(key) for key in result["data_schema"].schema}
+        assert keys == {"scan_interval", "control_enabled"}
+
+    @pytest.mark.asyncio
+    async def test_toggle_off_keeps_the_other_options(
+        self, hass: HomeAssistant
+    ):
+        handler, _ = self._handler(
+            hass, {"control_enabled": True, "control_intent_entity": "sensor.i"}
+        )
+
+        result = await handler.async_step_init(
+            {"scan_interval": 45, "control_enabled": False}
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"] == {
+            "scan_interval": 45,
+            "control_enabled": False,
+            "control_intent_entity": "sensor.i",
+        }
+
+    @pytest.mark.asyncio
+    async def test_toggle_on_shows_the_control_form(self, hass: HomeAssistant):
+        handler, _ = self._handler(hass)
+
+        result = await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "external_control"
+
+    @pytest.mark.asyncio
+    async def test_control_form_is_stored_normalised(self, hass: HomeAssistant):
+        hass.config.units = US_CUSTOMARY_SYSTEM
+        handler, _ = self._handler(hass)
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+        form = await handler.async_step_external_control()
+        user_input = form["data_schema"](
+            self._control_input(
+                control_setpoint_min=120.0, control_setpoint_max=145.0
+            )
+        )
+
+        result = await handler.async_step_external_control(user_input)
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        data = result["data"]
+        assert data["scan_interval"] == 30
+        assert data["control_enabled"] is True
+        assert data["control_intent_entity"] == "sensor.intent"
+        assert data["control_mode"] == "shadow"
+        assert data["control_setpoint_min_f"] == 120.0
+        assert data["control_setpoint_max_f"] == 145.0
+        assert data["control_daily_revert_time"] == "03:00"
+        assert data["control_min_run_before_stop_min"] == 120
+        assert isinstance(data["control_reservation_entry_limit"], int)
+        assert "control_setpoint_min" not in data
+        assert "control_surplus_entity" not in data
+
+    @pytest.mark.asyncio
+    async def test_setpoints_are_taken_in_celsius_and_stored_in_fahrenheit(
+        self, hass: HomeAssistant
+    ):
+        hass.config.units = METRIC_SYSTEM
+        handler, _ = self._handler(hass, {"control_setpoint_min_f": 122.0})
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        form = await handler.async_step_external_control()
+        suggested = {
+            str(key): key.description.get("suggested_value")
+            for key in form["data_schema"].schema
+            if key.description
+        }
+        assert suggested["control_setpoint_min"] == 50.0
+
+        user_input = form["data_schema"](
+            self._control_input(
+                control_setpoint_min=48.9, control_setpoint_max=65.0
+            )
+        )
+        result = await handler.async_step_external_control(user_input)
+
+        assert result["data"]["control_setpoint_min_f"] == 120.0
+        assert result["data"]["control_setpoint_max_f"] == 149.0
+
+    @pytest.mark.asyncio
+    async def test_an_empty_optional_field_clears_the_stored_value(
+        self, hass: HomeAssistant
+    ):
+        handler, _ = self._handler(
+            hass,
+            {
+                "control_setpoint_min_f": 120.0,
+                "control_surplus_entity": "binary_sensor.surplus",
+            },
+        )
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input()
+        )
+
+        assert "control_setpoint_min_f" not in result["data"]
+        assert "control_surplus_entity" not in result["data"]
+
+    @pytest.mark.asyncio
+    async def test_existing_values_are_suggested(self, hass: HomeAssistant):
+        handler, _ = self._handler(
+            hass,
+            {
+                "control_intent_entity": "sensor.i",
+                "control_daily_revert_time": "04:30",
+                "control_allowed_modes": ["electric"],
+            },
+        )
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        form = await handler.async_step_external_control()
+
+        suggested = {
+            str(key): key.description.get("suggested_value")
+            for key in form["data_schema"].schema
+            if key.description
+        }
+        assert suggested["control_intent_entity"] == "sensor.i"
+        assert suggested["control_daily_revert_time"] == "04:30:00"
+        assert suggested["control_allowed_modes"] == ["electric"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("overrides", "field", "error"),
+        [
+            (
+                {"control_setpoint_min": 140.0, "control_setpoint_max": 130.0},
+                "control_setpoint_min",
+                "setpoint_range",
+            ),
+            (
+                {"control_reservation_entry_reserve": 7.0},
+                "control_reservation_entry_reserve",
+                "reserve_exceeds_limit",
+            ),
+            (
+                {"control_allowed_modes": []},
+                "control_allowed_modes",
+                "allowed_modes_empty",
+            ),
+            (
+                {"control_assisted_mode": "electric"},
+                "control_assisted_mode",
+                "assisted_mode_not_allowed",
+            ),
+        ],
+    )
+    async def test_cross_field_errors(
+        self, hass: HomeAssistant, overrides, field, error
+    ):
+        handler, _ = self._handler(hass)
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input(**overrides)
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {field: error}
+        # The user's answers come back as suggestions rather than being lost.
+        suggested = {
+            str(key): key.description.get("suggested_value")
+            for key in result["data_schema"].schema
+            if key.description
+        }
+        assert suggested["control_intent_entity"] == "sensor.intent"
+
+    @pytest.mark.asyncio
+    async def test_live_is_not_offered_yet(self, hass: HomeAssistant):
+        handler, _ = self._handler(hass)
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+        form = await handler.async_step_external_control()
+
+        with pytest.raises(vol.Invalid):
+            form["data_schema"](self._control_input(control_mode="live"))
