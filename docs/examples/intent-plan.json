@@ -1,0 +1,30 @@
+{
+  "protocol": "0",
+  "intent_id": "i-20261004T0500-7",
+  "issued_at": "2026-10-04T05:00:12-07:00",
+  "valid_until": "2026-10-04T06:15:00-07:00",
+  "plan_id": "opaque-to-the-feature",
+  "directives": [
+    {
+      "id": "d1",
+      "type": "hold_off",
+      "start": "2026-10-04T05:00:00-07:00",
+      "end": "2026-10-04T10:30:00-07:00"
+    },
+    {
+      "id": "d2",
+      "type": "charge",
+      "start": "2026-10-04T10:30:00-07:00",
+      "end": "2026-10-04T14:30:00-07:00",
+      "target_f": 140,
+      "purpose": "demand"
+    },
+    {
+      "id": "d3",
+      "type": "surplus_grant",
+      "start": "2026-10-04T11:00:00-07:00",
+      "end": "2026-10-04T14:00:00-07:00",
+      "max_f": 146
+    }
+  ]
+}
