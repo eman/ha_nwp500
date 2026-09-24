@@ -272,7 +272,9 @@ code until trialled; this is what it does once switched on.
   new list. An unconfirmed write is retried once after a minute; after that
   its segments or grants are `failed` with reason `write_not_confirmed`, and
   writing pauses for 15 minutes. Changes that arrive during a write go into
-  the next one.
+  the next one. A write whose confirmation was lost may still have landed:
+  the next read settles which entries are the feature's, so they are never
+  mistaken for someone else's.
 - **Read-back.** After each entry's minute, plus the poll interval and a
   minute, the heater's setpoint and mode are compared with the entry's. A
   difference makes the segment `failed` with `not_applied_on_device`, unless
@@ -292,6 +294,8 @@ code until trialled; this is what it does once switched on.
   state: the one set by the owner's latest enabled entry, else the declared
   mode and setpoint. That direct write is skipped in Vacation or power-off.
   A failed hand-back is retried once after a minute, then at the next start.
+  Handing back works even with live mode switched off in code, so a heater
+  left holding the feature's entries can always be returned.
 
 ## Auditing shadow mode
 

@@ -386,6 +386,12 @@ class FakeHeater:
         self.states: list[tuple[str, int]] = []
         self.restore_ok = True
         self.gate: asyncio.Event | None = None
+        self.lock = asyncio.Lock()
+        # Lost writes that land anyway: only the confirmation is lost.
+        self.land_unconfirmed = 0
+
+    def locked(self) -> asyncio.Lock:
+        return self.lock
 
     def person_sets(self, schedule: dict[str, Any], *, seen: bool = True):
         """A person changes the list; `seen` if the coordinator read it."""
@@ -410,6 +416,11 @@ class FakeHeater:
             # Lost with no error: the device keeps its list (section 8).
             self.lose -= 1
             return copy.deepcopy(self.schedule)
+        if self.land_unconfirmed:
+            # It lands, but neither the echo nor a read comes back.
+            self.land_unconfirmed -= 1
+            self.schedule = copy.deepcopy(schedule)
+            return None
         self.person_sets(schedule)
         return copy.deepcopy(schedule)
 
@@ -622,7 +633,9 @@ class TestLiveWrites:
         assert len(heater.writes) == 1
         assert control.planner.owned == []
         assert control.last_write.confirmed is False
-        assert control.store.took_over(MAC) is False
+        # It may have landed: disabling would hand the heater back.
+        assert control.store.took_over(MAC) is True
+        assert control.planner.took_over is False
         assert statuses(control.ack)["later"] == ("pending", None)
         first_near_term = next(
             e for e in control.last_write.added if e.kind == KIND_NEAR_TERM
@@ -928,3 +941,233 @@ class TestLeavingLive:
 
         assert len(heater.writes) == writes
         assert control.holds_device is True
+
+
+class TestReviewFindings:
+    """Regressions for the review of the first live-mode commit."""
+
+    @pytest.mark.asyncio
+    async def test_a_write_that_landed_unconfirmed_is_recognised(
+        self, hass, live_factory, now, freezer
+    ):
+        heater, control = await live_factory()
+        heater.land_unconfirmed = 1
+        _publish(hass, _two_segments(now))
+        await hass.async_block_till_done()
+        assert control.last_write.confirmed is False
+        landed = copy.deepcopy(heater.schedule)
+
+        await _tick(hass, freezer, WRITE_RETRY + timedelta(seconds=1))
+
+        assert control.last_write.confirmed is True
+        # No duplicate entries, and nothing of its own reported as foreign.
+        assert len(heater.schedule["reservation"]) == len(landed["reservation"])
+        assert not [k for k in control.reports if k.startswith("foreign")]
+        assert await control.async_release(dt_util.utcnow()) is True
+        assert heater.schedule == OWNER_LIST
+
+    @pytest.mark.asyncio
+    async def test_landed_unconfirmed_then_released_leaves_no_orphans(
+        self, hass, live_factory, now
+    ):
+        heater, control = await live_factory()
+        heater.land_unconfirmed = 1
+        _publish(hass, _two_segments(now))
+        await hass.async_block_till_done()
+
+        assert control.holds_device is True
+        assert await control.async_release(dt_util.utcnow()) is True
+        assert heater.schedule == OWNER_LIST
+
+    @pytest.mark.asyncio
+    async def test_release_waits_for_a_write_in_flight(
+        self, hass, live_factory, now
+    ):
+        heater, control = await live_factory()
+        heater.gate = asyncio.Event()
+        _publish(hass, _two_segments(now))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        release = hass.async_create_task(
+            control.async_release(dt_util.utcnow())
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        heater.gate.set()
+        await hass.async_block_till_done()
+
+        assert release.result() is True
+        assert heater.schedule == OWNER_LIST
+        assert control.holds_device is False
+
+    @pytest.mark.asyncio
+    async def test_a_stopped_controller_arms_no_retry(
+        self, hass, live_factory, now, freezer
+    ):
+        heater, control = await live_factory()
+        heater.gate = asyncio.Event()
+        heater.lose = 1
+        _publish(hass, _two_segments(now))
+        for _ in range(5):
+            await asyncio.sleep(0)
+        stop = hass.async_create_task(control.async_stop())
+        for _ in range(5):
+            await asyncio.sleep(0)
+        heater.gate.set()
+        await hass.async_block_till_done()
+        assert stop.done()
+        assert len(heater.writes) == 1
+
+        await _tick(hass, freezer, WRITE_RETRY + timedelta(seconds=1))
+        await _tick(hass, freezer, WRITE_PAUSE)
+
+        assert len(heater.writes) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_plan_is_adopted_after_a_release(
+        self, hass, live_factory, now
+    ):
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        heater.gate = asyncio.Event()
+        release = hass.async_create_task(
+            control.async_release(dt_util.utcnow())
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        _publish(
+            hass,
+            make_document(
+                now,
+                [segment(now, "x", -1, mode="heat_pump", setpoint_f=125)],
+                intent_id="i-2",
+                issued_at=now + timedelta(seconds=1),
+            ),
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        heater.gate.set()
+        await hass.async_block_till_done()
+
+        assert release.result() is True
+        assert heater.schedule == OWNER_LIST
+        assert control.plan.intent_id == "i-1"
+
+    @pytest.mark.asyncio
+    async def test_a_segment_begun_during_a_pause_is_put_in_force(
+        self, hass, live_factory, now, freezer
+    ):
+        heater, control = await live_factory()
+        heater.lose = 2
+        _publish(hass, _two_segments(now))
+        await hass.async_block_till_done()
+        await _tick(hass, freezer, WRITE_RETRY + timedelta(seconds=1))
+        assert len(heater.writes) == 2
+
+        _publish(
+            hass,
+            make_document(
+                now,
+                [segment(now, "now2", -5, mode="heat_pump", setpoint_f=120)],
+                intent_id="i-2",
+                issued_at=now + timedelta(minutes=1),
+            ),
+        )
+        await hass.async_block_till_done()
+        await _tick(hass, freezer, timedelta(minutes=5))
+        await _tick(hass, freezer, WRITE_PAUSE)
+
+        assert control.last_write.confirmed is True
+        near_terms = [
+            e
+            for e in control.planner.owned
+            if e.kind == KIND_NEAR_TERM and e.serves == "now2"
+        ]
+        assert len(near_terms) == 1
+        assert near_terms[0].fires_at > dt_util.utcnow()
+
+    @pytest.mark.asyncio
+    async def test_the_owner_state_is_written_during_anti_legionella(
+        self, hass, live_factory, now
+    ):
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        await control.async_stop()
+        status = control.coordinator.data[MAC]["status"]
+        status.anti_legionella_operation_busy = True
+
+        _, disabled = await live_factory(
+            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
+        )
+
+        assert heater.states == [("energy_saver", 120)]
+        assert disabled.store.disabled_done(MAC) is True
+
+    @pytest.mark.asyncio
+    async def test_an_older_document_waiting_on_a_write_is_superseded(
+        self, hass, live_factory, now
+    ):
+        heater, control = await live_factory()
+        _publish(hass, _two_segments(now))
+        await hass.async_block_till_done()
+        heater.gate = asyncio.Event()
+        # A pass that writes holds the lock while both documents arrive.
+        control.coordinator.data[MAC]["status"].dhw_operation_setting = 6
+        evaluating = hass.async_create_task(
+            control._async_evaluate(dt_util.utcnow())
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        newer = hass.async_create_task(
+            control.async_receive(
+                _two_segments(
+                    now, intent_id="new", issued_at=now + timedelta(seconds=2)
+                ),
+                dt_util.utcnow(),
+            )
+        )
+        older = hass.async_create_task(
+            control.async_receive(
+                _two_segments(
+                    now, intent_id="old", issued_at=now + timedelta(seconds=1)
+                ),
+                dt_util.utcnow(),
+            )
+        )
+        for _ in range(5):
+            await asyncio.sleep(0)
+        heater.gate.set()
+        await hass.async_block_till_done()
+
+        assert evaluating.done()
+        assert newer.result() is True
+        assert older.result() is False
+        assert control.plan.intent_id == "new"
+
+    @pytest.mark.asyncio
+    async def test_shadow_does_not_overwrite_the_live_entries(
+        self, hass, live_factory, now
+    ):
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        live_owned = list(control.planner.owned)
+        await control.async_stop()
+
+        _, shadow = await live_factory(
+            reuse=True, **{CONF_CONTROL_LIVE_SEGMENTS: False}
+        )
+        _publish(
+            hass,
+            make_document(
+                now,
+                [segment(now, "x", 60, mode="heat_pump", setpoint_f=125)],
+                intent_id="i-2",
+                issued_at=now + timedelta(seconds=1),
+            ),
+        )
+        await hass.async_block_till_done()
+
+        assert shadow.holds_device is True
+        assert shadow.planner.owned == live_owned
+        assert await shadow.async_release(dt_util.utcnow()) is True
+        assert heater.schedule == OWNER_LIST

@@ -237,31 +237,53 @@ def describe(program: OwnerProgram, *, celsius: bool) -> str:
     return "\n".join(lines)
 
 
-def declare_owner_programs(
+async def async_declare_owner_programs(
     hass: HomeAssistant, entry: ConfigEntry, *, celsius: bool
 ) -> tuple[dict[str, dict[str, Any]] | None, str]:
     """Snapshot every heater of the entry as its declared owner's program.
 
-    A heater whose device already holds the feature's list keeps the
-    program declared before: a snapshot now would take the feature's own
-    entries for the owner's. Returns the programs by MAC address, or None
-    if a heater cannot be snapshotted yet (its mode, setpoint or list not
-    read, or it is in vacation or powered off), and a summary to show.
+    A heater that may still hold the feature's list keeps the program
+    declared before: a snapshot now would take the feature's own entries
+    for the owner's. Returns the programs by MAC address, or None if a
+    heater cannot be snapshotted yet (the entry is not loaded, or its mode,
+    setpoint or list has not been read, or it is in vacation or powered
+    off), and a summary to show.
     """
     # Imported here: the options flow calls this only while going live.
     from ..const import CONF_CONTROL_OWNER_PROGRAM, control_feature
+    from .store import ControlStore
 
-    coordinator = entry.runtime_data
+    coordinator = getattr(entry, "runtime_data", None)
+    if coordinator is None or not getattr(coordinator, "data", None):
+        return None, "The integration has not loaded its heaters yet."
     feature = control_feature(hass, entry)
+    if feature is not None:
+        store = feature.store
+    else:
+        store = ControlStore(hass, entry.entry_id)
+        await store.async_load()
     previous = entry.options.get(CONF_CONTROL_OWNER_PROGRAM) or {}
     programs: dict[str, dict[str, Any]] = {}
     sections: list[str] = []
     complete = True
-    for mac_address, data in (coordinator.data or {}).items():
-        control = feature.devices.get(mac_address) if feature else None
+    for mac_address, data in coordinator.data.items():
         program: OwnerProgram | None = None
-        if control is not None and control.holds_device:
+        control = feature.devices.get(mac_address) if feature else None
+        holds = (
+            control.holds_device
+            if control is not None
+            else store.took_over(mac_address)
+        )
+        if holds:
             program = OwnerProgram.from_document(previous.get(mac_address, {}))
+            if program is None:
+                complete = False
+                sections.append(
+                    f"**{mac_address}**: may still hold the feature's entries "
+                    "and has no declared program. Disable the feature to hand "
+                    "it back before going live again."
+                )
+                continue
         if program is None:
             program = OwnerProgram.from_observed(
                 observe(

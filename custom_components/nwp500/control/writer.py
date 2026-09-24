@@ -8,6 +8,7 @@ its place and nothing else in the feature can reach the device.
 from __future__ import annotations
 
 import asyncio
+from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any, Protocol
 
 from nwp500.reservations import update_reservations_confirmed
@@ -22,6 +23,14 @@ if TYPE_CHECKING:
 
 class ListWriter(Protocol):
     """What live mode needs from the heater."""
+
+    def locked(self) -> AbstractAsyncContextManager[Any]:
+        """Hold the heater's list from a read through the write after it.
+
+        So no other writer (the integration's reservation services) can
+        change it in between and have that change overwritten.
+        """
+        ...
 
     async def async_read(self) -> dict[str, Any] | None:
         """A fresh read of the reservation list, or None if none came."""
@@ -53,9 +62,8 @@ class CoordinatorWriter:
         self.coordinator = coordinator
         self.mac_address = mac_address
 
-    def _lock(self) -> asyncio.Lock:
-        # The lock the integration's reservation services hold, so a write
-        # from the feature and one from a service cannot interleave.
+    def locked(self) -> asyncio.Lock:
+        """The lock the integration's reservation services hold."""
         lock: asyncio.Lock = self.coordinator._reservation_lock  # noqa: SLF001
         return lock
 
@@ -81,14 +89,14 @@ class CoordinatorWriter:
             return None
         entries = [dict(e) for e in schedule["reservation"]]
         enabled = schedule["reservation_use"] == DEVICE_BOOL_ON
-        async with self._lock():
-            confirmed = await update_reservations_confirmed(
-                client, device, entries, enabled=enabled
+        # The caller holds `locked()` from its read through this write.
+        confirmed = await update_reservations_confirmed(
+            client, device, entries, enabled=enabled
+        )
+        if confirmed is None:
+            return await self.coordinator.async_fetch_reservations(
+                self.mac_address
             )
-            if confirmed is None:
-                return await self.coordinator.async_fetch_reservations(
-                    self.mac_address
-                )
         # The device holds exactly this list. The coordinator's copy is
         # updated now rather than when the echo reaches it, so the next
         # pass does not read the list from before the write.

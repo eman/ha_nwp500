@@ -69,19 +69,10 @@ async def test_without_an_echo_a_fresh_read_says_what_the_device_holds():
     coordinator.async_fetch_reservations.assert_awaited_once_with(MAC)
 
 
-@pytest.mark.asyncio
-async def test_holds_the_reservation_lock():
+def test_locked_is_the_reservation_services_lock():
     coordinator = _coordinator()
     writer = CoordinatorWriter(coordinator, MAC)
-    seen: list[bool] = []
-
-    async def confirmed(*args, **kwargs):
-        seen.append(coordinator._reservation_lock.locked())
-        return MagicMock()
-
-    with patch(TARGET, confirmed):
-        await writer.async_write(SCHEDULE)
-    assert seen == [True]
+    assert writer.locked() is coordinator._reservation_lock
 
 
 @pytest.mark.asyncio

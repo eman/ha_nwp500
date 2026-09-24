@@ -476,6 +476,10 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         """Hold the earlier pages' answers while the next is shown."""
         self._init_input: dict[str, Any] = {}
         self._control_data: dict[str, Any] = {}
+        # The owner's programs shown on the going-live page: what is saved
+        # is exactly what was confirmed.
+        self._owner_programs: dict[str, dict[str, Any]] | None = None
+        self._owner_summary = ""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -529,10 +533,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     **self._init_input,
                     **_normalise_control_input(self.hass, user_input),
                 }
-                if data.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE and (
-                    options.get(CONF_CONTROL_MODE) != CONTROL_MODE_LIVE
-                    or not options.get(CONF_CONTROL_OWNER_PROGRAM)
-                ):
+                if data.get(
+                    CONF_CONTROL_MODE
+                ) == CONTROL_MODE_LIVE and self._needs_declaration(options):
                     self._control_data = data
                     return await self.async_step_going_live()
                 return self.async_create_entry(title="", data=data)
@@ -548,6 +551,19 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             errors=errors,
         )
 
+    def _needs_declaration(self, options: dict[str, Any]) -> bool:
+        """Whether choosing live must declare the owner's program (6.3).
+
+        When coming from another mode, and when a heater has no declared
+        program yet (one added to the account after going live).
+        """
+        if options.get(CONF_CONTROL_MODE) != CONTROL_MODE_LIVE:
+            return True
+        declared = options.get(CONF_CONTROL_OWNER_PROGRAM) or {}
+        coordinator = getattr(self.config_entry, "runtime_data", None)
+        heaters = getattr(coordinator, "data", None) or {}
+        return not declared or any(mac not in declared for mac in heaters)
+
     async def async_step_going_live(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -556,25 +572,27 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         The heater's mode, setpoint, reservation switch and entries are
         shown for confirmation. Disabling restores exactly this.
         """
-        from .control.owner import declare_owner_programs
+        from .control.owner import async_declare_owner_programs
 
-        celsius = (
-            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
-        )
-        programs, summary = declare_owner_programs(
-            self.hass, self.config_entry, celsius=celsius
-        )
-        errors: dict[str, str] = {}
-        if programs is None:
-            errors["base"] = "owner_snapshot_unavailable"
-        elif user_input is not None:
+        if user_input is not None and self._owner_programs is not None:
             return self.async_create_entry(
                 title="",
                 data={
                     **self._control_data,
-                    CONF_CONTROL_OWNER_PROGRAM: programs,
+                    CONF_CONTROL_OWNER_PROGRAM: self._owner_programs,
                 },
             )
+        celsius = (
+            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        )
+        programs, summary = await async_declare_owner_programs(
+            self.hass, self.config_entry, celsius=celsius
+        )
+        self._owner_programs = programs
+        self._owner_summary = summary
+        errors: dict[str, str] = {}
+        if programs is None:
+            errors["base"] = "owner_snapshot_unavailable"
         return self.async_show_form(
             step_id="going_live",
             data_schema=vol.Schema({}),

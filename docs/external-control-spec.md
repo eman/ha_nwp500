@@ -442,7 +442,8 @@ disabling restores.
 
 - **Read first.** Before every write, the feature reads the device's list.
   Entries it does not own are kept as read, apart from the owner entries'
-  enable flags while live (section 5.1).
+  enable flags while live (section 5.1). The list is held from that read
+  through the write, against the integration's own reservation services.
 - **Whole-list, confirmed.** The list is written whole with the library's
   confirmed write (`update_reservations_confirmed`), never slot by slot. A
   write counts only once the device reads back the new list: on the unit
@@ -455,7 +456,14 @@ disabling restores.
   it tries again. A near-term entry in an unconfirmed write moves to the
   first minute it can still make after the retry, so the retry never writes
   an entry whose minute has passed. A surplus raise whose write failed is
-  withdrawn.
+  withdrawn. A near-term entry is never dropped unwritten: while writes are
+  paused, or once its minute has passed unwritten, it moves forward.
+- **An unconfirmed write may have landed.** Its confirmation can be lost
+  while the device took the list. The next read settles it: if the device
+  holds the list sent, the write is committed; otherwise any of its entries
+  found on the device are the feature's, not a person's. From the first
+  live write sent, disabling hands the heater back, whether or not a write
+  was confirmed.
 - **Taking the list over.** The first live write, once a plan is in force,
   switches the owner's entries off and the reservation switch on, even if
   the plan has nothing of its own to add yet (reason `takeover`).
@@ -640,8 +648,10 @@ snapshot of the device for confirmation as the owner's program: the mode,
 the setpoint, the reservation switch and the owner's entries. It lists the
 owner entries that will be switched off while live (section 5.1). A heater
 that still holds the feature's list keeps the program declared before, since
-a snapshot would take the feature's own entries for the owner's. Live does
-not run without a declared program.
+a snapshot would take the feature's own entries for the owner's. A heater
+added to the account while live is declared the next time the options are
+saved. What is saved is exactly what was shown. Live does not run without a
+declared program.
 
 ### 6.4 Unload and restart
 
@@ -673,12 +683,17 @@ Switching to `disabled`, by the Disable button or the options, is a
 3. Write the owner's state now: the state set by the owner's latest enabled
    entry, else the declared mode and setpoint. This is the feature's only
    direct write (section 5.5). It is skipped while Vacation or power-off is
-   in force, which take precedence.
+   in force, or when the owner's own entry sets one of them, since those
+   take precedence. An Anti-Legionella cycle does not skip it.
 4. Read back, and report on the last write entity.
 
 The list write is confirmed like any other (section 5.4) and retried once
 after 60 s. If that fails too, disabling is left unfinished and tried again
 at the next start; the last write entity shows `confirmed: false`.
+
+Handing back is not gated by the live switch in code: a heater left holding
+the feature's list can always be returned. A plan that arrives during a
+hand-back is not adopted.
 
 After that the feature writes nothing until the mode is changed in the
 options flow. Turning the toggle off does the same, then removes the entities
@@ -811,7 +826,10 @@ Before any live write, tests 6, 8 and 11 remain.
    then `live` is not offered, and a hand-edited `live` runs as shadow. The
    mode read-back of section 5.11 compares the reported mode setting; the
    confirmation by the heater's behaviour (elements, heat source) is not
-   built yet.
+   built yet. Disabling's direct write counts as confirmed when the
+   library accepts it; it is not yet read back from the heater. Leaving
+   live, or switching the feature off, tries the hand-back once; disabling
+   retries it after a minute and at the next start.
 6. **Protocol `1`** after a staged live cut-over.
 
 Related: #157 (`water_heater` service reports success in two failure cases);

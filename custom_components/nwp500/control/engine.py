@@ -271,6 +271,10 @@ class Planner:
         # grants whose write failed after its retry (section 5.4), and the
         # read-back of each served item's latest entry (section 5.11).
         self.took_over = False
+        # A live write sent but not confirmed, with the hash of the list
+        # sent; and until when live writes are paused.
+        self.unconfirmed: tuple[Write, str | None] | None = None
+        self.hold_until: datetime | None = None
         self.failed: dict[str, str] = {}
         self.readback: dict[str, str] = {}
         self._checked: set[str] = set()
@@ -321,6 +325,12 @@ class Planner:
             else None,
             "reservations_on": self._reservations_on,
             "took_over": self.took_over,
+            "unconfirmed": {
+                "write": self.unconfirmed[0].as_document(),
+                "hash": self.unconfirmed[1],
+            }
+            if self.unconfirmed
+            else None,
             "failed": dict(self.failed),
             "readback": dict(self.readback),
             "checked": sorted(self._checked),
@@ -357,6 +367,11 @@ class Planner:
             self._device_state = (str(device_state[0]), int(device_state[1]))
         self._reservations_on = document.get("reservations_on")
         self.took_over = bool(document.get("took_over", False))
+        if raw_unconfirmed := document.get("unconfirmed"):
+            self.unconfirmed = (
+                Write.from_document(raw_unconfirmed["write"]),
+                raw_unconfirmed.get("hash"),
+            )
         self.failed = {
             str(k): str(v) for k, v in document.get("failed", {}).items()
         }
@@ -552,6 +567,8 @@ class Planner:
         self.failed = {}
         self.readback = {}
         self._checked = set()
+        self.unconfirmed = None
+        self.hold_until = None
         self.plan = None
         self.extra = []
         self.asserted = set()
@@ -568,6 +585,7 @@ class Planner:
     def step(self, now: datetime, observed: Observed) -> Write | None:
         """Update from what the device reports; return the write it needs."""
         self.last_step = now
+        self.reconcile_unconfirmed(observed)
         self._track_precedence(now, observed)
         self._track_people(now, observed)
         self._track_cycle(now, observed)
@@ -575,6 +593,7 @@ class Planner:
         self._track_grant(now, observed)
         self._track_readback(now, observed)
         self._assert_in_force(now)
+        self._hold(now)
         self.extra = [e for e in self.extra if e.fires_at + FIRED_GRACE > now]
 
         desired = self._desired(now, observed)
@@ -634,6 +653,7 @@ class Planner:
         if not write.simulated:
             # The device holds the whole wanted list now.
             self.took_over = True
+            self.unconfirmed = None
             self.failed = {
                 k: v
                 for k, v in self.failed.items()
@@ -641,49 +661,133 @@ class Planner:
             }
 
     def reject(
-        self, write: Write, now: datetime, *, retry_at: datetime, final: bool
+        self,
+        write: Write,
+        now: datetime,
+        *,
+        retry_at: datetime,
+        final: bool,
+        written_hash: str | None = None,
     ) -> None:
         """A live write the device did not confirm (section 5.4).
 
-        Nothing it added is on the device. Plan entries stay candidates and
-        go in the next write. An entry that must fire soon, a near-term,
-        precedence exit or lowering, is moved to the first minute it can
-        still make after `retry_at`, so the retry does not write an entry
-        whose minute has passed. After the retry has failed too (`final`),
-        what it served is `failed`, and a surplus raise is withdrawn.
+        What it added may or may not be on the device: a write can land
+        with its confirmation lost. It is kept as unconfirmed, with the hash
+        of the list sent, and reconciled against the next read of the list
+        (`reconcile_unconfirmed`). Plan entries stay candidates and go in
+        the next write. An entry that must fire soon (a near-term, a
+        precedence exit, a raise or a lowering) is moved to the first minute
+        it can still make after `retry_at`, so the retry does not write an
+        entry whose minute has passed. After the retry has failed too
+        (`final`), what it served is `failed`, and a surplus raise is
+        withdrawn.
         """
         self.last_write = replace(write, simulated=False, confirmed=False)
+        self.unconfirmed = (write, written_hash)
         for entry in write.added:
             if entry in self.owned:
                 continue
             if final and entry.serves:
                 self.failed[entry.serves] = REASON_WRITE_NOT_CONFIRMED
-            if entry.kind not in NEAR_TERM_KINDS or entry not in self.extra:
+            if entry.kind not in NEAR_TERM_KINDS or entry.serves is None:
                 continue
             rs = self.raise_state
             if (
                 final
                 and entry.kind == KIND_GRANT_RAISE
                 and rs is not None
-                and rs.entry == entry
+                and rs.grant_id == entry.serves
             ):
                 self._drop_raise_entries(now)
                 self.raise_state = None
                 continue
+            self._retime(entry.kind, entry.serves, retry_at)
+
+    def _retime(self, kind: str, serves: str, when: datetime) -> None:
+        """Move a pending near-term entry to the first minute after `when`.
+
+        Matched by kind and what it serves, not by equality: the copy that
+        was written may have been moved past a collision. Dropped if the
+        next segment starts by then; a raise moves with its entry.
+        """
+        earliest = near_term_minute(when, NEAR_TERM_LEAD)
+        for entry in [
+            e for e in self.extra if e.kind == kind and e.serves == serves
+        ]:
+            if entry.fires_at >= earliest:
+                continue
             self.extra = [e for e in self.extra if e != entry]
             moved = self._near_term(
-                entry.kind,
-                entry.serves or "",
-                State(entry.mode, entry.setpoint_raw),
-                retry_at,
+                kind, serves, State(entry.mode, entry.setpoint_raw), when
             )
-            if (
-                moved is not None
-                and rs is not None
-                and rs.entry == entry
-                and entry.kind == KIND_GRANT_RAISE
-            ):
-                self.raise_state = replace(rs, entry=moved)
+            rs = self.raise_state
+            if rs is not None and rs.entry == entry:
+                if moved is None:
+                    self._drop_raise_entries(when)
+                    self.raise_state = None
+                else:
+                    self.raise_state = replace(rs, entry=moved)
+
+    def _hold(self, now: datetime) -> None:
+        """In live, keep unwritten near-term entries makeable.
+
+        A near-term entry that has not reached the device must not be
+        dropped when its minute passes, or the segment it asserts is never
+        put in force. While writes are paused it is moved past the pause;
+        otherwise, once its minute has passed unwritten, to the next minute
+        it can make.
+        """
+        if self.shadow:
+            return
+        until = self.hold_until
+        if until is not None and now >= until:
+            until = None
+        for entry in [e for e in self.extra if e.kind in NEAR_TERM_KINDS]:
+            if entry.serves is None or self._written(entry):
+                continue
+            if until is not None:
+                self._retime(entry.kind, entry.serves, until)
+            elif entry.fires_at + FIRED_GRACE <= now:
+                self._retime(entry.kind, entry.serves, now)
+
+    def _written(self, entry: OwnedEntry) -> bool:
+        """Whether a near-term entry is on the device.
+
+        Its copy on the device may have been moved past a collision.
+        """
+        return any(
+            o.kind == entry.kind
+            and o.serves == entry.serves
+            and o.mode == entry.mode
+            and o.setpoint_raw == entry.setpoint_raw
+            and o.fires_at >= entry.fires_at
+            for o in self.owned
+        )
+
+    def reconcile_unconfirmed(self, observed: Observed) -> None:
+        """Settle a write that was not confirmed, against the device's list.
+
+        If the device holds the whole list that was sent, the write landed
+        and is committed. Otherwise any of its added entries found on the
+        device are the feature's, and any of its removed entries gone from
+        it were removed by the feature: neither is a person's doing.
+        """
+        pending = self.unconfirmed
+        schedule = observed.schedule
+        if pending is None or schedule is None:
+            return
+        write, written_hash = pending
+        if written_hash is not None and schedule_hash(schedule) == written_hash:
+            _LOGGER.info("An unconfirmed %s write had landed", write.reason)
+            self.commit(replace(write, simulated=False, confirmed=True))
+            return
+        on_device = [dict(e) for e in schedule["reservation"]]
+        for entry in write.added:
+            if entry not in self.owned and entry.as_entry() in on_device:
+                self.owned.append(entry)
+        for entry in write.removed:
+            if entry in self.owned and entry.as_entry() not in on_device:
+                self.owned.remove(entry)
 
     # Precedence and people's changes
 
