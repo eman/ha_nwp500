@@ -26,6 +26,8 @@
   a real heater. With the feature off nothing of it loads, and a regression
   test holds set-up to what it was before. (#158)
 
+## [0.21.1] - 2026-09-25
+
 ### Fixed
 - **Turning the water heater off powers it off.** It sent the operation
   mode command with mode 6, the value the heater reports while powered
@@ -1713,7 +1715,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.21.1...HEAD
+[0.21.1]: https://github.com/eman/ha_nwp500/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/eman/ha_nwp500/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/eman/ha_nwp500/compare/v0.20.0...v0.20.1
 [0.20.0]: https://github.com/eman/ha_nwp500/compare/v0.19.0...v0.20.0
