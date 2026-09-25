@@ -27,7 +27,7 @@ and [`examples/`](examples/) holds sample plans.
 | 1 | The specification, the JSON Schema and the examples | Done |
 | 2 | Options toggle and the disabled-path regression test; intake, validation and the stored plan; the capability entity; `shadow` as the default mode; heartbeat; unload without writes | Done |
 | 3 | Shadow programming: the owner's program; segments into entries, the horizon, the budget and near-term entries; reading the list; surplus grants; the program, in-sync, programmed-until and wanted entities; people's changes | Done |
-| 4 | The device tests in section 8 of the specification | In progress: run on 2026-09-24 except tests 6, 8 and 11 |
+| 4 | The device tests in section 8 of the specification | In progress: run on 2026-09-24 except tests 8 and 11 |
 | 5 | Live list writes: segments with a single allowed mode, then more modes, then grants | Built and tested against a simulated heater; switched off in code until a supervised trial |
 | 6 | Protocol `1` after a staged live cut-over | Not started |
 
@@ -252,7 +252,7 @@ last write's `reason` is one of `plan`, `cleanup`, `near_term`,
 | `grants_supported`, `grant_rules` | Whether grants can run, and their timing |
 | `owner_program` | What disabling restores: `declared`, `mode`, `setpoint_f`, `setpoint_c`, `reservations_enabled`, `entries`. `declared: false` is the provisional snapshot shadow uses |
 | `lower_trigger_f` | 104.9: the lower-tank turn-on temperature, which does not follow the setpoint |
-| `setpoint_write_starts_recovery`, `setpoint_write_stops_compressor`, `entry_mode_in_tou_window`, `list_write_starts_recovery`, `unchanged_entry_starts_recovery`, `entries_fire_when_powered_off`, `entries_fire_in_vacation` | Device facts a scheduler's model needs; the last four were measured on the unit tested |
+| `setpoint_write_starts_recovery`, `setpoint_write_stops_compressor`, `entry_mode_in_tou_window`, `list_write_starts_recovery`, `unchanged_entry_starts_recovery`, `entries_fire_when_powered_off`, `entries_fire_in_vacation` | Device facts a scheduler's model needs; the last five were measured on the unit tested |
 | `telemetry` | Entity ids for the delivery temperature, the compressor and power, and the delivery-temperature dip to ignore |
 
 ## Live mode
@@ -316,7 +316,8 @@ the reservation switch turned off. It never undoes them.
   above the upper tank started the compressor within about 30 seconds in 112
   of 117 writes, whether it came from an entry or directly.
 - **An entry's mode does not take effect inside a TOU window**; its setpoint
-  does. A segment that changes the mode inside the day's highest-priced TOU
+  does. The mode is held, and applied when the window ends (device test 6).
+  A segment that changes the mode inside the day's highest-priced TOU
   period gets the warning `mode_in_tou_window`.
 - **The device fires an entry whatever the compressor is doing.** Cycle
   policy, such as a minimum run before stopping, is the scheduler's: it

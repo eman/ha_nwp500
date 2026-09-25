@@ -125,8 +125,9 @@ class Capabilities:
             "lower_trigger_f": LOWER_TRIGGER_F,
             "setpoint_write_starts_recovery": True,
             "setpoint_write_stops_compressor": True,
+            # Measured on the unit tested (spec section 8). An entry's mode
+            # inside a TOU window is held and applied at the window's end.
             "entry_mode_in_tou_window": "held",
-            # Measured on the unit tested (spec section 8).
             "list_write_starts_recovery": False,
             "unchanged_entry_starts_recovery": False,
             "entries_fire_when_powered_off": True,
