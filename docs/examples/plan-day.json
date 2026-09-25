@@ -1,5 +1,5 @@
 {
-  "protocol": "0",
+  "protocol": "1",
   "intent_id": "i-20261004T0500-7",
   "issued_at": "2026-10-04T05:00:12-07:00",
   "plan_id": "opaque-to-the-feature",

@@ -119,7 +119,7 @@ class TestSensors:
         assert sensor.unique_id == f"{MAC}_control_capabilities"
         assert sensor.translation_key == "control_capabilities"
         assert sensor.native_value == capabilities().version
-        assert sensor.extra_state_attributes["protocols"] == ["0"]
+        assert sensor.extra_state_attributes["protocols"] == ["1", "0"]
         assert sensor.available is True
 
     def test_intent(self, control, now):

@@ -165,11 +165,27 @@ class TestRejectedDocuments:
 
     def test_unsupported_protocol(self, now, parse):
         self._rejects(
-            parse, make_document(now, protocol="1"), REASON_UNSUPPORTED_PROTOCOL
+            parse, make_document(now, protocol="2"), REASON_UNSUPPORTED_PROTOCOL
         )
 
     def test_minor_versions_are_accepted(self, now, parse):
-        assert parse(make_document(now, protocol="0.2")).intent_id == "i-1"
+        assert parse(make_document(now, protocol="1.2")).intent_id == "i-1"
+
+    def test_protocol_0_is_still_accepted(self, now, parse):
+        """The same format; accepted for the transition (spec 1.3)."""
+        assert parse(make_document(now, protocol="0")).intent_id == "i-1"
+        assert parse(make_document(now, protocol="0.1")).intent_id == "i-1"
+
+    def test_the_examples_parse(self, parse):
+        import json
+        from pathlib import Path
+
+        examples = sorted(Path("docs/examples").glob("*.json"))
+        assert examples
+        for path in examples:
+            document = json.loads(path.read_text())
+            assert document["protocol"] == "1"
+            assert parse(document).intent_id == document["intent_id"]
 
     @pytest.mark.parametrize(
         "protocol", ["0.foo", "0.", "0.1.2", "", " 0", "v0"]

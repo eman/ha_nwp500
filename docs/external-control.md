@@ -1,4 +1,4 @@
-# External control (protocol 0)
+# External control (protocol 1)
 
 An optional feature that lets an external scheduler control the NWP500
 through Home Assistant. The scheduler publishes a **plan**: a timeline of the
@@ -17,8 +17,11 @@ also published as [issue #158](https://github.com/eman/ha_nwp500/issues/158).
 Section numbers below refer to it. This page is the consumer's view: how to
 enable the feature, what to publish, and what to read back. The
 machine-readable schema is
-[`external-control-protocol-0.schema.json`](external-control-protocol-0.schema.json),
-and [`examples/`](examples/) holds sample plans.
+[`external-control-protocol-1.schema.json`](external-control-protocol-1.schema.json),
+and [`examples/`](examples/) holds sample plans. Protocol `1` comes with
+compatibility promises (specification section 1.3): within major version 1,
+documents stay valid and changes to entities are additive. Documents that
+say `"0"` are still accepted and mean the same.
 
 ## Implementation status
 
@@ -105,7 +108,7 @@ restart; the feature then keeps its stored copy of the plan.
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
-| `protocol` | string | yes | `"0"` |
+| `protocol` | string | yes | `"1"`, or `"1.x"`; `"0"` is still accepted |
 | `intent_id` | string, at most 64 characters | yes | Unique per plan |
 | `issued_at` | ISO 8601 with offset | yes | An older plan never replaces a newer one (`superseded`) |
 | `segments` | list | yes | The timeline. **An empty list stops the plan**: every programmed entry is withdrawn and the heater keeps its state |
@@ -164,7 +167,7 @@ entity), `invalid_window`, `overlapping_grant`, `out_of_bounds` or `in_past`.
 
 ```json
 {
-  "protocol": "0",
+  "protocol": "1",
   "intent_id": "i-20261004T0500-7",
   "issued_at": "2026-10-04T05:00:12-07:00",
   "segments": [

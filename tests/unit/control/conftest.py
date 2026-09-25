@@ -74,7 +74,7 @@ def make_document(
 ) -> dict[str, Any]:
     """A valid document issued now."""
     doc: dict[str, Any] = {
-        "protocol": "0",
+        "protocol": "1",
         "intent_id": intent_id,
         "issued_at": (issued_at or now).isoformat(),
         "segments": segments if segments is not None else [],

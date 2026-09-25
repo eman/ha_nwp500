@@ -1,4 +1,4 @@
-# External control (protocol 0, revised): the reservation list as the interface
+# External control (protocol 1): the reservation list as the interface
 
 An **optional** feature that lets an external scheduler control the NWP500
 through Home Assistant. The scheduler never calls this integration's services
@@ -26,8 +26,10 @@ can.
 This document is the complete specification. Everything an implementation
 needs is here or in this integration's and `nwp500-python`'s own docs.
 
-- **Protocol version:** `0` (experimental). This revision replaces the first
-  draft of protocol 0, which never shipped. Section 10 lists the changes.
+- **Protocol version:** `1`, with the compatibility promises of section 1.3.
+  Its document format is that of the revised protocol `0`, which replaced a
+  first draft that never shipped (section 10). Documents that say `"0"` are
+  still accepted and mean the same.
 - **Keywords:** MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
 ---
@@ -64,9 +66,30 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
 3. **The dashboard gets only a Disable button** (section 4.4). Enabling, going
    live and changing bounds happen in the options flow.
 4. **Nothing goes live before the remaining device tests in section 8.**
-5. **Experimental until proven.** Protocol `0` ships in pre-releases. Protocol
-   `1`, with compatibility promises, follows only after a staged live
-   cut-over on a real heater.
+5. **Proven before promised.** Protocol `0` was experimental. Protocol `1`,
+   with the compatibility promises below, followed a staged live cut-over on
+   a real heater (section 8, the live trial).
+
+### 1.3 Compatibility (protocol 1)
+
+Within major version `1`:
+
+1. **Documents.** A document valid under `1` stays valid. A minor version
+   (`"1.1"`) only adds optional keys; the feature accepts any `1.x`, and a
+   key it does not know is kept as opaque and echoed, never an error.
+2. **Entities.** The entities of section 4, their unique ids, states and
+   attribute names keep their meaning. New entities, attributes, statuses,
+   reasons, warnings and last-write reasons may be added. A consumer MUST
+   treat a value it does not know as opaque, not as an error.
+3. **The capability declaration.** Its keys keep their meaning, and new keys
+   may be added. A consumer reads the version to notice a change.
+4. **Behaviour.** What a document makes the heater do, as sections 5 and 6
+   describe it, does not change except to fix a defect, recorded in the
+   changelog.
+5. **Breaking changes** need protocol `2`. The feature then declares both
+   majors in `protocols` and accepts both for at least one release.
+6. **Protocol `0`** documents are accepted as `1` for at least one release
+   after this one; `protocols` lists `"0"` while they are.
 
 ---
 
@@ -122,7 +145,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
-| `protocol` | string | yes | `"0"`. A document whose major version the feature does not support is rejected (`unsupported_protocol`) |
+| `protocol` | string | yes | `"1"`, or `"1.x"`. `"0"` is still accepted. A document whose major version the feature does not support is rejected (`unsupported_protocol`) |
 | `intent_id` | string, at most 64 characters | yes | Unique per plan |
 | `issued_at` | ISO 8601 with offset | yes | When the scheduler made it. An older document never replaces a newer one |
 | `segments` | list | yes | The timeline (section 3.2). **An empty list stops the plan**: every programmed entry is withdrawn, and the heater keeps the state it is in |
@@ -228,7 +251,7 @@ off. On Sunday at 05:00:12 the scheduler publishes:
 
 ```json
 {
-  "protocol": "0",
+  "protocol": "1",
   "intent_id": "i-20261004T0500-7",
   "issued_at": "2026-10-04T05:00:12-07:00",
   "plan_id": "opaque-to-the-feature",
@@ -285,7 +308,7 @@ All belong to the device. Names are indicative; unique ids are
 
 | Attribute | Meaning |
 |---|---|
-| `protocols` | Supported protocol versions, `["0"]` |
+| `protocols` | Supported protocol versions, `["1", "0"]` |
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
 | `live` | The live switches: `segments`, `grants` |
@@ -832,7 +855,10 @@ All tests that can be run remotely have been run. Test 8 waits for an Anti-Legio
    then `live` is not offered, and a hand-edited `live` runs as shadow.
    Leaving live, or switching the feature off, tries the hand-back once;
    disabling retries it after a minute and at the next start.
-6. **Protocol `1`** after a staged live cut-over.
+6. **Protocol `1`** after the staged live cut-over: declared, with the
+   compatibility promises of section 1.3, a JSON Schema
+   (`docs/external-control-protocol-1.schema.json`) and the examples.
+   Protocol `0` documents are still accepted.
 
 Related: #157 (`water_heater` service reports success in two failure cases);
 #160 (turning the water heater off switched it to Energy Saver).

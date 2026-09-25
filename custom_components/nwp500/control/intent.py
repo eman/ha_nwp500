@@ -19,8 +19,11 @@ from nwp500.temperature import HalfCelsius
 
 from ..const import CONTROL_MODE_NAMES
 
-SUPPORTED_PROTOCOLS: tuple[str, ...] = ("0",)
-# A major version, and optionally a minor one: "0" or "0.1". The schema
+# Protocol 1 is the document format of the revised protocol 0, with the
+# compatibility promises of spec section 1.3. Protocol 0 documents are still
+# accepted for the transition; they mean the same.
+SUPPORTED_PROTOCOLS: tuple[str, ...] = ("1", "0")
+# A major version, and optionally a minor one: "1" or "1.1". The schema
 # carries the same pattern.
 _PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
 INTENT_ID_MAX_LENGTH = 64
@@ -388,7 +391,7 @@ def parse_plan(document: Mapping[str, Any]) -> Plan:
     if not _PROTOCOL_PATTERN.fullmatch(protocol):
         raise _reject(
             REASON_INVALID_DOCUMENT,
-            f'protocol {protocol!r} is not a version such as "0" or "0.1"',
+            f'protocol {protocol!r} is not a version such as "1" or "1.1"',
         )
     if protocol.split(".", 1)[0] not in SUPPORTED_PROTOCOLS:
         raise _reject(

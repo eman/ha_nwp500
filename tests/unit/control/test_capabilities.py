@@ -15,7 +15,7 @@ class TestDeclaration:
             {}, features=FakeFeatures(), feature_version="v", telemetry={}
         ).as_attributes()
 
-        assert attrs["protocols"] == ["0"]
+        assert attrs["protocols"] == ["1", "0"]
         assert attrs["mode"] == "shadow"
         assert attrs["live"] == {"segments": False, "grants": False}
         assert attrs["allowed_modes"] == ["energy_saver"]
