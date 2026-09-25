@@ -8,6 +8,7 @@ its place and nothing else in the feature can reach the device.
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -16,6 +17,8 @@ from nwp500.temperature import HalfCelsius
 
 from ..const import MODE_TO_DHW_ID
 from .observed import DEVICE_BOOL_ON
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..coordinator import NWP500DataUpdateCoordinator
@@ -98,9 +101,18 @@ class CoordinatorWriter:
             client, device, entries, enabled=enabled
         )
         if confirmed is None:
-            return await self.coordinator.async_fetch_reservations(
+            read = await self.coordinator.async_fetch_reservations(
                 self.mac_address
             )
+            _LOGGER.info(
+                "No echo confirmed the list write to %s; a fresh read %s",
+                self.mac_address,
+                "did not come back"
+                if read is None
+                else f"has {len(read.get('reservation') or [])} entries, "
+                f"switch {'on' if read.get('reservation_use') == DEVICE_BOOL_ON else 'off'}",
+            )
+            return read
         # The device holds exactly this list. The coordinator's copy is
         # updated now rather than when the echo reaches it, so the next
         # pass does not read the list from before the write.

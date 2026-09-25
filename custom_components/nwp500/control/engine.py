@@ -92,6 +92,10 @@ CLEANUP_DEFER = timedelta(hours=24)
 # Read-back of an entry is skipped once it is this far past its window: the
 # device's state then says nothing about that entry (a restart, an outage).
 READBACK_STALE = timedelta(minutes=15)
+# The heater's clock runs a few seconds ahead of Home Assistant's: on the
+# unit tested an entry's change was reported 4 s before its minute. A change
+# this far ahead of an entry's minute is still that entry's.
+CLOCK_SKEW = timedelta(seconds=60)
 
 # Why a list write was made (the last write entity's `reason`).
 WRITE_PLAN = "plan"
@@ -838,7 +842,9 @@ class Planner:
             if (latest.mode, latest.setpoint_raw) == state:
                 return True
         for entry in self._device_entries(observed):
-            if not firings(entry, now - self.explain_window, now, self.tz):
+            if not firings(
+                entry, now - self.explain_window, now + CLOCK_SKEW, self.tz
+            ):
                 continue
             if (
                 MODE_ID_TO_NAME.get(int(entry["mode"])) == state[0]
@@ -1034,9 +1040,27 @@ class Planner:
             and e.fires_at <= now
             and self._check_key(e) in self._checked
         ]
-        if not fired:
+        latest: OwnedEntry | None = (
+            max(fired, key=lambda e: e.fires_at) if fired else None
+        )
+        anchor = self._anchor(now)
+        anchor_state = anchor[1] if anchor is not None else None
+        if (
+            anchor is not None
+            and anchor_state is not None
+            and (latest is None or latest.fires_at < anchor[0].start)
+        ):
+            # The segment in force needed no entry: the heater already held
+            # its state when the plan arrived. Its behaviour is still read.
+            latest = OwnedEntry(
+                KIND_PLAN,
+                anchor[0].id,
+                anchor[0].start,
+                anchor_state.mode,
+                anchor_state.setpoint_raw,
+            )
+        if latest is None:
             return
-        latest = max(fired, key=lambda e: e.fires_at)
         served = latest.serves
         if served is None or any(
             r.detected_at >= latest.fires_at
@@ -1418,7 +1442,10 @@ class Planner:
         removed = [e for e in self.owned if e not in desired]
         if not added and not removed:
             return None
-        if not added and all(e.fires_at + FIRED_GRACE <= now for e in removed):
+        # An entry whose minute has come is fired, or firing: removing it
+        # gains nothing and costs a write, and its read-back needs it kept.
+        # So it goes with a later write, or once it is a day old.
+        if not added and all(e.fires_at <= now for e in removed):
             oldest = min(e.fires_at for e in removed)
             if now - oldest < CLEANUP_DEFER:
                 return None
@@ -1430,7 +1457,7 @@ class Planner:
                 if kind in kinds
             ),
             WRITE_PLAN
-            if any(e.fires_at + FIRED_GRACE > now for e in removed)
+            if any(e.fires_at > now for e in removed)
             else WRITE_CLEANUP,
         )
         return Write(

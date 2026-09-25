@@ -23,7 +23,6 @@ from custom_components.nwp500.const import (
     CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MODE,
     CONF_CONTROL_OWNER_PROGRAM,
-    CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
 )
@@ -337,6 +336,16 @@ class TestReadBack:
         assert planner.mode_confirmed == {"b"}
         assert self._detail(planner, "b")["mode_confirmed"] is True
 
+    def test_a_segment_that_needed_no_entry_is_confirmed_too(self):
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5)],
+        )
+        planner.step(minutes(1), device_obs(planner, elements_on=True))
+        assert planner.mode_confirmed == {"a"}
+        assert statuses(planner.ack("i"))["a"] == ("in_force", None)
+
     def test_an_element_in_heat_pump_contradicts_it(self):
         planner = self._planner(setpoint_f=140)
         fired = device_obs(planner, mode="heat_pump", setpoint_raw=120)
@@ -609,13 +618,11 @@ async def _tick(hass: HomeAssistant, freezer, delta: timedelta) -> None:
 
 
 class TestGate:
-    def test_the_gate_is_closed(self):
-        assert CONTROL_LIVE_AVAILABLE is False
-
     @pytest.mark.asyncio
     async def test_live_runs_as_shadow_while_the_gate_is_closed(
-        self, hass, hass_storage, mock_device, now
+        self, hass, hass_storage, mock_device, now, monkeypatch
     ):
+        monkeypatch.setattr(device_module, "CONTROL_LIVE_AVAILABLE", False)
         coordinator = _coordinator(mock_device, _status(), OWNER_LIST)
         heater = FakeHeater(coordinator, OWNER_LIST)
         entry = _entry(
@@ -1292,3 +1299,35 @@ class TestReviewFindings:
         assert shadow.planner.owned == live_owned
         assert await shadow.async_release(dt_util.utcnow()) is True
         assert heater.schedule == OWNER_LIST
+
+
+class TestTrialFindings:
+    """Regressions for what the first live trial on the real heater showed."""
+
+    def _planner(self) -> Planner:
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        return planner
+
+    def test_an_entry_whose_minute_came_is_not_removed_at_once(self):
+        planner = self._planner()
+        entry = next(e for e in planner.owned if e.serves == "b")
+        fired = device_obs(planner, mode="heat_pump", setpoint_raw=120)
+        # 5 s past its minute the segment has begun; its entry stays.
+        assert planner.step(minutes(10) + timedelta(seconds=5), fired) is None
+        assert entry in planner.owned
+        planner.step(minutes(11.6), fired)
+        assert planner.readback == {}
+
+    def test_a_change_reported_just_before_the_minute_is_the_entry(self):
+        planner = self._planner()
+        early = device_obs(planner, mode="heat_pump", setpoint_raw=120)
+        # The heater's clock runs ahead: the change arrives 4 s early.
+        planner.step(minutes(10) - timedelta(seconds=4), early)
+        assert planner.reports == {}

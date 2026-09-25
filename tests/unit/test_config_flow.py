@@ -835,7 +835,12 @@ class TestExternalControlOptions:
         assert suggested["control_intent_entity"] == "sensor.intent"
 
     @pytest.mark.asyncio
-    async def test_live_is_not_offered_yet(self, hass: HomeAssistant):
+    async def test_live_is_not_offered_while_the_gate_is_closed(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", False
+        )
         handler, _ = self._handler(hass)
         await handler.async_step_init(
             {"scan_interval": 30, "control_enabled": True}
