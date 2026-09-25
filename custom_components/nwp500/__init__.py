@@ -1091,7 +1091,17 @@ async def async_setup_entry(
     if control_enabled(entry):
         from .control import async_setup_control
 
-        platforms.extend(await async_setup_control(hass, entry, coordinator))
+        try:
+            platforms.extend(
+                await async_setup_control(hass, entry, coordinator)
+            )
+        except Exception:
+            # The feature is optional: its failure must not take the rest of
+            # the integration down with it.
+            _LOGGER.exception(
+                "External control could not start; the integration runs "
+                "without it"
+            )
     hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})[
         DATA_PLATFORMS
     ] = platforms

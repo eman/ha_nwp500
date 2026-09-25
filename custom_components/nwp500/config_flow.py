@@ -533,9 +533,9 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     **self._init_input,
                     **_normalise_control_input(self.hass, user_input),
                 }
-                if data.get(
-                    CONF_CONTROL_MODE
-                ) == CONTROL_MODE_LIVE and self._needs_declaration(options):
+                if data.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE:
+                    # Every save in live confirms the owner's program: the
+                    # owner may have changed it since it was declared.
                     self._control_data = data
                     return await self.async_step_going_live()
                 return self.async_create_entry(title="", data=data)
@@ -550,19 +550,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             errors=errors,
         )
-
-    def _needs_declaration(self, options: dict[str, Any]) -> bool:
-        """Whether choosing live must declare the owner's program (6.3).
-
-        When coming from another mode, and when a heater has no declared
-        program yet (one added to the account after going live).
-        """
-        if options.get(CONF_CONTROL_MODE) != CONTROL_MODE_LIVE:
-            return True
-        declared = options.get(CONF_CONTROL_OWNER_PROGRAM) or {}
-        coordinator = getattr(self.config_entry, "runtime_data", None)
-        heaters = getattr(coordinator, "data", None) or {}
-        return not declared or any(mac not in declared for mac in heaters)
 
     async def async_step_going_live(
         self, user_input: dict[str, Any] | None = None

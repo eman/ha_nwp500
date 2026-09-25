@@ -92,6 +92,8 @@ CLEANUP_DEFER = timedelta(hours=24)
 # Read-back of an entry is skipped once it is this far past its window: the
 # device's state then says nothing about that entry (a restart, an outage).
 READBACK_STALE = timedelta(minutes=15)
+# How many unconfirmed writes are kept for reconciling.
+UNCONFIRMED_KEPT = 5
 # The heater's clock runs a few seconds ahead of Home Assistant's: on the
 # unit tested an entry's change was reported 4 s before its minute. A change
 # this far ahead of an entry's minute is still that entry's.
@@ -277,7 +279,12 @@ class Planner:
         self.took_over = False
         # A live write sent but not confirmed, with the hash of the list
         # sent; and until when live writes are paused.
-        self.unconfirmed: tuple[Write, str | None] | None = None
+        # Every write sent since the last confirmed one: any of them may have
+        # landed with its confirmation lost.
+        self.unconfirmed: list[tuple[Write, str | None]] = []
+        # When the device's state was last read, to explain changes made by
+        # entries that fired while it could not be read.
+        self._state_seen_at: datetime | None = None
         self.hold_until: datetime | None = None
         self.failed: dict[str, str] = {}
         self.readback: dict[str, str] = {}
@@ -331,12 +338,16 @@ class Planner:
             else None,
             "reservations_on": self._reservations_on,
             "took_over": self.took_over,
-            "unconfirmed": {
-                "write": self.unconfirmed[0].as_document(),
-                "hash": self.unconfirmed[1],
-            }
-            if self.unconfirmed
+            "unconfirmed": [
+                {"write": w.as_document(), "hash": h}
+                for w, h in self.unconfirmed
+            ],
+            "state_seen_at": self._state_seen_at.isoformat()
+            if self._state_seen_at
             else None,
+            # Whether the entries below were simulated: going live must not
+            # take shadow's simulated entries for entries on the heater.
+            "shadow": self.shadow,
             "failed": dict(self.failed),
             "readback": dict(self.readback),
             "checked": sorted(self._checked),
@@ -374,11 +385,15 @@ class Planner:
             self._device_state = (str(device_state[0]), int(device_state[1]))
         self._reservations_on = document.get("reservations_on")
         self.took_over = bool(document.get("took_over", False))
-        if raw_unconfirmed := document.get("unconfirmed"):
-            self.unconfirmed = (
-                Write.from_document(raw_unconfirmed["write"]),
-                raw_unconfirmed.get("hash"),
-            )
+        raw_unconfirmed = document.get("unconfirmed") or []
+        if isinstance(raw_unconfirmed, Mapping):
+            raw_unconfirmed = [raw_unconfirmed]
+        self.unconfirmed = [
+            (Write.from_document(raw["write"]), raw.get("hash"))
+            for raw in raw_unconfirmed
+        ]
+        if seen := document.get("state_seen_at"):
+            self._state_seen_at = datetime.fromisoformat(seen)
         self.failed = {
             str(k): str(v) for k, v in document.get("failed", {}).items()
         }
@@ -393,6 +408,27 @@ class Planner:
         if report.field in (REPORT_FOREIGN, REPORT_REMOVED):
             return f"{report.field}:{report.segment or report.value}"
         return report.field
+
+    def forget_simulated(self) -> None:
+        """Drop what shadow simulated, on going live.
+
+        Shadow's entries were never written. Kept, they would be taken for
+        entries a person removed from the heater. The plan is programmed
+        afresh from what the heater holds; the segment in force is asserted.
+        """
+        self.owned = []
+        self.extra = []
+        self.asserted = set()
+        self.removed_segments = set()
+        self.readback = {}
+        self._checked = set()
+        self.mode_confirmed = set()
+        self.unconfirmed = []
+        self.raise_state = None
+        self.last_write = None
+        self.reports = {
+            k: v for k, v in self.reports.items() if v.field != REPORT_REMOVED
+        }
 
     # -- the timeline ------------------------------------------------------
 
@@ -465,9 +501,26 @@ class Planner:
             else (self.carry_state if previous is not None else None)
         )
 
+        old_states = {
+            s.id: self.resolve(s)
+            for s in (previous.segments if previous else ())
+        }
         self.plan = plan
         self.grant_rejections = check_grants(plan, self.capabilities, now=now)
-        self.removed_segments = set()
+        # A segment a person removed stays removed while the new plan has it
+        # unchanged: a restart, or the same plan published again, must not
+        # undo a person's change (sections 5.4 and 5.6).
+        self.removed_segments = {
+            s.id
+            for s in plan.segments
+            if s.id in self.removed_segments
+            and (
+                # At start-up the stored plan is the one they were removed
+                # from, and nothing was adopted before it.
+                (restoring and previous is None)
+                or (s.id in old_states and old_states[s.id] == self.resolve(s))
+            )
+        }
         self.failed = {}
         # A near-term entry still serves the new plan if the new plan wants
         # the same state from the same segment now; any other served the old
@@ -484,7 +537,7 @@ class Planner:
             if e.kind not in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
             or (e.serves, State(e.mode, e.setpoint_raw)) == keep
         ]
-        self._reconcile_raise(previous, now)
+        self._reconcile_raise(previous, now, restoring=restoring)
         # A plan entry already programmed with the same state serves the
         # new plan's segment of the same id too.
         states = {s.id: self.resolve(s) for s in plan.segments}
@@ -531,10 +584,25 @@ class Planner:
         if reference != state:
             self._near_term(KIND_NEAR_TERM, segment.id, state, now)
 
-    def _reconcile_raise(self, previous: Plan | None, now: datetime) -> None:
-        """Keep a raise whose grant the new plan still has, unchanged."""
+    def _reconcile_raise(
+        self, previous: Plan | None, now: datetime, *, restoring: bool = False
+    ) -> None:
+        """Keep a raise whose grant the new plan still has, unchanged.
+
+        At start-up the stored plan is re-adopted with nothing before it;
+        its raise is kept if its grant is still accepted.
+        """
         rs = self.raise_state
         if rs is None:
+            return
+        if (
+            restoring
+            and previous is None
+            and rs.grant_id not in self.grant_rejections
+            and any(g.id == rs.grant_id for g in self.plan.grants)
+            if self.plan is not None
+            else False
+        ):
             return
 
         def grant_of(plan: Plan | None) -> Grant | None:
@@ -585,7 +653,7 @@ class Planner:
         self.readback = {}
         self._checked = set()
         self.mode_confirmed = set()
-        self.unconfirmed = None
+        self.unconfirmed = []
         self.hold_until = None
         self.plan = None
         self.extra = []
@@ -662,8 +730,14 @@ class Planner:
             simulated=self.shadow,
         )
 
-    def commit(self, write: Write) -> None:
-        """Record a write as done: confirmed in live, simulated in shadow."""
+    def commit(
+        self, write: Write, *, confirmed_at: datetime | None = None
+    ) -> None:
+        """Record a write as done: confirmed in live, simulated in shadow.
+
+        A near-term entry confirmed only after its minute never fired; it is
+        issued again for the next minute it can make (section 5.2).
+        """
         self.owned = list(write.result)
         self.last_write = write
         for entry in write.added:
@@ -672,12 +746,27 @@ class Planner:
         if not write.simulated:
             # The device holds the whole wanted list now.
             self.took_over = True
-            self.unconfirmed = None
+            self.unconfirmed = []
             self.failed = {
                 k: v
                 for k, v in self.failed.items()
                 if v != REASON_WRITE_NOT_CONFIRMED
             }
+        if confirmed_at is not None:
+            for entry in write.added:
+                if (
+                    entry.kind in NEAR_TERM_KINDS
+                    and entry.serves is not None
+                    and entry.fires_at <= confirmed_at
+                ):
+                    _LOGGER.info(
+                        "The %s entry for %s was confirmed after its minute; "
+                        "issuing it again",
+                        entry.kind,
+                        entry.serves,
+                    )
+                    self._checked.add(self._check_key(entry))
+                    self._retime(entry.kind, entry.serves, confirmed_at)
 
     def reject(
         self,
@@ -687,6 +776,7 @@ class Planner:
         retry_at: datetime,
         final: bool,
         written_hash: str | None = None,
+        sent: bool = True,
     ) -> None:
         """A live write the device did not confirm (section 5.4).
 
@@ -699,10 +789,14 @@ class Planner:
         it can still make after `retry_at`, so the retry does not write an
         entry whose minute has passed. After the retry has failed too
         (`final`), what it served is `failed`, and a surplus raise is
-        withdrawn.
+        lowered. A write that was never sent (the list could not be read
+        first) cannot have landed, and is not recorded as unconfirmed.
         """
         self.last_write = replace(write, simulated=False, confirmed=False)
-        self.unconfirmed = (write, written_hash)
+        if sent:
+            self.unconfirmed = [*self.unconfirmed, (write, written_hash)][
+                -UNCONFIRMED_KEPT:
+            ]
         for entry in write.added:
             if entry in self.owned:
                 continue
@@ -717,8 +811,8 @@ class Planner:
                 and rs is not None
                 and rs.grant_id == entry.serves
             ):
-                self._drop_raise_entries(now)
-                self.raise_state = None
+                # It may have landed: lower it, rather than forget it.
+                self._lower(now)
                 continue
             self._retime(entry.kind, entry.serves, retry_at)
 
@@ -791,22 +885,23 @@ class Planner:
         device are the feature's, and any of its removed entries gone from
         it were removed by the feature: neither is a person's doing.
         """
-        pending = self.unconfirmed
         schedule = observed.schedule
-        if pending is None or schedule is None:
+        if not self.unconfirmed or schedule is None:
             return
-        write, written_hash = pending
-        if written_hash is not None and schedule_hash(schedule) == written_hash:
-            _LOGGER.info("An unconfirmed %s write had landed", write.reason)
-            self.commit(replace(write, simulated=False, confirmed=True))
-            return
+        device_hash = schedule_hash(schedule)
+        for write, written_hash in reversed(self.unconfirmed):
+            if written_hash is not None and device_hash == written_hash:
+                _LOGGER.info("An unconfirmed %s write had landed", write.reason)
+                self.commit(replace(write, simulated=False, confirmed=True))
+                return
         on_device = [dict(e) for e in schedule["reservation"]]
-        for entry in write.added:
-            if entry not in self.owned and entry.as_entry() in on_device:
-                self.owned.append(entry)
-        for entry in write.removed:
-            if entry in self.owned and entry.as_entry() not in on_device:
-                self.owned.remove(entry)
+        for write, _hash in self.unconfirmed:
+            for entry in write.added:
+                if entry not in self.owned and entry.as_entry() in on_device:
+                    self.owned.append(entry)
+            for entry in write.removed:
+                if entry in self.owned and entry.as_entry() not in on_device:
+                    self.owned.remove(entry)
 
     # Precedence and people's changes
 
@@ -831,7 +926,11 @@ class Planner:
         return [e for e in observed.reservations if e.get("enable") == 2]
 
     def _explained(
-        self, now: datetime, observed: Observed, state: tuple[str, int]
+        self,
+        now: datetime,
+        observed: Observed,
+        state: tuple[str, int],
+        seen_before: datetime | None = None,
     ) -> bool:
         """Whether an entry that just fired set this state.
 
@@ -849,10 +948,14 @@ class Planner:
             latest = max(held, key=lambda e: e.fires_at)
             if (latest.mode, latest.setpoint_raw) == state:
                 return True
+        # Since the state was last read, if that was longer ago than the
+        # window: entries that fired while Home Assistant or the heater was
+        # unreachable explain the change found afterwards.
+        since = now - self.explain_window
+        if seen_before is not None and seen_before < since:
+            since = seen_before
         for entry in self._device_entries(observed):
-            if not firings(
-                entry, now - self.explain_window, now + CLOCK_SKEW, self.tz
-            ):
+            if not firings(entry, since, now + CLOCK_SKEW, self.tz):
                 continue
             if (
                 MODE_ID_TO_NAME.get(int(entry["mode"])) == state[0]
@@ -868,6 +971,8 @@ class Planner:
         current = (observed.mode, observed.setpoint_raw)
         previous = self._device_state
         self._device_state = current
+        seen_before = self._state_seen_at
+        self._state_seen_at = now
 
         for name in (REPORT_SETPOINT, REPORT_MODE):
             report = self.reports.get(name)
@@ -883,7 +988,7 @@ class Planner:
             or previous == current
             or previous[0] in _PRECEDENCE_WITH_EXIT
             or current[0] in _PRECEDENCE_WITH_EXIT
-            or self._explained(now, observed, current)
+            or self._explained(now, observed, current, seen_before)
         ):
             return
         anchor = self._anchor(now)
@@ -1251,6 +1356,10 @@ class Planner:
             self._drop_raise_entries(now)
             anchor = self._anchor(now)
             state = anchor[1] if anchor is not None else None
+            if state is None and rs.guard is not None:
+                # No segment in force (a plan that stops): lower to the
+                # state the guard would have restored.
+                state = State(rs.guard.mode, rs.guard.setpoint_raw)
             if state is not None:
                 self._near_term(KIND_GRANT_LOWER, rs.grant_id, state, now)
         self.raise_state = None
@@ -1559,6 +1668,24 @@ class Planner:
         """The program's `schedule_hash`."""
         return schedule_hash(self.program(observed))
 
+    def _begun_status(self, item: str, now: datetime) -> str:
+        """A begun segment's status in live, by the entry that asserts it.
+
+        `pending` while its near-term entry is not on the device,
+        `programmed` while it is but has not fired, else `in_force`.
+        """
+        asserting = [
+            e
+            for e in self.extra
+            if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+            and e.serves == item
+        ]
+        if any(not self._written(e) for e in asserting):
+            return STATUS_PENDING
+        if any(e.fires_at > now for e in asserting):
+            return STATUS_PROGRAMMED
+        return STATUS_IN_FORCE
+
     def _live_status(
         self, item: str, status: str, reason: str | None
     ) -> tuple[str, str | None]:
@@ -1618,8 +1745,10 @@ class Planner:
             elif segment.start <= now:
                 if later_started:
                     status = STATUS_ENDED
+                elif self.shadow:
+                    status = STATUS_SHADOW
                 else:
-                    status = STATUS_SHADOW if self.shadow else STATUS_IN_FORCE
+                    status = self._begun_status(segment.id, now)
             elif info.candidate:
                 programmed = any(
                     e.kind == KIND_PLAN and e.serves == segment.id

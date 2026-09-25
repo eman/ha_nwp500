@@ -165,7 +165,7 @@ class TestPlannerLive:
             "10:03"
         ]
         assert planner.failed == {}
-        assert statuses(planner.ack("i"))["s"] == ("in_force", None)
+        assert statuses(planner.ack("i"))["s"] == ("pending", None)
 
         retry = planner.step(minutes(1), obs())
         planner.reject(retry, minutes(1), retry_at=minutes(16), final=True)
@@ -183,7 +183,7 @@ class TestPlannerLive:
         resumed = planner.step(minutes(16), obs())
         planner.commit(resumed)
         assert planner.failed == {}
-        assert statuses(planner.ack("i"))["s"] == ("in_force", None)
+        assert statuses(planner.ack("i"))["s"] == ("programmed", None)
 
     def test_a_failed_plan_entry_is_failed_until_written(self):
         planner = planner_with(shadow=False, **LIVE)
@@ -696,7 +696,7 @@ class TestLiveWrites:
         ]
         assert control.ack.state == "programmed"
         assert statuses(control.ack) == {
-            "now": ("in_force", None),
+            "now": ("programmed", None),
             "later": ("programmed", None),
         }
         assert control.capabilities.mode == "live"
@@ -786,7 +786,7 @@ class TestLiveWrites:
         assert len(heater.writes) == 3
         assert control.last_write.confirmed is True
         assert statuses(control.ack) == {
-            "now": ("in_force", None),
+            "now": ("programmed", None),
             "later": ("programmed", None),
         }
 

@@ -285,11 +285,18 @@ async def async_declare_owner_programs(
                 )
                 continue
         if program is None:
-            program = OwnerProgram.from_observed(
-                observe(
-                    data.get("status"),
-                    coordinator.reservation_schedules.get(mac_address),
+            # A fresh read: the cached list can be a refresh period old, and
+            # an owner entry edited since would be taken for someone else's.
+            try:
+                schedule = await coordinator.async_fetch_reservations(
+                    mac_address
                 )
+            except Exception:  # noqa: BLE001 - fall back to the cached list
+                schedule = None
+            if schedule is None:
+                schedule = coordinator.reservation_schedules.get(mac_address)
+            program = OwnerProgram.from_observed(
+                observe(data.get("status"), schedule)
             )
         if program is None:
             complete = False

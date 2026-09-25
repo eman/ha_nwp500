@@ -151,7 +151,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 | `issued_at` | ISO 8601 with offset | yes | When the scheduler made it. An older document never replaces a newer one |
 | `segments` | list | yes | The timeline (section 3.2). **An empty list stops the plan**: every programmed entry is withdrawn, and the heater keeps the state it is in |
 | `grants` | list | no | Surplus grants (section 3.3) |
-| any other key | any | no | Opaque. Echoed on the acknowledgement entity unchanged, for example `plan_id` |
+| any other key | any | no | Opaque. Echoed on the plan entity unchanged, for example `plan_id`, unless it has the name of one of that entity's own attributes (section 4.2), which win |
 
 There is no validity period. A plan's last segment holds until a new plan
 arrives, so a scheduler MUST make its last segment a state it is willing to
@@ -169,7 +169,7 @@ increasing order of `start`.
 | `start` | ISO 8601 with offset | yes | Truncated to the minute |
 | `setpoint_f`, `setpoint_c` or `setpoint` | number, number, or `"min"` | exactly one | The setpoint. A number is converted and quantised to the device's half-degree-Celsius resolution. `"min"` is the lowest setpoint the feature will write, `setpoint_min` (section 4.1) |
 | `mode` | string (section 3.4) | on the first segment | The operation mode. A later segment that omits it keeps the previous segment's mode |
-| any other key | any | no | Opaque, echoed back. For example `purpose` |
+| any other key | any | no | Opaque, echoed back on the segment's acknowledgement, for example `purpose`, unless it has the name of one of the acknowledgement's own keys (`id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, `mode_confirmed`), which win |
 
 Until the plan's first segment starts, whatever is in force continues: the
 segment in force from the previous plan, or the heater's current state.
@@ -203,7 +203,7 @@ available and the compressor is already running (section 5.7).
 | `id` | string, unique in the document | yes | Named in acknowledgements |
 | `start`, `end` | ISO 8601 with offset | yes | The window. Truncated to the minute; `end` MUST then be later than `start` |
 | `max_f` **or** `max_c` | number | yes | The highest setpoint a raise may use, in exactly one unit |
-| any other key | any | no | Opaque, echoed back |
+| any other key | any | no | Opaque, echoed back on the grant's acknowledgement, unless it has the name of one of its own keys (`id`, `status`, `reason`, `warnings`), which win |
 
 ### 3.4 Mode names
 
@@ -341,15 +341,15 @@ Each is a **state**, so history and statestream carry it:
 
 | Entity | State | Attributes |
 |---|---|---|
-| `sensor.<device>_control_intent` | The `intent_id` in force, or `none` | `issued_at`, `received_at`, the opaque top-level keys |
+| `sensor.<device>_control_intent` | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque top-level keys |
 | `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` | `intent_id`; the document-level rejection reason if any; `segments` and `grants`: each with `id`, `status`, `reason`, `warnings`, and its opaque keys |
 | `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: each with its owner (`owner`, `plan`, `near_term` or `guard`), the segment or grant it serves, when it fires, its mode and setpoint |
 | `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
 | `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment not yet on the device, or of the last segment once all are | `complete` (every segment is programmed), `scheduled` (segments waiting for the horizon or for room) |
-| `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint`, `serves` |
+| `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
-| `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `setpoint` |
+| `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
 | `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`), `added`, `removed`, `confirmed` |
 | `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | `field`, `value`, `detected_at`, `segment` |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
@@ -360,8 +360,8 @@ Each is a **state**, so history and statestream carry it:
 |---|---|
 | `shadow` | Evaluated; in shadow, nothing is written |
 | `scheduled` | Not yet programmed: beyond the horizon, or waiting for room (section 5.3) |
-| `pending` | Being written |
-| `programmed` | Its entry is confirmed on the device |
+| `pending` | Being written. A segment that has begun is `pending` until the near-term entry that puts it in force is on the device |
+| `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
 | `merged` | It sets the same state as the segment before it, so it needs no entry |
 | `in_force` | It has started and read-back matches (section 5.11) |
 | `ended` | The next segment has started |
@@ -493,7 +493,15 @@ disabling restores.
   the plan has nothing of its own to add yet (reason `takeover`).
 - **A missing entry is not restored.** A plan entry missing from the device
   was removed by a person. It is not written again, and its segment is
-  `removed`.
+  `removed`, across restarts and for as long as plans keep that segment
+  unchanged. The plan in force received again (the intent source dropped out
+  and came back) is not adopted again.
+- **Unconfirmed writes are kept.** Every write sent since the last confirmed
+  one is kept, the last five, and the next read of the list is settled
+  against all of them. A write that was never sent, because the list could
+  not be read first, is not kept.
+- **A near-term entry confirmed after its minute** never fired, and is issued
+  again for the next minute it can make.
 
 ### 5.5 Direct writes
 
@@ -555,7 +563,11 @@ the guard entry, when:
 
 The device ends a raise on its own when the grant's guard entry fires, or when
 the next segment's entry fires. If a raise's near-term entry has not fired
-when the conditions end, the feature removes it instead of lowering.
+when the conditions end, the feature removes it instead of lowering. A raise
+whose write failed after its retry is lowered, since it may have landed. A
+restart keeps a raise whose grant the stored plan still has. A plan that
+stops (empty `segments`) while raised lowers to the state the guard would
+have restored.
 
 ### 5.8 TOU
 
@@ -611,9 +623,11 @@ adopt them into the plan. The scheduler decides.
 - **A setpoint or mode change** that no entry explains is a person's, whether
   it was made in the app, on the panel, or through Home Assistant's own
   entities. A change is explained by an entry when it matches the entry's
-  state within the poll interval plus one minute after the entry's minute. It
-  is reported on the override entity, and it lasts until the next entry
-  fires.
+  state within the poll interval plus one minute after the entry's minute,
+  or up to a minute before it (the heater's clock runs a few seconds ahead).
+  After Home Assistant or the heater was unreachable, entries that fired
+  since the state was last read explain it too. It is reported on the
+  override entity, and it lasts until the next entry fires.
 - **The device's own TOU-window changes** to `hp_upper_on_temp_setting` are
   thresholds, not the setpoint, and are not a person's change.
 - **Changes to the reservation list:**
@@ -670,14 +684,16 @@ program.
 
 ### 6.3 Going live
 
-Each time `live` is chosen from another mode, the options flow shows a
-snapshot of the device for confirmation as the owner's program: the mode,
+Each time the options are saved with `live`, the options flow shows a
+snapshot of the device, from a fresh read of its list, for confirmation as
+the owner's program: the mode,
 the setpoint, the reservation switch and the owner's entries. It lists the
 owner entries that will be switched off while live (section 5.1). A heater
 that still holds the feature's list keeps the program declared before, since
-a snapshot would take the feature's own entries for the owner's. A heater
-added to the account while live is declared the next time the options are
-saved. What is saved is exactly what was shown. Live does not run without a
+a snapshot would take the feature's own entries for the owner's. What is
+saved is exactly what was shown. Going live on a heater that holds nothing
+of the feature's discards anything shadow simulated, and programs the plan
+afresh, asserting the segment in force. Live does not run without a
 declared program.
 
 ### 6.4 Unload and restart

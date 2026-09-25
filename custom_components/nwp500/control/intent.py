@@ -9,6 +9,7 @@ the device controller.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -237,6 +238,10 @@ def _is_number(value: Any) -> bool:
 
 
 def _to_raw(value: float, unit: str) -> int:
+    if not math.isfinite(value) or abs(value) > 1000:
+        raise _reject(
+            REASON_INVALID_DOCUMENT, f"setpoint {value!r} is not a temperature"
+        )
     temperature = (
         HalfCelsius.from_celsius(value)
         if unit == "c"

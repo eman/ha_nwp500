@@ -955,19 +955,31 @@ class TestExternalControlOptions:
         assert result["errors"] == {"base": "owner_snapshot_unavailable"}
 
     @pytest.mark.asyncio
-    async def test_staying_live_keeps_the_declaration(
+    async def test_every_save_in_live_confirms_the_owner_program(
         self, hass: HomeAssistant, monkeypatch
     ):
+        """The owner may have changed their program since it was declared."""
         monkeypatch.setattr(
             "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
         )
         declared = {"AA:BB": {"mode": "heat_pump", "setpoint_raw": 120}}
-        handler, _ = self._handler(
+        handler, entry = self._handler(
             hass,
             {
                 "control_mode": "live",
                 "control_owner_program": declared,
             },
+        )
+        entry_ = {
+            "enable": 2,
+            "week": 2,
+            "hour": 7,
+            "min": 0,
+            "mode": 3,
+            "param": 118,
+        }
+        self._with_heater(
+            entry, {"reservation_use": 2, "reservation": [entry_]}
         )
         await handler.async_step_init(
             {"scan_interval": 30, "control_enabled": True}
@@ -977,8 +989,12 @@ class TestExternalControlOptions:
             self._control_input(control_mode="live")
         )
 
+        assert result["step_id"] == "going_live"
+        result = await handler.async_step_going_live({})
         assert result["type"] == FlowResultType.CREATE_ENTRY
-        assert result["data"]["control_owner_program"] == declared
+        assert result["data"]["control_owner_program"]["AA:BB"]["entries"] == [
+            entry_
+        ]
 
     @pytest.mark.asyncio
     async def test_a_heater_added_after_going_live_is_declared(

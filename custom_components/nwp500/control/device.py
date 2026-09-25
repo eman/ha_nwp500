@@ -219,6 +219,9 @@ class DeviceControl:
         # was handed back ahead of a reload; nothing is written after it.
         self._stopped = False
         self._released = False
+        # Starting live on a heater that holds nothing of the feature's: the
+        # stored plan is adopted as new, since nothing of it is in force.
+        self._going_live = False
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -251,6 +254,11 @@ class DeviceControl:
                     shadow=not self.writes,
                     explain_window=self.planner.explain_window,
                 )
+        if self.writes and not self.holds_device:
+            # Going live on a heater that holds nothing of the feature's:
+            # whatever the stored state says it owns was simulated.
+            self.planner.forget_simulated()
+            self._going_live = True
         if self.declared_owner is not None:
             self.planner.owner = self.declared_owner
             await self.store.async_set_owner(
@@ -376,6 +384,15 @@ class DeviceControl:
         await self.store.async_set_disabled_done(self.mac_address, True)
         await self._async_persist()
 
+    async def async_retry_disable(self, now: datetime) -> None:
+        """The Disable button pressed while already `disabled`.
+
+        Retries a hand-back that failed; does nothing once it is done.
+        """
+        self._release_attempts = 0
+        await self._async_disable(now)
+        self._notify()
+
     async def async_release(self, now: datetime) -> bool:
         """Hand the heater back ahead of a reload or switch-off (6.6).
 
@@ -404,6 +421,7 @@ class DeviceControl:
         async with self.writer.locked():
             if await self._async_fresh_read() is None:
                 self._record_failed_disable(now)
+                await self._async_persist()
                 return False
             observed = self.observe()
             # A write that landed unconfirmed left entries that are the
@@ -412,6 +430,7 @@ class DeviceControl:
             schedule = owner.restore(self.planner.others(observed))
             if not await self._async_write_list(schedule, observed):
                 self._record_failed_disable(now)
+                await self._async_persist()
                 return False
         mode, setpoint_raw = owner.state_now(now, self.planner.tz)
         # Vacation and power-off take precedence (section 6.6), whether the
@@ -447,6 +466,9 @@ class DeviceControl:
             state_written=state_written,
         )
         await self.store.async_set_took_over(self.mac_address, False)
+        # Saved now: a reload follows, and the next controller must know the
+        # heater no longer holds the feature's list.
+        await self._async_persist()
         _LOGGER.info(
             "External control handed %s back to the owner's program: %d "
             "entr%s removed%s",
@@ -787,6 +809,7 @@ class DeviceControl:
                 return
             schedule = self.planner.program(observed, write.result)
             confirmed = False
+            sent = False
             if fresh is not None:
                 current = observed.schedule
                 if current is None or schedule_hash(current) != schedule_hash(
@@ -795,13 +818,17 @@ class DeviceControl:
                     # From here the heater may hold the feature's list,
                     # confirmed or not: disabling must hand it back.
                     await self.store.async_set_took_over(self.mac_address, True)
+                    sent = True
                 confirmed = await self._async_write_list(schedule, observed)
         if confirmed:
             self._failures = 0
             self._paused_until = None
             self.planner.hold_until = None
             self._cancel_retry_timer()
-            self._commit(replace(write, simulated=False, confirmed=True))
+            self._commit(
+                replace(write, simulated=False, confirmed=True),
+                confirmed_at=dt_util.utcnow(),
+            )
             return
         self._failures += 1
         final = self._failures >= 2
@@ -814,6 +841,7 @@ class DeviceControl:
             retry_at=retry_at,
             final=final,
             written_hash=schedule_hash(schedule) if fresh is not None else None,
+            sent=sent,
         )
         self._paused_until = retry_at
         self.planner.hold_until = retry_at
@@ -835,9 +863,11 @@ class DeviceControl:
         self._cancel_retry = None
         await self._async_evaluate(now)
 
-    def _commit(self, write: Write) -> None:
+    def _commit(
+        self, write: Write, *, confirmed_at: datetime | None = None
+    ) -> None:
         """Commit a write: simulated in shadow, confirmed in live."""
-        self.planner.commit(write)
+        self.planner.commit(write, confirmed_at=confirmed_at)
         _LOGGER.debug(
             "%s write for %s (%s): +%d -%d entries",
             "Simulated" if write.simulated else "Confirmed",
@@ -915,7 +945,13 @@ class DeviceControl:
 
         if stored_plan is not None and stored is not None:
             received_at = dt_util.parse_datetime(stored["received_at"]) or now
-            self._adopt(stored_plan, received_at, now, observed, restoring=True)
+            self._adopt(
+                stored_plan,
+                received_at,
+                now,
+                observed,
+                restoring=not self._going_live,
+            )
         if entity_document is not None and (
             stored_plan is None
             or entity_document.get("intent_id") != stored_plan.intent_id
@@ -971,6 +1007,16 @@ class DeviceControl:
         async with self._lock:
             if self._stopped or self._released:
                 return False
+            if (
+                self.plan is not None
+                and plan.intent_id == self.plan.intent_id
+                and plan.issued_at == self.plan.issued_at
+            ):
+                # The plan in force, received again (the source dropped out
+                # and came back). Adopting it again would undo nothing
+                # useful and could restore what a person removed.
+                self._rejected = None
+                return True
             if self.plan is not None and plan.issued_at < self.plan.issued_at:
                 # Another document was adopted while this one waited.
                 _LOGGER.warning(
