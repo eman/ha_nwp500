@@ -498,7 +498,15 @@ class Planner:
         self.readback = {
             k: v for k, v in self.readback.items() if k in self.asserted
         }
-        self.mode_confirmed &= self.asserted
+        # A confirmation carries over only for the segment in force that the
+        # new plan keeps with the same state; another segment of the same id
+        # is a new one.
+        unchanged = (
+            keep is not None
+            and old_anchor is not None
+            and (old_anchor[0].id, old_anchor[1]) == keep
+        )
+        self.mode_confirmed &= {keep[0]} if unchanged and keep else set()
 
         anchor = self._anchor(now)
         if anchor is None:
@@ -1592,8 +1600,11 @@ class Planner:
             detail: dict[str, Any] = {
                 "fires_at": fires_at.isoformat() if fires_at else None,
                 "in_force": anchor is not None and anchor[0].id == segment.id,
+                # Only the segment in force has a mode to confirm.
                 "mode_confirmed": segment.id in self.mode_confirmed
                 if not self.shadow
+                and anchor is not None
+                and anchor[0].id == segment.id
                 else None,
             }
             reason = info.reason

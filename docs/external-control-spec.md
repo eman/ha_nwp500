@@ -38,8 +38,8 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
 
 ### 1.1 Purely additive
 
-1. **Off by default.** An options-flow toggle, *External control
-   (experimental)*, enables the feature. Off is the default for new and
+1. **Off by default.** An options-flow toggle, *External control*, enables
+   the feature. Off is the default for new and
    existing installs.
 2. **Nothing loads while it is off.** The feature lives in its own subpackage
    (`custom_components/nwp500/control/`), imported only when enabled. While
@@ -65,10 +65,11 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
    that no entry changes the mode until setpoints have been proven.
 3. **The dashboard gets only a Disable button** (section 4.4). Enabling, going
    live and changing bounds happen in the options flow.
-4. **Nothing goes live before the remaining device tests in section 8.**
+4. **Nothing goes live before the device tests in section 8,** run on
+   2026-09-24 and 25.
 5. **Proven before promised.** Protocol `0` was experimental. Protocol `1`,
    with the compatibility promises below, followed a staged live cut-over on
-   a real heater (section 8, the live trial).
+   a real heater (section 8.1).
 
 ### 1.3 Compatibility (protocol 1)
 
@@ -792,6 +793,27 @@ Also observed:
 
 All tests that can be run remotely have been run. Test 8 waits for an Anti-Legionella cycle, and the off-cloud half of test 11 is out of scope.
 
+### 8.1 The live trial (the staged cut-over)
+
+Run on the same heater on 2026-09-25, 02:07–03:47, through the options flow
+and an intent entity, with the heater's own program as the owner's: Heat
+Pump at 141.8 °F, reservations off, one Saturday entry.
+
+| Stage | What was published | Result |
+|---|---|---|
+| Hand-back | Disabling a live feature that held the heater's list | The feature's entry was removed and the owner's list, switch and state restored; the heater's status read back the owner's state |
+| Going live | `live`, segments only, Heat Pump only | The options flow showed the owner's program; the first write turned the switch on and the owner's entry off by its flag |
+| 1. Setpoints | Heat Pump at 141.8, 140.0 and 141.8 °F, ten minutes apart | Both entries fired within 4 s of their minute. Each segment went `in_force` with its mode confirmed (compressor, no element). No change was taken for a person's |
+| 2. Two modes | Heat Pump, Energy Saver, Heat Pump | The heater changed mode at each entry's minute, outside a TOU window. Energy Saver stayed unconfirmed, as no element ran |
+| 3. A surplus grant | A segment at 144.5 °F, a grant to 147.2 °F, the surplus signal on | The near-term entry started the compressor. After 10 minutes of surplus with the compressor running the raise was written, with a guard at the grant's end. With the minimum run set to 0, the raise was lowered by an entry 15 minutes after the surplus ended, and the guard withdrawn |
+| 4. Disable | The Disable button | The owner's list came back exactly (same schedule hash), reservations off, and Heat Pump at 141.8 °F read back from the heater |
+
+Every write was confirmed; none was lost. A first run found two defects,
+fixed before this one: an entry was removed seconds after it fired, which
+cost a write and its read-back; and the heater's clock runs about 4 s ahead
+of Home Assistant's, so an entry's change arrived before its minute and was
+taken for a person's.
+
 ---
 
 ## 9. Out of scope
@@ -849,12 +871,11 @@ All tests that can be run remotely have been run. Test 8 waits for an Anti-Legio
    could not start a cycle, and the off-cloud half of test 11 is out of
    scope.
 5. **Live list writes** for segments, starting with a single allowed mode;
-   then more modes; then grants. Built on the feature branch and tested
-   against a simulated heater, not yet on a real one. It is switched off in
-   code (`CONTROL_LIVE_AVAILABLE`) until a supervised trial is agreed: until
-   then `live` is not offered, and a hand-edited `live` runs as shadow.
-   Leaving live, or switching the feature off, tries the hand-back once;
-   disabling retries it after a minute and at the next start.
+   then more modes; then grants. Done, and cut over in stages on a real
+   heater (section 8.1). `CONTROL_LIVE_AVAILABLE` in `const.py` stays as a
+   kill switch. Leaving live, or switching the feature off, tries the
+   hand-back once; disabling retries it after a minute and at the next
+   start.
 6. **Protocol `1`** after the staged live cut-over: declared, with the
    compatibility promises of section 1.3, a JSON Schema
    (`docs/external-control-protocol-1.schema.json`) and the examples.

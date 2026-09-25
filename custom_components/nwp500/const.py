@@ -1326,10 +1326,12 @@ CONTROL_MODE_DISABLED: Final = "disabled"
 CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 
 # Whether live mode can be chosen at all (issue #158, delivery step 5). Live
-# writes the heater's reservation list; until a supervised trial on a real
-# heater has been agreed, it stays off. While it is off the options form
-# does not offer `live`, and a hand-edited `live` runs as shadow.
-CONTROL_LIVE_AVAILABLE: Final = False
+# writes the heater's reservation list. It was opened after the staged live
+# cut-over on a real heater (spec section 8, the live trial, 2026-09-25).
+# It is the kill switch: set it to False and the options form stops offering
+# `live`, and a `live` option runs as shadow. Handing the heater back is not
+# gated by it.
+CONTROL_LIVE_AVAILABLE: Final = True
 
 # The mode names a segment may use (spec section 3.4). Vacation and
 # power-off are never accepted. Entries are skipped during Vacation, so the

@@ -8,7 +8,7 @@ The specification is issue #158, kept in `docs/external-control-spec.md`.
 Delivery steps 2 (the skeleton), 3 (shadow programming) and 5 (live list
 writes) are here. Shadow, the default, reads the device, plans the
 reservation list it would program, and reports it, writing nothing. Live
-writes the list; it cannot be chosen until `CONTROL_LIVE_AVAILABLE` is on.
+writes the list; `CONTROL_LIVE_AVAILABLE` is its kill switch.
 """
 
 from __future__ import annotations

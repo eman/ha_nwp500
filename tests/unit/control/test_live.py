@@ -1331,3 +1331,26 @@ class TestTrialFindings:
         # The heater's clock runs ahead: the change arrives 4 s early.
         planner.step(minutes(10) - timedelta(seconds=4), early)
         assert planner.reports == {}
+
+    def test_mode_confirmed_is_only_for_the_segment_in_force(self):
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        planner.step(minutes(1), device_obs(planner, elements_on=True))
+        assert planner.mode_confirmed == {"a"}
+        details = {s.id: s.detail for s in planner.ack("i").segments}
+        assert details["a"]["mode_confirmed"] is True
+        assert details["b"]["mode_confirmed"] is None
+        # A new plan whose "a" is a different segment starts unconfirmed.
+        give(
+            planner,
+            [segment(NOW, "a", 30, mode="heat_pump", setpoint_f=140)],
+            now=minutes(2),
+            intent_id="i-2",
+        )
+        assert planner.mode_confirmed == set()

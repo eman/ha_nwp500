@@ -45,7 +45,7 @@
         "description": "Configure advanced settings for your Navien NWP500 integration.",
         "data": {
           "scan_interval": "Update interval (seconds)",
-          "control_enabled": "External control (experimental)"
+          "control_enabled": "External control"
         },
         "data_description": {
           "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds.",
@@ -53,7 +53,7 @@
         }
       },
       "external_control": {
-        "title": "External control (experimental, protocol 0)",
+        "title": "External control (protocol 1)",
         "description": "The scheduler publishes each plan to the intent entity: its state is the intent id and its attributes are the plan. The feature programs the plan into the heater's reservation list, so the heater keeps following it if Home Assistant is unavailable. Shadow mode plans and reports what it would program, and writes nothing. Live mode, when offered, writes the list.",
         "data": {
           "control_intent_entity": "Intent entity",

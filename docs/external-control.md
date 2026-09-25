@@ -7,10 +7,11 @@ heater's own weekly reservation list, so the heater carries it out itself and
 keeps following it if Home Assistant, the feature or the scheduler becomes
 unavailable.
 
-**Status: experimental.** The feature is off by default. Enabling it starts in
-`shadow` mode, which plans and reports the reservation list it would write and
-writes nothing to the heater. Live mode is built but switched off in code
-until it has been trialled on a real heater.
+The feature is off by default. Enabling it starts in `shadow` mode, which
+plans and reports the reservation list it would write and writes nothing to
+the heater. `live` writes the list; choosing it first shows the heater's own
+program for confirmation, which disabling restores. Live mode was cut over in
+stages on a real heater before protocol `1` was declared.
 
 The complete specification is [`external-control-spec.md`](external-control-spec.md),
 also published as [issue #158](https://github.com/eman/ha_nwp500/issues/158).
@@ -31,22 +32,21 @@ say `"0"` are still accepted and mean the same.
 | 2 | Options toggle and the disabled-path regression test; intake, validation and the stored plan; the capability entity; `shadow` as the default mode; heartbeat; unload without writes | Done |
 | 3 | Shadow programming: the owner's program; segments into entries, the horizon, the budget and near-term entries; reading the list; surplus grants; the program, in-sync, programmed-until and wanted entities; people's changes | Done |
 | 4 | The device tests in section 8 of the specification | Done on 2026-09-24 and 25, except test 8 (no cycle could be started) and the off-cloud half of test 11 |
-| 5 | Live list writes: segments with a single allowed mode, then more modes, then grants | Built and tested against a simulated heater; switched off in code until a supervised trial |
-| 6 | Protocol `1` after a staged live cut-over | Not started |
+| 5 | Live list writes: segments with a single allowed mode, then more modes, then grants | Done; cut over in stages on a real heater on 2026-09-25 (specification section 8.1) |
+| 6 | Protocol `1` after the staged live cut-over | Done: compatibility promises in section 1.3, a JSON Schema, and the examples |
 
-Live mode is gated by the constant `CONTROL_LIVE_AVAILABLE` in `const.py`,
-which is off. While it is off, `live` and its switches are not in the options
-form, a `live` mode edited in by hand runs as shadow, and nothing is ever
-written to the heater. In shadow every write the planner asks for is
-committed as **simulated**: the last write entity shows it with
-`simulated: true`, and the program entities show the list as if it had been
-written. See [Live mode](#live-mode) for what changes once it is on.
+In shadow every write the planner asks for is committed as **simulated**:
+the last write entity shows it with `simulated: true`, and the program
+entities show the list as if it had been written. See
+[Live mode](#live-mode) for what changes in `live`. The constant
+`CONTROL_LIVE_AVAILABLE` in `const.py` is a kill switch: set to `False`, the
+options form stops offering `live` and a `live` option runs as shadow.
 
 ## Enabling the feature
 
 Everything is configured in the integration's options (Settings >
 Devices & services > Navien NWP500 > Configure). The first page holds the
-update interval and the **External control (experimental)** toggle. Turning
+update interval and the **External control** toggle. Turning
 the toggle on opens a second page:
 
 | Option | Default | Notes |
@@ -260,8 +260,7 @@ last write's `reason` is one of `plan`, `cleanup`, `near_term`,
 
 ## Live mode
 
-Live mode writes the plan into the heater's reservation list. It is off in
-code until trialled; this is what it does once switched on.
+Live mode writes the plan into the heater's reservation list.
 
 - **Going live.** Choosing `live` shows the heater's current program for
   confirmation: its mode, setpoint, reservation switch and entries. That is

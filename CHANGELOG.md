@@ -3,32 +3,28 @@
 ## [Unreleased]
 
 ### Added
-- **External control (experimental, protocol 0).** An optional, off-by-default
-  feature that lets an external scheduler control the heater through an
-  intent entity. The scheduler publishes a plan, a timeline of setpoints and
-  modes, and the feature programs it into the heater's own reservation list,
-  so the heater keeps following it if Home Assistant or the scheduler becomes
-  unavailable. This release has the first three delivery steps of #158: the
-  specification with its JSON Schema and examples (`docs/`); the options
-  toggle and form; intake and validation of plans, kept across a restart; and
-  shadow programming, which plans the reservation list it would write without
-  writing it. That covers one entry per segment, near-term entries for
-  changes needed now, a 144-hour horizon and an entry budget, surplus grants
-  with a guard entry at the grant's end, the owner's own entries kept aside,
-  and reports of people's changes. Entities show the capability declaration,
-  the plan, its acknowledgement, the program and whether the device matches
-  it, how far the programmed plan reaches, the next entry, the wanted state,
-  any surplus raise, the last write, people's changes and a heartbeat, with
-  a Disable button. With the feature off nothing of it loads, and a
-  regression test holds set-up to what it was before. (#158)
-- **External control: live mode, switched off in code.** Delivery step 5
-  of #158 is built and tested against a simulated heater: confirmed
-  whole-list writes that read the list first, a retry after a minute and
-  then `failed`, taking the list over from the owner's entries, per-entry
-  read-back, a going-live step that declares the owner's program, and
-  handing the heater back on disabling, on leaving live and on switching
-  the feature off. It stays unselectable, and a hand-edited `live` runs as
-  shadow, until a supervised trial on a real heater. (#158)
+- **External control (protocol 1).** An optional, off-by-default feature
+  that lets an external scheduler control the heater through an intent
+  entity. The scheduler publishes a plan, a timeline of setpoints and modes,
+  and the feature programs it into the heater's own reservation list, so the
+  heater keeps following it if Home Assistant or the scheduler becomes
+  unavailable. Enabling starts in `shadow`, which plans and reports the list
+  it would write without writing it. `live` writes it: going live shows the
+  heater's own program for confirmation; every write reads the list first,
+  is written whole and counts only once the heater holds it, with a retry
+  and then `failed`; each entry is read back after it fires, with its mode
+  confirmed by what the heater does; and disabling, leaving live or
+  switching the feature off hands the heater back to its own program.
+  Surplus grants raise the setpoint within a scheduler's ceiling, bounded on
+  the device by a guard entry. Entities show the capability declaration, the
+  plan, its acknowledgement, the program and whether the device matches it,
+  how far the programmed plan reaches, the next entry, the wanted state, any
+  surplus raise, the last write, people's changes and a heartbeat, with a
+  Disable button. Protocol 1 comes with compatibility promises; protocol 0
+  documents are still accepted. The specification, JSON Schema and examples
+  are in `docs/`, with the device tests and the staged live cut-over run on
+  a real heater. With the feature off nothing of it loads, and a regression
+  test holds set-up to what it was before. (#158)
 
 ### Fixed
 - **Turning the water heater off powers it off.** It sent the operation

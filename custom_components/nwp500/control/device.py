@@ -157,8 +157,8 @@ class DeviceControl:
             # Nothing can select it yet; an options file edited by hand is
             # run in shadow rather than trusted to write.
             _LOGGER.warning(
-                "External control: live mode is not available yet; running "
-                "in shadow"
+                "External control: live mode is switched off in this build "
+                "(CONTROL_LIVE_AVAILABLE); running in shadow"
             )
             mode = CONTROL_MODE_SHADOW
         elif mode == CONTROL_MODE_LIVE and self.declared_owner is None:
