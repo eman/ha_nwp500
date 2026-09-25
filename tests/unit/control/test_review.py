@@ -8,6 +8,7 @@ restarts and flapping sources, outages, lost writes, and surplus raises.
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -23,6 +24,8 @@ from custom_components.nwp500.control.device import WRITE_PAUSE, WRITE_RETRY
 from custom_components.nwp500.control.engine import Planner
 from custom_components.nwp500.control.entries import (
     KIND_GRANT_LOWER,
+    KIND_GRANT_RAISE,
+    KIND_GUARD,
     KIND_NEAR_TERM,
 )
 from custom_components.nwp500.control.intent import (
@@ -31,14 +34,16 @@ from custom_components.nwp500.control.intent import (
 )
 
 from . import test_live
-from .conftest import make_document, segment
+from .conftest import grant, make_document, segment
 from .test_device import INTENT_ENTITY, MAC, _publish
 from .test_engine import (
     NOW,
+    SURPLUS,
     TZ,
     TestSurplusGrants,
     give,
     minutes,
+    obs,
     planner_with,
     run,
 )
@@ -534,7 +539,7 @@ class TestIssueQuestions:
         run(planner, minutes(10), t.RUNNING)
         assert planner.raise_state is None
 
-    def test_a_programmed_segment_before_the_grant_ends_ends_the_raise(self):
+    def test_a_programmed_segment_ends_the_raise_and_its_guard(self):
         t = TestSurplusGrants()
         planner = t._planner(
             [
@@ -544,4 +549,230 @@ class TestIssueQuestions:
         )
         write = run(planner, minutes(10), t.RUNNING)
         assert write is not None
-        assert not [e for e in write.added if e.kind == "guard"]
+        assert [e for e in write.added if e.kind == "guard"]
+        run(planner, minutes(61), t.RUNNING)
+        assert planner.raise_state is None
+        assert not [e for e in planner.owned if e.kind == "guard"]
+
+
+def _foreign(*minutes_past_1300: int) -> tuple[dict, ...]:
+    """Enabled entries of someone else's on Monday, 13:00 plus the minutes."""
+    return tuple(
+        {"enable": 2, "week": 64, "hour": 13, "min": m, "mode": 3, "param": 100}
+        for m in minutes_past_1300
+    )
+
+
+def _unended(planner: Planner, after) -> bool:
+    """Raised with nothing on the heater, of the feature's, to end it."""
+    return planner.raise_state is None and not any(
+        e.fires_at > after and e.setpoint_raw != 127 for e in planner.owned
+    )
+
+
+class TestRaiseEndsOnlyOnTheHeater:
+    """The adversarial review of #163: a raise ends when an entry does.
+
+    A raise was taken as ended, and its guard withdrawn, whenever a segment
+    started, although the segment may have put nothing on the heater.
+    """
+
+    RUNNING = TestSurplusGrants.RUNNING
+    IDLE = obs(
+        mode="heat_pump", setpoint_raw=127, compressor_on=False, surplus_on=True
+    )
+
+    def test_republishing_mid_raise_keeps_the_raise_and_its_guard(self):
+        planner = TestSurplusGrants()._planner()
+        run(planner, minutes(10), self.RUNNING)
+        run(planner, minutes(13), self.RUNNING)
+        # The same grant, with the first segment re-anchored at now in the
+        # same state: no entry is written for it.
+        give(
+            planner,
+            [segment(NOW, "s-new", 15, mode="heat_pump", setpoint_f=140)],
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            now=minutes(15),
+            observed=self.RUNNING,
+            intent_id="i-2",
+        )
+        run(planner, minutes(16), self.RUNNING)
+        rs = planner.raise_state
+        assert rs is not None
+        assert rs.guard in planner.owned
+        assert not _unended(planner, minutes(16))
+
+    def test_republishing_moves_the_guard_to_the_new_plans_state(self):
+        planner = TestSurplusGrants()._planner()
+        run(planner, minutes(10), self.RUNNING)
+        give(
+            planner,
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                # Not before the grant's end: the guard restores this.
+                segment(NOW, "later", 180, mode="heat_pump", setpoint_f=130),
+            ],
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            now=minutes(11),
+            observed=self.RUNNING,
+            intent_id="i-2",
+        )
+        rs = planner.raise_state
+        assert rs is not None and rs.guard is not None
+        assert (rs.guard.mode, rs.guard.setpoint_raw) == (
+            "heat_pump",
+            planner.resolve(planner.plan.segments[1]).setpoint_raw,
+        )
+
+    def test_lowering_just_before_a_merged_segment_is_written(self):
+        planner = TestSurplusGrants()._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "same", 60, setpoint_f=140),
+            ]
+        )
+        run(planner, minutes(10), self.RUNNING)
+        run(planner, minutes(13), self.RUNNING)
+        # The compressor stops 90 s before the merged segment starts.
+        run(planner, minutes(58.5), self.IDLE)
+        assert planner.raise_state is None
+        assert any(
+            e.kind == KIND_GRANT_LOWER and e.setpoint_raw == 120
+            for e in planner.owned
+        )
+
+    def test_lowering_just_before_a_change_waits_for_its_entry(self):
+        planner = TestSurplusGrants()._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "next", 60, setpoint_f=135),
+            ]
+        )
+        run(planner, minutes(10), self.RUNNING)
+        run(planner, minutes(13), self.RUNNING)
+        run(planner, minutes(58.5), self.IDLE)
+        # The segment's entry lowers it; until it fires the guard stays.
+        rs = planner.raise_state
+        assert rs is not None and rs.guard in planner.owned
+        run(planner, minutes(60.5), self.IDLE)
+        assert planner.raise_state is None
+
+    def test_a_new_plan_reusing_an_id_as_merged_still_gets_a_guard(self):
+        planner = planner_with(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "s1", 60, mode="energy_saver", setpoint_f=130),
+            ],
+            observed=self.RUNNING,
+            **SURPLUS,
+        )
+        run(planner, minutes(5), self.RUNNING)
+        give(
+            planner,
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "s1", 60, setpoint_f=140),
+            ],
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            now=minutes(10),
+            observed=self.RUNNING,
+            intent_id="i-2",
+        )
+        rs = planner.raise_state
+        assert rs is not None and rs.guard is not None
+        assert rs.guard in planner.owned
+
+    def test_a_small_budget_cannot_leave_the_raise_without_a_guard(self):
+        planner = TestSurplusGrants()._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "s1", 60, mode="energy_saver", setpoint_f=130),
+            ],
+            control_reservation_entry_limit=2,
+            control_reservation_entry_reserve=0,
+        )
+        run(planner, minutes(10), self.RUNNING)
+        rs = planner.raise_state
+        assert rs is not None and rs.guard in planner.owned
+
+    def test_a_segment_a_person_removed_does_not_end_the_raise(self):
+        planner = TestSurplusGrants()._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "s1", 60, mode="heat_pump", setpoint_f=135),
+                segment(NOW, "s2", 240, mode="heat_pump", setpoint_f=140),
+            ]
+        )
+        run(planner, minutes(10), self.RUNNING)
+        run(planner, minutes(13), self.RUNNING)
+        # A person removes s1's entry, as the live list tracking records it.
+        entry = next(e for e in planner.owned if e.serves == "s1")
+        planner.removed_segments.add("s1")
+        planner.owned = [e for e in planner.owned if e != entry]
+        run(planner, minutes(61), self.RUNNING)
+        rs = planner.raise_state
+        assert rs is not None and rs.guard in planner.owned
+
+    def test_a_guard_moved_past_collisions_is_kept_until_it_fires(self):
+        running = replace(self.RUNNING, reservations=_foreign(0, 1))
+        planner = TestSurplusGrants()._planner()
+        run(planner, minutes(10), running)
+        (guard,) = [e for e in planner.owned if e.kind == KIND_GUARD]
+        assert guard.fires_at.strftime("%H:%M") == "13:02"
+        run(planner, minutes(181), running)
+        assert guard in planner.owned
+        assert planner.raise_state is not None
+        run(planner, minutes(182), running)
+        assert planner.raise_state is None
+
+    def test_a_raise_moved_onto_a_merged_segment_is_kept(self):
+        running = replace(
+            self.RUNNING,
+            reservations=(
+                {
+                    "enable": 2,
+                    "week": 64,
+                    "hour": 10,
+                    "min": 12,
+                    "mode": 3,
+                    "param": 100,
+                },
+            ),
+        )
+        planner = TestSurplusGrants()._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "same", 13, setpoint_f=140),
+            ]
+        )
+        run(planner, minutes(10), running)
+        rs = planner.raise_state
+        assert rs is not None
+        assert rs.entry in planner.owned
+        assert rs.entry.fires_at.strftime("%H:%M") == "10:13"
+
+    def test_a_raise_moved_onto_a_change_is_withdrawn(self):
+        running = replace(
+            self.RUNNING,
+            reservations=(
+                {
+                    "enable": 2,
+                    "week": 64,
+                    "hour": 10,
+                    "min": 12,
+                    "mode": 3,
+                    "param": 100,
+                },
+            ),
+        )
+        planner = TestSurplusGrants()._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "next", 13, setpoint_f=135),
+            ]
+        )
+        run(planner, minutes(10), running)
+        assert planner.raise_state is None
+        assert not [
+            e for e in planner.owned if e.kind in (KIND_GRANT_RAISE, KIND_GUARD)
+        ]

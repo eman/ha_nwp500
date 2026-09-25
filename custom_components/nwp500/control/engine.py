@@ -636,6 +636,17 @@ class Planner:
             and kept == grant_of(previous)
             and rs.grant_id not in self.grant_rejections
         ):
+            # The guard restores what the new plan wants at the grant's end,
+            # at the minute it was placed.
+            old = rs.guard
+            if old is not None:
+                guard = self._guard(kept, State(old.mode, old.setpoint_raw))
+                self._swap_extra(
+                    old,
+                    replace(
+                        old, mode=guard.mode, setpoint_raw=guard.setpoint_raw
+                    ),
+                )
             return
         self._lower(now)
 
@@ -1278,15 +1289,7 @@ class Planner:
     def _track_grant(self, now: datetime, observed: Observed) -> None:
         rs = self.raise_state
         if rs is not None:
-            # Only a segment with a state of its own ends the raise. A
-            # merged one puts nothing on the heater, so the raise stays
-            # raised and its guard is still needed.
-            segment_started = any(
-                rs.raised_at < s.start <= now and not merged
-                for s, _state, merged in self._timeline()
-            )
-            guard_fired = rs.guard is not None and rs.guard.fires_at <= now
-            if self.plan is None or segment_started or guard_fired:
+            if self.plan is None or self._raise_ended(rs, now):
                 # The device ended it on its own.
                 self._drop_raise_entries(now)
                 self.raise_state = None
@@ -1345,38 +1348,67 @@ class Planner:
         )
         if entry is None:
             return
-        guard: OwnedEntry | None = None
-        segments = self.plan.segments if self.plan is not None else ()
-        # A segment starting before the grant ends makes the guard needless
-        # only if its own entry will be on the device. A merged segment has
-        # none, and a scheduled one none yet: the raise would then have
-        # nothing on the heater to end it if Home Assistant stopped.
-        ended_by_segment = any(
-            entry.fires_at < s.start <= grant.end
-            and self._info.get(s.id, _SegmentInfo(False)).candidate
-            for s in segments
-        )
-        if not ended_by_segment:
-            # The state the plan wants when the grant ends.
-            at_end = self._anchor(grant.end)
-            end_state = (
-                at_end[1]
-                if at_end is not None and at_end[1] is not None
-                else state
-            )
-            guard = OwnedEntry(
-                KIND_GUARD,
-                grant.id,
-                grant.end.astimezone(self.tz),
-                end_state.mode,
-                end_state.setpoint_raw,
-            )
-            self.extra.append(guard)
+        # Always a guard, even when a segment's entry would end the raise
+        # first: that entry may not reach the heater, or be removed from
+        # it, and the raise must stay bounded if Home Assistant stops.
+        guard = self._guard(grant, state)
+        self.extra.append(guard)
         self.raise_state = RaiseState(grant.id, now, entry, guard)
         self._raised_in_cycle = True
         _LOGGER.info(
             "Surplus raise under grant %s to %d half-degrees", grant.id, target
         )
+
+    def _raise_ended(self, rs: RaiseState, now: datetime) -> bool:
+        """Whether an entry on the heater has replaced the raise.
+
+        Its guard, or one of the feature's own entries that fired after it.
+        A segment starting is not enough: a merged one, one a person
+        removed, or one not yet programmed puts nothing on the heater, and
+        the raise then stays raised, with its guard.
+        """
+        if rs.guard is not None and rs.guard.fires_at <= now:
+            return True
+        return any(
+            e.kind in (KIND_PLAN, KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+            and rs.entry.fires_at < e.fires_at <= now
+            for e in self.owned
+        )
+
+    def _guard(self, grant: Grant, fallback: State) -> OwnedEntry:
+        """The guard entry: the state the plan wants when the grant ends."""
+        at_end = self._anchor(grant.end)
+        state = (
+            at_end[1]
+            if at_end is not None and at_end[1] is not None
+            else fallback
+        )
+        return OwnedEntry(
+            KIND_GUARD,
+            grant.id,
+            grant.end.astimezone(self.tz),
+            state.mode,
+            state.setpoint_raw,
+        )
+
+    def _swap_extra(self, old: OwnedEntry, new: OwnedEntry) -> None:
+        """Replace an extra entry, and the raise's copy of it."""
+        self.extra = [new if e == old else e for e in self.extra]
+        rs = self.raise_state
+        if rs is not None and rs.entry == old:
+            self.raise_state = rs = replace(rs, entry=new)
+        if rs is not None and rs.guard == old:
+            self.raise_state = replace(rs, guard=new)
+
+    def _next_change_after(self, when: datetime) -> Segment | None:
+        """The first segment after `when` that changes the state.
+
+        A merged segment repeats the state before it and has no entry.
+        """
+        for segment, _state, merged in self._timeline():
+            if segment.start > when and not merged:
+                return segment
+        return None
 
     def _drop_raise_entries(self, now: datetime) -> None:
         rs = self.raise_state
@@ -1396,16 +1428,24 @@ class Planner:
         if rs.entry.fires_at > now:
             # The raise has not fired: withdrawing it is enough.
             self._drop_raise_entries(now)
-        else:
-            self._drop_raise_entries(now)
-            anchor = self._anchor(now)
-            state = anchor[1] if anchor is not None else None
-            if state is None and rs.guard is not None:
-                # No segment in force (a plan that stops): lower to the
-                # state the guard would have restored.
-                state = State(rs.guard.mode, rs.guard.setpoint_raw)
-            if state is not None:
-                self._near_term(KIND_GRANT_LOWER, rs.grant_id, state, now)
+            self.raise_state = None
+            return
+        anchor = self._anchor(now)
+        state = anchor[1] if anchor is not None else None
+        if state is None and rs.guard is not None:
+            # No segment in force (a plan that stops): lower to the
+            # state the guard would have restored.
+            state = State(rs.guard.mode, rs.guard.setpoint_raw)
+        if (
+            state is not None
+            and self._near_term(KIND_GRANT_LOWER, rs.grant_id, state, now)
+            is None
+        ):
+            # A segment changing the state starts before a lowering could
+            # fire. The raise stays, with its guard, until an entry on the
+            # heater ends it, or a lowering can be written.
+            return
+        self._drop_raise_entries(now)
         self.raise_state = None
 
     # Entries
@@ -1415,14 +1455,13 @@ class Planner:
     ) -> OwnedEntry | None:
         """An entry for the first minute at least the lead time away.
 
-        None if the next segment starts by then: its own entry makes this
-        one pointless.
+        None if a segment changing the state starts by then: its own entry
+        makes this one pointless. A merged segment has none.
         """
         fires_at = near_term_minute(now, NEAR_TERM_LEAD).astimezone(self.tz)
-        if self.plan is not None:
-            nxt = self.plan.next_segment_after(now)
-            if nxt is not None and nxt.start <= fires_at:
-                return None
+        nxt = self._next_change_after(now)
+        if nxt is not None and nxt.start <= fires_at:
+            return None
         entry = OwnedEntry(
             kind, serves, fires_at, state.mode, state.setpoint_raw
         )
@@ -1535,24 +1574,36 @@ class Planner:
         desired: list[OwnedEntry] = [e for _, e in chosen]
         # Slots of the plan entries that will not be written go free again.
         occupied = self._occupied(others) + [e.slot for e in desired]
+        rs = self.raise_state
+        raise_dropped = False
         for entry in extra:
             placed = self._place(entry, occupied)
-            # A near-term or guard entry moved to, or past, the next
-            # segment's start would undo that segment. The segment's own
-            # entry supersedes it there, so it is dropped instead.
-            nxt = (
-                self.plan.next_segment_after(entry.fires_at)
-                if self.plan is not None
-                else None
-            )
-            if (
-                placed != entry
-                and nxt is not None
-                and placed.fires_at >= nxt.start
-            ):
+            if placed == entry:
+                occupied.append(placed.slot)
+                desired.append(placed)
                 continue
+            # A near-term or guard entry moved to, or past, the start of the
+            # next segment changing the state would undo that segment. The
+            # segment's own entry supersedes it there, so it is dropped.
+            nxt = self._next_change_after(entry.fires_at)
+            if nxt is not None and placed.fires_at >= nxt.start:
+                if (
+                    rs is not None
+                    and entry == rs.entry
+                    and entry.fires_at > now
+                ):
+                    raise_dropped = True
+                continue
+            # Kept at the minute it was moved to, so it is not taken for
+            # fired, and withdrawn, at its original minute.
+            self._swap_extra(entry, placed)
             occupied.append(placed.slot)
             desired.append(placed)
+        if raise_dropped and self.raise_state is not None:
+            # No raise reaches the heater, so none is in force.
+            desired = [e for e in desired if e != self.raise_state.guard]
+            self._drop_raise_entries(now)
+            self.raise_state = None
 
         self._info = info
         scheduled = [
