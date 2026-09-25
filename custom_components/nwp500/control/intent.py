@@ -45,7 +45,7 @@ _TOP_LEVEL_KEYS = frozenset(
     {"protocol", "intent_id", "issued_at", "segments", "grants"}
 )
 _SEGMENT_KEYS = frozenset(
-    {"id", "start", "setpoint", "setpoint_f", "setpoint_c", "mode"}
+    {"id", "start", "setpoint", "setpoint_f", "setpoint_c", "mode", "reassert"}
 )
 _GRANT_KEYS = frozenset({"id", "start", "end", "max_f", "max_c"})
 
@@ -96,6 +96,9 @@ class Segment:
     setpoint_form: str
     # Whether `mode` was given, or kept from the previous segment.
     mode_given: bool = True
+    # Protocol 1.1: program an entry even if the state repeats the segment
+    # before, so a person's change is ended at its start (section 3.2).
+    reassert: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
     def as_document(self) -> dict[str, Any]:
@@ -117,6 +120,8 @@ class Segment:
             )
         if self.mode_given:
             doc["mode"] = self.mode
+        if self.reassert:
+            doc["reassert"] = True
         return doc
 
 
@@ -322,6 +327,12 @@ def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
         else:
             mode = previous_mode
         previous_mode = mode
+        reassert = raw.get("reassert", False)
+        if not isinstance(reassert, bool):
+            raise _reject(
+                REASON_INVALID_DOCUMENT,
+                f"{where} reassert must be true or false",
+            )
 
         if segments and start <= segments[-1].start:
             raise _reject(
@@ -337,6 +348,7 @@ def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
                 setpoint_raw=setpoint_raw,
                 setpoint_form=setpoint_form,
                 mode_given=mode_given,
+                reassert=reassert,
                 extra={k: v for k, v in raw.items() if k not in _SEGMENT_KEYS},
             )
         )

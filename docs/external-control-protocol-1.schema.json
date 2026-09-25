@@ -64,6 +64,11 @@
         "mode": {
           "$ref": "#/$defs/mode_name",
           "description": "Required on the first segment. A later segment that omits it keeps the previous segment's mode."
+        },
+        "reassert": {
+          "type": "boolean",
+          "default": false,
+          "description": "Protocol 1.1. Program this segment's entry even when its state repeats the segment before it, so a person's change is ended at its start. An entry that repeats the heater's state starts no recovery."
         }
       },
       "oneOf": [

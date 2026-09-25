@@ -18,7 +18,7 @@ class TestDeclaration:
         assert attrs["protocols"] == ["1", "0"]
         assert attrs["mode"] == "shadow"
         assert attrs["live"] == {"segments": False, "grants": False}
-        assert attrs["allowed_modes"] == ["energy_saver"]
+        assert attrs["allowed_modes"] == ["heat_pump", "energy_saver"]
         assert attrs["assisted_mode"] == "energy_saver"
         assert attrs["horizon_h"] == 144
         assert attrs["near_term_lead_min"] == 2

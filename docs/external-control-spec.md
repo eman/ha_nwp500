@@ -92,6 +92,9 @@ Within major version `1`:
 6. **Protocol `0`** documents are accepted as `1` for at least one release
    after this one; `protocols` lists `"0"` while they are.
 
+Minor versions so far: **1.1** adds the segment key `reassert` (section
+3.2). A feature that only knows 1.0 keeps it as an opaque key.
+
 ---
 
 ## 2. Interface overview
@@ -169,6 +172,7 @@ increasing order of `start`.
 | `start` | ISO 8601 with offset | yes | Truncated to the minute |
 | `setpoint_f`, `setpoint_c` or `setpoint` | number, number, or `"min"` | exactly one | The setpoint. A number is converted and quantised to the device's half-degree-Celsius resolution. `"min"` is the lowest setpoint the feature will write, `setpoint_min` (section 4.1) |
 | `mode` | string (section 3.4) | on the first segment | The operation mode. A later segment that omits it keeps the previous segment's mode |
+| `reassert` | boolean | no | Protocol 1.1. `true` programs the segment's entry even when its state repeats the segment before it (section 5.2), so a person's change (section 5.10) is ended at its start, for example by a nightly segment. An entry that repeats the heater's state starts no recovery (section 8, test 5) |
 | any other key | any | no | Opaque, echoed back on the segment's acknowledgement, for example `purpose`, unless it has the name of one of the acknowledgement's own keys (`id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, `mode_confirmed`), which win |
 
 Until the plan's first segment starts, whatever is in force continues: the
@@ -315,7 +319,7 @@ All belong to the device. Names are indicative; unique ids are
 | `live` | The live switches: `segments`, `grants` |
 | `setpoint_min_f`, `setpoint_max_f` (and `_c`) | The bounds a setpoint must be within. Options, defaulting to the device's own `dhw_temperature_min` / `max`. A user MAY set a tighter floor, for example 120 °F. `"min"` resolves to `setpoint_min` |
 | `setpoint_resolution_c` | 0.5 on the NWP500, so a model can quantise exactly as the heater does |
-| `allowed_modes` | Modes a segment may use. Option; default `["energy_saver"]` |
+| `allowed_modes` | Modes a segment may use. Option; default `["heat_pump", "energy_saver"]`: a segment carries the heater's whole state and the last one holds, so the owner's usual Heat Pump must be allowed, and a surplus grant raises only in it. A single-mode cut-over (section 1.2) is the owner's choice |
 | `assisted_mode` | The mode a scheduler should use for faster recovery. Option; default `energy_saver`. It MUST be one of `allowed_modes`. A scheduler reads it instead of naming a mode, so its plans work with other heaters |
 | `horizon_h` | How far ahead an entry may be programmed: 144 (section 5.3) |
 | `near_term_lead_min` | How far ahead a near-term entry is written: 2 (section 5.2) |
@@ -424,7 +428,8 @@ disabling restores.
 1. **One entry per segment.** Each segment's start becomes one entry carrying
    the segment's mode and setpoint. A device entry always sets both.
 2. **Merged segments.** A segment whose mode and setpoint equal those of the
-   segment before it gets no entry. Its status is `merged`.
+   segment before it gets no entry. Its status is `merged`. A segment with
+   `reassert: true` is never merged: it gets its own entry.
 3. **Weekday and time.** Each entry has the weekday bit of its local date and
    its local hour and minute. The device fires entries in Home Assistant's
    time zone (section 8, test 1).
@@ -548,9 +553,10 @@ running and the segment in force is in `heat_pump` mode:
 
 - once surplus has been on for 10 min, raise the setpoint to
   `min(max, setpoint_max)` with a near-term entry;
-- at the same time, if no segment starts before the grant's end, add a
-  **guard entry** at the grant's end restoring the state of the segment in
-  force then;
+- at the same time, add a **guard entry** at the grant's end restoring the
+  state the plan wants then, unless a segment whose own entry will be on the
+  device starts before the grant's end. A `merged` or `scheduled` segment
+  has no entry there, so it does not replace the guard;
 - raise at most once per compressor cycle;
 - never raise to start a cycle.
 
@@ -592,13 +598,18 @@ Documented in `nwp500-python` `docs/how-to/schedule-operation.rst`,
 ### 5.9 Precedence
 
 **While Vacation or power-off is active, or an Anti-Legionella cycle is
-running** (`anti_legionella_operation_busy`), the feature makes no setpoint or
-mode writes.
+running** (`anti_legionella_operation_busy`), the feature makes no direct
+setpoint or mode writes.
 
 - **Vacation.** The device skips entries during Vacation, and an entry whose
-  minute passes is missed, not run late (section 8). The feature does not
-  write the list; its entries stay on the device. When Vacation ends, it
-  re-asserts the segment in force with a near-term entry (`precedence_exit`).
+  minute passes is missed, not run late (section 8). So writing the list is
+  harmless then, and the feature keeps writing it: a plan accepted during
+  Vacation is programmed at once, and the heater holds the newest plan even
+  if Home Assistant is unavailable when Vacation ends. When Vacation ends,
+  the feature re-asserts the segment in force with a near-term entry
+  (`precedence_exit`). If Home Assistant is unavailable then, the heater
+  leaves Vacation in the state it had, and the newest plan's next entry
+  puts the plan in force.
 - **Power-off.** The device does **not** skip entries while powered off. An
   entry fires, and powers the heater back on in the entry's mode (section 8).
   Without intervention, a person who switches the heater off would have it
@@ -609,6 +620,13 @@ mode writes.
   segment in force with a near-term entry (`precedence_exit`). This depends on
   Home Assistant being up when the heater is switched off. If it is not, the
   next entry turns the heater back on.
+  - A plan accepted while the heater is powered off is written when power
+    returns, in the same write as the re-assert. The entries whose flags
+    come back on are those of the plan in force then, the newest.
+  - If Home Assistant is unavailable when power returns, the feature's
+    entries stay switched off until it is back: the heater runs in the state
+    it powered on in, with no plan entries firing.
+    Leaving them on while it is powered off would let them power it back on.
 - **Anti-Legionella.** The feature does not write the list during a cycle.
   Whether an entry firing mid-cycle interrupts the cycle is untested
   (section 8).
@@ -756,7 +774,7 @@ is kept, so turning the feature on and disabling can finish.
 | Live switches: segments, grants | both off |
 | Intent entity | none (required to enable) |
 | Setpoint min / max | The device's `dhw_temperature_min` / `max` |
-| Allowed modes | `energy_saver` |
+| Allowed modes | `heat_pump`, `energy_saver` |
 | Assisted mode | `energy_saver` |
 | Entry limit | 16 (the unit tested held 32; section 8) |
 | Entry reserve | 2 |

@@ -458,7 +458,11 @@ class Planner:
         previous: State | None = None
         for segment in self.plan.segments if self.plan else ():
             state = self.resolve(segment)
-            merged = state is not None and state == previous
+            # A segment that repeats the state before it needs no entry,
+            # unless it asks to re-assert it (protocol 1.1).
+            merged = (
+                state is not None and state == previous and not segment.reassert
+            )
             result.append((segment, state, merged))
             if state is not None:
                 previous = state
@@ -703,8 +707,12 @@ class Planner:
         self.next_event_at = self._next_event(now)
         if self.suspended_by == "power_off":
             return self._switch_off_owned(now)
-        if self.suspended_by:
+        if self.suspended_by == "anti_legionella":
             return None
+        # In Vacation the heater skips entries, so writing the list is
+        # harmless, and it keeps the newest plan on the heater should Home
+        # Assistant be unavailable when Vacation ends (section 5.9). The
+        # segment in force is re-asserted when it ends.
         write = self._diff(desired, now)
         if (
             write is None
@@ -1335,13 +1343,29 @@ class Planner:
             return
         guard: OwnedEntry | None = None
         segments = self.plan.segments if self.plan is not None else ()
-        if not any(entry.fires_at < s.start <= grant.end for s in segments):
+        # A segment starting before the grant ends makes the guard needless
+        # only if its own entry will be on the device. A merged segment has
+        # none, and a scheduled one none yet: the raise would then have
+        # nothing on the heater to end it if Home Assistant stopped.
+        ended_by_segment = any(
+            entry.fires_at < s.start <= grant.end
+            and self._info.get(s.id, _SegmentInfo(False)).candidate
+            for s in segments
+        )
+        if not ended_by_segment:
+            # The state the plan wants when the grant ends.
+            at_end = self._anchor(grant.end)
+            end_state = (
+                at_end[1]
+                if at_end is not None and at_end[1] is not None
+                else state
+            )
             guard = OwnedEntry(
                 KIND_GUARD,
                 grant.id,
                 grant.end.astimezone(self.tz),
-                state.mode,
-                state.setpoint_raw,
+                end_state.mode,
+                end_state.setpoint_raw,
             )
             self.extra.append(guard)
         self.raise_state = RaiseState(grant.id, now, entry, guard)

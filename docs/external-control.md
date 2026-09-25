@@ -57,7 +57,7 @@ the toggle on opens a second page:
 | Surplus entity | none | A `binary_sensor` (on = surplus) or a kW `sensor`. Required for surplus grants |
 | Surplus threshold (kW) | 0.45 | For a numeric surplus sensor: surplus when the value is at or above this |
 | Setpoint minimum / maximum | device range | Optional tighter bounds. Empty follows the device's own `dhw_temperature_min` / `max`. A plan's `"min"` setpoint means the minimum |
-| Allowed modes | `energy_saver` | Modes a segment may use. A cut-over should start with one |
+| Allowed modes | `heat_pump`, `energy_saver` | Modes a segment may use. Heat Pump must be allowed for a plan to hold it, and for surplus grants. A cautious cut-over can start with one mode |
 | Assisted mode | `energy_saver` | The mode a scheduler should use for faster recovery. Must be one of the allowed modes |
 | Minimum run before lowering a surplus raise (min) | 120 | Section 5.7 |
 | Reservation entry limit / reserve | 16 / 2 | The most entries the feature uses, and how many are kept free for changes needed now. The unit tested held 32; larger lists are untested |
@@ -130,6 +130,7 @@ to the minute.
 | `start` | yes | ISO 8601 with offset |
 | `setpoint_f`, `setpoint_c` or `setpoint: "min"` | exactly one | The setpoint. Numbers are quantised to half a degree Celsius. `"min"` is the setpoint minimum option, else the device's minimum |
 | `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand` or `electric`. A later segment without one keeps the previous mode |
+| `reassert` | no | Protocol 1.1. `true` gives the segment its own entry even when it repeats the state before it, so a person's change is ended at its start |
 
 `vacation` and `power_off` are never accepted. Entries are skipped during
 Vacation, so the plan's next entry would never end it. Whether an entry with
@@ -328,9 +329,11 @@ the reservation switch turned off. It never undoes them.
 - **The device fires an entry whatever the compressor is doing.** Cycle
   policy, such as a minimum run before stopping, is the scheduler's: it
   chooses segment times.
-- **While Vacation is active, or an Anti-Legionella cycle is running**, the
-  feature does not write the list. The device skips entries during Vacation,
-  and the feature re-asserts the segment in force when it ends.
+- **During Vacation the device skips entries**, so the feature keeps the
+  newest plan written on the heater, and re-asserts the segment in force
+  when Vacation ends. **During an Anti-Legionella cycle** it writes nothing.
+  A plan accepted while the heater is powered off is written when power
+  returns.
 - **Power-off is different: entries still fire, and power the heater back
   on.** So when the heater is switched off, the feature switches its own
   entries off by their own flag, and back on when power returns, re-asserting

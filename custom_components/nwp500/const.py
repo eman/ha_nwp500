@@ -1347,7 +1347,10 @@ CONTROL_MODE_NAMES: Final = (
 
 DEFAULT_CONTROL_MODE: Final = CONTROL_MODE_SHADOW
 DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW: Final = 0.45
-DEFAULT_CONTROL_ALLOWED_MODES: Final = ("energy_saver",)
+# A segment carries the heater's whole state and the last one holds, so the
+# owner's usual Heat Pump must be allowed, and grants raise only in it. A
+# single-mode cut-over (spec 1.2.2) is the owner's choice in the options.
+DEFAULT_CONTROL_ALLOWED_MODES: Final = ("heat_pump", "energy_saver")
 DEFAULT_CONTROL_ASSISTED_MODE: Final = "energy_saver"
 DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN: Final = 120
 # The unit tested accepted and read back a list of 32 entries (spec

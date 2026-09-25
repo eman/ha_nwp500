@@ -609,13 +609,18 @@ class TestReplacingAPlan:
 class TestPrecedence:
     """Section 5.9."""
 
-    def test_no_writes_while_suspended_and_a_re_assert_after(self):
+    def test_a_plan_in_vacation_is_written_and_re_asserted_after(self):
+        """Section 5.9: a plan accepted in Vacation is written at once.
+
+        The heater skips entries in Vacation, and so holds the newest plan
+        even if Home Assistant is unavailable when Vacation ends.
+        """
         planner = planner_with(
             [segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1)]
         )
         assert planner.owned == []
         assert run(planner, minutes(1), obs(mode="vacation")) is None
-        give(
+        write = give(
             planner,
             [
                 segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1),
@@ -625,14 +630,12 @@ class TestPrecedence:
             observed=obs(mode="vacation"),
             intent_id="i-2",
         )
-        assert planner.owned == []
+        assert write is not None
+        assert [e.kind for e in write.added] == [KIND_PLAN]
         write = run(planner, minutes(3))
         assert write is not None
         assert write.reason == WRITE_PRECEDENCE_EXIT
-        assert {e.kind for e in write.added} == {
-            KIND_PRECEDENCE_EXIT,
-            KIND_PLAN,
-        }
+        assert {e.kind for e in write.added} == {KIND_PRECEDENCE_EXIT}
         assert planner.reports == {}
 
     def test_anti_legionella_suspends_without_a_re_assert(self):

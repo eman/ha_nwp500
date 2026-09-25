@@ -442,3 +442,77 @@ class TestCopilotReview:
             await feature.async_start()
         assert stopped.await_count == 2
         assert feature.devices == {}
+
+
+class TestIssueQuestions:
+    """The questions on #158 from writing a scheduler against protocol 1."""
+
+    def test_reassert_programs_a_segment_that_repeats_the_state(self):
+        planner = planner_with(
+            [
+                segment(NOW, "day", -5, mode="heat_pump", setpoint_f=140),
+                {
+                    **segment(NOW, "night", 60, setpoint_f=140),
+                    "reassert": True,
+                },
+                segment(NOW, "later", 120, setpoint_f=140),
+            ]
+        )
+        details = {s.id: s.status for s in planner.ack("i").segments}
+        assert details["night"] == "shadow"
+        assert details["later"] == "merged"
+        assert [e.serves for e in planner.owned if e.kind == "plan"] == [
+            "night"
+        ]
+
+    def test_reassert_must_be_a_boolean(self):
+        doc = make_document(
+            NOW,
+            [
+                {
+                    **segment(NOW, "s", 0, mode="heat_pump", setpoint_f=140),
+                    "reassert": "yes",
+                }
+            ],
+        )
+        with pytest.raises(IntentRejected):
+            parse_plan(doc)
+
+    def test_reassert_is_echoed(self):
+        doc = make_document(
+            NOW,
+            [
+                {
+                    **segment(NOW, "s", 0, mode="heat_pump", setpoint_f=140),
+                    "reassert": True,
+                }
+            ],
+        )
+        assert parse_plan(doc).as_document()["segments"][0]["reassert"] is True
+
+    def test_a_merged_segment_before_the_grant_ends_still_gets_a_guard(self):
+        t = TestSurplusGrants()
+        planner = t._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                # Same state: merged, so no entry of its own on the heater.
+                segment(NOW, "same", 60, setpoint_f=140),
+            ]
+        )
+        write = run(planner, minutes(10), t.RUNNING)
+        assert write is not None
+        guards = [e for e in write.added if e.kind == "guard"]
+        assert len(guards) == 1
+        assert guards[0].setpoint_raw == 120
+
+    def test_a_programmed_segment_before_the_grant_ends_ends_the_raise(self):
+        t = TestSurplusGrants()
+        planner = t._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "next", 60, setpoint_f=135),
+            ]
+        )
+        write = run(planner, minutes(10), t.RUNNING)
+        assert write is not None
+        assert not [e for e in write.added if e.kind == "guard"]
