@@ -35,7 +35,7 @@ from ..const import (
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
 )
-from .intent import SUPPORTED_PROTOCOLS
+from .intent import PROTOCOL_VERSIONS, SUPPORTED_PROTOCOLS
 
 # The device's setpoint resolution: reservation params and setpoints are
 # whole half-degrees Celsius.
@@ -98,6 +98,7 @@ class Capabilities:
         """The attributes the version is computed over."""
         attributes: dict[str, Any] = {
             "protocols": list(SUPPORTED_PROTOCOLS),
+            "protocol_versions": list(PROTOCOL_VERSIONS),
             "feature_version": self.feature_version,
             "mode": self.mode,
             "live": {

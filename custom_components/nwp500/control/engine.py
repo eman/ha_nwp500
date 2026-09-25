@@ -1278,8 +1278,12 @@ class Planner:
     def _track_grant(self, now: datetime, observed: Observed) -> None:
         rs = self.raise_state
         if rs is not None:
-            segment_started = self.plan is not None and any(
-                rs.raised_at < s.start <= now for s in self.plan.segments
+            # Only a segment with a state of its own ends the raise. A
+            # merged one puts nothing on the heater, so the raise stays
+            # raised and its guard is still needed.
+            segment_started = any(
+                rs.raised_at < s.start <= now and not merged
+                for s, _state, merged in self._timeline()
             )
             guard_fired = rs.guard is not None and rs.guard.fires_at <= now
             if self.plan is None or segment_started or guard_fired:

@@ -505,6 +505,35 @@ class TestIssueQuestions:
         assert len(guards) == 1
         assert guards[0].setpoint_raw == 120
 
+    def test_a_merged_segment_mid_raise_keeps_the_raise_and_its_guard(self):
+        t = TestSurplusGrants()
+        planner = t._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "same", 60, setpoint_f=140),
+            ]
+        )
+        run(planner, minutes(10), t.RUNNING)
+        rs = planner.raise_state
+        assert rs is not None and rs.guard is not None
+        # The merged segment starts: nothing on the heater ends the raise,
+        # so it is still tracked and the guard stays.
+        assert run(planner, minutes(61), t.RUNNING) is None
+        assert planner.raise_state is rs
+        assert rs.guard in planner.extra
+
+    def test_no_raise_when_a_segment_starts_inside_the_lead(self):
+        """The raise entry would fire after the segment's and undo it."""
+        t = TestSurplusGrants()
+        planner = t._planner(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "next", 11, mode="energy_saver", setpoint_f=130),
+            ]
+        )
+        run(planner, minutes(10), t.RUNNING)
+        assert planner.raise_state is None
+
     def test_a_programmed_segment_before_the_grant_ends_ends_the_raise(self):
         t = TestSurplusGrants()
         planner = t._planner(

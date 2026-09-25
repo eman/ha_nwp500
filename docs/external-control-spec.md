@@ -83,7 +83,8 @@ Within major version `1`:
    reasons, warnings and last-write reasons may be added. A consumer MUST
    treat a value it does not know as opaque, not as an error.
 3. **The capability declaration.** Its keys keep their meaning, and new keys
-   may be added. A consumer reads the version to notice a change.
+   may be added. A consumer reads the version to notice a change, and
+   `protocol_versions` to know which minor version is implemented.
 4. **Behaviour.** What a document makes the heater do, as sections 5 and 6
    describe it, does not change except to fix a defect, recorded in the
    changelog.
@@ -93,7 +94,10 @@ Within major version `1`:
    after this one; `protocols` lists `"0"` while they are.
 
 Minor versions so far: **1.1** adds the segment key `reassert` (section
-3.2). A feature that only knows 1.0 keeps it as an opaque key.
+3.2). A feature that only knows 1.0 keeps it as an opaque key, so a
+scheduler relies on `reassert` only when `protocol_versions` (section 4.1)
+lists `"1.1"` or later for major `1`. A document may declare `"1"` or
+`"1.1"` either way.
 
 ---
 
@@ -313,7 +317,8 @@ All belong to the device. Names are indicative; unique ids are
 
 | Attribute | Meaning |
 |---|---|
-| `protocols` | Supported protocol versions, `["1", "0"]` |
+| `protocols` | Supported protocol majors, `["1", "0"]` |
+| `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.1", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
 | `live` | The live switches: `segments`, `grants` |
@@ -552,11 +557,16 @@ publishes its own validity should go `unknown` when stale.
 running and the segment in force is in `heat_pump` mode:
 
 - once surplus has been on for 10 min, raise the setpoint to
-  `min(max, setpoint_max)` with a near-term entry;
+  `min(max, setpoint_max)` with a near-term entry, unless a segment starts
+  at or before that entry would fire: the raise would fire after the
+  segment's entry and undo it. The raise is considered again once that
+  segment is in force;
 - at the same time, add a **guard entry** at the grant's end restoring the
   state the plan wants then, unless a segment whose own entry will be on the
-  device starts before the grant's end. A `merged` or `scheduled` segment
-  has no entry there, so it does not replace the guard;
+  device starts after the raise entry fires and before the grant's end. A
+  `merged` or `scheduled` segment has no entry there, so it does not replace
+  the guard. By the rule above, no segment starts between the raise decision
+  and the raise entry;
 - raise at most once per compressor cycle;
 - never raise to start a cycle.
 
@@ -568,7 +578,9 @@ the guard entry, when:
   off for 15 min.
 
 The device ends a raise on its own when the grant's guard entry fires, or when
-the next segment's entry fires. If a raise's near-term entry has not fired
+the next segment's entry fires. A `merged` segment starting mid-raise puts
+nothing on the heater, so the raise stays raised, its guard stays, and the
+conditions above still lower it. If a raise's near-term entry has not fired
 when the conditions end, the feature removes it instead of lowering. A raise
 whose write failed after its retry is lowered, since it may have landed. A
 restart keeps a raise whose grant the stored plan still has. A plan that

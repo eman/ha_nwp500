@@ -24,6 +24,11 @@ from ..const import CONTROL_MODE_NAMES
 # compatibility promises of spec section 1.3. Protocol 0 documents are still
 # accepted for the transition; they mean the same.
 SUPPORTED_PROTOCOLS: tuple[str, ...] = ("1", "0")
+# The newest version implemented of each major above, in the same order
+# (spec section 4.1), so a consumer can check that a minor version's keys
+# are honoured before relying on them. A feature that knew only 1.0 would
+# keep 1.1's keys as opaque.
+PROTOCOL_VERSIONS: tuple[str, ...] = ("1.1", "0")
 # A major version, and optionally a minor one: "1" or "1.1". The schema
 # carries the same pattern.
 _PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
