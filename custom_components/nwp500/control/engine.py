@@ -278,6 +278,8 @@ class Planner:
         self.failed: dict[str, str] = {}
         self.readback: dict[str, str] = {}
         self._checked: set[str] = set()
+        # Served items whose mode the heater's behaviour has confirmed.
+        self.mode_confirmed: set[str] = set()
         self.next_event_at: datetime | None = None
         self.last_step: datetime | None = None
         self._info: dict[str, _SegmentInfo] = {}
@@ -334,6 +336,7 @@ class Planner:
             "failed": dict(self.failed),
             "readback": dict(self.readback),
             "checked": sorted(self._checked),
+            "mode_confirmed": sorted(self.mode_confirmed),
         }
 
     def load_document(self, document: Mapping[str, Any]) -> None:
@@ -379,6 +382,7 @@ class Planner:
             str(k): str(v) for k, v in document.get("readback", {}).items()
         }
         self._checked = set(document.get("checked", []))
+        self.mode_confirmed = set(document.get("mode_confirmed", []))
 
     @staticmethod
     def _report_key(report: Report) -> str:
@@ -490,6 +494,7 @@ class Planner:
         self.readback = {
             k: v for k, v in self.readback.items() if k in self.asserted
         }
+        self.mode_confirmed &= self.asserted
 
         anchor = self._anchor(now)
         if anchor is None:
@@ -567,6 +572,7 @@ class Planner:
         self.failed = {}
         self.readback = {}
         self._checked = set()
+        self.mode_confirmed = set()
         self.unconfirmed = None
         self.hold_until = None
         self.plan = None
@@ -592,6 +598,7 @@ class Planner:
         self._track_surplus(now, observed)
         self._track_grant(now, observed)
         self._track_readback(now, observed)
+        self._track_in_force(now, observed)
         self._assert_in_force(now)
         self._hold(now)
         self.extra = [e for e in self.extra if e.fires_at + FIRED_GRACE > now]
@@ -814,7 +821,22 @@ class Planner:
     def _explained(
         self, now: datetime, observed: Observed, state: tuple[str, int]
     ) -> bool:
-        """Whether an entry that just fired set this state."""
+        """Whether an entry that just fired set this state.
+
+        Or an entry whose mode a TOU window held: the heater applies it when
+        the window ends, with no entry firing then (section 8, test 6).
+        """
+        held = [
+            e
+            for e in self.owned
+            if e.enabled
+            and e.fires_at <= now
+            and self.readback.get(e.serves or "") == REASON_HELD_IN_TOU_WINDOW
+        ]
+        if held:
+            latest = max(held, key=lambda e: e.fires_at)
+            if (latest.mode, latest.setpoint_raw) == state:
+                return True
         for entry in self._device_entries(observed):
             if not firings(entry, now - self.explain_window, now, self.tz):
                 continue
@@ -988,6 +1010,76 @@ class Planner:
             latest.setpoint_raw,
             reason,
         )
+
+    def _track_in_force(self, now: datetime, observed: Observed) -> None:
+        """Follow the state in force after its read-back (section 5.11).
+
+        A mode counts as applied only once the heater's behaviour confirms
+        it: Heat Pump by running without an element, a mode that uses an
+        element by an element running. Behaviour that contradicts the mode
+        (an element in Heat Pump, the compressor in Electric) makes it
+        `not_applied_on_device`. A mode held by a TOU window is applied when
+        the heater reports it, and not applied if the window ends first.
+        """
+        if (
+            self.shadow
+            or observed.mode is None
+            or observed.suspended_by is not None
+        ):
+            return
+        fired = [
+            e
+            for e in self.owned
+            if e.enabled
+            and e.fires_at <= now
+            and self._check_key(e) in self._checked
+        ]
+        if not fired:
+            return
+        latest = max(fired, key=lambda e: e.fires_at)
+        served = latest.serves
+        if served is None or any(
+            r.detected_at >= latest.fires_at
+            for r in self.reports.values()
+            if r.field in (REPORT_SETPOINT, REPORT_MODE)
+        ):
+            return
+        found = self.readback.get(served)
+        if found == REASON_HELD_IN_TOU_WINDOW:
+            tou_periods = observed.tou_periods if observed.tou_on else ()
+            if observed.mode == latest.mode:
+                del self.readback[served]
+                found = None
+            elif not in_tou_window(tou_periods, now.astimezone(self.tz)):
+                self.readback[served] = REASON_NOT_APPLIED
+                _LOGGER.warning(
+                    "The TOU window ended and %s is still not in %s",
+                    served,
+                    latest.mode,
+                )
+                return
+        if found is not None or observed.mode != latest.mode:
+            return
+        contradicted = (
+            latest.mode == "heat_pump"
+            and observed.elements_on is True
+            and not observed.anti_legionella_busy
+        ) or (latest.mode == "electric" and observed.compressor_on is True)
+        if contradicted:
+            self.readback[served] = REASON_NOT_APPLIED
+            self.mode_confirmed.discard(served)
+            _LOGGER.warning(
+                "The heater's behaviour contradicts %s for %s",
+                latest.mode,
+                served,
+            )
+            return
+        if latest.mode == "heat_pump":
+            confirmed = observed.elements_on is False
+        else:
+            confirmed = observed.elements_on is True
+        if confirmed:
+            self.mode_confirmed.add(served)
 
     # Surplus grants
 
@@ -1473,6 +1565,9 @@ class Planner:
             detail: dict[str, Any] = {
                 "fires_at": fires_at.isoformat() if fires_at else None,
                 "in_force": anchor is not None and anchor[0].id == segment.id,
+                "mode_confirmed": segment.id in self.mode_confirmed
+                if not self.shadow
+                else None,
             }
             reason = info.reason
             later_started = any(

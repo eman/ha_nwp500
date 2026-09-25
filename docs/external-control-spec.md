@@ -542,7 +542,9 @@ Documented in `nwp500-python` `docs/how-to/schedule-operation.rst`,
 - **An entry's mode does not take effect inside a TOU window.** Its setpoint
   does. The mode is held, and applied when the window ends (section 8, test
   6). A low setpoint, including `"min"`, works in a window. A mode read back
-  as `held_in_tou_window` is not checked again at the window's end.
+  as `held_in_tou_window` is checked again: applied when the heater reports
+  it, which is not a person's change, and `not_applied_on_device` if the
+  window ends without it.
 - **A segment that changes the mode inside a TOU period** is accepted with the
   warning `mode_in_tou_window`. Its mode is reported unconfirmed until
   read-back confirms it (section 5.11).
@@ -686,7 +688,9 @@ Switching to `disabled`, by the Disable button or the options, is a
    direct write (section 5.5). It is skipped while Vacation or power-off is
    in force, or when the owner's own entry sets one of them, since those
    take precedence. An Anti-Legionella cycle does not skip it.
-4. Read back, and report on the last write entity.
+4. Read back: the list by the confirmed write, and the owner's state by
+   waiting up to a minute for the heater's status to report it. Report on
+   the last write entity, `confirmed: false` if either did not read back.
 
 The list write is confirmed like any other (section 5.4) and retried once
 after 60 s. If that fails too, disabling is left unfinished and tried again
@@ -825,13 +829,9 @@ All tests that can be run remotely have been run. Test 8 waits for an Anti-Legio
    then more modes; then grants. Built on the feature branch and tested
    against a simulated heater, not yet on a real one. It is switched off in
    code (`CONTROL_LIVE_AVAILABLE`) until a supervised trial is agreed: until
-   then `live` is not offered, and a hand-edited `live` runs as shadow. The
-   mode read-back of section 5.11 compares the reported mode setting; the
-   confirmation by the heater's behaviour (elements, heat source) is not
-   built yet. Disabling's direct write counts as confirmed when the
-   library accepts it; it is not yet read back from the heater. Leaving
-   live, or switching the feature off, tries the hand-back once; disabling
-   retries it after a minute and at the next start.
+   then `live` is not offered, and a hand-edited `live` runs as shadow.
+   Leaving live, or switching the feature off, tries the hand-back once;
+   disabling retries it after a minute and at the next start.
 6. **Protocol `1`** after a staged live cut-over.
 
 Related: #157 (`water_heater` service reports success in two failure cases);

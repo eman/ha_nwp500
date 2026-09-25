@@ -84,6 +84,9 @@ _PRECEDENCE_MODES = ("vacation", "power_off")
 WRITE_RETRY = timedelta(seconds=60)
 # After the retry fails too, writing waits this long before trying again.
 WRITE_PAUSE = timedelta(minutes=15)
+# How long disabling waits for the heater to report the owner's state.
+STATE_CONFIRM_TIMEOUT = 60.0
+STATE_CONFIRM_POLL = 2.0
 
 
 def live_writes(options: Mapping[str, Any], mac_address: str) -> bool:
@@ -420,7 +423,8 @@ class DeviceControl:
         confirmed = True
         if state_written:
             try:
-                confirmed = await self.writer.async_restore_state(
+                sent = await self.writer.async_restore_state(mode, setpoint_raw)
+                confirmed = sent and await self._async_confirm_state(
                     mode, setpoint_raw
                 )
             except Exception as err:  # noqa: BLE001 - reported, not raised
@@ -452,6 +456,31 @@ class DeviceControl:
             "" if confirmed else "; the owner's state was not confirmed",
         )
         return True
+
+    async def _async_confirm_state(self, mode: str, setpoint_raw: int) -> bool:
+        """Read back disabling's direct write (section 6.6, step 4).
+
+        Asks the heater for its status and waits for it to report the
+        owner's mode and setpoint.
+        """
+        deadline = asyncio.get_running_loop().time() + STATE_CONFIRM_TIMEOUT
+        await self.writer.async_request_status()
+        while True:
+            observed = self.observe()
+            if observed.mode == mode and observed.setpoint_raw == setpoint_raw:
+                return True
+            if asyncio.get_running_loop().time() >= deadline:
+                _LOGGER.warning(
+                    "The heater %s reports %s at %s half-degrees, not the "
+                    "owner's %s at %d",
+                    self.mac_address,
+                    observed.mode,
+                    observed.setpoint_raw,
+                    mode,
+                    setpoint_raw,
+                )
+                return False
+            await asyncio.sleep(STATE_CONFIRM_POLL)
 
     def _record_failed_disable(self, now: datetime) -> None:
         self.planner.last_write = Write(

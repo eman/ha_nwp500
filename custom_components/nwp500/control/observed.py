@@ -19,6 +19,9 @@ _DHW_ID_TO_MODE = {v: k for k, v in MODE_TO_DHW_ID.items()}
 DEVICE_BOOL_ON = 2
 DEVICE_BOOL_OFF = 1
 
+# The heat sources that use an element (the library's HeatSource).
+_ELEMENT_SOURCES = (2, 3)
+
 ENTRY_FIELDS = ("enable", "week", "hour", "min", "mode", "param")
 _TOU_FIELDS = (
     "season",
@@ -68,6 +71,9 @@ class Observed:
     setpoint_raw: int | None = None
     tou_on: bool | None = None
     compressor_on: bool | None = None
+    # Either electric element running, or the reported heat source using
+    # one; None if the device reports neither.
+    elements_on: bool | None = None
     # The upper tank temperature, in half-degrees Celsius.
     upper_tank_raw: int | None = None
     anti_legionella_busy: bool = False
@@ -109,6 +115,7 @@ def observe(
 ) -> Observed:
     """Build a snapshot from the coordinator's data."""
     mode = setpoint_raw = tou_on = compressor_on = upper_tank_raw = None
+    elements_on: bool | None = None
     anti_legionella = False
     if status is not None:
         mode = mode_name(getattr(status, "dhw_operation_setting", None))
@@ -117,6 +124,12 @@ def observe(
         )
         tou_on = _bool(getattr(status, "tou_status", None))
         compressor_on = _bool(getattr(status, "comp_use", None))
+        upper = _bool(getattr(status, "heat_upper_use", None))
+        lower = _bool(getattr(status, "heat_lower_use", None))
+        source = _int(get_enum_value(getattr(status, "current_heat_use", None)))
+        known = [v for v in (upper, lower) if v is not None]
+        if known or source in _ELEMENT_SOURCES:
+            elements_on = any(known) or source in _ELEMENT_SOURCES
         # The tank probes report in tenths of a degree; setpoints in halves.
         deci = _int(getattr(status, "tank_upper_temperature_raw", None))
         upper_tank_raw = round(deci / 5) if deci is not None else None
@@ -145,6 +158,7 @@ def observe(
         setpoint_raw=setpoint_raw,
         tou_on=tou_on,
         compressor_on=compressor_on,
+        elements_on=elements_on,
         upper_tank_raw=upper_tank_raw,
         anti_legionella_busy=anti_legionella,
         reservations_enabled=reservations_enabled,

@@ -51,6 +51,10 @@ class ListWriter(Protocol):
         """Disabling's one direct write: the owner's mode and setpoint."""
         ...
 
+    async def async_request_status(self) -> None:
+        """Ask the heater for a fresh status, to read a direct write back."""
+        ...
+
 
 class CoordinatorWriter:
     """Writes through the integration's own coordinator and MQTT session."""
@@ -131,3 +135,7 @@ class CoordinatorWriter:
                 temperature=HalfCelsius(setpoint_raw).to_preferred(celsius),
             )
         return bool(mode_sent and setpoint_sent)
+
+    async def async_request_status(self) -> None:
+        """Ask for a fresh status; it arrives through the coordinator."""
+        await self.coordinator.async_request_refresh()

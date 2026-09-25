@@ -322,6 +322,92 @@ class TestReadBack:
             REASON_HELD_IN_TOU_WINDOW,
         )
 
+    def _detail(self, planner, item):
+        return next(
+            seg.detail for seg in planner.ack("i").segments if seg.id == item
+        )
+
+    def test_heat_pump_is_confirmed_by_running_without_an_element(self):
+        planner = self._planner(setpoint_f=140)
+        fired = device_obs(
+            planner, mode="heat_pump", setpoint_raw=120, elements_on=False
+        )
+        planner.step(minutes(10.5), fired)
+        planner.step(minutes(11.6), fired)
+        assert planner.mode_confirmed == {"b"}
+        assert self._detail(planner, "b")["mode_confirmed"] is True
+
+    def test_an_element_in_heat_pump_contradicts_it(self):
+        planner = self._planner(setpoint_f=140)
+        fired = device_obs(planner, mode="heat_pump", setpoint_raw=120)
+        planner.step(minutes(10.5), fired)
+        planner.step(minutes(11.6), fired)
+        heating = device_obs(
+            planner, mode="heat_pump", setpoint_raw=120, elements_on=True
+        )
+        planner.step(minutes(20), heating)
+        assert planner.readback == {"b": REASON_NOT_APPLIED}
+        assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
+
+    def test_an_element_mode_waits_for_an_element(self):
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="electric", setpoint_f=140),
+            ],
+        )
+        fired = device_obs(planner, mode="electric", setpoint_raw=120)
+        planner.step(minutes(10.5), fired)
+        planner.step(minutes(11.6), fired)
+        assert planner.mode_confirmed == set()
+        assert self._detail(planner, "b")["mode_confirmed"] is False
+        heating = device_obs(
+            planner, mode="electric", setpoint_raw=120, elements_on=True
+        )
+        planner.step(minutes(15), heating)
+        assert planner.mode_confirmed == {"b"}
+        compressor = device_obs(
+            planner, mode="electric", setpoint_raw=120, compressor_on=True
+        )
+        planner.step(minutes(20), compressor)
+        assert planner.readback == {"b": REASON_NOT_APPLIED}
+
+    def _window(self, end_hour: int) -> dict:
+        return {
+            "season": 0xFFF,
+            "week": 254,
+            "start_hour": 0,
+            "start_min": 0,
+            "end_hour": end_hour,
+            "end_min": 59,
+            "price_max": 10,
+        }
+
+    def test_a_held_mode_is_applied_when_the_window_ends(self):
+        planner = self._planner(setpoint_c=59.5)
+        window = (self._window(10),)
+        held = device_obs(planner, tou_on=True, tou_periods=window)
+        planner.step(minutes(11.6), held)
+        # The window runs to 10:59; the heater applies the mode at 11:00,
+        # with no entry firing then. That is not a person's change.
+        applied = device_obs(
+            planner, mode="heat_pump", tou_on=True, tou_periods=window
+        )
+        planner.step(minutes(60.2), applied)
+        assert planner.readback == {}
+        assert planner.reports == {}
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+
+    def test_a_held_mode_not_applied_after_the_window_fails(self):
+        planner = self._planner(setpoint_c=59.5)
+        window = (self._window(10),)
+        held = device_obs(planner, tou_on=True, tou_periods=window)
+        planner.step(minutes(11.6), held)
+        planner.step(minutes(62), held)
+        assert planner.readback == {"b": REASON_NOT_APPLIED}
+
     def test_not_in_shadow(self):
         planner = planner_with(
             [
@@ -387,6 +473,8 @@ class FakeHeater:
         self.restore_ok = True
         self.gate: asyncio.Event | None = None
         self.lock = asyncio.Lock()
+        self.applies_state = True
+        self.status_requests = 0
         # Lost writes that land anyway: only the confirmation is lost.
         self.land_unconfirmed = 0
 
@@ -426,7 +514,19 @@ class FakeHeater:
 
     async def async_restore_state(self, mode: str, setpoint_raw: int) -> bool:
         self.states.append((mode, setpoint_raw))
+        if self.restore_ok and self.applies_state:
+            status = self.coordinator.data[MAC]["status"]
+            status.dhw_operation_setting = {
+                "heat_pump": 1,
+                "electric": 2,
+                "energy_saver": 3,
+                "high_demand": 4,
+            }[mode]
+            status.dhw_target_temperature_setting_raw = setpoint_raw
         return self.restore_ok
+
+    async def async_request_status(self) -> None:
+        self.status_requests += 1
 
 
 @pytest.fixture
@@ -814,6 +914,27 @@ class TestLiveDisable:
         assert disabled.store.took_over(MAC) is False
         assert disabled.store.disabled_done(MAC) is True
         assert disabled.planner.owned == []
+
+    @pytest.mark.asyncio
+    async def test_the_direct_write_is_read_back(self, hass, live_factory, now):
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        assert await control.async_release(dt_util.utcnow()) is True
+        assert heater.status_requests == 1
+        assert control.last_write.confirmed is True
+
+    @pytest.mark.asyncio
+    async def test_a_direct_write_not_read_back_is_unconfirmed(
+        self, hass, live_factory, now, monkeypatch
+    ):
+        monkeypatch.setattr(device_module, "STATE_CONFIRM_TIMEOUT", 0.05)
+        monkeypatch.setattr(device_module, "STATE_CONFIRM_POLL", 0.01)
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        heater.applies_state = False
+        assert await control.async_release(dt_util.utcnow()) is True
+        assert heater.schedule == OWNER_LIST
+        assert control.last_write.confirmed is False
 
     @pytest.mark.asyncio
     async def test_a_lost_disabling_write_is_retried_once(

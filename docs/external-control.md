@@ -280,8 +280,12 @@ code until trialled; this is what it does once switched on.
   difference makes the segment `failed` with `not_applied_on_device`, unless
   it is a mode held by a TOU window: then it stays `in_force` with
   `held_in_tou_window`. A person's change in the meantime explains any
-  difference. The mode check uses the reported mode setting; confirming it
-  by the heater's behaviour is not built yet.
+  difference. A mode is confirmed by what the heater does: Heat Pump by
+  running without an element, a mode that uses an element by an element
+  running. Each segment in force shows `mode_confirmed`. Behaviour that
+  contradicts the mode fails the segment. A mode held by a TOU window is
+  checked again when the heater applies it or the window ends. Disabling
+  reads its direct write back from the heater's status.
 - **Statuses** become `pending`, `programmed`, `in_force`, `failed` and
   `removed`, and the acknowledgement's state `programmed`,
   `partly_programmed` or `pending`.
