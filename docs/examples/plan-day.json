@@ -1,0 +1,15 @@
+{
+  "protocol": "1",
+  "intent_id": "i-20261004T0500-7",
+  "issued_at": "2026-10-04T05:00:12-07:00",
+  "plan_id": "opaque-to-the-feature",
+  "segments": [
+    {"id": "s1", "start": "2026-10-04T05:00:00-07:00", "setpoint": "min", "mode": "heat_pump", "purpose": "hold_off"},
+    {"id": "s2", "start": "2026-10-04T10:30:00-07:00", "setpoint_f": 140, "purpose": "charge"},
+    {"id": "s3", "start": "2026-10-04T14:30:00-07:00", "setpoint_f": 135, "mode": "energy_saver"},
+    {"id": "s4", "start": "2026-10-04T22:00:00-07:00", "setpoint": "min"}
+  ],
+  "grants": [
+    {"id": "g1", "start": "2026-10-04T11:00:00-07:00", "end": "2026-10-04T14:00:00-07:00", "max_f": 146}
+  ]
+}

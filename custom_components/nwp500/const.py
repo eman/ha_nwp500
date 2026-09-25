@@ -1282,3 +1282,103 @@ INSTALLER_DIAGNOSTICS_SENSORS: Final[dict[str, dict[str, Any]]] = {
         "enabled": False,
     },
 }
+
+
+# External control (issue #158). The option keys live here because the
+# options flow is shared code; everything else about the feature is in the
+# `control` subpackage, which is imported only when the feature is enabled.
+CONF_CONTROL_ENABLED: Final = "control_enabled"
+CONF_CONTROL_MODE: Final = "control_mode"
+CONF_CONTROL_INTENT_ENTITY: Final = "control_intent_entity"
+CONF_CONTROL_LIVE_SEGMENTS: Final = "control_live_segments"
+CONF_CONTROL_LIVE_GRANTS: Final = "control_live_grants"
+CONF_CONTROL_SURPLUS_ENTITY: Final = "control_surplus_entity"
+CONF_CONTROL_SURPLUS_THRESHOLD_KW: Final = "control_surplus_threshold_kw"
+CONF_CONTROL_SETPOINT_MIN_F: Final = "control_setpoint_min_f"
+CONF_CONTROL_SETPOINT_MAX_F: Final = "control_setpoint_max_f"
+CONF_CONTROL_ALLOWED_MODES: Final = "control_allowed_modes"
+CONF_CONTROL_ASSISTED_MODE: Final = "control_assisted_mode"
+CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN: Final = (
+    "control_min_run_before_lower_min"
+)
+CONF_CONTROL_RESERVATION_ENTRY_LIMIT: Final = "control_reservation_entry_limit"
+CONF_CONTROL_RESERVATION_ENTRY_RESERVE: Final = (
+    "control_reservation_entry_reserve"
+)
+
+# Options the first draft of the specification had. They are dropped from
+# an entry's options whenever the control form is saved.
+CONTROL_OBSOLETE_OPTIONS: Final = (
+    "control_live_types",
+    "control_hold_off_supported",
+    "control_hold_off_margin_f",
+    "control_tou_off_for_mode",
+    "control_min_run_before_stop_min",
+    "control_daily_revert_time",
+    "control_baseline",
+)
+
+CONF_CONTROL_OWNER_PROGRAM: Final = "control_owner_program"
+
+CONTROL_MODE_SHADOW: Final = "shadow"
+CONTROL_MODE_LIVE: Final = "live"
+CONTROL_MODE_DISABLED: Final = "disabled"
+CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
+
+# Whether live mode can be chosen at all (issue #158, delivery step 5). Live
+# writes the heater's reservation list. It was opened after the staged live
+# cut-over on a real heater (spec section 8, the live trial, 2026-09-25).
+# It is the kill switch: set it to False and the options form stops offering
+# `live`, and a `live` option runs as shadow. Handing the heater back is not
+# gated by it.
+CONTROL_LIVE_AVAILABLE: Final = True
+
+# The mode names a segment may use (spec section 3.4). Vacation and
+# power-off are never accepted. Entries are skipped during Vacation, so the
+# plan's next entry would never end it; whether an entry with the power-off
+# mode powers the heater off is untested, and the mode command with that
+# value switched the unit tested to Energy Saver (#160).
+CONTROL_MODE_NAMES: Final = (
+    "heat_pump",
+    "energy_saver",
+    "high_demand",
+    "electric",
+)
+
+DEFAULT_CONTROL_MODE: Final = CONTROL_MODE_SHADOW
+DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW: Final = 0.45
+# A segment carries the heater's whole state and the last one holds, so the
+# owner's usual Heat Pump must be allowed, and grants raise only in it. A
+# single-mode cut-over (spec 1.2.2) is the owner's choice in the options.
+DEFAULT_CONTROL_ALLOWED_MODES: Final = ("heat_pump", "energy_saver")
+DEFAULT_CONTROL_ASSISTED_MODE: Final = "energy_saver"
+DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN: Final = 120
+# The unit tested accepted and read back a list of 32 entries (spec
+# section 8); larger lists are untested. The default stays at the library's
+# documented 16, and the option goes no higher than what was measured.
+DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 16
+DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE: Final = 2
+MAX_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 32
+
+# Keys into hass.data[DOMAIN][entry_id].
+DATA_PLATFORMS: Final = "platforms"
+DATA_CONTROL: Final = "control"
+
+
+def control_enabled(entry: Any) -> bool:
+    """Whether the external control feature is switched on for an entry.
+
+    Reads the option only. Nothing of the feature is imported or built for
+    an entry that has it off. Only the boolean True counts: the feature
+    writes to a water heater, so a truthy string or a mock is not enough.
+    """
+    return entry.options.get(CONF_CONTROL_ENABLED, False) is True
+
+
+def control_feature(hass: Any, entry: Any) -> Any | None:
+    """Return the running control feature for an entry, or None.
+
+    Typed loosely on purpose: the feature's class lives in the `control`
+    subpackage, and naming it here would import that package on every path.
+    """
+    return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_CONTROL)
