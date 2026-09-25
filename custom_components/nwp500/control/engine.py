@@ -337,6 +337,13 @@ class Planner:
             if self._device_state
             else None,
             "reservations_on": self._reservations_on,
+            # The compressor cycle and whether it was raised in: a restart
+            # mid-cycle must not allow a second raise (section 5.7).
+            "compressor_on": self._compressor_on,
+            "cycle_started_at": self._cycle_started_at.isoformat()
+            if self._cycle_started_at
+            else None,
+            "raised_in_cycle": self._raised_in_cycle,
             "took_over": self.took_over,
             "unconfirmed": [
                 {"write": w.as_document(), "hash": h}
@@ -384,6 +391,10 @@ class Planner:
         if device_state := document.get("device_state"):
             self._device_state = (str(device_state[0]), int(device_state[1]))
         self._reservations_on = document.get("reservations_on")
+        self._compressor_on = document.get("compressor_on")
+        if started := document.get("cycle_started_at"):
+            self._cycle_started_at = datetime.fromisoformat(started)
+        self._raised_in_cycle = bool(document.get("raised_in_cycle", False))
         self.took_over = bool(document.get("took_over", False))
         raw_unconfirmed = document.get("unconfirmed") or []
         if isinstance(raw_unconfirmed, Mapping):
@@ -501,8 +512,10 @@ class Planner:
             else (self.carry_state if previous is not None else None)
         )
 
+        # A segment is unchanged if its start and state are: one moved to a
+        # new start is a new entry, not the one a person removed.
         old_states = {
-            s.id: self.resolve(s)
+            s.id: (s.start, self.resolve(s))
             for s in (previous.segments if previous else ())
         }
         self.plan = plan
@@ -518,7 +531,10 @@ class Planner:
                 # At start-up the stored plan is the one they were removed
                 # from, and nothing was adopted before it.
                 (restoring and previous is None)
-                or (s.id in old_states and old_states[s.id] == self.resolve(s))
+                or (
+                    s.id in old_states
+                    and old_states[s.id] == (s.start, self.resolve(s))
+                )
             )
         }
         self.failed = {}

@@ -91,17 +91,23 @@ class ControlFeature:
         """Load the stored state and start a controller per device."""
         self._remove_entities(stale_only=True)
         await self.store.async_load()
-        for mac_address, device_data in self.coordinator.data.items():
-            control = DeviceControl(
-                self.hass,
-                self.entry,
-                self.coordinator,
-                mac_address,
-                device_data["device"],
-                self.store,
-            )
-            self.devices[mac_address] = control
-            await control.async_start()
+        try:
+            for mac_address, device_data in self.coordinator.data.items():
+                control = DeviceControl(
+                    self.hass,
+                    self.entry,
+                    self.coordinator,
+                    mac_address,
+                    device_data["device"],
+                    self.store,
+                )
+                self.devices[mac_address] = control
+                await control.async_start()
+        except Exception:
+            # Nothing would be left to stop the controllers already started:
+            # stop them before the failure goes up.
+            await self.async_stop()
+            raise
 
     async def async_stop(self) -> None:
         """Stop listeners and timers. Writes nothing (spec section 5.4)."""

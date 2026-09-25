@@ -224,7 +224,10 @@ def build_capabilities(
     return Capabilities(
         mode=str(options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)),
         live_segments=options.get(CONF_CONTROL_LIVE_SEGMENTS, False) is True,
-        live_grants=options.get(CONF_CONTROL_LIVE_GRANTS, False) is True,
+        # Grants are written only with segments, whatever an options file
+        # edited by hand says (spec section 6.1).
+        live_grants=options.get(CONF_CONTROL_LIVE_GRANTS, False) is True
+        and options.get(CONF_CONTROL_LIVE_SEGMENTS, False) is True,
         setpoint_min_raw=setpoint_min_raw,
         setpoint_max_raw=setpoint_max_raw,
         allowed_modes=tuple(

@@ -96,7 +96,8 @@
       "reserve_exceeds_limit": "The reserve must be below the entry limit.",
       "allowed_modes_empty": "Allow at least one mode.",
       "assisted_mode_not_allowed": "The assisted mode must be one of the allowed modes.",
-      "owner_snapshot_unavailable": "The heater's program cannot be read yet. Wait for the heater to report its mode, setpoint and reservation list, and take it out of vacation or power-off, then submit again."
+      "owner_snapshot_unavailable": "The heater's program cannot be read yet. Wait for the heater to report its mode, setpoint and reservation list, and take it out of vacation or power-off, then submit again.",
+      "grants_need_segments": "Surplus grants can be live only with segments live."
     }
   },
   "entity": {

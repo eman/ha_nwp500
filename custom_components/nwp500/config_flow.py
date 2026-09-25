@@ -430,6 +430,11 @@ def _control_suggested_values(
 def _validate_control_input(user_input: dict[str, Any]) -> dict[str, str]:
     """Cross-field checks the schema cannot express."""
     errors: dict[str, str] = {}
+    if user_input.get(CONF_CONTROL_LIVE_GRANTS) and not user_input.get(
+        CONF_CONTROL_LIVE_SEGMENTS
+    ):
+        # Grants are written only with segments (spec section 6.1).
+        errors[CONF_CONTROL_LIVE_GRANTS] = "grants_need_segments"
     minimum = user_input.get("control_setpoint_min")
     maximum = user_input.get("control_setpoint_max")
     if minimum is not None and maximum is not None and minimum >= maximum:

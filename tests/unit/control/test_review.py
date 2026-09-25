@@ -358,3 +358,87 @@ class TestDocuments:
         with pytest.raises(IntentRejected) as err:
             parse_plan(doc)
         assert err.value.reason == "invalid_document"
+
+
+class TestCopilotReview:
+    """The Copilot review threads on #162."""
+
+    def test_a_restart_keeps_the_raised_in_cycle_guard(self):
+        t = TestSurplusGrants()
+        planner = t._planner()
+        run(planner, minutes(10), t.RUNNING)
+        assert planner.raise_state is not None
+        restarted = Planner(planner.capabilities, TZ, shadow=True)
+        restarted.owner = planner.owner
+        restarted.load_document(planner.as_document())
+        assert restarted._raised_in_cycle is True
+        assert restarted._cycle_started_at == planner._cycle_started_at
+
+    def test_a_removed_segment_moved_to_a_new_start_is_programmed(self):
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 60, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        planner.removed_segments = {"b"}
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 90, mode="heat_pump", setpoint_f=140),
+            ],
+            intent_id="i-2",
+            observed=device_obs(planner),
+        )
+        assert "b" not in planner.removed_segments
+        # Unmoved, it stays removed.
+        planner.removed_segments = {"b"}
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 90, mode="heat_pump", setpoint_f=140),
+            ],
+            intent_id="i-3",
+            observed=device_obs(planner),
+        )
+        assert planner.removed_segments == {"b"}
+
+    @pytest.mark.asyncio
+    async def test_a_controller_that_fails_to_start_stops_the_others(
+        self, hass, hass_storage
+    ):
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+        from custom_components.nwp500.const import DOMAIN
+        from custom_components.nwp500.control import ControlFeature
+
+        entry = MockConfigEntry(domain=DOMAIN, entry_id="e1", options={})
+        entry.add_to_hass(hass)
+        coordinator = MagicMock()
+        coordinator.data = {
+            "A": {"device": MagicMock()},
+            "B": {"device": MagicMock()},
+        }
+        feature = ControlFeature(hass, entry, coordinator)
+        started = AsyncMock(side_effect=[None, RuntimeError("boom")])
+        stopped = AsyncMock()
+        with (
+            patch(
+                "custom_components.nwp500.control.DeviceControl.async_start",
+                started,
+            ),
+            patch(
+                "custom_components.nwp500.control.DeviceControl.async_stop",
+                stopped,
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            await feature.async_start()
+        assert stopped.await_count == 2
+        assert feature.devices == {}

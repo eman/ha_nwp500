@@ -1080,6 +1080,29 @@ class TestExternalControlOptions:
         assert result["data"]["control_owner_program"] == {"AA:BB": declared}
 
     @pytest.mark.asyncio
+    async def test_grants_need_live_segments(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
+        )
+        handler, _ = self._handler(hass)
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+        result = await handler.async_step_external_control(
+            self._control_input(
+                control_mode="live",
+                control_live_segments=False,
+                control_live_grants=True,
+            )
+        )
+        assert result["type"] == FlowResultType.FORM
+        assert result["errors"] == {
+            "control_live_grants": "grants_need_segments"
+        }
+
+    @pytest.mark.asyncio
     async def test_saving_drops_first_draft_options(self, hass: HomeAssistant):
         handler, _ = self._handler(
             hass,

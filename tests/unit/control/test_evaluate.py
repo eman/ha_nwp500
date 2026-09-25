@@ -140,6 +140,14 @@ class TestCheckGrants:
     def test_grants_live(self):
         assert grants_live(capabilities()) is False
         assert grants_live(
+            capabilities(
+                control_mode="live",
+                control_live_segments=True,
+                control_live_grants=True,
+            )
+        )
+        # Grants are live only with segments (spec section 6.1).
+        assert not grants_live(
             capabilities(control_mode="live", control_live_grants=True)
         )
 
