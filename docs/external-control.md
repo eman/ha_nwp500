@@ -27,7 +27,7 @@ and [`examples/`](examples/) holds sample plans.
 | 1 | The specification, the JSON Schema and the examples | Done |
 | 2 | Options toggle and the disabled-path regression test; intake, validation and the stored plan; the capability entity; `shadow` as the default mode; heartbeat; unload without writes | Done |
 | 3 | Shadow programming: the owner's program; segments into entries, the horizon, the budget and near-term entries; reading the list; surplus grants; the program, in-sync, programmed-until and wanted entities; people's changes | Done |
-| 4 | The device tests in section 8 of the specification | In progress: run on 2026-09-24 except tests 8 and 11 |
+| 4 | The device tests in section 8 of the specification | Done on 2026-09-24 and 25, except test 8 (no cycle could be started) and the off-cloud half of test 11 |
 | 5 | Live list writes: segments with a single allowed mode, then more modes, then grants | Built and tested against a simulated heater; switched off in code until a supervised trial |
 | 6 | Protocol `1` after a staged live cut-over | Not started |
 

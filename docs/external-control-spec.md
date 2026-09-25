@@ -741,10 +741,10 @@ in this document.
 | 5 | **Unchanged entries.** Whether an entry repeating the heater's mode and setpoint starts a recovery | **No**, in 4 runs with the tank 1.3–2.2 °F below the setpoint, the compressor off and no hot water drawn. That each fired is inferred from tests 1 and 2, since it changes nothing observable |
 | 6 | **Entry mode in a TOU window.** Held until the window ends, applied at the end, or discarded | **Held, and applied when the window ends.** An entry at 16:30 set Energy Saver at the heater's setpoint, inside the 16:00–20:59 peak window. The heater stayed in Heat Pump with no change through 20:57. At 21:00:05 it switched to Energy Saver and started a recovery: the upper element ran for about 3 minutes, then the compressor. That recovery may be the window's end rather than the mode change; this run cannot tell them apart |
 | 7 | **Vacation and power-off.** Whether entries are skipped, and whether a missed entry runs late | **Vacation: skipped, and not run late** when Vacation ended. **Power-off: not skipped.** In two runs an entry fired while the heater was powered off by the power command and turned it on: once in Heat Pump, and once in Energy Saver, the entry's mode rather than the mode the heater had. Powered off for 6 minutes with no entries, it stayed off, so the entry did it. This contradicts the library's docs |
-| 8 | **Anti-Legionella.** Whether an entry firing mid-cycle interrupts it | **Not run.** It needs a cycle to be running |
+| 8 | **Anti-Legionella.** Whether an entry firing mid-cycle interrupts it | **Not run: no cycle could be started.** Enabling Anti-Legionella (period 14 days) did not start a cycle within 20 minutes, and nothing else starts one on demand. The owner keeps it off, so no cycle is due. The feature writes nothing while a cycle runs (section 5.9), so the open question only matters to an owner who enables it |
 | 9 | **Per-entry enable flag.** Whether an entry with its own flag off is skipped | **Passed.** The switched-off entry was skipped and the next enabled entry fired |
 | 10 | **Slots.** Two entries on the same weekday and minute, one switched off | **Accepted.** The device stored both and fired only the enabled one |
-| 11 | **Offline.** Whether entries fire while the device is off the cloud, and survive a power cut | **Not run.** It needs physical access to the network or the breaker |
+| 11 | **Offline.** Whether entries fire while the device is off the cloud, and survive a power cut | **Power cut: the list survives, a missed entry is skipped.** The heater's breaker was switched off for 6 minutes (00:17–00:23) with four entries programmed. On power-up it was back on the cloud in 23 s with the same list, reservation switch, mode and setpoint. The entry that fell during the cut did not run late. The next two fired within 3 s of their minute, so the clock kept time. **Off the cloud: not tested, and out of scope.** Every entry observed fired while the heater was on Navien's cloud, so whether entries or the clock depend on it is unknown. That matters only during an internet outage at the heater, not when Home Assistant or the scheduler is unavailable, which is the case the design must survive |
 
 Also observed:
 
@@ -763,7 +763,7 @@ Also observed:
   off.** It switched it to Energy Saver. The power command does power it off,
   and the heater then reports the power-off mode (#160).
 
-Before any live write, tests 8 and 11 remain.
+All tests that can be run remotely have been run. Test 8 waits for an Anti-Legionella cycle, and the off-cloud half of test 11 is out of scope.
 
 ---
 
@@ -818,8 +818,9 @@ Before any live write, tests 8 and 11 remain.
    reconciling; surplus grants; the program, in-sync, programmed-until and
    wanted entities; people's changes. This replaces the first draft's shadow
    engine.
-4. **The device tests** in section 8. Most were run on 2026-09-24; tests 8
-   and 11 remain.
+4. **The device tests** in section 8. Run on 2026-09-24 and 25. Test 8
+   could not start a cycle, and the off-cloud half of test 11 is out of
+   scope.
 5. **Live list writes** for segments, starting with a single allowed mode;
    then more modes; then grants. Built on the feature branch and tested
    against a simulated heater, not yet on a real one. It is switched off in
