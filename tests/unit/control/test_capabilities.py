@@ -16,6 +16,12 @@ class TestDeclaration:
         ).as_attributes()
 
         assert attrs["protocols"] == ["1", "0"]
+        # The newest minor of each major: 1.1 adds `reassert`.
+        assert attrs["protocol_versions"] == ["1.1", "0"]
+        # One per major, in the same order.
+        assert [v.split(".")[0] for v in attrs["protocol_versions"]] == (
+            attrs["protocols"]
+        )
         assert attrs["mode"] == "shadow"
         assert attrs["live"] == {"segments": False, "grants": False}
         assert attrs["allowed_modes"] == ["heat_pump", "energy_saver"]

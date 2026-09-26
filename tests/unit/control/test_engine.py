@@ -803,7 +803,7 @@ class TestSurplusGrants:
         grants = {g.id: g.status for g in planner.ack("i").grants}
         assert grants == {"g": "raised"}
 
-    def test_no_guard_when_a_segment_ends_the_raise_first(self):
+    def test_a_segment_entry_ends_the_raise_and_withdraws_the_guard(self):
         planner = self._planner(
             [
                 segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
@@ -811,9 +811,11 @@ class TestSurplusGrants:
             ]
         )
         write = run(planner, minutes(10), self.RUNNING)
-        assert {e.kind for e in write.added} == {KIND_GRANT_RAISE}
+        # A guard even so: the segment's entry may not stay on the heater.
+        assert {e.kind for e in write.added} == {KIND_GRANT_RAISE, KIND_GUARD}
         run(planner, minutes(61), self.RUNNING)
         assert planner.raise_state is None
+        assert not [e for e in planner.owned if e.kind == KIND_GUARD]
 
     def test_capped_at_the_setpoint_maximum(self):
         """The cap still applies if the bounds tighten after acceptance.

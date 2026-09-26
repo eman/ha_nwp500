@@ -83,7 +83,10 @@ Within major version `1`:
    reasons, warnings and last-write reasons may be added. A consumer MUST
    treat a value it does not know as opaque, not as an error.
 3. **The capability declaration.** Its keys keep their meaning, and new keys
-   may be added. A consumer reads the version to notice a change.
+   may be added. A consumer reads the version to notice a change, and
+   `protocol_versions` to know which minor version is implemented. A minor
+   version is compared as a number (`1.10` is after `1.9`). A declaration
+   without `protocol_versions` implements `1.0`.
 4. **Behaviour.** What a document makes the heater do, as sections 5 and 6
    describe it, does not change except to fix a defect, recorded in the
    changelog.
@@ -93,7 +96,10 @@ Within major version `1`:
    after this one; `protocols` lists `"0"` while they are.
 
 Minor versions so far: **1.1** adds the segment key `reassert` (section
-3.2). A feature that only knows 1.0 keeps it as an opaque key.
+3.2). A feature that only knows 1.0 keeps it as an opaque key, so a
+scheduler relies on `reassert` only when `protocol_versions` (section 4.1)
+lists `"1.1"` or later for major `1`. A document may declare `"1"` or
+`"1.1"` either way.
 
 ---
 
@@ -313,7 +319,8 @@ All belong to the device. Names are indicative; unique ids are
 
 | Attribute | Meaning |
 |---|---|
-| `protocols` | Supported protocol versions, `["1", "0"]` |
+| `protocols` | Supported protocol majors, `["1", "0"]` |
+| `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.1", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
 | `live` | The live switches: `segments`, `grants` |
@@ -552,11 +559,15 @@ publishes its own validity should go `unknown` when stale.
 running and the segment in force is in `heat_pump` mode:
 
 - once surplus has been on for 10 min, raise the setpoint to
-  `min(max, setpoint_max)` with a near-term entry;
-- at the same time, add a **guard entry** at the grant's end restoring the
-  state the plan wants then, unless a segment whose own entry will be on the
-  device starts before the grant's end. A `merged` or `scheduled` segment
-  has no entry there, so it does not replace the guard;
+  `min(max, setpoint_max)` with a near-term entry, unless a segment that
+  changes the state starts at or before that entry would fire: the raise
+  would fire after the segment's entry and undo it. The raise is considered
+  again once that segment is in force. A `merged` segment changes nothing,
+  so it does not stop a raise;
+- at the same time, always add a **guard entry** at the grant's end,
+  restoring the state the plan wants then. A segment's entry may end the
+  raise sooner, but it may never reach the heater, or be removed from it,
+  and the raise must stay bounded if Home Assistant stops;
 - raise at most once per compressor cycle;
 - never raise to start a cycle.
 
@@ -567,9 +578,25 @@ the guard entry, when:
 - the compressor has run `min_run_before_lower_min` **and** surplus has been
   off for 15 min.
 
-The device ends a raise on its own when the grant's guard entry fires, or when
-the next segment's entry fires. If a raise's near-term entry has not fired
-when the conditions end, the feature removes it instead of lowering. A raise
+The device ends a raise on its own when the guard fires, or when one of the
+feature's own entries fires after the raise: a segment's entry, or a
+near-term one. The feature then removes the guard if it has not fired. The
+guard counts only while it is on the heater. One a person deleted is not
+written again (section 5.4), so the feature lowers the raise itself when
+the grant ends. A raise entry a person deletes before it fires ends the
+raise. A
+segment starting ends nothing if it puts nothing on the heater: a `merged`
+one, one a person removed (section 5.10), or one not yet programmed. The
+raise then stays, with its guard, and the conditions above still lower it.
+If a segment that changes the state starts before a lowering entry could
+fire, the lowering waits for that segment's entry, and the guard stays
+until then. If a raise's near-term entry has not fired when the conditions
+end, the feature removes it instead of lowering. If moving a raise entry
+past another entry in the same minute would make it fire at or after a
+segment that changes the state, no raise is made. A guard or near-term
+entry moved that way keeps the minute it moved to. A published plan that
+keeps the grant unchanged keeps the raise, and its guard restores what the
+new plan wants at the grant's end. A raise
 whose write failed after its retry is lowered, since it may have landed. A
 restart keeps a raise whose grant the stored plan still has. A plan that
 stops (empty `segments`) while raised lowers to the state the guard would

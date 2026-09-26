@@ -249,7 +249,7 @@ last write's `reason` is one of `plan`, `cleanup`, `near_term`,
 
 | Attribute | Meaning |
 |---|---|
-| `protocols`, `feature_version`, `mode`, `live` | What runs, and the live switches |
+| `protocols`, `protocol_versions`, `feature_version`, `mode`, `live` | What runs, and the live switches. `protocol_versions` names the newest minor of each major, `["1.1", "0"]`; a scheduler checks it before relying on `reassert` |
 | `setpoint_min_f` / `_c`, `setpoint_max_f` / `_c`, `setpoint_resolution_c` | The bounds, and the device's half-degree resolution. Absent until the device's feature data has arrived |
 | `allowed_modes`, `assisted_mode` | The modes a segment may use, and the one for faster recovery |
 | `horizon_h`, `near_term_lead_min`, `entry_limit`, `entry_reserve`, `entries_available` | How entries are budgeted. `entries_available` changes as entries fire, so it is left out of the version |
