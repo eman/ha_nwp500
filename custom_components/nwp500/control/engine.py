@@ -1080,6 +1080,11 @@ class Planner:
                 continue
             if owned_entry.kind == KIND_PLAN and owned_entry.serves:
                 self.removed_segments.add(owned_entry.serves)
+            rs = self.raise_state
+            if rs is not None and owned_entry == rs.entry:
+                # The raise never fired: there is none to track or bound.
+                self._drop_raise_entries(now)
+                self.raise_state = None
             report = Report(
                 REPORT_REMOVED,
                 owned_entry.as_document(),
@@ -1294,8 +1299,17 @@ class Planner:
                 self._drop_raise_entries(now)
                 self.raise_state = None
                 return
-            grant_kept = any(
-                g.id == rs.grant_id for g in self._accepted_grants()
+            grant = next(
+                (g for g in self._accepted_grants() if g.id == rs.grant_id),
+                None,
+            )
+            # With no guard on the heater to end it at the grant's end, the
+            # feature lowers it then. A guard a person deleted is not
+            # written again (section 5.4).
+            unguarded_past_end = (
+                grant is not None
+                and now >= grant.end
+                and not self._guard_on_heater(rs)
             )
             run_time = (
                 now - self._cycle_started_at if self._cycle_started_at else None
@@ -1309,8 +1323,9 @@ class Planner:
             )
             if (
                 observed.compressor_on is False
-                or not grant_kept
+                or grant is None
                 or surplus_gone
+                or unguarded_past_end
             ):
                 self._lower(now)
             return
@@ -1365,15 +1380,22 @@ class Planner:
         Its guard, or one of the feature's own entries that fired after it.
         A segment starting is not enough: a merged one, one a person
         removed, or one not yet programmed puts nothing on the heater, and
-        the raise then stays raised, with its guard.
+        the raise then stays raised, with its guard. Nor is the guard's
+        minute passing, unless the guard is on the heater: a person may
+        have deleted it, or it may never have been written.
         """
-        if rs.guard is not None and rs.guard.fires_at <= now:
+        guard = rs.guard
+        if guard is not None and guard in self.owned and guard.fires_at <= now:
             return True
         return any(
             e.kind in (KIND_PLAN, KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
             and rs.entry.fires_at < e.fires_at <= now
             for e in self.owned
         )
+
+    def _guard_on_heater(self, rs: RaiseState) -> bool:
+        """Whether the raise's guard is among the entries on the heater."""
+        return rs.guard is not None and rs.guard in self.owned
 
     def _guard(self, grant: Grant, fallback: State) -> OwnedEntry:
         """The guard entry: the state the plan wants when the grant ends."""

@@ -580,7 +580,11 @@ the guard entry, when:
 
 The device ends a raise on its own when the guard fires, or when one of the
 feature's own entries fires after the raise: a segment's entry, or a
-near-term one. The feature then removes the guard if it has not fired. A
+near-term one. The feature then removes the guard if it has not fired. The
+guard counts only while it is on the heater. One a person deleted is not
+written again (section 5.4), so the feature lowers the raise itself when
+the grant ends. A raise entry a person deletes before it fires ends the
+raise. A
 segment starting ends nothing if it puts nothing on the heater: a `merged`
 one, one a person removed (section 5.10), or one not yet programmed. The
 raise then stays, with its guard, and the conditions above still lower it.

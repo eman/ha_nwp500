@@ -776,3 +776,75 @@ class TestRaiseEndsOnlyOnTheHeater:
         assert not [
             e for e in planner.owned if e.kind in (KIND_GRANT_RAISE, KIND_GUARD)
         ]
+
+
+class TestRaiseWithoutItsGuard:
+    """Copilot's review of #163: a guard not on the heater ends nothing."""
+
+    def _raised(self) -> Planner:
+        running = obs(
+            mode="heat_pump",
+            setpoint_raw=120,
+            compressor_on=True,
+            surplus_on=True,
+        )
+        planner = planner_with(
+            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            observed=running,
+            shadow=False,
+            control_live_grants=True,
+            **{**SURPLUS, **LIVE},
+        )
+        write = planner.step(minutes(10), self._seen(planner))
+        assert write is not None
+        planner.commit(write)
+        assert planner.raise_state is not None
+        return planner
+
+    @staticmethod
+    def _seen(planner: Planner, *, drop: str | None = None, **overrides):
+        """The heater holding the program, less the entries of `drop`."""
+        values = {
+            "mode": "heat_pump",
+            "setpoint_raw": 120,
+            "compressor_on": True,
+            "surplus_on": True,
+            **overrides,
+        }
+        seen = device_obs(planner, **values)
+        gone = [e.as_entry() for e in planner.owned if e.kind == drop]
+        return replace(
+            seen,
+            reservations=tuple(
+                e for e in seen.reservations if dict(e) not in gone
+            ),
+        )
+
+    def _step(self, planner: Planner, at, **kwargs):
+        write = planner.step(at, self._seen(planner, **kwargs))
+        if write is not None:
+            planner.commit(write)
+        return write
+
+    def test_a_guard_a_person_deleted_is_not_taken_for_fired(self):
+        planner = self._raised()
+        self._step(planner, minutes(13), setpoint_raw=127)
+        self._step(planner, minutes(14), setpoint_raw=127, drop=KIND_GUARD)
+        assert not [e for e in planner.owned if e.kind == KIND_GUARD]
+        # The grant ends with no guard on the heater: the feature lowers
+        # the raise itself, and does not write the deleted guard again.
+        write = self._step(planner, minutes(180), setpoint_raw=127)
+        assert write is not None
+        assert [(e.kind, e.setpoint_raw) for e in write.added] == [
+            (KIND_GRANT_LOWER, 120)
+        ]
+        assert planner.raise_state is None
+
+    def test_a_raise_entry_a_person_deleted_clears_the_raise(self):
+        planner = self._raised()
+        self._step(planner, minutes(11), drop=KIND_GRANT_RAISE)
+        assert planner.raise_state is None
+        assert not [
+            e for e in planner.owned if e.kind in (KIND_GRANT_RAISE, KIND_GUARD)
+        ]
