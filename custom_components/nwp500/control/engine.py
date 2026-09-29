@@ -168,6 +168,15 @@ class Report:
         )
 
 
+def _removed_minute(report: Report) -> datetime:
+    """The minute a removed entry would have fired."""
+    value = report.value if isinstance(report.value, Mapping) else {}
+    try:
+        return datetime.fromisoformat(str(value["fires_at"]))
+    except KeyError, ValueError:
+        return report.detected_at
+
+
 @dataclass(frozen=True)
 class RaiseState:
     """A surplus raise in force (section 5.7)."""
@@ -416,6 +425,12 @@ class Planner:
 
     @staticmethod
     def _report_key(report: Report) -> str:
+        """One report per key; a newer one replaces it (section 4.2)."""
+        if report.field == REPORT_REMOVED and isinstance(report.value, Mapping):
+            # A segment's plan and near-term entries, or a grant's raise and
+            # guard, can both be removed: the kind tells them apart.
+            kind = report.value.get("kind")
+            return f"{report.field}:{kind}:{report.segment}"
         if report.field in (REPORT_FOREIGN, REPORT_REMOVED):
             return f"{report.field}:{report.segment or report.value}"
         return report.field
@@ -539,6 +554,18 @@ class Planner:
                     s.id in old_states
                     and old_states[s.id] == (s.start, self.resolve(s))
                 )
+            )
+        }
+        # A removed plan entry's report goes with its segment: the new plan
+        # writes that segment's entry again.
+        self.reports = {
+            k: r
+            for k, r in self.reports.items()
+            if not (
+                r.field == REPORT_REMOVED
+                and isinstance(r.value, Mapping)
+                and r.value.get("kind") == KIND_PLAN
+                and r.segment not in self.removed_segments
             )
         }
         self.failed = {}
@@ -692,6 +719,8 @@ class Planner:
         self.carry_state = None
         self.raise_state = None
         self.grant_rejections = {}
+        # People's changes were reported against the plan, which is gone.
+        self.reports = {}
         self.commit(write)
         # The owner's program is back: the feature holds nothing.
         self.took_over = False
@@ -1009,14 +1038,21 @@ class Planner:
         seen_before = self._state_seen_at
         self._state_seen_at = now
 
-        for name in (REPORT_SETPOINT, REPORT_MODE):
-            report = self.reports.get(name)
-            if report is not None and any(
-                firings(entry, report.detected_at, now, self.tz)
+        # A change lasts until the next entry fires. A removed entry's lasts
+        # until an entry fires after its minute: the entry before it held
+        # over its time, and that is over (section 5.10).
+        for key, report in list(self.reports.items()):
+            if report.field in (REPORT_SETPOINT, REPORT_MODE):
+                since = report.detected_at
+            elif report.field == REPORT_REMOVED:
+                since = max(report.detected_at, _removed_minute(report))
+            else:
+                continue
+            if any(
+                firings(entry, since, now, self.tz)
                 for entry in self._device_entries(observed)
             ):
-                # It lasted until the next entry fired.
-                del self.reports[name]
+                del self.reports[key]
 
         if (
             previous is None
@@ -1060,7 +1096,9 @@ class Planner:
                     continue
                 key = f"{REPORT_FOREIGN}:{entry_slot(entry)}"
                 foreign_keys.add(key)
-                if key not in self.reports:
+                known = self.reports.get(key)
+                if known is None or known.value != dict(entry):
+                    # New, or a person changed it in its slot.
                     self.reports[key] = Report(
                         REPORT_FOREIGN, dict(entry), now, str(entry_slot(entry))
                     )

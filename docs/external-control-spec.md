@@ -362,7 +362,7 @@ Each is a **state**, so history and statestream carry it:
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
 | `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
 | `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
-| `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report, oldest first (below) |
+| `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
 
 **Entry items.** Each item of `control_last_write`'s `added` and `removed`
@@ -434,13 +434,41 @@ characters, 32 entries stay well within the limit.
 attributes for the latest, has `field`, `value`, `detected_at` (ISO 8601)
 and `segment`:
 
-| `field` | `value` | `segment` |
-|---|---|---|
-| `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first |
-| `mode` | The mode found, as a name | The segment in force, or `null` before the first |
-| `removed` | The entry a person removed, as an entry item | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry |
-| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` |
-| `reservations_switched_off` | `false` | `null` |
+| `field` | `value` | `segment` | Ends when |
+|---|---|---|---|
+| `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` (section 5.10) |
+| `mode` | The mode found, as a name | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` |
+| `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry | An entry on the heater fires after the removed entry's `fires_at`, so the time it would have set is over; or, for a `plan` entry, a new plan no longer keeps its segment removed (section 5.4) |
+| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` | The entry leaves the heater's list |
+| `reservations_switched_off` | `false` | `null` | The reservation switch is on again |
+
+The list holds the changes in force, not a history:
+
+- **One report per key.** The key is `field`, and also `segment` for
+  `foreign_entry`, and `segment` and `value`'s `kind` for `removed`. A newer
+  report with the same key replaces the older one, with a new
+  `detected_at`: a second setpoint change before the next entry fires, or
+  an added entry a person changes in its slot. Two reports can share
+  `field` and `detected_at`, for example two added entries found in one
+  read, but never a key.
+- **Lifetime.** Each report ends by its own rule, above. Disabling ends
+  every report (section 6.6). Nothing else empties the list: a new plan
+  does not, except for `removed` as above, and reports are kept across a
+  reload or a restart of Home Assistant.
+- **Bound.** At most one `setpoint`, one `mode` and one
+  `reservations_switched_off`, one `foreign_entry` per entry on the
+  heater's list, and one `removed` per entry of the feature's whose time is
+  not over. `report_count` gives the number. If the attributes would come
+  within 1 KiB of the recorder's 16 KiB limit, the oldest reports are left
+  out of `reports`, and `truncated` is `true`. The latest is always in the
+  entity's own attributes.
+- **Off.** The entity is on exactly while a report is in force. Off,
+  `reports` is empty, `report_count` is 0, and the other attributes are
+  `null`: nothing from before is kept.
+- **Reading every report.** A report can end, or be replaced, between two
+  reads. Every change to the list writes the entity's state, so a consumer
+  that must see each report records the entity's state changes, from
+  history or from state-change events, instead of polling it.
 
 **Segment statuses** on the ack entity:
 
@@ -853,6 +881,9 @@ Switching to `disabled`, by the Disable button or the options, is a
 4. Read back: the list by the confirmed write, and the owner's state by
    waiting up to a minute for the heater's status to report it. Report on
    the last write entity, `confirmed: false` if either did not read back.
+5. End every report on the override entity (section 4.2): people's changes
+   were reported against the plan, which is gone. None is made while
+   `disabled`.
 
 The list write is confirmed like any other (section 5.4) and retried once
 after 60 s. If that fails too, disabling is left unfinished and tried again

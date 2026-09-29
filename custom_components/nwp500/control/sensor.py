@@ -12,16 +12,11 @@ from homeassistant.util import dt as dt_util
 
 from nwp500.temperature import HalfCelsius
 
-from .entity import NWP500ControlEntity
+from .entity import ATTRIBUTE_BUDGET, NWP500ControlEntity
 from .evaluate import STATE_NONE
 
 if TYPE_CHECKING:
     from . import ControlFeature
-
-# The recorder keeps no attributes for a state whose attributes exceed
-# 16 KiB (its MAX_STATE_ATTRS_BYTES). The entity's own attributes, such as
-# its name and icon, count too, hence the margin.
-ATTRIBUTE_BUDGET = 15 * 1024
 
 
 def _temperatures(raw: int) -> dict[str, float]:

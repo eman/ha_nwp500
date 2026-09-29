@@ -9,6 +9,11 @@ from ..entity import NWP500Entity
 if TYPE_CHECKING:
     from .device import DeviceControl
 
+# The recorder keeps no attributes for a state whose attributes exceed
+# 16 KiB (its MAX_STATE_ATTRS_BYTES). The entity's own attributes, such as
+# its name and icon, count too, hence the margin.
+ATTRIBUTE_BUDGET = 15 * 1024
+
 
 class NWP500ControlEntity(NWP500Entity):
     """An entity that reports the control feature's state for one device.

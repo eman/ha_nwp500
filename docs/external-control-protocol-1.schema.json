@@ -234,6 +234,50 @@
         }
       },
       "additionalProperties": true
+    },
+    "override_report": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: a person's change on control_override (spec section 4.2). One report per key: field, plus segment for foreign_entry, plus segment and value's kind for removed.",
+      "required": ["field", "value", "detected_at", "segment"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "setpoint, mode, removed, foreign_entry or reservations_switched_off. Treat a value you do not know as opaque."
+        },
+        "value": {
+          "description": "setpoint: half-degrees Celsius; mode: a mode name; removed: an entry_item; foreign_entry: a device entry; reservations_switched_off: false."
+        },
+        "detected_at": { "type": "string", "format": "date-time" },
+        "segment": {
+          "type": ["string", "null"],
+          "description": "setpoint, mode: the segment in force; removed: the entry's serves; foreign_entry: its slot as text; reservations_switched_off: null."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "field": { "const": "removed" } } },
+          "then": { "properties": { "value": { "$ref": "#/$defs/entry_item" } } }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "override_attributes": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: control_override's attributes. The latest report's keys at the top level (all null while off), and every report in force.",
+      "required": ["field", "value", "detected_at", "segment", "reports", "report_count", "truncated"],
+      "properties": {
+        "reports": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/override_report" },
+          "description": "Every report in force, oldest first. Empty while the entity is off."
+        },
+        "report_count": { "type": "integer", "minimum": 0 },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when the oldest reports are left out of reports to stay within the recorder's 16 KiB limit. report_count counts them all."
+        }
+      },
+      "additionalProperties": true
     }
   }
 }
