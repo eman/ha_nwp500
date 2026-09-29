@@ -458,8 +458,9 @@ The list holds the changes in force, not a history:
 - **Lifetime.** Each report ends by its own rule, above. Handing the heater
   back ends every report (section 6.6), whether by disabling, by leaving
   live or by switching the feature off, and none is made while `disabled`;
-  what the hand-back restores is not reported as a person's change. Until a
-  failed hand-back succeeds, the reports stay as they were. Nothing else
+  what the hand-back restores is not reported as a person's change, nor is
+  what a failed hand-back may have changed. Until a failed hand-back
+  succeeds, the reports stay as they were. Nothing else
   empties the list: a new plan ends only the `removed` reports above, and
   reports are kept across a reload or a restart of Home Assistant that is
   not a hand-back.
@@ -485,7 +486,7 @@ The list holds the changes in force, not a history:
 | State | Meaning |
 |---|---|
 | `none` | No plan in force, and no document rejected since start-up |
-| `rejected` | No plan in force, and the most recent document was rejected whole (section 3.5). `intent_id`, `reason` and `detail` are that document's, and `segments` and `grants` are empty |
+| `rejected` | No plan in force, and the most recent document was rejected whole (section 3.5). `intent_id`, `reason` and `detail` are that document's, and so is `rejected`; `segments` and `grants` are empty |
 | `shadow` | The plan in force is evaluated but not written: the mode is `shadow`, or `live` with segments not live |
 | `pending` | Live: at least one segment is `pending` |
 | `partly_programmed` | Live: none is `pending`, and at least one is `removed` or `failed` |
@@ -495,28 +496,33 @@ The list holds the changes in force, not a history:
 state, `intent_id`, `segments` or `grants`: they stay those of the plan in
 force, which the rejection leaves unchanged. The rejection is in
 `rejected`: `intent_id`, `reason` and `detail` of the most recent rejected
-document, or `null`. It is cleared when a document is accepted. A scheduler
-knows its document was accepted when the acknowledgement's `intent_id` is
-that document's, and rejected when `rejected.intent_id` is.
+document, or `null`. It is cleared when a document received after it is
+accepted: one that arrived earlier and was accepted later, after waiting for
+a write in progress, leaves it. The same holds with no plan in force, where
+the rejection is also the acknowledgement. So a scheduler knows its
+document was rejected when `rejected.intent_id` is that document's, and
+accepted when the acknowledgement's `intent_id` is and it was not rejected.
 
 **Segments** on the ack entity each have `id`, `status`, `reason`,
-`warnings` (a list), `fires_at` (the minute its entry fires, or its
-near-term entry for a segment already begun; `null` if it has none),
-`in_force` (whether it is the segment in force now), `mode_confirmed`
+`warnings` (a list), `fires_at` (the minute its entry fires, or will fire
+once it is programmed; for a segment already begun, its near-term entry's;
+`null` if it has none), `in_force` (whether it is the segment in force now:
+a merged segment counts as the one it merged into, and a removed one never
+is), `mode_confirmed`
 (for the segment in force in `live`, whether the heater's behaviour has
 confirmed its mode, section 5.11; `null` otherwise), and its opaque keys.
 
 | Status | Meaning |
 |---|---|
 | `shadow` | Evaluated; in shadow, nothing is written |
-| `scheduled` | Not yet programmed: beyond the horizon, or waiting for room (section 5.3) |
+| `scheduled` | Not yet programmed: beyond the horizon, or waiting for room (section 5.3), with that `reason`. Also, with no reason, a segment starting within `near_term_lead_min`, too close to program: it is asserted by a near-term entry once it begins (section 5.2) |
 | `pending` | Being written. A segment that has begun is `pending` until the near-term entry that puts it in force is on the device |
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
 | `merged` | It sets the same state as the segment before it, so it needs no entry |
 | `in_force` | It has started and read-back matches (section 5.11) |
-| `ended` | The next segment has started |
+| `ended` | A later segment has taken effect. A `merged` segment, or one a person removed, leaves the one before it in force |
 | `failed` | A list write or read-back failed after its retry |
-| `removed` | A person removed its entry on the device (section 5.10) |
+| `removed` | A person removed its entry on the device, or, for a segment already begun, the near-term entry that would have put it in force (section 5.10). It never takes effect: the segment before it holds over its time. Not shown in `shadow`, where nothing is on the device |
 
 A segment's `reason`, when it has one:
 
@@ -542,7 +548,7 @@ period, section 5.8).
 | `raised` | A raise under it is in force (section 5.7) |
 | `ended` | Its `end` has passed |
 | `rejected` | It failed a check of section 3.5; `reason` says which |
-| `shadow` | `live` with the grants switch off: evaluated as in shadow, reason `not_live`. In the `shadow` mode, grants show `waiting`, `raised` or `ended` |
+| `shadow` | `live` with the grants switch off: evaluated as in shadow, reason `not_live`. In the `shadow` mode, grants show `waiting`, `raised`, `ended` or `rejected` |
 | `failed` | Live: a write for it was not confirmed after its retry (`write_not_confirmed`), or its raise did not read back (`not_applied_on_device`) |
 
 **In shadow,** the program and wanted entities show what the feature would
@@ -759,9 +765,13 @@ the guard entry, when:
   no raise is made. A guard or near-term entry moved that way keeps the
   minute it moved to.
 - **A new plan.** A plan that keeps the grant unchanged keeps the raise, and
-  its guard restores what the new plan wants at the grant's end. A plan
-  that stops (empty `segments`) while raised lowers to the state the guard
-  would have restored.
+  its guard restores what the new plan wants at the grant's end, even a
+  plan that stops (empty `segments`). A plan without the grant lowers the
+  raise; if that plan also stops, to the state the guard would have
+  restored.
+- **A lowering entry a person deletes** is not written again (section 5.4).
+  The raised setpoint then holds until the next entry fires, as any
+  person's removal holds (section 5.10).
 - **Failures and restarts.** A raise whose write failed after its retry is
   lowered, since it may have landed. A restart keeps a raise whose grant the
   stored plan still has.
@@ -843,9 +853,10 @@ adopt them into the plan. The scheduler decides.
   - A plan entry a person deletes is not restored (section 5.4). Its segment
     is `removed`, and the segment before it holds over its time.
   - Any other entry of the feature's that a person deletes is not written
-    again either, and is reported as `removed` too. For a near-term entry,
-    the segment in force is not re-asserted; for a grant's entries, see
-    section 5.7.
+    again either, and is reported as `removed` too. A near-term or
+    precedence-exit entry puts a segment already begun in force, so that
+    segment is `removed` as well: it never takes effect, and the state the
+    heater had holds. For a grant's entries, see section 5.7.
   - An entry a person adds is kept as read and reported as `foreign_entry`.
     It counts against the budget, and it fires as the person set it.
   - A person turning the reservation switch off stops every entry. It is
@@ -883,8 +894,8 @@ in shadow. That is how a consumer knows the feature is alive.
 - **`shadow`:** reads the device, validates, plans the list, and updates every
   entity with what it would write. Writes nothing. A segment that would be
   written, or is in force, has status `shadow`; `scheduled`, `merged` and
-  `ended` still show, and grants show `waiting`, `raised` or `ended` as they
-  would in `live`.
+  `ended` still show, and grants show `waiting`, `raised`, `ended` or
+  `rejected` as they would in `live`.
 - **`live`:** writes the list, for segments and for grants according to their
   live switches. What is not live behaves as in shadow. Grants are written
   only with segments live.

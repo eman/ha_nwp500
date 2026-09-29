@@ -225,7 +225,7 @@ All belong to the device. Unique ids are `<mac>_control_<key>`.
 |---|---|---|
 | Control Capabilities | The declaration's version | The declaration (below) |
 | Control Plan | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque keys |
-| Control Acknowledgement | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest document rejected while a plan stays in force, spec section 4.2), `intent_id`, `reason`, `detail`, `segments` and `grants`: each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, and its opaque keys |
+| Control Acknowledgement | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, `mode_confirmed` and its opaque keys; `grants`, each with `id`, `status`, `reason`, `warnings` and its opaque keys |
 | Control Program Hash | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `owner`, `foreign`, `plan`, `near_term` or `guard`; the feature's own also say what they serve and when they fire (spec section 4.2) |
 | Control In Sync | On when the device's list hashes the same as the program | `device_hash`, `read_at` |
 | Control Programmed Until | How far the device's copy of the plan reaches | `complete`, `scheduled` |

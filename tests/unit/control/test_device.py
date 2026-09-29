@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -303,6 +304,28 @@ class TestStart:
         assert enabled.planner.reports == {}
 
     @pytest.mark.asyncio
+    async def test_a_failed_hand_back_forgets_what_the_heater_held(
+        self, hass, control_factory, now
+    ):
+        """Its writes may have landed; what they change is not a person's."""
+        control = await control_factory()
+        control.planner.load_document(
+            {
+                "reports": [
+                    Report("setpoint", 100, now, None).as_document(),
+                ],
+                "device_state": ["heat_pump", 120],
+                "reservations_on": True,
+            }
+        )
+        control._record_failed_disable(now)
+        stored = control.planner.as_document()
+        assert stored["device_state"] is None
+        assert stored["reservations_on"] is None
+        # The reports stay until the hand-back succeeds (section 4.2).
+        assert control.planner.reports
+
+    @pytest.mark.asyncio
     async def test_state_from_an_earlier_version_is_discarded(
         self, hass, hass_storage, control_factory
     ):
@@ -372,11 +395,10 @@ class TestIntake:
         assert ack.intent_id == "i-1"
         assert [s.id for s in ack.segments] == ["now", "later"]
         assert ack.reason is None
-        assert ack.as_attributes()["rejected"] == {
-            "intent_id": "i-2",
-            "reason": REASON_UNSUPPORTED_PROTOCOL,
-            "detail": ack.rejection.detail if ack.rejection else None,
-        }
+        rejected = ack.as_attributes()["rejected"]
+        assert rejected["intent_id"] == "i-2"
+        assert rejected["reason"] == REASON_UNSUPPORTED_PROTOCOL
+        assert "9" in rejected["detail"]
         # Accepting a document ends the rejection.
         _publish(hass, _plan(now, intent_id="i-3"))
         await hass.async_block_till_done()
@@ -394,6 +416,55 @@ class TestIntake:
         assert control.ack.state == "rejected"
         assert control.ack.reason == REASON_UNSUPPORTED_PROTOCOL
         assert control.ack.intent_id == "i-2"
+        # One rule for a scheduler, with or without a plan in force.
+        assert control.ack.as_attributes()["rejected"]["intent_id"] == "i-2"
+
+    @pytest.mark.asyncio
+    async def test_a_rejection_outlives_an_earlier_document_accepted_later(
+        self, hass, control_factory, now
+    ):
+        """i-3 waits for a pass; i-4, sent after it, is rejected at once."""
+        _publish(hass, _plan(now))
+        control = await control_factory()
+        await control._lock.acquire()
+        waiting = asyncio.ensure_future(
+            control.async_receive(
+                _plan(
+                    now, intent_id="i-3", issued_at=now + timedelta(minutes=1)
+                ),
+                dt_util.utcnow(),
+            )
+        )
+        await asyncio.sleep(0)
+        assert not await control.async_receive(
+            _plan(
+                now,
+                intent_id="i-4",
+                protocol="9",
+                issued_at=now + timedelta(minutes=2),
+            ),
+            dt_util.utcnow(),
+        )
+        control._lock.release()
+        assert await waiting
+        assert control.ack.intent_id == "i-3"
+        assert control.ack.as_attributes()["rejected"]["intent_id"] == "i-4"
+
+    @pytest.mark.asyncio
+    async def test_the_plan_received_again_ends_a_rejection_at_once(
+        self, hass, control_factory, now
+    ):
+        _publish(hass, _plan(now))
+        control = await control_factory()
+        _publish(hass, _plan(now, intent_id="i-2", protocol="9"))
+        await hass.async_block_till_done()
+        assert control.ack.rejection is not None
+        written: list[int] = []
+        control.async_add_listener(lambda: written.append(1))
+        _publish(hass, _plan(now))
+        await hass.async_block_till_done()
+        assert control.ack.rejection is None
+        assert written
 
     @pytest.mark.asyncio
     async def test_an_older_document_is_superseded(

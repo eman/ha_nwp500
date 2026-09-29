@@ -188,6 +188,10 @@ class DeviceControl:
         self.received_at: datetime | None = None
         self.heartbeat: datetime | None = None
         self._rejected: Ack | None = None
+        # Documents are numbered as they arrive, so that accepting one that
+        # waited clears only a rejection of an earlier document.
+        self._received = 0
+        self._rejected_at = 0
         self._device_hash: str | None = None
         self._device_hash_seen_at: datetime | None = None
         self._feature_version = "unknown"
@@ -509,6 +513,8 @@ class DeviceControl:
             await asyncio.sleep(STATE_CONFIRM_POLL)
 
     def _record_failed_disable(self, now: datetime) -> None:
+        # The owner's list may have landed unconfirmed.
+        self.planner.forget_seen()
         self.planner.last_write = Write(
             reason=WRITE_DISABLE,
             at=now,
@@ -596,7 +602,9 @@ class DeviceControl:
         With no plan in force, the rejection is the ack.
         """
         if self.plan is None:
-            return self._rejected or self.planner.ack(None)
+            if self._rejected is None:
+                return self.planner.ack(None)
+            return replace(self._rejected, rejection=self._rejected)
         ack = self.planner.ack(self.plan.intent_id)
         if self._rejected is None:
             return ack
@@ -997,6 +1005,8 @@ class DeviceControl:
         """Validate a document and, if accepted, make it the plan."""
         raw_id = document.get("intent_id")
         intent_id = raw_id if isinstance(raw_id, str) else None
+        self._received += 1
+        number = self._received
         try:
             plan = self._parse(document)
             if self.plan is not None and plan.issued_at < self.plan.issued_at:
@@ -1012,8 +1022,9 @@ class DeviceControl:
                 self.mac_address,
                 err,
             )
-            self._rejected = rejected_ack(intent_id, err.reason, err.detail)
-            self._notify()
+            self._reject(
+                number, rejected_ack(intent_id, err.reason, err.detail)
+            )
             return False
 
         # Not while a pass is writing: that write was planned on the plan
@@ -1029,7 +1040,7 @@ class DeviceControl:
                 # The plan in force, received again (the source dropped out
                 # and came back). Adopting it again would undo nothing
                 # useful and could restore what a person removed.
-                self._rejected = None
+                self._accept(number)
                 return True
             if self.plan is not None and plan.issued_at < self.plan.issued_at:
                 # Another document was adopted while this one waited.
@@ -1038,18 +1049,35 @@ class DeviceControl:
                     intent_id or "<no id>",
                     self.mac_address,
                 )
-                self._rejected = rejected_ack(
-                    intent_id, REASON_SUPERSEDED, "superseded while waiting"
+                self._reject(
+                    number,
+                    rejected_ack(
+                        intent_id, REASON_SUPERSEDED, "superseded while waiting"
+                    ),
                 )
-                self._notify()
                 return False
             now = max(now, dt_util.utcnow())
             self._adopt(plan, now, now, self.observe())
+            self._accept(number)
             await self.store.async_set_intent(
                 self.mac_address, plan.as_document(), now.isoformat()
             )
         await self._async_evaluate(now)
         return True
+
+    def _reject(self, number: int, ack: Ack) -> None:
+        """Report a rejected document, unless a later one was rejected."""
+        if number < self._rejected_at:
+            return
+        self._rejected = ack
+        self._rejected_at = number
+        self._notify()
+
+    def _accept(self, number: int) -> None:
+        """A document was accepted: an earlier one's rejection is over."""
+        if self._rejected is not None and number > self._rejected_at:
+            self._rejected = None
+            self._notify()
 
     def _adopt(
         self,
@@ -1062,7 +1090,6 @@ class DeviceControl:
     ) -> None:
         self.plan = plan
         self.received_at = received_at
-        self._rejected = None
         self.planner.capabilities = self._build_capabilities()
         self.planner.set_plan(plan, now, observed, restoring=restoring)
         _LOGGER.debug(

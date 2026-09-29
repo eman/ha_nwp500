@@ -897,6 +897,63 @@ class TestPeoplesChanges:
         run(planner, minutes(121), with_other)
         assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" not in planner.reports
 
+    def test_the_segment_before_a_removed_one_holds_over_its_time(self):
+        """Section 5.10: a removed segment never takes effect."""
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        a, b = sorted(planner.owned, key=lambda e: e.fires_at)
+        both = obs(
+            reservations_enabled=True,
+            reservations=(a.as_entry(), b.as_entry()),
+        )
+        run(planner, minutes(1), both)
+        only_a = obs(reservations_enabled=True, reservations=(a.as_entry(),))
+        run(planner, minutes(2), only_a)
+        after_b = obs(
+            mode="energy_saver",
+            setpoint_raw=a.setpoint_raw,
+            reservations_enabled=True,
+            reservations=(a.as_entry(),),
+        )
+        run(planner, minutes(121), after_b)
+        ack = {s.id: s for s in planner.ack("i").segments}
+        assert ack["a"].status == "in_force"
+        assert ack["a"].detail["in_force"] is True
+        assert ack["b"].status == "removed"
+        assert ack["b"].detail["in_force"] is False
+        assert planner.wanted_state(minutes(121)) == State(
+            "energy_saver", a.setpoint_raw
+        )
+        # Nothing waits to be written: b's entry is not coming back.
+        assert planner.programmed_complete is True
+
+    def test_a_deleted_near_term_entry_leaves_its_segment_removed(self):
+        """The heater never took the state of a segment already begun."""
+        planner = planner_with(
+            [
+                segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 120, setpoint_f=130),
+            ],
+            shadow=False,
+        )
+        near, later = sorted(planner.owned, key=lambda e: e.fires_at)
+        assert near.kind == KIND_NEAR_TERM
+        both = obs(
+            reservations_enabled=True,
+            reservations=(near.as_entry(), later.as_entry()),
+        )
+        run(planner, minutes(1), both)
+        without = obs(
+            reservations_enabled=True, reservations=(later.as_entry(),)
+        )
+        run(planner, minutes(2), without)
+        run(planner, minutes(10), without)
+        (a,) = (s for s in planner.ack("i").segments if s.id == "a")
+        assert a.status == "removed"
+        assert a.detail["in_force"] is False
+        assert f"{REPORT_REMOVED}:{KIND_NEAR_TERM}:a" in planner.reports
+        # It is not asserted again.
+        assert all(e.kind != KIND_NEAR_TERM for e in planner.owned)
+
     def test_a_removal_ends_though_nothing_is_read(self):
         """Neither the heater's status nor its list is needed."""
         planner, _ = self._remove_a()
@@ -1063,8 +1120,11 @@ class TestPeoplesChanges:
         planner = planner_with()
         run(planner, minutes(1), obs(mode="energy_saver", setpoint_raw=100))
         assert planner.reports
+        planner.removed_segments = {"a"}
         planner.disable(minutes(2))
         assert planner.reports == {}
+        # The entries people removed were the feature's, now gone too.
+        assert planner.removed_segments == set()
 
 
 class TestSurplusGrants:

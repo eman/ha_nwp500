@@ -459,9 +459,19 @@ class Planner:
         On handing back (section 6.6): people's changes were reported
         against the plan, which is gone, and the hand-back changes the
         heater's state and switch, which is not a person's doing. The first
-        pass after it takes a new baseline.
+        pass after it takes a new baseline. The entries people removed were
+        the feature's, which are gone too.
         """
         self.reports = {}
+        self.removed_segments = set()
+        self.forget_seen()
+
+    def forget_seen(self) -> None:
+        """Forget what the heater was seen to hold, keeping the reports.
+
+        After a hand-back that did not finish: its writes may have landed,
+        and what they changed is not a person's doing (section 6.6).
+        """
         self._device_state = None
         self._state_seen_at = None
         self._reservations_on = None
@@ -516,13 +526,19 @@ class Planner:
         return result
 
     def _anchor(self, now: datetime) -> tuple[Segment, State | None] | None:
-        """The segment in force, taking merged segments back to their first."""
+        """The segment in force, taking merged segments back to their first.
+
+        A segment whose entry a person removed never took effect: the one
+        before it holds over its time (section 5.10).
+        """
         if self.plan is None:
             return None
         anchor: tuple[Segment, State | None] | None = None
         for segment, state, merged in self._timeline():
             if segment.start > now:
                 break
+            if segment.id in self.removed_segments:
+                continue
             if not merged or anchor is None:
                 anchor = (segment, state)
         return anchor
@@ -1180,7 +1196,13 @@ class Planner:
                 or owned_entry.as_entry() in on_device
             ):
                 continue
-            if owned_entry.kind == KIND_PLAN and owned_entry.serves:
+            if (
+                owned_entry.kind
+                in (KIND_PLAN, KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+                and owned_entry.serves
+            ):
+                # The entry that puts its segment in force: without it, the
+                # segment never takes effect.
                 self.removed_segments.add(owned_entry.serves)
             rs = self.raise_state
             if rs is not None and owned_entry == rs.entry:
@@ -1734,7 +1756,11 @@ class Planner:
         scheduled = [
             s
             for s, _state, merged in self._timeline()
-            if not merged and s.start > now and not info[s.id].candidate
+            if not merged
+            and s.start > now
+            and not info[s.id].candidate
+            # A person removed its entry: it is not waiting to be written.
+            and s.id not in self.removed_segments
         ]
         self._scheduled = len(scheduled)
         self._complete = not scheduled
@@ -1955,8 +1981,11 @@ class Planner:
                 else None,
             }
             reason = info.reason
+            # Ended once a later segment takes effect: a merged one, or one
+            # a person removed, leaves this one in force.
             later_started = any(
-                s.start <= now for s, _, _ in timeline[index + 1 :]
+                s.start <= now and not m and s.id not in self.removed_segments
+                for s, _, m in timeline[index + 1 :]
             )
             if segment.id in self.removed_segments:
                 status = STATUS_REMOVED
