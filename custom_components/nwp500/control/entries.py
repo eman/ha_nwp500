@@ -13,6 +13,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, tzinfo
 from typing import Any
 
+from nwp500.temperature import HalfCelsius
+
 from .. import schedule_state
 from ..const import MODE_TO_DHW_ID
 from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
@@ -102,6 +104,24 @@ class OwnedEntry:
             "mode": self.mode,
             "setpoint_raw": self.setpoint_raw,
             "enabled": self.enabled,
+        }
+
+    def as_attributes(self) -> dict[str, Any]:
+        """An entry as the entities report it (section 4.2).
+
+        The stored keys, the owner label, the setpoint in both units, and
+        the device slot under the Reservation Schedule sensor's key names.
+        """
+        week, hour, minute = self.slot
+        setpoint = HalfCelsius(self.setpoint_raw)
+        return {
+            **self.as_document(),
+            "owner": OWNER_LABELS.get(self.kind, self.kind),
+            "setpoint_f": round(setpoint.to_fahrenheit(), 1),
+            "setpoint_c": round(setpoint.to_celsius(), 1),
+            "week": week,
+            "hour": hour,
+            "min": minute,
         }
 
     @classmethod

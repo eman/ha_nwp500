@@ -1085,9 +1085,10 @@ class Planner:
                 # The raise never fired: there is none to track or bound.
                 self._drop_raise_entries(now)
                 self.raise_state = None
+            # The entry as the last write entity reported it (section 4.2).
             report = Report(
                 REPORT_REMOVED,
-                owned_entry.as_document(),
+                owned_entry.as_attributes(),
                 now,
                 owned_entry.serves,
             )

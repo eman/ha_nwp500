@@ -1,0 +1,72 @@
+{
+  "entity_id": "sensor.water_heater_control_last_write",
+  "state": "2026-10-04T12:00:12+00:00",
+  "attributes": {
+    "reason": "near_term",
+    "added": [
+      {
+        "kind": "plan",
+        "serves": "s2",
+        "fires_at": "2026-10-04T10:30:00-07:00",
+        "mode": "heat_pump",
+        "setpoint_raw": 120,
+        "enabled": true,
+        "owner": "plan",
+        "setpoint_f": 140.0,
+        "setpoint_c": 60.0,
+        "week": 128,
+        "hour": 10,
+        "min": 30
+      },
+      {
+        "kind": "plan",
+        "serves": "s3",
+        "fires_at": "2026-10-04T14:30:00-07:00",
+        "mode": "energy_saver",
+        "setpoint_raw": 114,
+        "enabled": true,
+        "owner": "plan",
+        "setpoint_f": 134.6,
+        "setpoint_c": 57.0,
+        "week": 128,
+        "hour": 14,
+        "min": 30
+      },
+      {
+        "kind": "plan",
+        "serves": "s4",
+        "fires_at": "2026-10-04T22:00:00-07:00",
+        "mode": "energy_saver",
+        "setpoint_raw": 81,
+        "enabled": true,
+        "owner": "plan",
+        "setpoint_f": 104.9,
+        "setpoint_c": 40.5,
+        "week": 128,
+        "hour": 22,
+        "min": 0
+      },
+      {
+        "kind": "near_term",
+        "serves": "s1",
+        "fires_at": "2026-10-04T05:03:00-07:00",
+        "mode": "heat_pump",
+        "setpoint_raw": 81,
+        "enabled": true,
+        "owner": "near_term",
+        "setpoint_f": 104.9,
+        "setpoint_c": 40.5,
+        "week": 128,
+        "hour": 5,
+        "min": 3
+      }
+    ],
+    "removed": [],
+    "added_count": 4,
+    "removed_count": 0,
+    "truncated": false,
+    "confirmed": true,
+    "simulated": false,
+    "owner_state": null
+  }
+}

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/eman/ha_nwp500/docs/external-control-protocol-1.schema.json",
   "title": "NWP500 external control plan, protocol 1",
-  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, bounds, allowed modes, the horizon and the entry budget) are checked by the feature and are listed in docs/external-control-spec.md.",
+  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, bounds, allowed modes, the horizon and the entry budget) are checked by the feature and are listed in docs/external-control-spec.md. The $defs entry_item, program_item and last_write_attributes describe entity attributes the feature reports (spec section 4.2), not the plan.",
   "type": "object",
   "required": ["protocol", "intent_id", "issued_at", "segments"],
   "properties": {
@@ -52,6 +52,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 64,
           "description": "Unique in the document, across segments and grants."
         },
         "start": { "$ref": "#/$defs/timestamp" },
@@ -85,6 +86,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 64,
           "description": "Unique in the document, across segments and grants."
         },
         "start": { "$ref": "#/$defs/timestamp" },
@@ -99,6 +101,138 @@
         { "required": ["max_f"], "not": { "required": ["max_c"] } },
         { "required": ["max_c"], "not": { "required": ["max_f"] } }
       ],
+      "additionalProperties": true
+    },
+    "entry_item": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: one of the feature's own entries, as an item of control_last_write's added and removed (spec section 4.2). New keys may be added (spec section 1.3).",
+      "required": ["kind", "owner", "serves", "fires_at", "mode", "setpoint_f", "setpoint_c", "setpoint_raw", "enabled", "week", "hour", "min"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "plan, near_term, precedence_exit, grant_raise, grant_lower or guard. Treat a value you do not know as opaque.",
+          "examples": ["plan", "near_term", "precedence_exit", "grant_raise", "grant_lower", "guard"]
+        },
+        "owner": {
+          "type": "string",
+          "description": "The program's label for the kind: plan, guard, or near_term for near_term, precedence_exit, grant_raise and grant_lower."
+        },
+        "serves": {
+          "type": "string",
+          "description": "The id of a segment (kinds plan, near_term, precedence_exit) or of a grant (grant_raise, grant_lower, guard). Ids are unique across a document's segments and grants. The same string as control_next_entry's serves."
+        },
+        "fires_at": {
+          "$ref": "#/$defs/timestamp",
+          "description": "The local minute the entry is written for: after any moved_1_min shift, and for a near-term entry its near-term minute. A near-term entry confirmed only after its minute never fired, and is issued again in a later write."
+        },
+        "mode": { "$ref": "#/$defs/mode_name" },
+        "setpoint_f": { "type": "number" },
+        "setpoint_c": { "type": "number" },
+        "setpoint_raw": {
+          "type": "integer",
+          "description": "The setpoint as the device holds it, in half-degrees Celsius."
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "False only while the heater is powered off (spec section 5.9)."
+        },
+        "week": {
+          "type": "integer",
+          "enum": [2, 4, 8, 16, 32, 64, 128],
+          "description": "The weekday bit of fires_at's local date: Monday 64 to Saturday 2, Sunday 128."
+        },
+        "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "min": { "type": "integer", "minimum": 0, "maximum": 59 }
+      },
+      "additionalProperties": true
+    },
+    "program_item": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: an item of control_program_hash's entries. A device entry (enable, week, hour, min, mode, param), plus owner. An entry of the feature's own also carries every key of entry_item, except that mode stays the device's mode id, and mode_name holds the mode name. The Reservation Schedule sensor's own mode_name is a display label, not this.",
+      "required": ["enable", "week", "hour", "min", "mode", "param", "owner"],
+      "properties": {
+        "enable": {
+          "type": "integer",
+          "enum": [1, 2],
+          "description": "2 on, 1 off."
+        },
+        "week": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "hour": { "type": "integer", "minimum": 0, "maximum": 23 },
+        "min": { "type": "integer", "minimum": 0, "maximum": 59 },
+        "mode": {
+          "type": "integer",
+          "description": "The device's mode id. For the feature's own entries the mode name is in mode_name."
+        },
+        "param": { "type": "integer" },
+        "owner": {
+          "type": "string",
+          "description": "owner (the owner's entry, switched off while live), foreign (another entry the feature does not own), or the owner label of one of the feature's own: plan, near_term or guard."
+        }
+      },
+      "if": {
+        "properties": { "owner": { "enum": ["owner", "foreign"] } }
+      },
+      "else": {
+        "required": ["kind", "serves", "fires_at", "mode_name", "setpoint_f", "setpoint_c", "setpoint_raw", "enabled"],
+        "properties": {
+          "kind": { "$ref": "#/$defs/entry_item/properties/kind" },
+          "serves": { "$ref": "#/$defs/entry_item/properties/serves" },
+          "fires_at": { "$ref": "#/$defs/entry_item/properties/fires_at" },
+          "mode_name": { "$ref": "#/$defs/mode_name" },
+          "setpoint_f": { "type": "number" },
+          "setpoint_c": { "type": "number" },
+          "setpoint_raw": { "$ref": "#/$defs/entry_item/properties/setpoint_raw" },
+          "enabled": { "$ref": "#/$defs/entry_item/properties/enabled" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "last_write_attributes": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: control_last_write's attributes once a write has been made. Before the first write they are only reason: null.",
+      "required": ["reason", "added", "removed", "added_count", "removed_count", "truncated", "confirmed", "simulated", "owner_state"],
+      "properties": {
+        "reason": {
+          "type": "string",
+          "description": "plan, cleanup, near_term, grant_raise, grant_lower, precedence_exit, power_off, takeover or disable. Treat a value you do not know as opaque."
+        },
+        "added": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/entry_item" },
+          "description": "The entries the write added; null when truncated."
+        },
+        "removed": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/entry_item" },
+          "description": "The entries the write removed; null when truncated, which drops removed before added."
+        },
+        "added_count": { "type": "integer", "minimum": 0 },
+        "removed_count": { "type": "integer", "minimum": 0 },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when a list is null because the attributes would exceed the recorder's 16 KiB limit, which would keep none of them. The counts are always given."
+        },
+        "confirmed": {
+          "type": ["boolean", "null"],
+          "description": "For the whole write: true once the device read back the list sent; false from the first unconfirmed attempt (the retry may still confirm it), for a live write that could not be sent, or for a disable whose owner's list or state did not read back; null for a simulated write (shadow)."
+        },
+        "simulated": {
+          "type": "boolean",
+          "description": "True for a write made in shadow, which was not sent."
+        },
+        "owner_state": {
+          "description": "For disable only: the owner's [mode, setpoint_raw] written directly, or null when it was not written: the heater is in, or the owner's program sets, vacation or power-off, or the owner's list could not be restored. In shadow nothing is written; it is the owner's state as found, whatever its mode, vacation and power_off included.",
+          "oneOf": [
+            {
+              "type": "array",
+              "prefixItems": [{ "type": "string" }, { "type": "integer" }],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            { "type": "null" }
+          ]
+        }
+      },
       "additionalProperties": true
     }
   }

@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from jsonschema import Draft202012Validator
+from nwp500.models.schedule import ReservationEntry
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -115,6 +119,15 @@ async def control_factory(hass: HomeAssistant, hass_storage, mock_device):
 
     for control in started:
         await control.async_stop()
+
+
+def _program_item_schema() -> Draft202012Validator:
+    schema = json.loads(
+        Path("docs/external-control-protocol-1.schema.json").read_text()
+    )
+    return Draft202012Validator(
+        {"$defs": schema["$defs"], "$ref": "#/$defs/program_item"}
+    )
 
 
 def _publish(hass: HomeAssistant, document: dict) -> None:
@@ -442,8 +455,68 @@ class TestReading:
         details = control.program_details()
         assert details["entry_count"] == 2
         assert {e["owner"] for e in details["entries"]} == {"near_term", "plan"}
+        for entry in details["entries"]:
+            # A device entry, with the mode as the device's id, plus the
+            # item keys of the last write's `added` (section 4.2).
+            assert isinstance(entry["mode"], int)
+            assert entry["mode_name"] == "heat_pump"
+            assert entry["kind"] in ("plan", "near_term")
+            assert entry["serves"]
+            assert entry["enabled"] is True
+            assert entry["enable"] == 2
+            assert entry["param"] == entry["setpoint_raw"]
+            assert {"setpoint_f", "setpoint_c", "week", "hour", "min"} <= set(
+                entry
+            )
+        for entry in details["entries"]:
+            _program_item_schema().validate(entry)
         assert details["device_hash"] is not None
         assert details["device_hash"] != details["hash"]
+
+    @pytest.mark.asyncio
+    async def test_an_owner_entry_is_a_device_entry(
+        self, hass, control_factory, now
+    ):
+        """An entry the feature does not own keeps only the device's keys.
+
+        The Reservation Schedule sensor's entries carry display keys too,
+        among them a `mode_name` label; a program item does not.
+        """
+        on_device = ReservationEntry(
+            enable=2, week=62, hour=6, min=0, mode=3, param=120
+        ).model_dump()
+        assert on_device["mode_name"] == "Energy Saver"
+        _publish(hass, _plan(now))
+        control = await control_factory(
+            schedule={"reservation_use": 2, "reservation": [on_device]}
+        )
+        owner = [
+            e
+            for e in control.program_details()["entries"]
+            if e["owner"] == "owner"
+        ]
+        # Switched off by its own flag in the list the feature wants.
+        assert owner == [
+            {
+                "enable": 1,
+                "week": 62,
+                "hour": 6,
+                "min": 0,
+                "mode": 3,
+                "param": 120,
+                "owner": "owner",
+            }
+        ]
+        _program_item_schema().validate(owner[0])
+        # An item of the feature's own must say what it serves.
+        owned = next(
+            e
+            for e in control.program_details()["entries"]
+            if e["owner"] != "owner"
+        )
+        assert not _program_item_schema().is_valid(
+            {k: v for k, v in owned.items() if k != "serves"}
+        )
 
     @pytest.mark.asyncio
     async def test_capabilities_carry_the_owner_and_room(self, control_factory):

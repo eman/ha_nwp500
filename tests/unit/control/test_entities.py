@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.json import json_bytes
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
 from custom_components.nwp500 import binary_sensor as binary_platform
@@ -17,6 +18,7 @@ from custom_components.nwp500.const import (
     CONTROL_MODE_DISABLED,
     DATA_CONTROL,
     DOMAIN,
+    MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
 )
 from custom_components.nwp500.control import ENTITY_KEYS
 from custom_components.nwp500.control.binary_sensor import (
@@ -37,7 +39,9 @@ from custom_components.nwp500.control.engine import (
 )
 from custom_components.nwp500.control.entries import OwnedEntry
 from custom_components.nwp500.control.evaluate import NO_ACK, Ack, ItemAck
+from custom_components.nwp500.control.intent import ITEM_ID_MAX_LENGTH
 from custom_components.nwp500.control.sensor import (
+    ATTRIBUTE_BUDGET,
     SENSOR_KEYS,
     ControlAckSensor,
     ControlCapabilitiesSensor,
@@ -187,7 +191,83 @@ class TestSensors:
         attrs = sensor.extra_state_attributes
         assert attrs["reason"] == "plan"
         assert attrs["simulated"] is True
-        assert attrs["added"][0]["serves"] == "s2"
+        assert attrs["confirmed"] is None
+        assert attrs["removed"] == []
+        assert (
+            attrs["added_count"],
+            attrs["removed_count"],
+            attrs["truncated"],
+        ) == (1, 0, False)
+        # WHEN is a Sunday: weekday bit 128 (section 4.2).
+        assert attrs["added"] == [
+            {
+                "kind": "plan",
+                "owner": "plan",
+                "serves": "s2",
+                "fires_at": WHEN.isoformat(),
+                "mode": "heat_pump",
+                "setpoint_raw": 120,
+                "setpoint_f": 140.0,
+                "setpoint_c": 60.0,
+                "enabled": True,
+                "week": 128,
+                "hour": 12,
+                "min": 0,
+            }
+        ]
+
+    @pytest.mark.parametrize(
+        ("count", "added", "removed"), [(32, True, False), (64, False, False)]
+    )
+    def test_last_write_stays_within_the_recorder_limit(
+        self, control, count, added, removed
+    ):
+        """Too large, the lists go, `removed` first; the counts stay."""
+        entries = tuple(
+            OwnedEntry(
+                "plan",
+                f"segment-{i:04d}-{'x' * 30}",
+                WHEN + timedelta(minutes=i),
+                "energy_saver",
+                114,
+            )
+            for i in range(count)
+        )
+        control.last_write = Write("plan", WHEN, entries, entries, entries)
+        attrs = ControlLastWriteSensor(
+            control, "last_write"
+        ).extra_state_attributes
+        assert len(json_bytes(attrs)) <= ATTRIBUTE_BUDGET
+        assert attrs["truncated"] is True
+        assert (attrs["added"] is not None) is added
+        assert (attrs["removed"] is not None) is removed
+        assert (attrs["added_count"], attrs["removed_count"]) == (count, count)
+
+    def test_a_full_program_stays_within_the_recorder_limit(self):
+        """A full program needs no truncation (section 4.2).
+
+        It lists every entry, with the longest ids and the largest limit.
+        """
+        entries = [
+            {
+                **entry.as_attributes(),
+                **entry.as_entry(),
+                "mode_name": entry.mode,
+            }
+            for entry in (
+                OwnedEntry(
+                    "precedence_exit",
+                    f"{i:02d}".ljust(ITEM_ID_MAX_LENGTH, "x"),
+                    WHEN + timedelta(hours=i),
+                    "energy_saver",
+                    114,
+                    enabled=False,
+                )
+                for i in range(MAX_CONTROL_RESERVATION_ENTRY_LIMIT)
+            )
+        ]
+        attrs = {"entry_count": len(entries), "entries": entries}
+        assert len(json_bytes(attrs)) <= ATTRIBUTE_BUDGET
 
     def test_heartbeat(self, control):
         sensor = ControlHeartbeatSensor(control, "heartbeat")

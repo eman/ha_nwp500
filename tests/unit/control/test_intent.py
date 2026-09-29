@@ -180,7 +180,7 @@ class TestRejectedDocuments:
         import json
         from pathlib import Path
 
-        examples = sorted(Path("docs/examples").glob("*.json"))
+        examples = sorted(Path("docs/examples").glob("plan-*.json"))
         assert examples
         for path in examples:
             document = json.loads(path.read_text())
@@ -206,6 +206,36 @@ class TestRejectedDocuments:
         )
         self._rejects(
             parse, make_document(now, intent_id=""), REASON_INVALID_DOCUMENT
+        )
+
+    def test_segment_and_grant_ids_are_bounded(self, now, parse):
+        """At most 64 characters (spec section 3.2).
+
+        So the entities naming them stay within the recorder's limit.
+        """
+        at_most = "x" * 64
+        document = make_document(
+            now,
+            [segment(now, at_most, 0, mode="heat_pump", setpoint_f=130)],
+            grants=[grant(now, "g" * 64, 10, 60, max_f=140)],
+        )
+        assert parse(document).segments[0].id == at_most
+        self._rejects(
+            parse,
+            make_document(
+                now,
+                [segment(now, "x" * 65, 0, mode="heat_pump", setpoint_f=130)],
+            ),
+            REASON_INVALID_DOCUMENT,
+        )
+        self._rejects(
+            parse,
+            make_document(
+                now,
+                [segment(now, "s", 0, mode="heat_pump", setpoint_f=130)],
+                grants=[grant(now, "g" * 65, 10, 60, max_f=140)],
+            ),
+            REASON_INVALID_DOCUMENT,
         )
 
     def test_naive_timestamp(self, now, parse):

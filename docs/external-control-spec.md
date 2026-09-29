@@ -174,7 +174,7 @@ increasing order of `start`.
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
-| `id` | string, unique in the document | yes | Named in acknowledgements |
+| `id` | string, at most 64 characters, unique in the document | yes | Named in acknowledgements |
 | `start` | ISO 8601 with offset | yes | Truncated to the minute |
 | `setpoint_f`, `setpoint_c` or `setpoint` | number, number, or `"min"` | exactly one | The setpoint. A number is converted and quantised to the device's half-degree-Celsius resolution. `"min"` is the lowest setpoint the feature will write, `setpoint_min` (section 4.1) |
 | `mode` | string (section 3.4) | on the first segment | The operation mode. A later segment that omits it keeps the previous segment's mode |
@@ -210,7 +210,7 @@ available and the compressor is already running (section 5.7).
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
-| `id` | string, unique in the document | yes | Named in acknowledgements |
+| `id` | string, at most 64 characters, unique in the document | yes | Named in acknowledgements |
 | `start`, `end` | ISO 8601 with offset | yes | The window. Truncated to the minute; `end` MUST then be later than `start` |
 | `max_f` **or** `max_c` | number | yes | The highest setpoint a raise may use, in exactly one unit |
 | any other key | any | no | Opaque, echoed back on the grant's acknowledgement, unless it has the name of one of its own keys (`id`, `status`, `reason`, `warnings`), which win |
@@ -232,7 +232,7 @@ unchanged.
 
 | Reason | When |
 |---|---|
-| `invalid_document` | JSON types or required keys are wrong; a setpoint is given in more than one form; the first segment has no mode |
+| `invalid_document` | JSON types or required keys are wrong; an id is empty or longer than 64 characters; a setpoint is given in more than one form; the first segment has no mode |
 | `unsupported_protocol` | `protocol` is not supported |
 | `duplicate_id` | Two segments or grants share an id |
 | `unordered_segments` | After truncation to the minute, a segment does not start after the one before it |
@@ -354,16 +354,93 @@ Each is a **state**, so history and statestream carry it:
 |---|---|---|
 | `sensor.<device>_control_intent` | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque top-level keys |
 | `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` | `intent_id`; the document-level rejection reason if any; `segments` and `grants`: each with `id`, `status`, `reason`, `warnings`, and its opaque keys |
-| `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: each with its owner (`owner`, `plan`, `near_term` or `guard`), the segment or grant it serves, when it fires, its mode and setpoint |
+| `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
 | `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
 | `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment not yet on the device, or of the last segment once all are | `complete` (every segment is programmed), `scheduled` (segments waiting for the horizon or for room) |
 | `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
 | `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`), `added`, `removed`, `confirmed` |
-| `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | `field`, `value`, `detected_at`, `segment` |
+| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
+| `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report, oldest first (below) |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
+
+**Entry items.** Each item of `control_last_write`'s `added` and `removed`
+is one of the feature's own entries, which that write put on the device's
+list or took off it:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `kind` | string | What the entry is for: `plan`, `near_term`, `precedence_exit`, `grant_raise`, `grant_lower` or `guard` |
+| `owner` | string | The program's label for the kind: `plan`, `guard`, or `near_term` for the other four |
+| `serves` | string | The `id` of what it serves: a segment for `plan`, `near_term` and `precedence_exit`, a grant for `grant_raise`, `grant_lower` and `guard`. Ids are unique across a document's segments and grants, so `serves` with `kind` names one item. It is the same string as `control_next_entry`'s `serves` |
+| `fires_at` | string, ISO 8601 with the local offset | The minute the entry is written for: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). A near-term entry confirmed only after its minute never fired; it is issued again, for a later minute, in a later write. An entry left on the device fires again a week later |
+| `mode` | string | The mode it sets, as a name (section 3.4) |
+| `setpoint_f`, `setpoint_c` | number | The setpoint it sets, to one decimal |
+| `setpoint_raw` | integer | The same setpoint as the device holds it, in half-degrees Celsius |
+| `enabled` | boolean | False only for the feature's own entries while the heater is powered off (section 5.9) |
+| `week`, `hour`, `min` | integer | The device slot, under the device's key names: the weekday bit of `fires_at`'s local date (Monday 64, Tuesday 32, Wednesday 16, Thursday 8, Friday 4, Saturday 2, Sunday 128) and its local hour and minute |
+
+A `guard` entry serves its grant. It sets the state the plan wants at the
+grant's `end` (section 5.7), and fires at `end`, or a minute or more later
+when another enabled entry already takes that minute (section 5.2). A surplus
+raise is a `grant_raise` entry, and its lowering a `grant_lower` entry, each
+serving the grant.
+
+**Program items.** Each item of `control_program_hash`'s `entries` is an
+entry of the list the feature wants on the device, with the device's keys:
+`enable` (2 on, 1 off), `week`, `hour`, `min`, `mode` (the device's mode id)
+and `param`. It adds `owner`: `owner` for an owner entry (shown switched
+off, as the feature writes it while live, section 5.1), `foreign` for any
+other entry the feature does not own, or the label of one of its own. An
+item of the feature's own also carries every key of an entry item, except
+that `mode` keeps the device's id, and adds `mode_name`, the mode as a name
+(section 3.4). The Reservation Schedule sensor's entries carry display keys
+besides the device's, and there `mode_name` is a label such as `Heat
+Pump`: compare the two lists by the device's keys.
+
+An entry the feature still wants after a plan replacement (section 5.6) is
+kept, not written again, so it is not in a later write's `added`, and its
+program item keeps the `serves` and `fires_at` it was added with. A plan
+entry is kept only for a segment of the same id, state and minute. An entry
+may therefore serve a segment or grant of the plan it was written for,
+not of the plan in force.
+
+**Last-write attributes.** `confirmed` is a boolean for the whole write,
+since a list is written and confirmed whole (section 5.4). It is `true`
+once the device read back the list sent. It is `false` from a write's first
+unconfirmed attempt, while its retry is pending (section 5.4); for a live
+write that could not be sent because the list could not be read first; and
+for a `disable` whose owner's list or state did not read back (section
+6.6). It is `null` for a simulated write (`simulated` is `true`, in
+shadow). `owner_state` is, for `disable` only, the owner's `[mode,
+setpoint_raw]` written directly (section 6.6), or `null` when it was not
+written: the heater is in, or the owner's program sets, vacation or
+power-off, or the owner's list could not be restored. In shadow nothing is
+written, and it is the owner's state as found, whatever its mode.
+
+**Size.** The recorder keeps none of a state's attributes when they exceed
+16 KiB. `added_count` and `removed_count` always give the lists' lengths.
+When the attributes would come within 1 KiB of the limit, `removed` is set
+to `null`, then `added` if that is not enough, and `truncated` is `true`.
+At the default `entry_limit` this does not happen; it can at 32 entries,
+when a plan replaces most of its entries. The program entity's `entries`
+always lists every entry the feature wants: with ids of at most 64
+characters, 32 entries stay well within the limit.
+`docs/examples/last-write-*.json` are two writes for
+`docs/examples/plan-day.json`, as the entity reports them.
+
+**Override reports.** Each report, and the override entity's own
+attributes for the latest, has `field`, `value`, `detected_at` (ISO 8601)
+and `segment`:
+
+| `field` | `value` | `segment` |
+|---|---|---|
+| `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first |
+| `mode` | The mode found, as a name | The segment in force, or `null` before the first |
+| `removed` | The entry a person removed, as an entry item | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry |
+| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` |
+| `reservations_switched_off` | `false` | `null` |
 
 **Segment statuses** on the ack entity:
 
