@@ -30,6 +30,7 @@ from custom_components.nwp500.control.device import (
     HEARTBEAT_INTERVAL,
     DeviceControl,
 )
+from custom_components.nwp500.control.engine import Report
 from custom_components.nwp500.control.entries import KIND_NEAR_TERM, KIND_PLAN
 from custom_components.nwp500.control.intent import (
     REASON_MODE_NOT_ALLOWED,
@@ -258,6 +259,26 @@ class TestStart:
             **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
         )
         assert again.last_write == write
+
+    @pytest.mark.asyncio
+    async def test_disabled_ends_reports_kept_from_before(
+        self, hass, control_factory, now
+    ):
+        """A version that kept reports on hand-back left some stored."""
+        disabled = await control_factory(
+            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
+        )
+        disabled.planner.reports = {
+            "setpoint": Report("setpoint", 100, now, None),
+        }
+        await disabled._async_persist()
+        await disabled.async_stop()
+
+        again = await control_factory(
+            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
+        )
+        assert again.planner.reports == {}
+        assert again.store.stored_engine(MAC)["reports"] == []
 
     @pytest.mark.asyncio
     async def test_state_from_an_earlier_version_is_discarded(

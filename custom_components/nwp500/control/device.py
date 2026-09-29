@@ -361,6 +361,10 @@ class DeviceControl:
         """Section 6.6, once per entry into `disabled`."""
         await self.store.async_clear_intent(self.mac_address)
         if self.store.disabled_done(self.mac_address):
+            if self.planner.reports:
+                # Kept from a version that did not end them on hand-back.
+                self.planner.reports = {}
+                await self._async_persist()
             return
         async with self._lock:
             holds = self.holds_device
@@ -530,6 +534,7 @@ class DeviceControl:
         async def _retry(when: datetime) -> None:
             self._cancel_retry = None
             await self._async_disable(when)
+            self._notify()
 
         self._cancel_retry = async_track_point_in_utc_time(
             self.hass, _retry, now + WRITE_RETRY

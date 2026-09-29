@@ -436,39 +436,45 @@ and `segment`:
 
 | `field` | `value` | `segment` | Ends when |
 |---|---|---|---|
-| `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` (section 5.10) |
-| `mode` | The mode found, as a name | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` |
-| `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry | An entry on the heater fires after the removed entry's `fires_at`, so the time it would have set is over; or, for a `plan` entry, a new plan no longer keeps its segment removed (section 5.4) |
-| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` | The entry leaves the heater's list |
+| `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` (section 5.10). An entry fires only while the reservation switch is on: one whose minute passes while it is off does not count |
+| `mode` | The mode found, as a name | The segment in force, or `null` before the first | As `setpoint` |
+| `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry | The time it would have set is over, by the plan's clock: for a segment's entry (`plan`, `near_term`, `precedence_exit`), when the next segment starts; for a grant's, when the grant ends. Also when the plan in force no longer has that segment or grant, or, for a `plan` entry, no longer keeps its segment removed (section 5.4). A removed entry of the last segment lasts until a plan changes it, as that segment does. It ends whether or not the heater's status or list can be read |
+| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` | The entry leaves the heater's list. An entry a person changes is a new entry: the old report ends and a new one begins |
 | `reservations_switched_off` | `false` | `null` | The reservation switch is on again |
 
 The list holds the changes in force, not a history:
 
-- **One report per key.** The key is `field`, and also `segment` for
-  `foreign_entry`, and `segment` and `value`'s `kind` for `removed`. A newer
-  report with the same key replaces the older one, with a new
-  `detected_at`: a second setpoint change before the next entry fires, or
-  an added entry a person changes in its slot. Two reports can share
-  `field` and `detected_at`, for example two added entries found in one
-  read, but never a key.
-- **Lifetime.** Each report ends by its own rule, above. Disabling ends
-  every report (section 6.6). Nothing else empties the list: a new plan
-  does not, except for `removed` as above, and reports are kept across a
-  reload or a restart of Home Assistant.
+- **One report per key.** The key is `field`; for `foreign_entry`, `field`
+  and the whole entry; for `removed`, `field`, `segment` and `value`'s
+  `kind`. A newer report with the same key replaces the older one, with a
+  new `detected_at`, as a second setpoint change before the next entry
+  fires does. Two reports can share `field` and `detected_at`, for example
+  two added entries found in one read, or `field` and `segment`, for
+  example two added entries in one slot, but never a key.
+- **Lifetime.** Each report ends by its own rule, above. Handing the heater
+  back ends every report (section 6.6), whether by disabling, by leaving
+  live or by switching the feature off, and none is made while `disabled`;
+  what the hand-back restores is not reported as a person's change. Until a
+  failed hand-back succeeds, the reports stay as they were. Nothing else
+  empties the list: a new plan ends only the `removed` reports above, and
+  reports are kept across a reload or a restart of Home Assistant that is
+  not a hand-back.
 - **Bound.** At most one `setpoint`, one `mode` and one
-  `reservations_switched_off`, one `foreign_entry` per entry on the
-  heater's list, and one `removed` per entry of the feature's whose time is
-  not over. `report_count` gives the number. If the attributes would come
+  `reservations_switched_off`; one `foreign_entry` per entry on the
+  heater's list that the feature does not own; and one `removed` per kind
+  of entry for each segment or grant of the plan in force whose time is not
+  over. `report_count` gives the number. If the attributes would come
   within 1 KiB of the recorder's 16 KiB limit, the oldest reports are left
   out of `reports`, and `truncated` is `true`. The latest is always in the
   entity's own attributes.
 - **Off.** The entity is on exactly while a report is in force. Off,
-  `reports` is empty, `report_count` is 0, and the other attributes are
-  `null`: nothing from before is kept.
+  `reports` is empty, `report_count` is 0, `truncated` is `false`, and the
+  other attributes are `null`: nothing from before is kept.
 - **Reading every report.** A report can end, or be replaced, between two
-  reads. Every change to the list writes the entity's state, so a consumer
-  that must see each report records the entity's state changes, from
-  history or from state-change events, instead of polling it.
+  reads. The entity's state is written with each pass that changes the
+  list, so a consumer that must see each report records the entity's state
+  changes, from history or from state-change events, instead of polling
+  it.
 
 **Segment statuses** on the ack entity:
 
@@ -882,8 +888,8 @@ Switching to `disabled`, by the Disable button or the options, is a
    waiting up to a minute for the heater's status to report it. Report on
    the last write entity, `confirmed: false` if either did not read back.
 5. End every report on the override entity (section 4.2): people's changes
-   were reported against the plan, which is gone. None is made while
-   `disabled`.
+   were reported against the plan, which is gone. What the hand-back
+   restores is not a person's change, and none is made while `disabled`.
 
 The list write is confirmed like any other (section 5.4) and retried once
 after 60 s. If that fails too, disabling is left unfinished and tried again

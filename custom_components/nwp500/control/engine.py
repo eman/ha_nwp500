@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
 
 from ..const import MODE_TO_DHW_ID
@@ -76,7 +76,7 @@ from .evaluate import (
     grants_live,
 )
 from .intent import Grant, Plan, Segment
-from .observed import Observed
+from .observed import Observed, raw_entry
 from .owner import OwnerProgram
 from .tou import in_tou_window
 
@@ -168,13 +168,19 @@ class Report:
         )
 
 
-def _removed_minute(report: Report) -> datetime:
-    """The minute a removed entry would have fired."""
-    value = report.value if isinstance(report.value, Mapping) else {}
+# The last segment holds until a new plan, and so does a removal of it.
+_UNTIL_A_NEW_PLAN = datetime.max.replace(tzinfo=UTC)
+
+
+def _current_shape(report: Report) -> Report:
+    """A stored removed entry's report, in the current entry item shape."""
+    if report.field != REPORT_REMOVED or not isinstance(report.value, Mapping):
+        return report
     try:
-        return datetime.fromisoformat(str(value["fires_at"]))
-    except KeyError, ValueError:
-        return report.detected_at
+        entry = OwnedEntry.from_document(report.value)
+    except KeyError, TypeError, ValueError:
+        return report
+    return replace(report, value=entry.as_attributes())
 
 
 @dataclass(frozen=True)
@@ -308,6 +314,9 @@ class Planner:
         self._scheduled = 0
         self._device_state: tuple[str, int] | None = None
         self._reservations_on: bool | None = None
+        # When the reservation switch was seen to turn on: no entry fired
+        # while it was off (section 4.2).
+        self._reservations_on_since: datetime | None = None
         self._compressor_on: bool | None = None
         self._cycle_started_at: datetime | None = None
         self._raised_in_cycle = False
@@ -346,6 +355,9 @@ class Planner:
             if self._device_state
             else None,
             "reservations_on": self._reservations_on,
+            "reservations_on_since": self._reservations_on_since.isoformat()
+            if self._reservations_on_since
+            else None,
             # The compressor cycle and whether it was raised in: a restart
             # mid-cycle must not allow a second raise (section 5.7).
             "compressor_on": self._compressor_on,
@@ -383,7 +395,7 @@ class Planner:
             self.carry_state = State(str(carry[0]), int(carry[1]))
         self.reports = {}
         for raw in document.get("reports", []):
-            report = Report.from_document(raw)
+            report = _current_shape(Report.from_document(raw))
             self.reports[self._report_key(report)] = report
         self.removed_segments = set(document.get("removed_segments", []))
         if raw_write := document.get("last_write"):
@@ -400,6 +412,8 @@ class Planner:
         if device_state := document.get("device_state"):
             self._device_state = (str(device_state[0]), int(device_state[1]))
         self._reservations_on = document.get("reservations_on")
+        if on_since := document.get("reservations_on_since"):
+            self._reservations_on_since = datetime.fromisoformat(on_since)
         self._compressor_on = document.get("compressor_on")
         if started := document.get("cycle_started_at"):
             self._cycle_started_at = datetime.fromisoformat(started)
@@ -431,6 +445,10 @@ class Planner:
             # guard, can both be removed: the kind tells them apart.
             kind = report.value.get("kind")
             return f"{report.field}:{kind}:{report.segment}"
+        if report.field == REPORT_FOREIGN and isinstance(report.value, Mapping):
+            # By the whole entry: the heater can hold two in one slot.
+            fields = raw_entry(report.value)
+            return f"{report.field}:{tuple(fields.values())}"
         if report.field in (REPORT_FOREIGN, REPORT_REMOVED):
             return f"{report.field}:{report.segment or report.value}"
         return report.field
@@ -720,7 +738,13 @@ class Planner:
         self.raise_state = None
         self.grant_rejections = {}
         # People's changes were reported against the plan, which is gone.
+        # What the heater was seen to hold is forgotten too: the hand-back
+        # changes it, and that is not a person's doing.
         self.reports = {}
+        self._device_state = None
+        self._state_seen_at = None
+        self._reservations_on = None
+        self._reservations_on_since = None
         self.commit(write)
         # The owner's program is back: the feature holds nothing.
         self.took_over = False
@@ -1030,6 +1054,7 @@ class Planner:
 
     def _track_people(self, now: datetime, observed: Observed) -> None:
         self._track_list_changes(now, observed)
+        self._end_reports(now, observed)
         if observed.mode is None or observed.setpoint_raw is None:
             return
         current = (observed.mode, observed.setpoint_raw)
@@ -1037,22 +1062,6 @@ class Planner:
         self._device_state = current
         seen_before = self._state_seen_at
         self._state_seen_at = now
-
-        # A change lasts until the next entry fires. A removed entry's lasts
-        # until an entry fires after its minute: the entry before it held
-        # over its time, and that is over (section 5.10).
-        for key, report in list(self.reports.items()):
-            if report.field in (REPORT_SETPOINT, REPORT_MODE):
-                since = report.detected_at
-            elif report.field == REPORT_REMOVED:
-                since = max(report.detected_at, _removed_minute(report))
-            else:
-                continue
-            if any(
-                firings(entry, since, now, self.tz)
-                for entry in self._device_entries(observed)
-            ):
-                del self.reports[key]
 
         if (
             previous is None
@@ -1076,6 +1085,53 @@ class Planner:
             "A person changed the heater to %s at %d half-degrees", *current
         )
 
+    def _end_reports(self, now: datetime, observed: Observed) -> None:
+        """End the reports whose time is over (section 4.2).
+
+        A setpoint or mode change lasts until the next entry fires, counting
+        only entries whose minute came while the reservation switch was on.
+        A removed entry's report lasts while the time it would have set is
+        not over, by the plan's clock: the heater need not fire, or be read.
+        """
+        entries = self._device_entries(observed)
+        for key, report in list(self.reports.items()):
+            if report.field in (REPORT_SETPOINT, REPORT_MODE):
+                since = report.detected_at
+                if self._reservations_on_since is not None:
+                    since = max(since, self._reservations_on_since)
+                if any(firings(e, since, now, self.tz) for e in entries):
+                    del self.reports[key]
+            elif report.field == REPORT_REMOVED:
+                until = self._removed_until(report)
+                if until is None or until <= now:
+                    del self.reports[key]
+
+    def _removed_until(self, report: Report) -> datetime | None:
+        """When a removed entry's time is over; None if it already is.
+
+        A segment's entries hold until the next segment starts, or, for the
+        last, until a plan changes it. A grant's hold until the grant ends.
+        An item the plan in force no longer has is over.
+        """
+        plan = self.plan
+        value = report.value if isinstance(report.value, Mapping) else {}
+        if plan is None or report.segment is None:
+            return None
+        if value.get("kind") in (
+            KIND_GRANT_RAISE,
+            KIND_GRANT_LOWER,
+            KIND_GUARD,
+        ):
+            for grant in plan.grants:
+                if grant.id == report.segment:
+                    return grant.end
+            return None
+        for segment in plan.segments:
+            if segment.id == report.segment:
+                after = plan.next_segment_after(segment.start)
+                return after.start if after is not None else _UNTIL_A_NEW_PLAN
+        return None
+
     def _track_list_changes(self, now: datetime, observed: Observed) -> None:
         on = observed.reservations_enabled
         if on is not None:
@@ -1085,6 +1141,8 @@ class Planner:
                 )
             elif on:
                 self.reports.pop(REPORT_SWITCHED_OFF, None)
+                if self._reservations_on is False:
+                    self._reservations_on_since = now
             self._reservations_on = on
         if observed.reservations is None:
             return
@@ -1094,14 +1152,13 @@ class Planner:
             for entry, is_owner in self.others(observed):
                 if is_owner:
                     continue
-                key = f"{REPORT_FOREIGN}:{entry_slot(entry)}"
+                report = Report(
+                    REPORT_FOREIGN, dict(entry), now, str(entry_slot(entry))
+                )
+                key = self._report_key(report)
                 foreign_keys.add(key)
-                known = self.reports.get(key)
-                if known is None or known.value != dict(entry):
-                    # New, or a person changed it in its slot.
-                    self.reports[key] = Report(
-                        REPORT_FOREIGN, dict(entry), now, str(entry_slot(entry))
-                    )
+                # A changed entry is a new one, with a new report.
+                self.reports.setdefault(key, report)
         for key in [k for k in self.reports if k.startswith(REPORT_FOREIGN)]:
             if key not in foreign_keys:
                 del self.reports[key]

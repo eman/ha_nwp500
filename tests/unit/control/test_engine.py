@@ -877,15 +877,146 @@ class TestPeoplesChanges:
         assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" in planner.reports
         return planner, only_b
 
-    def test_a_removal_lasts_until_an_entry_fires_after_its_minute(self):
-        """Section 5.10: the list is bounded by what still matters."""
+    def test_a_removal_lasts_until_the_next_segment_starts(self):
+        """Section 4.2: by the plan's clock, not by what fires."""
         planner, only_b = self._remove_a()
-        # a's minute (11:00) passes; the entry before it holds over.
-        run(planner, minutes(90), only_b)
+        # An entry of someone else's fires at 10:30, before a's minute: the
+        # time a would have set is still to come.
+        other = {"enable": 2, "week": MONDAY, "hour": 10, "min": 30}
+        other |= {"mode": 1, "param": 100}
+        with_other = obs(
+            reservations_enabled=True,
+            reservations=(*only_b.reservations, other),
+        )
+        run(planner, minutes(45), with_other)
         assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" in planner.reports
-        # b fires at 12:00: a's time is over.
-        run(planner, minutes(121), only_b)
+        # a's minute (11:00) passes; the entry before it holds over.
+        run(planner, minutes(90), with_other)
+        assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" in planner.reports
+        # b starts at 12:00: a's time is over.
+        run(planner, minutes(121), with_other)
+        assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" not in planner.reports
+
+    def test_a_removal_ends_though_nothing_is_read(self):
+        """Neither the heater's status nor its list is needed."""
+        planner, _ = self._remove_a()
+        unread = obs(
+            mode=None,
+            setpoint_raw=None,
+            reservations_enabled=None,
+            reservations=None,
+        )
+        run(planner, minutes(121), unread)
         assert planner.reports == {}
+
+    def test_the_last_segments_removal_lasts_until_a_plan_changes_it(self):
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        a, b = sorted(planner.owned, key=lambda e: e.fires_at)
+        both = obs(
+            reservations_enabled=True,
+            reservations=(a.as_entry(), b.as_entry()),
+        )
+        run(planner, minutes(1), both)
+        only_a = obs(reservations_enabled=True, reservations=(a.as_entry(),))
+        run(planner, minutes(2), only_a)
+        key = f"{REPORT_REMOVED}:{KIND_PLAN}:b"
+        # The last segment holds until a new plan: so does its removal.
+        run(planner, minutes(3 * 24 * 60), only_a)
+        assert key in planner.reports
+        give(planner, self.SEGMENTS[:1], now=minutes(3 * 24 * 60 + 1))
+        assert key not in planner.reports
+
+    def test_a_grant_entrys_removal_lasts_until_the_grant_ends(self):
+        planner = planner_with(
+            self.SEGMENTS,
+            grants=[grant(NOW, "g1", 70, 110, max_f=146)],
+            **SURPLUS,
+        )
+        guard = OwnedEntry(KIND_GUARD, "g1", minutes(110), "energy_saver", 120)
+        report = Report(REPORT_REMOVED, guard.as_attributes(), minutes(1), "g1")
+        planner.reports[Planner._report_key(report)] = report
+        run(planner, minutes(100))
+        assert planner.reports
+        run(planner, minutes(111))
+        assert planner.reports == {}
+
+    def test_a_change_ends_only_by_an_entry_fired_while_switched_on(self):
+        """An entry whose minute passes with the switch off did not fire."""
+        daily = {"enable": 2, "week": 254, "hour": 10, "min": 30}
+        daily |= {"mode": 3, "param": 119}
+        on = {"reservations_enabled": True, "reservations": (daily,)}
+        planner = planner_with(observed=obs(**on))
+        run(planner, minutes(1), obs(setpoint_raw=100, **on))
+        assert REPORT_SETPOINT in planner.reports
+        off = {"reservations_enabled": False, "reservations": (daily,)}
+        run(planner, minutes(10), obs(setpoint_raw=100, **off))
+        run(planner, minutes(40), obs(setpoint_raw=100, **off))
+        # On again after 10:30: that minute passed while it was off.
+        run(planner, minutes(41), obs(setpoint_raw=100, **on))
+        assert REPORT_SETPOINT in planner.reports
+        # The next day's 10:30 fires.
+        run(planner, minutes(24 * 60 + 31), obs(setpoint_raw=100, **on))
+        assert REPORT_SETPOINT not in planner.reports
+
+    def test_two_added_entries_in_one_slot_are_both_reported(self):
+        """The heater can hold two in one slot (section 5.2)."""
+        planner = planner_with()
+        slot = {"week": 2, "hour": 7, "min": 0, "mode": 1}
+        first = {"enable": 2, "param": 100, **slot}
+        second = {"enable": 1, "param": 110, **slot}
+        both = obs(reservations=(first, second))
+        run(planner, minutes(1), both)
+        run(planner, minutes(2), both)
+        reports = sorted(
+            planner.reports.values(), key=lambda r: r.value["param"]
+        )
+        assert [r.value for r in reports] == [first, second]
+        # Stable: the same reports, not new ones every pass.
+        assert {r.detected_at for r in reports} == {minutes(1)}
+
+    def test_handing_back_is_not_a_persons_change(self):
+        """What the hand-back restores is the feature's doing (6.6)."""
+        live = obs(
+            mode="heat_pump",
+            setpoint_raw=120,
+            reservations_enabled=True,
+            reservations=(),
+        )
+        planner = planner_with(observed=live)
+        run(planner, minutes(1), live)
+        planner.disable(minutes(2))
+        owner = obs(reservations_enabled=False, reservations=())
+        run(planner, minutes(3), owner)
+        assert planner.reports == {}
+
+    def test_stored_reports_load_in_the_current_shape(self):
+        """Reports stored by earlier versions load as current ones.
+
+        Before #168 a removal held the six stored keys; before #169 an
+        added entry was keyed by its slot.
+        """
+        entry = OwnedEntry(KIND_PLAN, "a", minutes(60), "energy_saver", 120)
+        added = {"enable": 2, "week": 2, "hour": 7, "min": 0}
+        added |= {"mode": 1, "param": 100}
+        planner = planner_with()
+        planner.load_document(
+            {
+                "reports": [
+                    Report(
+                        REPORT_REMOVED, entry.as_document(), NOW, "a"
+                    ).as_document(),
+                    Report(
+                        REPORT_FOREIGN, added, NOW, "(2, 7, 0)"
+                    ).as_document(),
+                ]
+            }
+        )
+        removed = planner.reports[f"{REPORT_REMOVED}:{KIND_PLAN}:a"]
+        assert removed.value == entry.as_attributes()
+        (foreign,) = (
+            r for r in planner.reports.values() if r.field == REPORT_FOREIGN
+        )
+        assert foreign.value == added
 
     def test_a_removal_lasts_while_the_plan_keeps_its_segment(self):
         planner, only_b = self._remove_a()
