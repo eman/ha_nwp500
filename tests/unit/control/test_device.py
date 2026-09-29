@@ -366,6 +366,31 @@ class TestIntake:
         _publish(hass, _plan(now, intent_id="i-2", protocol="9"))
         await hass.async_block_till_done()
         assert control.plan.intent_id == "i-1"
+        # The plan in force stays on show, with the rejection beside it.
+        ack = control.ack
+        assert ack.state == "shadow"
+        assert ack.intent_id == "i-1"
+        assert [s.id for s in ack.segments] == ["now", "later"]
+        assert ack.reason is None
+        assert ack.as_attributes()["rejected"] == {
+            "intent_id": "i-2",
+            "reason": REASON_UNSUPPORTED_PROTOCOL,
+            "detail": ack.rejection.detail if ack.rejection else None,
+        }
+        # Accepting a document ends the rejection.
+        _publish(hass, _plan(now, intent_id="i-3"))
+        await hass.async_block_till_done()
+        assert control.ack.intent_id == "i-3"
+        assert control.ack.as_attributes()["rejected"] is None
+
+    @pytest.mark.asyncio
+    async def test_with_no_plan_in_force_the_rejection_is_the_ack(
+        self, hass, control_factory, now
+    ):
+        control = await control_factory()
+        _publish(hass, _plan(now, intent_id="i-2", protocol="9"))
+        await hass.async_block_till_done()
+        assert control.plan is None
         assert control.ack.state == "rejected"
         assert control.ack.reason == REASON_UNSUPPORTED_PROTOCOL
         assert control.ack.intent_id == "i-2"
@@ -381,7 +406,9 @@ class TestIntake:
             _plan(now, intent_id="i-0", issued_at=now - timedelta(minutes=5)),
         )
         await hass.async_block_till_done()
-        assert control.ack.reason == REASON_SUPERSEDED
+        assert control.ack.intent_id == "i-1"
+        assert control.ack.rejection is not None
+        assert control.ack.rejection.reason == REASON_SUPERSEDED
         assert control.plan.intent_id == "i-1"
 
     @pytest.mark.asyncio

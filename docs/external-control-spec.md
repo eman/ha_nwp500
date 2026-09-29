@@ -227,8 +227,9 @@ available and the compressor is already running (section 5.7).
 ### 3.5 Validation
 
 **The document is rejected whole**, with the reason on the acknowledgement
-entity, if any of these hold. A rejected document leaves the plan in force
-unchanged.
+entity (section 4.2), if any of these hold. A rejected document leaves the
+plan in force unchanged, and the acknowledgement keeps showing that plan's
+statuses, with the rejection beside them.
 
 | Reason | When |
 |---|---|
@@ -356,7 +357,7 @@ Each is a **state**, so history and statestream carry it:
 | Entity | State | Attributes |
 |---|---|---|
 | `sensor.<device>_control_intent`, the plan entity (not the input intent entity of section 2.1) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque top-level keys |
-| `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, a whole document's rejection, else `null`; `segments` and `grants` (below) |
+| `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, set only in the `rejected` state; `segments` and `grants` (below); `rejected` (below) |
 | `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
 | `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
 | `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment not yet on the device, or of the last segment once all are; unknown without a plan | `complete` (every segment is programmed), `scheduled` (segments waiting for the horizon or for room) |
@@ -484,11 +485,19 @@ The list holds the changes in force, not a history:
 | State | Meaning |
 |---|---|
 | `none` | No plan in force, and no document rejected since start-up |
-| `rejected` | The most recent document was rejected whole (section 3.5). `intent_id`, `reason` and `detail` are that document's, and `segments` and `grants` are empty. The plan in force is unchanged, and still named by the plan entity, but its statuses are not shown until a document is accepted |
+| `rejected` | No plan in force, and the most recent document was rejected whole (section 3.5). `intent_id`, `reason` and `detail` are that document's, and `segments` and `grants` are empty |
 | `shadow` | The plan in force is evaluated but not written: the mode is `shadow`, or `live` with segments not live |
 | `pending` | Live: at least one segment is `pending` |
 | `partly_programmed` | Live: none is `pending`, and at least one is `removed` or `failed` |
 | `programmed` | Live: none is `pending`, `removed` or `failed` |
+
+**A rejected document while a plan is in force** does not change the
+state, `intent_id`, `segments` or `grants`: they stay those of the plan in
+force, which the rejection leaves unchanged. The rejection is in
+`rejected`: `intent_id`, `reason` and `detail` of the most recent rejected
+document, or `null`. It is cleared when a document is accepted. A scheduler
+knows its document was accepted when the acknowledgement's `intent_id` is
+that document's, and rejected when `rejected.intent_id` is.
 
 **Segments** on the ack entity each have `id`, `status`, `reason`,
 `warnings` (a list), `fires_at` (the minute its entry fires, or its

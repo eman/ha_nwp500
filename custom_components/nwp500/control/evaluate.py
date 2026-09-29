@@ -102,15 +102,25 @@ class Ack:
     detail: str | None = None
     segments: tuple[ItemAck, ...] = ()
     grants: tuple[ItemAck, ...] = ()
+    # The latest document rejected while this plan stayed in force.
+    rejection: Ack | None = None
 
     def as_attributes(self) -> dict[str, Any]:
         """The ack entity's attributes."""
+        rejection = self.rejection
         return {
             "intent_id": self.intent_id,
             "reason": self.reason,
             "detail": self.detail,
             "segments": [s.as_attribute() for s in self.segments],
             "grants": [g.as_attribute() for g in self.grants],
+            "rejected": {
+                "intent_id": rejection.intent_id,
+                "reason": rejection.reason,
+                "detail": rejection.detail,
+            }
+            if rejection is not None
+            else None,
         }
 
 

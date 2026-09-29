@@ -589,10 +589,18 @@ class DeviceControl:
 
     @property
     def ack(self) -> Ack:
-        """The ack of the most recent document: rejected, or the plan's."""
-        if self._rejected is not None:
-            return self._rejected
-        return self.planner.ack(self.plan.intent_id if self.plan else None)
+        """The plan in force's ack, with any document rejected since.
+
+        A rejected document leaves the plan in force, so its statuses stay
+        on show, and the rejection is reported beside them (section 4.2).
+        With no plan in force, the rejection is the ack.
+        """
+        if self.plan is None:
+            return self._rejected or self.planner.ack(None)
+        ack = self.planner.ack(self.plan.intent_id)
+        if self._rejected is None:
+            return ack
+        return replace(ack, rejection=self._rejected)
 
     @property
     def wanted(self) -> State | None:
