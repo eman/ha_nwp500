@@ -7,10 +7,15 @@ Assistant, timers or a device.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import json
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from custom_components.nwp500.control.engine import (
     CLEANUP_DEFER,
@@ -50,6 +55,7 @@ from custom_components.nwp500.control.evaluate import (
 from custom_components.nwp500.control.intent import parse_plan
 from custom_components.nwp500.control.observed import Observed
 from custom_components.nwp500.control.owner import OwnerProgram
+from custom_components.nwp500.control.sensor import ControlLastWriteSensor
 
 from .conftest import capabilities, grant, make_document, segment
 
@@ -65,6 +71,10 @@ OWNER = OwnerProgram(
     reservations_enabled=False,
 )
 SURPLUS = {"control_surplus_entity": "binary_sensor.surplus"}
+
+EXAMPLES = Path("docs/examples")
+SCHEMA = Path("docs/external-control-protocol-1.schema.json")
+EXAMPLE_WRITES = ("last-write-plan", "last-write-grant-raise")
 
 
 def obs(**overrides) -> Observed:
@@ -274,6 +284,78 @@ class TestSpecExample:
             (e.kind, e.fires_at.strftime("%H:%M")) for e in write.removed
         }
         assert removed == {(KIND_GUARD, "14:00"), (KIND_GRANT_RAISE, "11:32")}
+
+    @pytest.mark.parametrize("name", EXAMPLE_WRITES)
+    def test_the_last_write_examples(self, name):
+        """docs/examples/last-write-*.json are what the entity reports.
+
+        Each is built by the planner from docs/examples/plan-day.json, and
+        fits the schema's `last_write_attributes`.
+        """
+        example = json.loads((EXAMPLES / f"{name}.json").read_text())
+        state, attributes = last_write_examples()[name]
+        assert example["state"] == state
+        assert example["attributes"] == attributes
+        schema = json.loads(SCHEMA.read_text())
+        Draft202012Validator(
+            {"$defs": schema["$defs"], "$ref": "#/$defs/last_write_attributes"}
+        ).validate(example["attributes"])
+
+
+def last_write_examples() -> dict[str, tuple[str, dict]]:
+    """The last write entity's state and attributes for plan-day.json.
+
+    The plan arrives at 05:00:12, after its first segment began; surplus
+    appears at 11:20 with the compressor running. Each write is confirmed,
+    and the device then holds the list written. The state is in UTC, as
+    Home Assistant shows a timestamp sensor's.
+    """
+    plan = parse_plan(json.loads((EXAMPLES / "plan-day.json").read_text()))
+    at = plan.issued_at
+    planner = Planner(
+        capabilities(
+            **SURPLUS,
+            control_mode="live",
+            control_live_segments=True,
+            control_live_grants=True,
+        ),
+        TZ,
+        shadow=False,
+    )
+    planner.owner = OWNER
+    check_plan(plan, planner.capabilities)
+    planner.set_plan(plan, at, obs())
+
+    def on_device(**overrides) -> Observed:
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(e.as_entry() for e in planner.owned),
+            **overrides,
+        )
+
+    def confirmed(when: datetime, observed: Observed) -> tuple[str, dict]:
+        write = planner.step(when, observed)
+        assert write is not None
+        write = replace(write, confirmed=True)
+        planner.commit(write)
+        control = MagicMock()
+        control.last_write = write
+        sensor = ControlLastWriteSensor(control, "last_write")
+        return write.at.astimezone(UTC).isoformat(), (
+            sensor.extra_state_attributes
+        )
+
+    first = confirmed(at, obs())
+    base = at.replace(second=0)
+    running = {
+        "mode": "heat_pump",
+        "setpoint_raw": 120,
+        "compressor_on": True,
+        "surplus_on": True,
+    }
+    assert planner.step(minutes(380, base), on_device(**running)) is None
+    raise_ = confirmed(minutes(390, base), on_device(**running))
+    return {"last-write-plan": first, "last-write-grant-raise": raise_}
 
 
 class TestTranslation:

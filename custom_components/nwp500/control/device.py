@@ -628,7 +628,13 @@ class DeviceControl:
             # The device's own keys win: `mode` is the device's mode id here,
             # as in every other entry of this list, with the name in
             # `mode_name`.
-            entries.append({**owned.as_attributes(), **owned.as_entry()})
+            entries.append(
+                {
+                    **owned.as_attributes(),
+                    **owned.as_entry(),
+                    "mode_name": owned.mode,
+                }
+            )
         return {
             "hash": schedule_hash(program),
             "entry_count": len(program["reservation"]),

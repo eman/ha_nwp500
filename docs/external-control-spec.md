@@ -374,38 +374,52 @@ list or took off it:
 | `kind` | string | What the entry is for: `plan`, `near_term`, `precedence_exit`, `grant_raise`, `grant_lower` or `guard` |
 | `owner` | string | The program's label for the kind: `plan`, `guard`, or `near_term` for the other four |
 | `serves` | string | The `id` of what it serves: a segment for `plan`, `near_term` and `precedence_exit`, a grant for `grant_raise`, `grant_lower` and `guard`. Ids are unique across a document's segments and grants, so `serves` with `kind` names one item. It is the same string as `control_next_entry`'s `serves` |
-| `fires_at` | string, ISO 8601 with the local offset | The minute the entry fires, as written: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). An entry left on the device fires again a week later |
-| `mode`, `mode_name` | string | The mode it sets, as a name (section 3.4). Both keys hold it |
+| `fires_at` | string, ISO 8601 with the local offset | The minute the entry is written for: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). A near-term entry confirmed only after its minute never fired; it is issued again, for a later minute, in a later write. An entry left on the device fires again a week later |
+| `mode` | string | The mode it sets, as a name (section 3.4) |
 | `setpoint_f`, `setpoint_c` | number | The setpoint it sets, to one decimal |
 | `setpoint_raw` | integer | The same setpoint as the device holds it, in half-degrees Celsius |
 | `enabled` | boolean | False only for the feature's own entries while the heater is powered off (section 5.9) |
-| `week`, `hour`, `min` | integer | The device slot, under the Reservation Schedule sensor's key names: the weekday bit of `fires_at`'s local date (Monday 64, Tuesday 32, Wednesday 16, Thursday 8, Friday 4, Saturday 2, Sunday 128) and its local hour and minute |
+| `week`, `hour`, `min` | integer | The device slot, under the device's key names: the weekday bit of `fires_at`'s local date (Monday 64, Tuesday 32, Wednesday 16, Thursday 8, Friday 4, Saturday 2, Sunday 128) and its local hour and minute |
 
-A `guard` entry serves its grant. It fires at the grant's `end` and sets
-the state the plan wants then (section 5.7); the segment it restores is the
-one in force at its `fires_at`. A surplus raise is a `grant_raise` entry,
-and its lowering a `grant_lower` entry, each serving the grant.
+A `guard` entry serves its grant. It sets the state the plan wants at the
+grant's `end` (section 5.7), and fires at `end`, or a minute or more later
+when another enabled entry already takes that minute (section 5.2). A surplus
+raise is a `grant_raise` entry, and its lowering a `grant_lower` entry, each
+serving the grant.
 
 **Program items.** Each item of `control_program_hash`'s `entries` is an
-entry of the list the feature wants on the device, with the device's keys
-as the Reservation Schedule sensor shows them: `enable` (2 on, 1 off),
-`week`, `hour`, `min`, `mode` (the device's mode id) and `param`. It adds
-`owner`: `owner` for an owner entry (switched off while live, section 5.1),
-`foreign` for any other entry the feature does not own, or the label of one
-of its own. An item of the feature's own also carries every key of an entry
-item except `mode`, which keeps the device's id, so the name is read from
-`mode_name`. An entry kept across a plan replacement (section 5.6) is not in
-a later write's `added`: it is kept only when the new plan wants it exactly,
-for a segment of the same id, so its program item has the `serves` and
-`fires_at` it was added with.
+entry of the list the feature wants on the device, with the device's keys:
+`enable` (2 on, 1 off), `week`, `hour`, `min`, `mode` (the device's mode id)
+and `param`. It adds `owner`: `owner` for an owner entry (shown switched
+off, as the feature writes it while live, section 5.1), `foreign` for any
+other entry the feature does not own, or the label of one of its own. An
+item of the feature's own also carries every key of an entry item, except
+that `mode` keeps the device's id, and adds `mode_name`, the mode as a name
+(section 3.4). The Reservation Schedule sensor's entries carry display keys
+besides the device's, and there `mode_name` is a label such as `Heat
+Pump`: compare the two lists by the device's keys.
+
+An entry the feature still wants after a plan replacement (section 5.6) is
+kept, not written again, so it is not in a later write's `added`, and its
+program item keeps the `serves` and `fires_at` it was added with. A plan
+entry is kept only for a segment of the same id, state and minute. An entry
+may therefore serve a segment or grant of the plan it was written for,
+not of the plan in force.
 
 **Last-write attributes.** `confirmed` is a boolean for the whole write,
-since a list is written and confirmed whole (section 5.4): `true` once the
-device read back the list sent, `false` if the write and its retry were not
-confirmed or disabling could not restore the owner's list, and `null` for a
-write that was not sent (`simulated` is `true`, in shadow). `owner_state`
-is, for `disable` only, the owner's `[mode, setpoint_raw]` written directly
-(section 6.6), or `null` when it was not written.
+since a list is written and confirmed whole (section 5.4). It is `true`
+once the device read back the list sent. It is `false` from a write's first
+unconfirmed attempt, while its retry is pending (section 5.4); for a live
+write that could not be sent because the list could not be read first; and
+for a `disable` whose owner's list or state did not read back (section
+6.6). It is `null` for a simulated write (`simulated` is `true`, in
+shadow). `owner_state` is, for `disable` only, the owner's `[mode,
+setpoint_raw]` written directly (section 6.6), or `null` when it was not
+written: the heater is in, or the owner's program sets, vacation or
+power-off, or the owner's list could not be restored. In shadow nothing is
+written, and it is the owner's state as found, whatever its mode.
+`docs/examples/last-write-*.json` are two writes for
+`docs/examples/plan-day.json`, as the entity reports them.
 
 **Segment statuses** on the ack entity:
 

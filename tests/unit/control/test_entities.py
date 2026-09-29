@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 from unittest.mock import MagicMock
-from zoneinfo import ZoneInfo
 
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
-from jsonschema import Draft202012Validator
 
 from custom_components.nwp500 import binary_sensor as binary_platform
 from custom_components.nwp500 import button as button_platform
@@ -60,45 +56,6 @@ from .conftest import capabilities, make_document, segment
 
 MAC = "AA:BB:CC:DD:EE:FF"
 WHEN = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
-LOCAL = ZoneInfo("America/Los_Angeles")
-
-
-def _local(hour: int, minute: int, second: int = 0) -> datetime:
-    return datetime(2026, 10, 4, hour, minute, second, tzinfo=LOCAL)
-
-
-# The writes behind docs/examples/last-write-*.json, for plan-day.json.
-_EXAMPLE_WRITES = {
-    "last-write-plan": Write(
-        "plan",
-        _local(5, 0, 12),
-        added=(
-            OwnedEntry("near_term", "s1", _local(5, 3), "heat_pump", 81),
-            OwnedEntry("plan", "s2", _local(10, 30), "heat_pump", 120),
-            OwnedEntry("plan", "s3", _local(14, 30), "energy_saver", 114),
-            OwnedEntry("plan", "s4", _local(22, 0), "heat_pump", 81),
-        ),
-        removed=(),
-        result=(),
-        simulated=False,
-        confirmed=True,
-    ),
-    "last-write-grant-raise": Write(
-        "grant_raise",
-        _local(11, 20, 5),
-        added=(
-            OwnedEntry("grant_raise", "g1", _local(11, 23), "heat_pump", 127),
-            OwnedEntry("guard", "g1", _local(14, 0), "heat_pump", 120),
-        ),
-        removed=(
-            OwnedEntry("near_term", "s1", _local(5, 3), "heat_pump", 81),
-            OwnedEntry("plan", "s2", _local(10, 30), "heat_pump", 120),
-        ),
-        result=(),
-        simulated=False,
-        confirmed=True,
-    ),
-}
 
 
 @pytest.fixture
@@ -240,7 +197,6 @@ class TestSensors:
                 "serves": "s2",
                 "fires_at": WHEN.isoformat(),
                 "mode": "heat_pump",
-                "mode_name": "heat_pump",
                 "setpoint_raw": 120,
                 "setpoint_f": 140.0,
                 "setpoint_c": 60.0,
@@ -250,41 +206,6 @@ class TestSensors:
                 "min": 0,
             }
         ]
-
-    def test_last_write_guard_serves_its_grant(self, control):
-        sensor = ControlLastWriteSensor(control, "last_write")
-        guard = OwnedEntry("guard", "g1", WHEN, "heat_pump", 116)
-        control.last_write = Write("grant_raise", WHEN, (guard,), (), (guard,))
-        added = sensor.extra_state_attributes["added"][0]
-        assert (added["kind"], added["owner"], added["serves"]) == (
-            "guard",
-            "guard",
-            "g1",
-        )
-        assert added["setpoint_c"] == 58.0
-
-    @pytest.mark.parametrize("name", sorted(_EXAMPLE_WRITES))
-    def test_last_write_examples(self, control, name):
-        """The docs' examples are what the entity reports, and fit the schema.
-
-        Both follow docs/examples/plan-day.json, received at 05:00:12 local
-        time, after its first segment had begun (spec section 4.2).
-        """
-        path = Path("docs/examples") / f"{name}.json"
-        example = json.loads(path.read_text())
-        control.last_write = _EXAMPLE_WRITES[name]
-        sensor = ControlLastWriteSensor(control, "last_write")
-        # A timestamp sensor's state is in UTC.
-        at = sensor.native_value
-        assert at is not None
-        assert example["state"] == at.astimezone(UTC).isoformat()
-        assert example["attributes"] == sensor.extra_state_attributes
-        schema = json.loads(
-            Path("docs/external-control-protocol-1.schema.json").read_text()
-        )
-        Draft202012Validator(
-            {"$defs": schema["$defs"], "$ref": "#/$defs/last_write_attributes"}
-        ).validate(example["attributes"])
 
     def test_heartbeat(self, control):
         sensor = ControlHeartbeatSensor(control, "heartbeat")

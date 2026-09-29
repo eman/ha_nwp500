@@ -104,7 +104,7 @@
     "entry_item": {
       "type": "object",
       "description": "Entity attributes, not part of a plan: one of the feature's own entries, as an item of control_last_write's added and removed (spec section 4.2). New keys may be added (spec section 1.3).",
-      "required": ["kind", "owner", "serves", "fires_at", "mode", "mode_name", "setpoint_f", "setpoint_c", "setpoint_raw", "enabled", "week", "hour", "min"],
+      "required": ["kind", "owner", "serves", "fires_at", "mode", "setpoint_f", "setpoint_c", "setpoint_raw", "enabled", "week", "hour", "min"],
       "properties": {
         "kind": {
           "type": "string",
@@ -121,13 +121,9 @@
         },
         "fires_at": {
           "$ref": "#/$defs/timestamp",
-          "description": "The local minute the entry fires, as written: after any moved_1_min shift, and for a near-term entry its near-term minute."
+          "description": "The local minute the entry is written for: after any moved_1_min shift, and for a near-term entry its near-term minute. A near-term entry confirmed only after its minute never fired, and is issued again in a later write."
         },
         "mode": { "$ref": "#/$defs/mode_name" },
-        "mode_name": {
-          "$ref": "#/$defs/mode_name",
-          "description": "The same as mode. Program items carry the name under this key only."
-        },
         "setpoint_f": { "type": "number" },
         "setpoint_c": { "type": "number" },
         "setpoint_raw": {
@@ -150,7 +146,7 @@
     },
     "program_item": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: an item of control_program_hash's entries. A device entry with the Reservation Schedule sensor's keys, plus owner. An entry of the feature's own also carries every key of entry_item except mode, which stays the device's mode id.",
+      "description": "Entity attributes, not part of a plan: an item of control_program_hash's entries. A device entry (enable, week, hour, min, mode, param), plus owner. An entry of the feature's own also carries every key of entry_item, except that mode stays the device's mode id, and mode_name holds the mode name. The Reservation Schedule sensor's own mode_name is a display label, not this.",
       "required": ["enable", "week", "hour", "min", "mode", "param", "owner"],
       "properties": {
         "enable": {
@@ -163,7 +159,7 @@
         "min": { "type": "integer", "minimum": 0, "maximum": 59 },
         "mode": {
           "type": "integer",
-          "description": "The device's mode id. The name is in mode_name for the feature's own entries."
+          "description": "The device's mode id. For the feature's own entries the mode name is in mode_name."
         },
         "param": { "type": "integer" },
         "owner": {
@@ -202,18 +198,18 @@
         "removed": { "type": "array", "items": { "$ref": "#/$defs/entry_item" } },
         "confirmed": {
           "type": ["boolean", "null"],
-          "description": "For the whole write: true once the device read back the list sent, false if it was not confirmed after its retry or disabling could not restore the owner's list, null for a write not sent (simulated)."
+          "description": "For the whole write: true once the device read back the list sent; false from the first unconfirmed attempt (the retry may still confirm it), for a live write that could not be sent, or for a disable whose owner's list or state did not read back; null for a simulated write (shadow)."
         },
         "simulated": {
           "type": "boolean",
           "description": "True for a write made in shadow, which was not sent."
         },
         "owner_state": {
-          "description": "For disable only: the owner's [mode, setpoint_raw] written directly, or null when it was not written.",
+          "description": "For disable only: the owner's [mode, setpoint_raw] written directly, or null when it was not written: the heater is in, or the owner's program sets, vacation or power-off, or the owner's list could not be restored. In shadow nothing is written; it is the owner's state as found, whatever its mode, vacation and power_off included.",
           "oneOf": [
             {
               "type": "array",
-              "prefixItems": [{ "$ref": "#/$defs/mode_name" }, { "type": "integer" }],
+              "prefixItems": [{ "type": "string" }, { "type": "integer" }],
               "minItems": 2,
               "maxItems": 2
             },

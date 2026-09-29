@@ -117,7 +117,6 @@ class OwnedEntry:
         return {
             **self.as_document(),
             "owner": OWNER_LABELS.get(self.kind, self.kind),
-            "mode_name": self.mode,
             "setpoint_f": round(setpoint.to_fahrenheit(), 1),
             "setpoint_c": round(setpoint.to_celsius(), 1),
             "week": week,
