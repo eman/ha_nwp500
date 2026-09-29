@@ -437,6 +437,9 @@ class DeviceControl:
             self.planner.reconcile_unconfirmed(observed)
             schedule = owner.restore(self.planner.others(observed))
             if not await self._async_write_list(schedule, observed):
+                # The owner's list may have landed unconfirmed: what it
+                # changes is not a person's doing.
+                self.planner.forget_seen()
                 self._record_failed_disable(now)
                 await self._async_persist()
                 return False
@@ -513,8 +516,6 @@ class DeviceControl:
             await asyncio.sleep(STATE_CONFIRM_POLL)
 
     def _record_failed_disable(self, now: datetime) -> None:
-        # The owner's list may have landed unconfirmed.
-        self.planner.forget_seen()
         self.planner.last_write = Write(
             reason=WRITE_DISABLE,
             at=now,

@@ -304,28 +304,6 @@ class TestStart:
         assert enabled.planner.reports == {}
 
     @pytest.mark.asyncio
-    async def test_a_failed_hand_back_forgets_what_the_heater_held(
-        self, hass, control_factory, now
-    ):
-        """Its writes may have landed; what they change is not a person's."""
-        control = await control_factory()
-        control.planner.load_document(
-            {
-                "reports": [
-                    Report("setpoint", 100, now, None).as_document(),
-                ],
-                "device_state": ["heat_pump", 120],
-                "reservations_on": True,
-            }
-        )
-        control._record_failed_disable(now)
-        stored = control.planner.as_document()
-        assert stored["device_state"] is None
-        assert stored["reservations_on"] is None
-        # The reports stay until the hand-back succeeds (section 4.2).
-        assert control.planner.reports
-
-    @pytest.mark.asyncio
     async def test_state_from_an_earlier_version_is_discarded(
         self, hass, hass_storage, control_factory
     ):

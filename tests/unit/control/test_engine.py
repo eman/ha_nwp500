@@ -927,32 +927,72 @@ class TestPeoplesChanges:
         assert planner.programmed_complete is True
 
     def test_a_deleted_near_term_entry_leaves_its_segment_removed(self):
-        """The heater never took the state of a segment already begun."""
+        """The heater never took the state of a segment already begun.
+
+        Nothing else is written for it: not the segment before, which a
+        plan beginning in the past has, and not the segment itself.
+        """
         planner = planner_with(
             [
+                segment(NOW, "z", -60, mode="electric", setpoint_f=120),
                 segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
                 segment(NOW, "b", 120, setpoint_f=130),
             ],
             shadow=False,
         )
-        near, later = sorted(planner.owned, key=lambda e: e.fires_at)
-        assert near.kind == KIND_NEAR_TERM
-        both = obs(
+        near = next(e for e in planner.owned if e.kind == KIND_NEAR_TERM)
+        later = [e for e in planner.owned if e.kind != KIND_NEAR_TERM]
+        everything = obs(
             reservations_enabled=True,
-            reservations=(near.as_entry(), later.as_entry()),
+            reservations=tuple(e.as_entry() for e in planner.owned),
         )
-        run(planner, minutes(1), both)
+        run(planner, minutes(1), everything)
         without = obs(
-            reservations_enabled=True, reservations=(later.as_entry(),)
+            reservations_enabled=True,
+            reservations=tuple(e.as_entry() for e in later),
         )
-        run(planner, minutes(2), without)
-        run(planner, minutes(10), without)
-        (a,) = (s for s in planner.ack("i").segments if s.id == "a")
-        assert a.status == "removed"
-        assert a.detail["in_force"] is False
+        assert run(planner, minutes(2), without) is None
+        assert run(planner, minutes(10), without) is None
+        ack = {s.id: s for s in planner.ack("i").segments}
+        assert ack["a"].status == "removed"
+        assert ack["a"].detail["in_force"] is False
+        assert ack["z"].detail["in_force"] is False
         assert f"{REPORT_REMOVED}:{KIND_NEAR_TERM}:a" in planner.reports
-        # It is not asserted again.
-        assert all(e.kind != KIND_NEAR_TERM for e in planner.owned)
+        assert near not in planner.owned
+        # The plan still wants a; it is only not in force.
+        assert planner.wanted_state(minutes(10)) == State(
+            near.mode, near.setpoint_raw
+        )
+
+    def test_a_segment_like_a_removed_one_is_still_written(self):
+        """Merging follows what took effect, not the plan alone."""
+        segments = [
+            *self.SEGMENTS,
+            segment(NOW, "c", 180, setpoint_f=130),
+            segment(NOW, "d", 240, setpoint_f=120),
+        ]
+        planner = planner_with(segments, shadow=False)
+        entries = {e.serves: e for e in planner.owned}
+        assert "c" not in entries  # merged into b, which sets the same
+        run(
+            planner,
+            minutes(1),
+            obs(
+                reservations_enabled=True,
+                reservations=tuple(e.as_entry() for e in planner.owned),
+            ),
+        )
+        without_b = tuple(
+            e.as_entry() for e in planner.owned if e.serves != "b"
+        )
+        write = run(
+            planner,
+            minutes(2),
+            obs(reservations_enabled=True, reservations=without_b),
+        )
+        # b is gone, so c changes the state again: it gets its entry.
+        assert write is not None
+        assert "c" in {e.serves for e in write.added}
 
     def test_a_removal_ends_though_nothing_is_read(self):
         """Neither the heater's status nor its list is needed."""

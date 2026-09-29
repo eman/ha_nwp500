@@ -360,7 +360,7 @@ Each is a **state**, so history and statestream carry it:
 | `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, set only in the `rejected` state; `segments` and `grants` (below); `rejected` (below) |
 | `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
 | `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
-| `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment not yet on the device, or of the last segment once all are; unknown without a plan | `complete` (every segment is programmed), `scheduled` (segments waiting for the horizon or for room) |
+| `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment still to be written that is not on the device yet, or of the last segment once all are; unknown without a plan. A `merged` segment, or one a person removed, is not to be written | `complete` (every segment to be written is programmed), `scheduled` (segments waiting for the horizon or for room) |
 | `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
@@ -518,11 +518,11 @@ confirmed its mode, section 5.11; `null` otherwise), and its opaque keys.
 | `scheduled` | Not yet programmed: beyond the horizon, or waiting for room (section 5.3), with that `reason`. Also, with no reason, a segment starting within `near_term_lead_min`, too close to program: it is asserted by a near-term entry once it begins (section 5.2) |
 | `pending` | Being written. A segment that has begun is `pending` until the near-term entry that puts it in force is on the device |
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
-| `merged` | It sets the same state as the segment before it, so it needs no entry |
+| `merged` | It sets the same state as the segment before it that took effect, so it needs no entry. A segment after a removed one is compared with the segment before that |
 | `in_force` | It has started and read-back matches (section 5.11) |
 | `ended` | A later segment has taken effect. A `merged` segment, or one a person removed, leaves the one before it in force |
 | `failed` | A list write or read-back failed after its retry |
-| `removed` | A person removed its entry on the device, or, for a segment already begun, the near-term entry that would have put it in force (section 5.10). It never takes effect: the segment before it holds over its time. Not shown in `shadow`, where nothing is on the device |
+| `removed` | A person removed its entry on the device, or, for a segment already begun, the near-term entry that would have put it in force (section 5.10). It never takes effect. For a segment yet to start, the segment before it holds over its time; for one already begun, the heater keeps the state it had, while the plan still wants that segment |
 
 A segment's `reason`, when it has one:
 
@@ -853,10 +853,13 @@ adopt them into the plan. The scheduler decides.
   - A plan entry a person deletes is not restored (section 5.4). Its segment
     is `removed`, and the segment before it holds over its time.
   - Any other entry of the feature's that a person deletes is not written
-    again either, and is reported as `removed` too. A near-term or
-    precedence-exit entry puts a segment already begun in force, so that
-    segment is `removed` as well: it never takes effect, and the state the
-    heater had holds. For a grant's entries, see section 5.7.
+    again either, and is reported as `removed` too. A near-term entry puts a
+    segment already begun in force, so that segment is `removed` as well:
+    it is not in force and not asserted again, and the heater keeps the
+    state it had. The plan still wants it, so the wanted entities show its
+    state. A precedence-exit entry re-asserts a segment that was already in
+    force, and the heater comes back in its state, so deleting one changes
+    nothing else. For a grant's entries, see section 5.7.
   - An entry a person adds is kept as read and reported as `foreign_entry`.
     It counts against the budget, and it fires as the person set it.
   - A person turning the reservation switch off stops every entry. It is
