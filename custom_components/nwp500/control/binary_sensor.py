@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.helpers.json import json_bytes
 
 from nwp500.temperature import HalfCelsius
 
-from .entity import NWP500ControlEntity
+from .entity import ATTRIBUTE_BUDGET, NWP500ControlEntity
 
 if TYPE_CHECKING:
     from . import ControlFeature
@@ -97,11 +98,24 @@ class ControlOverrideBinarySensor(  # type: ignore[reportIncompatibleVariableOve
                 "detected_at": None,
                 "segment": None,
                 "reports": [],
+                "report_count": 0,
+                "truncated": False,
             }
-        return {
+        attributes: dict[str, Any] = {
             **reports[-1].as_document(),
             "reports": [r.as_document() for r in reports],
+            "report_count": len(reports),
+            "truncated": False,
         }
+        # Too large, the recorder would keep none of them: the oldest
+        # reports go from the list, and the count stays (section 4.2).
+        while (
+            attributes["reports"]
+            and len(json_bytes(attributes)) > ATTRIBUTE_BUDGET
+        ):
+            attributes["reports"] = attributes["reports"][1:]
+            attributes["truncated"] = True
+        return attributes
 
 
 BINARY_SENSOR_KEYS: tuple[tuple[str, type[NWP500ControlEntity]], ...] = (

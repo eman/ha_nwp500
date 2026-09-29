@@ -43,7 +43,7 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
    existing installs.
 2. **Nothing loads while it is off.** The feature lives in its own subpackage
    (`custom_components/nwp500/control/`), imported only when enabled. While
-   disabled it has no imports, listeners, entities, stored data or timers, and
+   it is off it has no imports, listeners, entities, stored data or timers, and
    makes no writes to the device.
 3. **No new `requirements` or `dependencies`** in `manifest.json`.
 4. **No change to existing behaviour.** Existing entities, services, unique
@@ -52,7 +52,7 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
 5. **A regression test.** With the feature disabled, set-up produces exactly
    the entities, listeners and stored data it produced on the release before
    the feature.
-6. **Disabling cleans up.** Turning the toggle off removes the feature's
+6. **Turning it off cleans up.** Turning the toggle off removes the feature's
    entries from the device and restores the owner's program (section 6.6),
    removes its entities, and deletes its stored data.
 
@@ -110,7 +110,7 @@ scheduler ──► [intent entity] ──► control feature ──whole-list w
                                         │                                  (fires on its own)
                                         ├── near-term entries: a segment already begun, surplus raises and lowers
                                         ├── one direct write: when the feature is disabled
-                                        └──► entities: capabilities, ack, program, in-sync, programmed-until, heartbeat
+                                        └──► entities (section 4): the declaration, the plan and its ack, the program, what happened
 ```
 
 ### 2.1 Input: an intent entity
@@ -160,7 +160,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 | `issued_at` | ISO 8601 with offset | yes | When the scheduler made it. An older document never replaces a newer one |
 | `segments` | list | yes | The timeline (section 3.2). **An empty list stops the plan**: every programmed entry is withdrawn, and the heater keeps the state it is in |
 | `grants` | list | no | Surplus grants (section 3.3) |
-| any other key | any | no | Opaque. Echoed on the plan entity unchanged, for example `plan_id`, unless it has the name of one of that entity's own attributes (section 4.2), which win |
+| any other key | any | no | Opaque. Echoed unchanged on the feature's plan entity, `sensor.<device>_control_intent` (section 4.2), for example `plan_id`, unless it has the name of one of that entity's own attributes (section 4.2), which win |
 
 There is no validity period. A plan's last segment holds until a new plan
 arrives, so a scheduler MUST make its last segment a state it is willing to
@@ -227,8 +227,9 @@ available and the compressor is already running (section 5.7).
 ### 3.5 Validation
 
 **The document is rejected whole**, with the reason on the acknowledgement
-entity, if any of these hold. A rejected document leaves the plan in force
-unchanged.
+entity (section 4.2), if any of these hold. A rejected document leaves the
+plan in force unchanged, and the acknowledgement keeps showing that plan's
+statuses, with the rejection beside them.
 
 | Reason | When |
 |---|---|
@@ -238,7 +239,7 @@ unchanged.
 | `unordered_segments` | After truncation to the minute, a segment does not start after the one before it |
 | `out_of_bounds` | A segment's setpoint is outside `setpoint_min`–`setpoint_max` |
 | `mode_not_allowed` | A segment's mode is not in `allowed_modes`, or is `vacation` or `power_off` |
-| `superseded` | `issued_at` is earlier than that of the plan in force |
+| `superseded` | `issued_at` is earlier than that of the plan in force. A document with the same `issued_at` is accepted |
 
 A segment is part of a timeline, so one bad segment rejects the plan rather
 than leaving the previous segment in force over its time.
@@ -253,7 +254,10 @@ with a reason, while the plan proceeds:
 | `overlapping_grant` | It overlaps another grant |
 | `out_of_bounds` | Its maximum is outside `setpoint_min`–`setpoint_max` |
 | `in_past` | Its `end` has passed |
-| `not_live` | In `live` mode, the grants switch is off. It is evaluated as in shadow |
+
+A grant that passes these checks while the feature is `live` with the grants
+switch off is not rejected. It is evaluated as in shadow: status `shadow`,
+reason `not_live` (section 4.2).
 
 ### 3.6 Example
 
@@ -295,7 +299,7 @@ minutes of surplus the feature raises within the grant:
 
 | Time | List change | Why |
 |---|---|---|
-| 11:30 | Adds Sun 11:32, Heat Pump, 146.3 °F, and a guard entry at Sun 14:00, Heat Pump, 140.0 °F | The raise, and its end at the grant's end |
+| 11:30 | Adds Sun 11:32, Heat Pump, 146.3 °F, and a guard entry at Sun 14:00, Heat Pump, 140.0 °F; removes the fired 05:03 and 10:30 entries | The raise, and its end at the grant's end; fired entries go with the next write (section 5.3) |
 | 12:40 | Adds Sun 12:42, Heat Pump, 140.0 °F; removes the 14:00 guard and the fired 11:32 entry | The compressor stopped, so the raise is lowered |
 
 If Home Assistant stops at 06:00, the heater still charges at 10:30, moves to
@@ -352,17 +356,17 @@ Each is a **state**, so history and statestream carry it:
 
 | Entity | State | Attributes |
 |---|---|---|
-| `sensor.<device>_control_intent` | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque top-level keys |
-| `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` | `intent_id`; the document-level rejection reason if any; `segments` and `grants`: each with `id`, `status`, `reason`, `warnings`, and its opaque keys |
+| `sensor.<device>_control_intent`, the plan entity (not the input intent entity of section 2.1) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque top-level keys |
+| `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, set only in the `rejected` state; `segments` and `grants` (below); `rejected` (below) |
 | `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
 | `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
-| `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment not yet on the device, or of the last segment once all are | `complete` (every segment is programmed), `scheduled` (segments waiting for the horizon or for room) |
+| `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment still to be written that is not on the device yet, or of the last segment once all are; unknown without a plan. A `merged` segment, or one a person removed, is not to be written | `complete` (every segment to be written is programmed), `scheduled` (segments waiting for the horizon or for room) |
 | `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
 | `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
 | `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
-| `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report, oldest first (below) |
+| `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
 
 **Entry items.** Each item of `control_last_write`'s `added` and `removed`
@@ -434,36 +438,118 @@ characters, 32 entries stay well within the limit.
 attributes for the latest, has `field`, `value`, `detected_at` (ISO 8601)
 and `segment`:
 
-| `field` | `value` | `segment` |
-|---|---|---|
-| `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first |
-| `mode` | The mode found, as a name | The segment in force, or `null` before the first |
-| `removed` | The entry a person removed, as an entry item | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry |
-| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` |
-| `reservations_switched_off` | `false` | `null` |
+| `field` | `value` | `segment` | Ends when |
+|---|---|---|---|
+| `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` (section 5.10). An entry fires only while the reservation switch is on: one whose minute passes while it is off does not count |
+| `mode` | The mode found, as a name (section 3.4). A change into or out of Vacation or power-off is not a person's change to report (section 5.9) | The segment in force, or `null` before the first | As `setpoint` |
+| `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry | The time it would have set is over, by the plan's clock: for a segment's entry (`plan`, `near_term`, `precedence_exit`), when the next segment starts; for a grant's, when the grant ends. Also when the plan in force no longer has that segment or grant, or, for a `plan` entry, no longer keeps its segment removed (section 5.4). A removed entry of the last segment lasts until a plan changes it, as that segment does. It ends whether or not the heater's status or list can be read |
+| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` | The entry leaves the heater's list. An entry a person changes is a new entry: the old report ends and a new one begins |
+| `reservations_switched_off` | `false` | `null` | The reservation switch is on again |
 
-**Segment statuses** on the ack entity:
+The list holds the changes in force, not a history:
+
+- **One report per key.** The key is `field`; for `foreign_entry`, `field`
+  and the whole entry; for `removed`, `field`, `segment` and `value`'s
+  `kind`. A newer report with the same key replaces the older one, with a
+  new `detected_at`, as a second setpoint change before the next entry
+  fires does. Two reports can share `field` and `detected_at`, for example
+  two added entries found in one read, or `field` and `segment`, for
+  example two added entries in one slot, but never a key.
+- **Lifetime.** Each report ends by its own rule, above. Handing the heater
+  back ends every report (section 6.6), whether by disabling, by leaving
+  live or by switching the feature off, and none is made while `disabled`;
+  what the hand-back restores is not reported as a person's change, nor is
+  what a failed hand-back may have changed. Until a failed hand-back
+  succeeds, the reports stay as they were. Nothing else
+  empties the list: a new plan ends only the `removed` reports above, and
+  reports are kept across a reload or a restart of Home Assistant that is
+  not a hand-back.
+- **Bound.** At most one `setpoint`, one `mode` and one
+  `reservations_switched_off`; one `foreign_entry` per entry on the
+  heater's list that the feature does not own; and one `removed` per kind
+  of entry for each segment or grant of the plan in force whose time is not
+  over. `report_count` gives the number. If the attributes would come
+  within 1 KiB of the recorder's 16 KiB limit, the oldest reports are left
+  out of `reports`, and `truncated` is `true`. The latest is always in the
+  entity's own attributes.
+- **Off.** The entity is on exactly while a report is in force. Off,
+  `reports` is empty, `report_count` is 0, `truncated` is `false`, and the
+  other attributes are `null`: nothing from before is kept.
+- **Reading every report.** A report can end, or be replaced, between two
+  reads. The entity's state is written with each pass that changes the
+  list, so a consumer that must see each report records the entity's state
+  changes, from history or from state-change events, instead of polling
+  it.
+
+**Acknowledgement states:**
+
+| State | Meaning |
+|---|---|
+| `none` | No plan in force, and no document rejected since start-up |
+| `rejected` | No plan in force, and the most recent document was rejected whole (section 3.5). `intent_id`, `reason` and `detail` are that document's, and so is `rejected`; `segments` and `grants` are empty |
+| `shadow` | The plan in force is evaluated but not written: the mode is `shadow`, or `live` with segments not live |
+| `pending` | Live: at least one segment is `pending` |
+| `partly_programmed` | Live: none is `pending`, and at least one is `removed` or `failed` |
+| `programmed` | Live: none is `pending`, `removed` or `failed` |
+
+**A rejected document while a plan is in force** does not change the
+state, `intent_id`, `segments` or `grants`: they stay those of the plan in
+force, which the rejection leaves unchanged. The rejection is in
+`rejected`: `intent_id`, `reason` and `detail` of the most recent rejected
+document, or `null`. It is cleared when a document received after it is
+accepted: one that arrived earlier and was accepted later, after waiting for
+a write in progress, leaves it. The same holds with no plan in force, where
+the rejection is also the acknowledgement. So a scheduler knows its
+document was rejected when `rejected.intent_id` is that document's, and
+accepted when the acknowledgement's `intent_id` is and it was not rejected.
+
+**Segments** on the ack entity each have `id`, `status`, `reason`,
+`warnings` (a list), `fires_at` (the minute its entry fires, or will fire
+once it is programmed; for a segment already begun, its near-term entry's;
+`null` if it has none), `in_force` (whether it is the segment in force now:
+a merged segment counts as the one it merged into, and a removed one never
+is), `mode_confirmed`
+(for the segment in force in `live`, whether the heater's behaviour has
+confirmed its mode, section 5.11; `null` otherwise), and its opaque keys.
 
 | Status | Meaning |
 |---|---|
 | `shadow` | Evaluated; in shadow, nothing is written |
-| `scheduled` | Not yet programmed: beyond the horizon, or waiting for room (section 5.3) |
+| `scheduled` | Not yet programmed: beyond the horizon, or waiting for room (section 5.3), with that `reason`. Also, with no reason, a segment starting within `near_term_lead_min`, too close to program: it is asserted by a near-term entry once it begins (section 5.2) |
 | `pending` | Being written. A segment that has begun is `pending` until the near-term entry that puts it in force is on the device |
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
-| `merged` | It sets the same state as the segment before it, so it needs no entry |
+| `merged` | It sets the same state as the segment before it, so it needs no entry. It goes with that segment: if a person removed its entry, the merged segment does not take effect either |
 | `in_force` | It has started and read-back matches (section 5.11) |
-| `ended` | The next segment has started |
+| `ended` | A later segment has taken effect. A `merged` segment, or one a person removed, leaves the one before it in force |
 | `failed` | A list write or read-back failed after its retry |
-| `removed` | A person removed its entry on the device (section 5.10) |
+| `removed` | A person removed its entry on the device (section 5.10). It never takes effect: the segment before it holds over its time, and over any merged segments that follow it |
 
-**Grant statuses:** `shadow`, `waiting`, `raised`, `ended`, `rejected`,
-`failed`.
+A segment's `reason`, when it has one:
 
-**Live reasons:** `write_not_confirmed` (a write and its retry were not
-confirmed, section 5.4), `not_applied_on_device` (read-back found the
-device's state differs, section 5.11; status `failed`), and
-`held_in_tou_window` (a mode held by a TOU window; status stays
-`in_force`).
+| Reason | Meaning |
+|---|---|
+| `beyond_horizon` | `scheduled`: it starts `horizon_h` or more ahead (section 5.3) |
+| `entry_budget` | `scheduled`: no room within `entry_limit` (section 5.3) |
+| `bounds_unknown` | `scheduled`: the setpoint bounds are not known yet, since the device has not reported them and no option sets them, so its setpoint cannot be checked or `"min"` resolved |
+| `write_not_confirmed` | `failed`: a write and its retry were not confirmed (section 5.4) |
+| `not_applied_on_device` | `failed`: read-back found the device's state differs (section 5.11) |
+| `held_in_tou_window` | `in_force`: its mode is held by a TOU window (section 5.8) |
+
+Its `warnings`: `moved_1_min` (its entry moved past an occupied minute,
+section 5.2) and `mode_in_tou_window` (it changes the mode inside a TOU
+period, section 5.8).
+
+**Grants** on the ack entity each have `id`, `status`, `reason`,
+`warnings` (always empty) and their opaque keys:
+
+| Status | Meaning |
+|---|---|
+| `waiting` | Accepted, with no raise in force and its `end` still to come |
+| `raised` | A raise under it is in force (section 5.7) |
+| `ended` | Its `end` has passed |
+| `rejected` | It failed a check of section 3.5; `reason` says which |
+| `shadow` | `live` with the grants switch off: evaluated as in shadow, reason `not_live`. In the `shadow` mode, grants show `waiting`, `raised`, `ended` or `rejected` |
+| `failed` | Live: a write for it was not confirmed after its retry (`write_not_confirmed`), or its raise did not read back (`not_applied_on_device`) |
 
 **In shadow,** the program and wanted entities show what the feature would
 program. `in_sync` compares that program with the device, so it is off
@@ -636,7 +722,8 @@ publishes its own validity should go `unknown` when stale.
 running and the segment in force is in `heat_pump` mode:
 
 - once surplus has been on for 10 min, raise the setpoint to
-  `min(max, setpoint_max)` with a near-term entry, unless a segment that
+  `min(max, setpoint_max)` with a near-term entry, if that is above the
+  segment's setpoint, unless a segment that
   changes the state starts at or before that entry would fire: the raise
   would fire after the segment's entry and undo it. The raise is considered
   again once that segment is in force. A `merged` segment changes nothing,
@@ -655,29 +742,39 @@ the guard entry, when:
 - the compressor has run `min_run_before_lower_min` **and** surplus has been
   off for 15 min.
 
-The device ends a raise on its own when the guard fires, or when one of the
-feature's own entries fires after the raise: a segment's entry, or a
-near-term one. The feature then removes the guard if it has not fired. The
-guard counts only while it is on the heater. One a person deleted is not
-written again (section 5.4), so the feature lowers the raise itself when
-the grant ends. A raise entry a person deletes before it fires ends the
-raise. A
-segment starting ends nothing if it puts nothing on the heater: a `merged`
-one, one a person removed (section 5.10), or one not yet programmed. The
-raise then stays, with its guard, and the conditions above still lower it.
-If a segment that changes the state starts before a lowering entry could
-fire, the lowering waits for that segment's entry, and the guard stays
-until then. If a raise's near-term entry has not fired when the conditions
-end, the feature removes it instead of lowering. If moving a raise entry
-past another entry in the same minute would make it fire at or after a
-segment that changes the state, no raise is made. A guard or near-term
-entry moved that way keeps the minute it moved to. A published plan that
-keeps the grant unchanged keeps the raise, and its guard restores what the
-new plan wants at the grant's end. A raise
-whose write failed after its retry is lowered, since it may have landed. A
-restart keeps a raise whose grant the stored plan still has. A plan that
-stops (empty `segments`) while raised lowers to the state the guard would
-have restored.
+**Ending a raise.**
+
+- **On the heater.** The device ends a raise when the guard fires, or when
+  one of the feature's own entries fires after the raise: a segment's entry,
+  or a near-term one. The feature then removes the guard if it has not
+  fired.
+- **Only entries on the heater count.** A segment starting ends nothing if
+  it puts nothing on the heater: a `merged` one, one a person removed
+  (section 5.10), or one not yet programmed. The raise then stays, with its
+  guard, and the conditions above still lower it. The guard, too, counts
+  only while it is on the heater: one a person deleted is not written again
+  (section 5.4), so the feature lowers the raise itself when the grant ends.
+- **A raise entry a person deletes** before it fires ends the raise.
+- **Lowering after a segment.** If a segment that changes the state starts
+  before a lowering entry could fire, the lowering waits for that segment's
+  entry, and the guard stays until then.
+- **A raise not yet fired** when the conditions end is removed instead of
+  lowered.
+- **Moved entries.** If moving a raise entry past another entry in the same
+  minute would make it fire at or after a segment that changes the state,
+  no raise is made. A guard or near-term entry moved that way keeps the
+  minute it moved to.
+- **A new plan.** A plan that keeps the grant unchanged keeps the raise, and
+  its guard restores what the new plan wants at the grant's end, even a
+  plan that stops (empty `segments`). A plan without the grant lowers the
+  raise; if that plan also stops, to the state the guard would have
+  restored.
+- **A lowering entry a person deletes** is not written again (section 5.4).
+  The raised setpoint then holds until the next entry fires, as any
+  person's removal holds (section 5.10).
+- **Failures and restarts.** A raise whose write failed after its retry is
+  lowered, since it may have landed. A restart keeps a raise whose grant the
+  stored plan still has.
 
 ### 5.8 TOU
 
@@ -755,6 +852,13 @@ adopt them into the plan. The scheduler decides.
 - **Changes to the reservation list:**
   - A plan entry a person deletes is not restored (section 5.4). Its segment
     is `removed`, and the segment before it holds over its time.
+  - Any other entry of the feature's that a person deletes is not written
+    again either, and is reported as `removed` on the override entity.
+    Nothing else is written in its place. The acknowledgement does not yet
+    reflect every such deletion: a segment already begun whose near-term or
+    precedence-exit entry was deleted keeps the status it had, and a
+    removed segment still holds back a corrective entry or a raise due just
+    before its start (#171). For a grant's entries, see section 5.7.
   - An entry a person adds is kept as read and reported as `foreign_entry`.
     It counts against the budget, and it fires as the person set it.
   - A person turning the reservation switch off stops every entry. It is
@@ -790,7 +894,10 @@ in shadow. That is how a consumer knows the feature is alive.
 ### 6.1 Modes
 
 - **`shadow`:** reads the device, validates, plans the list, and updates every
-  entity with what it would write. Writes nothing. Statuses are `shadow`.
+  entity with what it would write. Writes nothing. A segment that would be
+  written, or is in force, has status `shadow`; `scheduled`, `merged` and
+  `ended` still show, and grants show `waiting`, `raised`, `ended` or
+  `rejected` as they would in `live`.
 - **`live`:** writes the list, for segments and for grants according to their
   live switches. What is not live behaves as in shadow. Grants are written
   only with segments live.
@@ -832,8 +939,9 @@ programmed entries keep running on the device.
    and program `scheduled` segments that now fit, in one write.
 4. If it is a newer document, replace the stored plan (section 5.6).
 5. A segment whose entry fired during the outage is `in_force`. It is not
-   written again. A device state that differs from the segment in force is
-   reported as a person's change, not re-asserted.
+   written again. A change of the heater's state since it was last read
+   that no entry explains, counting entries that fired meanwhile, is a
+   person's change (section 5.10), and is not re-asserted.
 
 Start-up never withdraws a programmed entry because time has passed.
 
@@ -853,6 +961,9 @@ Switching to `disabled`, by the Disable button or the options, is a
 4. Read back: the list by the confirmed write, and the owner's state by
    waiting up to a minute for the heater's status to report it. Report on
    the last write entity, `confirmed: false` if either did not read back.
+5. End every report on the override entity (section 4.2): people's changes
+   were reported against the plan, which is gone. What the hand-back
+   restores is not a person's change, and none is made while `disabled`.
 
 The list write is confirmed like any other (section 5.4) and retried once
 after 60 s. If that fails too, disabling is left unfinished and tried again
@@ -998,8 +1109,7 @@ taken for a person's.
 1. **This specification, the JSON Schema and example documents** in `docs/`.
 2. **Skeleton:** the options toggle and the disabled-path regression test;
    intake, validation and the stored plan; the capability entity; `shadow` as
-   the default mode; the heartbeat; unload without writes. This exists on the
-   feature branch and is adapted to this revision.
+   the default mode; the heartbeat; unload without writes. Done.
 3. **Shadow programming:** the owner's program; segments into entries, the
    horizon, the budget and near-term entries; reading the list and
    reconciling; surplus grants; the program, in-sync, programmed-until and

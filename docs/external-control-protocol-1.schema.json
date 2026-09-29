@@ -146,10 +146,10 @@
       },
       "additionalProperties": true
     },
-    "program_item": {
+    "device_entry": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: an item of control_program_hash's entries. A device entry (enable, week, hour, min, mode, param), plus owner. An entry of the feature's own also carries every key of entry_item, except that mode stays the device's mode id, and mode_name holds the mode name. The Reservation Schedule sensor's own mode_name is a display label, not this.",
-      "required": ["enable", "week", "hour", "min", "mode", "param", "owner"],
+      "description": "Entity attributes, not part of a plan: a reservation entry with the device's keys, as the heater holds it.",
+      "required": ["enable", "week", "hour", "min", "mode", "param"],
       "properties": {
         "enable": {
           "type": "integer",
@@ -161,9 +161,18 @@
         "min": { "type": "integer", "minimum": 0, "maximum": 59 },
         "mode": {
           "type": "integer",
-          "description": "The device's mode id. For the feature's own entries the mode name is in mode_name."
+          "description": "The device's mode id."
         },
-        "param": { "type": "integer" },
+        "param": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "program_item": {
+      "$ref": "#/$defs/device_entry",
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: an item of control_program_hash's entries. A device entry, plus owner. An entry of the feature's own also carries every key of entry_item, except that mode stays the device's mode id, and mode_name holds the mode name. The Reservation Schedule sensor's own mode_name is a display label, not this.",
+      "required": ["owner"],
+      "properties": {
         "owner": {
           "type": "string",
           "description": "owner (the owner's entry, switched off while live), foreign (another entry the feature does not own), or the owner label of one of the feature's own: plan, near_term or guard."
@@ -232,6 +241,96 @@
             { "type": "null" }
           ]
         }
+      },
+      "additionalProperties": true
+    },
+    "override_report": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: a person's change on control_override (spec section 4.2). One report per key: field; for foreign_entry, field and the whole entry; for removed, field, segment and value's kind.",
+      "required": ["field", "value", "detected_at", "segment"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "description": "setpoint, mode, removed, foreign_entry or reservations_switched_off. Treat a value you do not know as opaque."
+        },
+        "value": {
+          "description": "setpoint: half-degrees Celsius; mode: a mode name (never vacation or power_off, whose changes are not reported); removed: an entry_item; foreign_entry: a device_entry; reservations_switched_off: false."
+        },
+        "detected_at": { "type": "string", "format": "date-time" },
+        "segment": {
+          "type": ["string", "null"],
+          "description": "setpoint, mode: the segment in force, or null before the first; removed: the entry's serves; foreign_entry: its slot as text; reservations_switched_off: null."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "field": { "const": "setpoint" } } },
+          "then": { "properties": { "value": { "type": "integer" } } }
+        },
+        {
+          "if": { "properties": { "field": { "const": "mode" } } },
+          "then": { "properties": { "value": { "$ref": "#/$defs/mode_name" } } }
+        },
+        {
+          "if": { "properties": { "field": { "const": "removed" } } },
+          "then": {
+            "properties": {
+              "value": { "$ref": "#/$defs/entry_item" },
+              "segment": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "field": { "const": "foreign_entry" } } },
+          "then": {
+            "properties": {
+              "value": { "$ref": "#/$defs/device_entry" },
+              "segment": { "type": "string" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "field": { "const": "reservations_switched_off" } } },
+          "then": {
+            "properties": {
+              "value": { "const": false },
+              "segment": { "type": "null" }
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "override_attributes": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: control_override's attributes. The latest report's keys at the top level, and every report in force. Off, no report is in force: the report keys are null, reports is empty and report_count is 0.",
+      "required": ["field", "value", "detected_at", "segment", "reports", "report_count", "truncated"],
+      "properties": {
+        "reports": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/override_report" },
+          "description": "Every report in force, oldest first, less any left out by truncated."
+        },
+        "report_count": { "type": "integer", "minimum": 0 },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when the oldest reports are left out of reports to stay within the recorder's 16 KiB limit. report_count counts them all."
+        }
+      },
+      "if": { "properties": { "report_count": { "const": 0 } } },
+      "then": {
+        "properties": {
+          "field": { "const": null },
+          "value": { "const": null },
+          "detected_at": { "const": null },
+          "segment": { "const": null },
+          "reports": { "maxItems": 0 },
+          "truncated": { "const": false }
+        }
+      },
+      "else": {
+        "$ref": "#/$defs/override_report",
+        "properties": { "reports": { "minItems": 1 } }
       },
       "additionalProperties": true
     }

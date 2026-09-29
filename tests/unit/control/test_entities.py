@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.json import json_bytes
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
+from jsonschema import Draft202012Validator
 
 from custom_components.nwp500 import binary_sensor as binary_platform
 from custom_components.nwp500 import button as button_platform
@@ -60,6 +63,15 @@ from .conftest import capabilities, make_document, segment
 
 MAC = "AA:BB:CC:DD:EE:FF"
 WHEN = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+
+
+def _override_schema() -> Draft202012Validator:
+    schema = json.loads(
+        Path("docs/external-control-protocol-1.schema.json").read_text()
+    )
+    return Draft202012Validator(
+        {"$defs": schema["$defs"], "$ref": "#/$defs/override_attributes"}
+    )
 
 
 @pytest.fixture
@@ -320,6 +332,74 @@ class TestBinarySensors:
         assert attrs["field"] == "setpoint"
         assert attrs["value"] == 100
         assert len(attrs["reports"]) == 1
+        assert (attrs["report_count"], attrs["truncated"]) == (1, False)
+        _override_schema().validate(attrs)
+        # Off, nothing is kept (section 4.2).
+        control.reports = {}
+        _override_schema().validate(sensor.extra_state_attributes)
+        assert sensor.extra_state_attributes == {
+            "field": None,
+            "value": None,
+            "detected_at": None,
+            "segment": None,
+            "reports": [],
+            "report_count": 0,
+            "truncated": False,
+        }
+
+    def test_every_kind_of_override_report_fits_the_schema(self, control):
+        entry = OwnedEntry("guard", "g1", WHEN, "heat_pump", 120)
+        added = {"enable": 2, "week": 2, "hour": 7, "min": 0}
+        added |= {"mode": 1, "param": 100}
+        reports = [
+            Report("setpoint", 100, WHEN, "s1"),
+            Report("mode", "high_demand", WHEN, None),
+            Report("removed", entry.as_attributes(), WHEN, "g1"),
+            Report("foreign_entry", added, WHEN, "(2, 7, 0)"),
+            Report("reservations_switched_off", False, WHEN, None),
+        ]
+        control.reports = {str(i): r for i, r in enumerate(reports)}
+        sensor = ControlOverrideBinarySensor(control, "override")
+        attrs = sensor.extra_state_attributes
+        _override_schema().validate(attrs)
+        # A mode that is not one, or an entry out of range, is not a report.
+        broken = [
+            {**attrs["reports"][1], "value": "not_a_mode"},
+            {**attrs["reports"][3], "value": {**added, "hour": 99}},
+        ]
+        for report in broken:
+            assert not _override_schema().is_valid(
+                {**attrs, "reports": [report]}
+            )
+
+    def test_override_stays_within_the_recorder_limit(self, control):
+        """Too large, the oldest reports go; the latest and count stay."""
+        entries = [
+            OwnedEntry(
+                "plan",
+                f"{i:02d}".ljust(ITEM_ID_MAX_LENGTH, "x"),
+                WHEN + timedelta(minutes=i),
+                "energy_saver",
+                114,
+            )
+            for i in range(64)
+        ]
+        control.reports = {
+            f"removed:plan:{e.serves}": Report(
+                "removed", e.as_attributes(), e.fires_at, e.serves
+            )
+            for e in entries
+        }
+        sensor = ControlOverrideBinarySensor(control, "override")
+        attrs = sensor.extra_state_attributes
+        assert len(json_bytes(attrs)) <= ATTRIBUTE_BUDGET
+        assert attrs["truncated"] is True
+        assert attrs["report_count"] == 64
+        assert 0 < len(attrs["reports"]) < 64
+        # The newest are kept, oldest first.
+        assert attrs["reports"][-1]["segment"] == entries[-1].serves
+        assert attrs["segment"] == entries[-1].serves
+        _override_schema().validate(attrs)
 
 
 class TestButton:

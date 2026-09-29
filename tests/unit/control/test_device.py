@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import timedelta
 from pathlib import Path
@@ -11,6 +12,7 @@ import pytest
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from jsonschema import Draft202012Validator
 from nwp500.models.schedule import ReservationEntry
 from pytest_homeassistant_custom_component.common import (
@@ -30,6 +32,7 @@ from custom_components.nwp500.control.device import (
     HEARTBEAT_INTERVAL,
     DeviceControl,
 )
+from custom_components.nwp500.control.engine import Report
 from custom_components.nwp500.control.entries import KIND_NEAR_TERM, KIND_PLAN
 from custom_components.nwp500.control.intent import (
     REASON_MODE_NOT_ALLOWED,
@@ -260,6 +263,47 @@ class TestStart:
         assert again.last_write == write
 
     @pytest.mark.asyncio
+    async def test_disabled_forgets_what_an_earlier_version_kept(
+        self, hass, control_factory, now
+    ):
+        """Nothing an earlier version kept on hand-back survives.
+
+        It stored reports, and what the heater held before the hand-back.
+        """
+        disabled = await control_factory(
+            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
+        )
+        disabled.planner.load_document(
+            {
+                "reports": [
+                    Report("setpoint", 100, now, None).as_document(),
+                ],
+                # Live, before the hand-back: Heat Pump at 120, switch on.
+                "device_state": ["heat_pump", 120],
+                "reservations_on": True,
+                "state_seen_at": now.isoformat(),
+            }
+        )
+        await disabled._async_persist()
+        await disabled.async_stop()
+
+        again = await control_factory(
+            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
+        )
+        assert again.planner.reports == {}
+        stored = again.store.stored_engine(MAC)
+        assert stored["reports"] == []
+        assert stored["device_state"] is None
+        assert stored["reservations_on"] is None
+        await again.async_stop()
+
+        # Enabled again, on the owner's state (Energy Saver at 119, switch
+        # off): the hand-back is not a person's change.
+        enabled = await control_factory()
+        await enabled._async_evaluate(dt_util.utcnow())
+        assert enabled.planner.reports == {}
+
+    @pytest.mark.asyncio
     async def test_state_from_an_earlier_version_is_discarded(
         self, hass, hass_storage, control_factory
     ):
@@ -323,9 +367,82 @@ class TestIntake:
         _publish(hass, _plan(now, intent_id="i-2", protocol="9"))
         await hass.async_block_till_done()
         assert control.plan.intent_id == "i-1"
+        # The plan in force stays on show, with the rejection beside it.
+        ack = control.ack
+        assert ack.state == "shadow"
+        assert ack.intent_id == "i-1"
+        assert [s.id for s in ack.segments] == ["now", "later"]
+        assert ack.reason is None
+        rejected = ack.as_attributes()["rejected"]
+        assert rejected["intent_id"] == "i-2"
+        assert rejected["reason"] == REASON_UNSUPPORTED_PROTOCOL
+        assert "9" in rejected["detail"]
+        # Accepting a document ends the rejection.
+        _publish(hass, _plan(now, intent_id="i-3"))
+        await hass.async_block_till_done()
+        assert control.ack.intent_id == "i-3"
+        assert control.ack.as_attributes()["rejected"] is None
+
+    @pytest.mark.asyncio
+    async def test_with_no_plan_in_force_the_rejection_is_the_ack(
+        self, hass, control_factory, now
+    ):
+        control = await control_factory()
+        _publish(hass, _plan(now, intent_id="i-2", protocol="9"))
+        await hass.async_block_till_done()
+        assert control.plan is None
         assert control.ack.state == "rejected"
         assert control.ack.reason == REASON_UNSUPPORTED_PROTOCOL
         assert control.ack.intent_id == "i-2"
+        # One rule for a scheduler, with or without a plan in force.
+        assert control.ack.as_attributes()["rejected"]["intent_id"] == "i-2"
+
+    @pytest.mark.asyncio
+    async def test_a_rejection_outlives_an_earlier_document_accepted_later(
+        self, hass, control_factory, now
+    ):
+        """i-3 waits for a pass; i-4, sent after it, is rejected at once."""
+        _publish(hass, _plan(now))
+        control = await control_factory()
+        await control._lock.acquire()
+        waiting = asyncio.ensure_future(
+            control.async_receive(
+                _plan(
+                    now, intent_id="i-3", issued_at=now + timedelta(minutes=1)
+                ),
+                dt_util.utcnow(),
+            )
+        )
+        await asyncio.sleep(0)
+        assert not await control.async_receive(
+            _plan(
+                now,
+                intent_id="i-4",
+                protocol="9",
+                issued_at=now + timedelta(minutes=2),
+            ),
+            dt_util.utcnow(),
+        )
+        control._lock.release()
+        assert await waiting
+        assert control.ack.intent_id == "i-3"
+        assert control.ack.as_attributes()["rejected"]["intent_id"] == "i-4"
+
+    @pytest.mark.asyncio
+    async def test_the_plan_received_again_ends_a_rejection_at_once(
+        self, hass, control_factory, now
+    ):
+        _publish(hass, _plan(now))
+        control = await control_factory()
+        _publish(hass, _plan(now, intent_id="i-2", protocol="9"))
+        await hass.async_block_till_done()
+        assert control.ack.rejection is not None
+        written: list[int] = []
+        control.async_add_listener(lambda: written.append(1))
+        _publish(hass, _plan(now))
+        await hass.async_block_till_done()
+        assert control.ack.rejection is None
+        assert written
 
     @pytest.mark.asyncio
     async def test_an_older_document_is_superseded(
@@ -338,7 +455,9 @@ class TestIntake:
             _plan(now, intent_id="i-0", issued_at=now - timedelta(minutes=5)),
         )
         await hass.async_block_till_done()
-        assert control.ack.reason == REASON_SUPERSEDED
+        assert control.ack.intent_id == "i-1"
+        assert control.ack.rejection is not None
+        assert control.ack.rejection.reason == REASON_SUPERSEDED
         assert control.plan.intent_id == "i-1"
 
     @pytest.mark.asyncio

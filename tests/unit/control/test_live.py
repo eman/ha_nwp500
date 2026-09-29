@@ -38,6 +38,7 @@ from custom_components.nwp500.control.engine import (
     WRITE_POWER_OFF,
     WRITE_TAKEOVER,
     Planner,
+    Report,
 )
 from custom_components.nwp500.control.entries import (
     KIND_GRANT_RAISE,
@@ -964,6 +965,48 @@ class TestLiveDisable:
         assert heater.schedule == OWNER_LIST
         assert disabled.store.disabled_done(MAC) is True
         assert disabled.last_write.confirmed is True
+
+    @pytest.mark.asyncio
+    async def test_a_lost_hand_back_forgets_what_the_heater_held(
+        self, hass, live_factory, now
+    ):
+        """Its list may have landed; what it changes is not a person's."""
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        assert control.planner.as_document()["device_state"] is not None
+        control.planner.reports = {
+            "setpoint": Report("setpoint", 100, now, None),
+        }
+        heater.lose = 2
+        assert await control.async_release(dt_util.utcnow()) is False
+        stored = control.planner.as_document()
+        assert stored["device_state"] is None
+        assert stored["reservations_on"] is None
+        # The reports stay until the hand-back succeeds (section 4.2).
+        assert control.planner.reports
+
+    @pytest.mark.asyncio
+    async def test_a_hand_back_that_landed_is_not_taken_for_removals(
+        self, hass, live_factory, now
+    ):
+        """The owner's list landed with its confirmation lost.
+
+        The feature's entries are gone from the heater because of the
+        hand-back, not because a person removed them.
+        """
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        assert control.planner.owned
+        heater.land_unconfirmed = 2
+        assert await control.async_release(dt_util.utcnow()) is False
+        assert heater.schedule == OWNER_LIST
+        await control.async_stop()
+
+        _, again = await live_factory(reuse=True)
+        assert not [
+            r for r in again.planner.reports.values() if r.field == "removed"
+        ]
+        assert "removed" not in {s.status for s in again.ack.segments}
 
     @pytest.mark.asyncio
     async def test_no_direct_write_in_vacation(self, hass, live_factory, now):

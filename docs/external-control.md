@@ -225,7 +225,7 @@ All belong to the device. Unique ids are `<mac>_control_<key>`.
 |---|---|---|
 | Control Capabilities | The declaration's version | The declaration (below) |
 | Control Plan | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque keys |
-| Control Acknowledgement | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` or `none` | `intent_id`, `reason`, `detail`, `segments` and `grants`: each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, and its opaque keys |
+| Control Acknowledgement | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, `mode_confirmed` and its opaque keys; `grants`, each with `id`, `status`, `reason`, `warnings` and its opaque keys |
 | Control Program Hash | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `owner`, `foreign`, `plan`, `near_term` or `guard`; the feature's own also say what they serve and when they fire (spec section 4.2) |
 | Control In Sync | On when the device's list hashes the same as the program | `device_hash`, `read_at` |
 | Control Programmed Until | How far the device's copy of the plan reaches | `complete`, `scheduled` |
@@ -233,7 +233,7 @@ All belong to the device. Unique ids are `<mac>_control_<key>`.
 | Control Wanted Mode, Control Wanted Setpoint | The state the plan puts the heater in now, with any surplus raise | `segment`, `grant` |
 | Control Surplus Raise | On while a raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
 | Control Last Write | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
-| Control Override | On while a person's change is reported | `field`, `value`, `detected_at`, `segment`, `reports` |
+| Control Override | On while a person's change is reported | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
 | Control Heartbeat | Updated at least every 15 minutes | none |
 | Disable External Control (button) | | Switches the feature to `disabled` |
 

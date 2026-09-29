@@ -162,6 +162,7 @@ class TestAcks:
             "detail": "older",
             "segments": [],
             "grants": [],
+            "rejected": None,
         }
 
     def test_item_ack(self):
