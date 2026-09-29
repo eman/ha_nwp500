@@ -362,8 +362,8 @@ Each is a **state**, so history and statestream carry it:
 | `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
 | `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment still to be written that is not on the device yet, or of the last segment once all are; unknown without a plan. A `merged` segment, or one a person removed, is not to be written | `complete` (every segment to be written is programmed), `scheduled` (segments waiting for the horizon or for room) |
 | `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
-| `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
-| `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
+| `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now: that of the segment in force, which a person's deletion can keep out (section 5.10), or, with none in force, the state in force when the plan was adopted: what the feature's entries last put in force, or, for a first plan, the heater's own (unknown if it was then in Vacation or powered off) | none |
+| `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, as for the mode, including a surplus raise, in Home Assistant's unit | `segment` (the segment in force, as the ack's `in_force`), `grant` |
 | `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
 | `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
 | `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
@@ -442,7 +442,7 @@ and `segment`:
 |---|---|---|---|
 | `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` (section 5.10). An entry fires only while the reservation switch is on: one whose minute passes while it is off does not count |
 | `mode` | The mode found, as a name (section 3.4). A change into or out of Vacation or power-off is not a person's change to report (section 5.9) | The segment in force, or `null` before the first | As `setpoint` |
-| `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry | The time it would have set is over, by the plan's clock: for a segment's entry (`plan`, `near_term`, `precedence_exit`), when the next segment starts; for a grant's, when the grant ends. Also when the plan in force no longer has that segment or grant, or, for a `plan` entry, no longer keeps its segment removed (section 5.4). A removed entry of the last segment lasts until a plan changes it, as that segment does. It ends whether or not the heater's status or list can be read |
+| `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry | The time it would have set is over, by the plan's clock: for a segment's entry (`plan`, `near_term`, `precedence_exit`), when the next segment starts; for a grant's, when the grant ends. Also when a new plan is adopted (section 5.6). A removed entry of the last segment lasts until a new plan, as that segment does. It ends whether or not the heater's status or list can be read |
 | `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` | The entry leaves the heater's list. An entry a person changes is a new entry: the old report ends and a new one begins |
 | `reservations_switched_off` | `false` | `null` | The reservation switch is on again |
 
@@ -508,7 +508,8 @@ accepted when the acknowledgement's `intent_id` is and it was not rejected.
 once it is programmed; for a segment already begun, its near-term entry's;
 `null` if it has none), `in_force` (whether it is the segment in force now:
 a merged segment counts as the one it merged into, and a removed one never
-is), `mode_confirmed`
+is; when a person's deletion leaves none in force, the state in force when
+the plan was adopted holds, section 5.10), `mode_confirmed`
 (for the segment in force in `live`, whether the heater's behaviour has
 confirmed its mode, section 5.11; `null` otherwise), and its opaque keys.
 
@@ -520,9 +521,9 @@ confirmed its mode, section 5.11; `null` otherwise), and its opaque keys.
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
 | `merged` | It sets the same state as the segment before it, so it needs no entry. It goes with that segment: if a person removed its entry, the merged segment does not take effect either |
 | `in_force` | It has started and read-back matches (section 5.11) |
-| `ended` | A later segment has taken effect. A `merged` segment, or one a person removed, leaves the one before it in force |
+| `ended` | A later segment has taken effect, or it had ended when the plan arrived. A `merged` segment, or one a person removed, leaves the one before it in force |
 | `failed` | A list write or read-back failed after its retry |
-| `removed` | A person removed its entry on the device (section 5.10). It never takes effect: the segment before it holds over its time, and over any merged segments that follow it |
+| `removed` | A person removed the entry that puts it in force (section 5.10): its plan entry, or, for a segment already begun, its near-term or precedence-exit entry. It never takes effect: the state before it holds over its time, and over any merged segments that follow it |
 
 A segment's `reason`, when it has one:
 
@@ -667,10 +668,12 @@ disabling restores.
   switches the owner's entries off and the reservation switch on, even if
   the plan has nothing of its own to add yet (reason `takeover`).
 - **A missing entry is not restored.** A plan entry missing from the device
-  was removed by a person. It is not written again, and its segment is
-  `removed`, across restarts and for as long as plans keep that segment
-  unchanged. The plan in force received again (the intent source dropped out
-  and came back) is not adopted again.
+  was removed by a person. The feature does not write it again, and its
+  segment is `removed`, for as long as that plan is in force, across
+  restarts. The plan in force received again (the intent source dropped out
+  and came back: the same `intent_id` and `issued_at`) is not adopted again.
+  A new plan is the scheduler's answer, and is programmed as it stands
+  (section 5.6).
 - **Unconfirmed writes are kept.** Every write sent since the last confirmed
   one is kept, the last five, and the next read of the list is settled
   against all of them. A write that was never sent, because the list could
@@ -696,9 +699,20 @@ A new accepted plan applies from its receipt:
   kept. The rest of the old plan's unfired entries are removed. Everything
   happens in one write.
 - **The segment in force** gets a near-term entry only if it wants a
-  different state from the segment the old plan had in force. A plan that is
-  republished unchanged therefore writes nothing, and does not undo a
-  person's change (section 5.10).
+  different state from the state the feature's entries have in force.
+- **A new plan is authoritative.** The feature carries out plans; whether
+  to honour or overrule a person is the scheduler's decision, taken with
+  the acknowledgement and the override entity in view (section 5.10). So
+  what people removed from the plan before is not held against a new plan:
+  it is programmed as it stands, `removed` statuses start afresh, and the
+  `removed` reports end. The feature keeps a record of what its own entries
+  put in force, not of the heater's state:
+  - A person's setpoint or mode change is outside that record. A plan
+    republished unchanged writes nothing, and does not undo it.
+  - A person's deletion of the feature's entry means that entry's state
+    never took effect. A new plan that still wants that state puts it in
+    force. A scheduler that honours the deletion leaves that segment out
+    of its next plan, or changes it.
 - **An empty `segments` list** withdraws every programmed entry. The heater
   keeps its current state.
 
@@ -727,16 +741,19 @@ running and the segment in force is in `heat_pump` mode:
   changes the state starts at or before that entry would fire: the raise
   would fire after the segment's entry and undo it. The raise is considered
   again once that segment is in force. A `merged` segment changes nothing,
-  so it does not stop a raise;
+  and one a person removed puts nothing on the heater, so neither stops a
+  raise;
 - at the same time, always add a **guard entry** at the grant's end,
-  restoring the state the plan wants then. A segment's entry may end the
+  restoring the state in force then (section 5.10). If a person deletes a
+  segment's entry within the grant, the guard is rewritten to restore what
+  holds instead, at the same minute. A segment's entry may end the
   raise sooner, but it may never reach the heater, or be removed from it,
   and the raise must stay bounded if Home Assistant stops;
 - raise at most once per compressor cycle;
 - never raise to start a cycle.
 
-**Lower** with a near-term entry restoring the segment in force, and remove
-the guard entry, when:
+**Lower** with a near-term entry restoring the state in force (section
+5.10), and remove the guard entry, when:
 
 - the compressor stops; or
 - the compressor has run `min_run_before_lower_min` **and** surplus has been
@@ -757,7 +774,8 @@ the guard entry, when:
 - **A raise entry a person deletes** before it fires ends the raise.
 - **Lowering after a segment.** If a segment that changes the state starts
   before a lowering entry could fire, the lowering waits for that segment's
-  entry, and the guard stays until then.
+  entry, and the guard stays until then. A segment a person removed has no
+  entry, and does not hold a lowering back.
 - **A raise not yet fired** when the conditions end is removed instead of
   lowered.
 - **Moved entries.** If moving a raise entry past another entry in the same
@@ -767,8 +785,9 @@ the guard entry, when:
 - **A new plan.** A plan that keeps the grant unchanged keeps the raise, and
   its guard restores what the new plan wants at the grant's end, even a
   plan that stops (empty `segments`). A plan without the grant lowers the
-  raise; if that plan also stops, to the state the guard would have
-  restored.
+  raise, to the state in force: for a plan whose first segment has yet to
+  start, the state before it, which holds until then. If that plan also
+  stops, it lowers to the state the guard would have restored.
 - **A lowering entry a person deletes** is not written again (section 5.4).
   The raised setpoint then holds until the next entry fires, as any
   person's removal holds (section 5.10).
@@ -808,7 +827,9 @@ setpoint or mode writes.
   Vacation is programmed at once, and the heater holds the newest plan even
   if Home Assistant is unavailable when Vacation ends. When Vacation ends,
   the feature re-asserts the segment in force with a near-term entry
-  (`precedence_exit`). If Home Assistant is unavailable then, the heater
+  (`precedence_exit`): the plan's segment in force on the heater, even one
+  whose entry was skipped. With none, because a person's deletion left the
+  state from before the plan, nothing is re-asserted (section 5.10). If Home Assistant is unavailable then, the heater
   leaves Vacation in the state it had, and the newest plan's next entry
   puts the plan in force.
 - **Power-off.** The device does **not** skip entries while powered off. An
@@ -854,11 +875,37 @@ adopt them into the plan. The scheduler decides.
     is `removed`, and the segment before it holds over its time.
   - Any other entry of the feature's that a person deletes is not written
     again either, and is reported as `removed` on the override entity.
-    Nothing else is written in its place. The acknowledgement does not yet
-    reflect every such deletion: a segment already begun whose near-term or
-    precedence-exit entry was deleted keeps the status it had, and a
-    removed segment still holds back a corrective entry or a raise due just
-    before its start (#171). For a grant's entries, see section 5.7.
+    Nothing else is written in its place. For a grant's entries, see
+    section 5.7.
+  - **One rule for every deletion, within the plan in force.** A segment
+    takes effect only through the entry that puts it in force: its plan
+    entry, or, for a segment already begun, its near-term or
+    precedence-exit entry. A person deleting that entry before it fires
+    keeps the segment out: it is `removed`, and never takes effect, and
+    neither do the merged segments that follow it. The state before it
+    holds over its time: the segment before it, or, if that had ended when
+    the plan was adopted, the state in force then. The feature never writes
+    that state on its own, and everything that reads the segment in force
+    reads this one: `in_force`, the wanted entities, the guard's and a
+    lowering's target, read-back, and whether a later segment stops a raise
+    or holds back an entry due before its start, which a removed segment,
+    with nothing on the heater, does not. A restart keeps it out; a new
+    plan is the scheduler's answer (section 5.6).
+  - **Whether an entry fired** is judged from the heater's list, not from
+    its setpoint and mode, which a raise or a person's change can alter.
+    An entry fired if a list read at or after its minute still holds it,
+    or once a minute has passed without its deletion being found. One whose
+    minute Vacation or power-off surrounds, or a state that could not be
+    read, is taken as skipped: the exit entry after puts its segment in
+    force. Deleting an entry that fired or was skipped is reported, and
+    changes nothing else.
+  - **An exit or near-term entry that only re-asserts** a segment the
+    feature's entries already put in force, in that state (Vacation or
+    power-off that began and ended within it), puts nothing new in force:
+    deleting it changes nothing else. A plan entry that a newer plan
+    replaced, still on the heater, is not the new plan's segment's.
+    Keeping a segment out also withdraws any near-term or exit entry still
+    waiting to be written for it.
   - An entry a person adds is kept as read and reported as `foreign_entry`.
     It counts against the budget, and it fires as the person set it.
   - A person turning the reservation switch off stops every entry. It is

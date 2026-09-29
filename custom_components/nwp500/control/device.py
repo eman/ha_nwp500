@@ -691,6 +691,9 @@ class DeviceControl:
             self.coordinator.reservation_schedules.get(self.mac_address),
             self.coordinator.tou_schedules.get(self.mac_address),
             surplus_on=self._surplus_on(),
+            schedule_read_at=getattr(
+                self.coordinator, "reservation_schedules_read_at", {}
+            ).get(self.mac_address),
         )
 
     def _surplus_on(self) -> bool | None:

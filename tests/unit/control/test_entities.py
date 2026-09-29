@@ -190,6 +190,12 @@ class TestSensors:
         assert setpoint.native_value == 140.0
         hass.config.units = METRIC_SYSTEM
         assert setpoint.native_value == 60.0
+        # The segment in force on the heater, not the plan's alone.
+        control.planner.segment_in_force.return_value = "s1"
+        assert setpoint.extra_state_attributes == {
+            "segment": "s1",
+            "grant": None,
+        }
         control.wanted = None
         assert mode.native_value is None
         assert setpoint.native_value is None

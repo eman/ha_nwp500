@@ -495,15 +495,16 @@ class FakeHeater:
         """A person changes the list; `seen` if the coordinator read it."""
         self.schedule = copy.deepcopy(schedule)
         if seen:
-            self.coordinator.reservation_schedules[MAC] = copy.deepcopy(
-                schedule
-            )
+            self._seen(schedule)
+
+    def _seen(self, schedule: dict[str, Any]) -> None:
+        """The coordinator holds the list as read from the heater now."""
+        self.coordinator.reservation_schedules[MAC] = copy.deepcopy(schedule)
+        self.coordinator.reservation_schedules_read_at[MAC] = dt_util.utcnow()
 
     async def async_read(self) -> dict[str, Any] | None:
         self.reads += 1
-        self.coordinator.reservation_schedules[MAC] = copy.deepcopy(
-            self.schedule
-        )
+        self._seen(self.schedule)
         return copy.deepcopy(self.schedule)
 
     async def async_write(self, schedule: dict[str, Any]) -> dict[str, Any]:

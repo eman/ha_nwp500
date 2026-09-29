@@ -12,6 +12,8 @@ import logging
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any, Protocol
 
+from homeassistant.util import dt as dt_util
+
 from nwp500.reservations import update_reservations_confirmed
 from nwp500.temperature import HalfCelsius
 
@@ -125,6 +127,9 @@ class CoordinatorWriter:
             "reservation": entries,
         }
         self.coordinator.reservation_schedules[self.mac_address] = written
+        self.coordinator.reservation_schedules_read_at[self.mac_address] = (
+            dt_util.utcnow()
+        )
         return written
 
     async def async_restore_state(self, mode: str, setpoint_raw: int) -> bool:

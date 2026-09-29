@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from ..const import MODE_TO_DHW_ID, get_enum_value
@@ -80,6 +81,9 @@ class Observed:
     # The reservation list as the device last reported it; None until read.
     reservations_enabled: bool | None = None
     reservations: tuple[dict[str, int], ...] | None = None
+    # When that list was read from the device; None if unknown, taken as
+    # the time of the pass.
+    reservations_read_at: datetime | None = None
     # The TOU program's periods, each with its price; empty if unknown.
     tou_periods: tuple[dict[str, int], ...] = ()
     surplus_on: bool | None = None
@@ -112,6 +116,7 @@ def observe(
     tou_schedule: Mapping[str, Any] | None = None,
     *,
     surplus_on: bool | None = None,
+    schedule_read_at: datetime | None = None,
 ) -> Observed:
     """Build a snapshot from the coordinator's data."""
     mode = setpoint_raw = tou_on = compressor_on = upper_tank_raw = None
@@ -163,6 +168,9 @@ def observe(
         anti_legionella_busy=anti_legionella,
         reservations_enabled=reservations_enabled,
         reservations=reservations,
+        reservations_read_at=schedule_read_at
+        if reservations is not None
+        else None,
         tou_periods=tou_periods,
         surplus_on=surplus_on,
     )
