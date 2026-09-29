@@ -856,8 +856,9 @@ adopt them into the plan. The scheduler decides.
     again either, and is reported as `removed` on the override entity.
     Nothing else is written in its place. The acknowledgement does not yet
     reflect every such deletion: a segment already begun whose near-term or
-    precedence-exit entry was deleted keeps the status it had. For a
-    grant's entries, see section 5.7.
+    precedence-exit entry was deleted keeps the status it had, and a
+    removed segment still holds back a corrective entry or a raise due just
+    before its start (#171). For a grant's entries, see section 5.7.
   - An entry a person adds is kept as read and reported as `foreign_entry`.
     It counts against the budget, and it fires as the person set it.
   - A person turning the reservation switch off stops every entry. It is

@@ -986,6 +986,29 @@ class TestLiveDisable:
         assert control.planner.reports
 
     @pytest.mark.asyncio
+    async def test_a_hand_back_that_landed_is_not_taken_for_removals(
+        self, hass, live_factory, now
+    ):
+        """The owner's list landed with its confirmation lost.
+
+        The feature's entries are gone from the heater because of the
+        hand-back, not because a person removed them.
+        """
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        assert control.planner.owned
+        heater.land_unconfirmed = 2
+        assert await control.async_release(dt_util.utcnow()) is False
+        assert heater.schedule == OWNER_LIST
+        await control.async_stop()
+
+        _, again = await live_factory(reuse=True)
+        assert not [
+            r for r in again.planner.reports.values() if r.field == "removed"
+        ]
+        assert "removed" not in {s.status for s in again.ack.segments}
+
+    @pytest.mark.asyncio
     async def test_no_direct_write_in_vacation(self, hass, live_factory, now):
         _publish(hass, _two_segments(now))
         heater, control = await live_factory()

@@ -1615,3 +1615,121 @@ class TestPowerOff:
         again = Planner(planner.capabilities, TZ)
         again.load_document(planner.as_document())
         assert again.owned == planner.owned
+
+
+# The engine still reasons from the plan's timeline when a person deletes
+# a near-term, precedence-exit or corrective entry (issue #171). Strict: a
+# fix makes these pass, and CI fails until the marker is removed.
+_GAP_171 = pytest.mark.xfail(
+    strict=True, reason="#171: deletions beyond plan entries"
+)
+
+
+class TestDeletionGaps:
+    """A person deleting one of the feature's entries, beyond a plan entry.
+
+    Each test states what should happen, and fails today (#171).
+    """
+
+    def _on_heater(self, planner: Planner, **overrides) -> Observed:
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(e.as_entry() for e in planner.owned),
+            **overrides,
+        )
+
+    @_GAP_171
+    def test_a_segment_whose_near_term_entry_was_deleted_is_not_in_force(
+        self,
+    ):
+        planner = planner_with(
+            [
+                segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 120, setpoint_f=130),
+            ],
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner))
+        without = obs(
+            reservations_enabled=True,
+            reservations=tuple(
+                e.as_entry() for e in planner.owned if e.kind != KIND_NEAR_TERM
+            ),
+        )
+        run(planner, minutes(2), without)
+        run(planner, minutes(10), without)
+        (a,) = (s for s in planner.ack("i").segments if s.id == "a")
+        assert a.detail["in_force"] is False
+        assert a.status == "removed"
+
+    @_GAP_171
+    def test_a_deleted_exit_leaves_a_segment_begun_in_vacation_out(self):
+        """Segment b begins during Vacation; its exit entry is deleted.
+
+        The heater comes back in a's state, so b is not in force.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            shadow=False,
+        )
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
+        write = run(planner, minutes(41), self._on_heater(planner, **on_a))
+        assert write is not None
+        assert {e.kind for e in write.added} == {KIND_PRECEDENCE_EXIT}
+        without_exit = obs(
+            reservations_enabled=True,
+            reservations=tuple(
+                e.as_entry()
+                for e in planner.owned
+                if e.kind != KIND_PRECEDENCE_EXIT
+            ),
+            **on_a,
+        )
+        run(planner, minutes(42), without_exit)
+        run(planner, minutes(50), without_exit)
+        (b,) = (s for s in planner.ack("i").segments if s.id == "b")
+        assert b.detail["in_force"] is False
+
+    @_GAP_171
+    def test_a_removed_segment_does_not_stop_a_raise_before_it(self):
+        """Segment b's entry is gone: it cannot undo a raise at its minute."""
+        running = {
+            "mode": "heat_pump",
+            "setpoint_raw": 120,
+            "compressor_on": True,
+            "surplus_on": True,
+        }
+        planner = planner_with(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 12, setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            observed=obs(**running),
+            shadow=False,
+            control_mode="live",
+            control_live_segments=True,
+            control_live_grants=True,
+            **SURPLUS,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **running))
+        without_b = obs(
+            reservations_enabled=True,
+            reservations=tuple(
+                e.as_entry() for e in planner.owned if e.serves != "b"
+            ),
+            **running,
+        )
+        run(planner, minutes(2), without_b)
+        assert "b" in planner.removed_segments
+        write = run(planner, minutes(10), without_b)
+        assert write is not None
+        assert KIND_GRANT_RAISE in {e.kind for e in write.added}
