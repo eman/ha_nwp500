@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from jsonschema import Draft202012Validator
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -442,6 +445,27 @@ class TestReading:
         details = control.program_details()
         assert details["entry_count"] == 2
         assert {e["owner"] for e in details["entries"]} == {"near_term", "plan"}
+        for entry in details["entries"]:
+            # A device entry, with the mode as the device's id, plus the
+            # item keys of the last write's `added` (section 4.2).
+            assert isinstance(entry["mode"], int)
+            assert entry["mode_name"] == "heat_pump"
+            assert entry["kind"] in ("plan", "near_term")
+            assert entry["serves"]
+            assert entry["enabled"] is True
+            assert entry["enable"] == 2
+            assert entry["param"] == entry["setpoint_raw"]
+            assert {"setpoint_f", "setpoint_c", "week", "hour", "min"} <= set(
+                entry
+            )
+        schema = json.loads(
+            Path("docs/external-control-protocol-1.schema.json").read_text()
+        )
+        validator = Draft202012Validator(
+            {"$defs": schema["$defs"], "$ref": "#/$defs/program_item"}
+        )
+        for entry in details["entries"]:
+            validator.validate(entry)
         assert details["device_hash"] is not None
         assert details["device_hash"] != details["hash"]
 

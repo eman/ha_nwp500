@@ -226,13 +226,13 @@ All belong to the device. Unique ids are `<mac>_control_<key>`.
 | Control Capabilities | The declaration's version | The declaration (below) |
 | Control Plan | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque keys |
 | Control Acknowledgement | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` or `none` | `intent_id`, `reason`, `detail`, `segments` and `grants`: each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, and its opaque keys |
-| Control Program Hash | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each marked `owner`, `foreign`, `plan`, `near_term` or `guard` |
+| Control Program Hash | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `owner`, `foreign`, `plan`, `near_term` or `guard`; the feature's own also say what they serve and when they fire (spec section 4.2) |
 | Control In Sync | On when the device's list hashes the same as the program | `device_hash`, `read_at` |
 | Control Programmed Until | How far the device's copy of the plan reaches | `complete`, `scheduled` |
 | Control Next Entry | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | Control Wanted Mode, Control Wanted Setpoint | The state the plan puts the heater in now, with any surplus raise | `segment`, `grant` |
 | Control Surplus Raise | On while a raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
-| Control Last Write | When the list was last written | `reason`, `added`, `removed`, `confirmed`, `simulated`, `owner_state` |
+| Control Last Write | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
 | Control Override | On while a person's change is reported | `field`, `value`, `detected_at`, `segment`, `reports` |
 | Control Heartbeat | Updated at least every 15 minutes | none |
 | Disable External Control (button) | | Switches the feature to `disabled` |

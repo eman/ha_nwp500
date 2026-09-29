@@ -51,7 +51,7 @@ from ..const import (
 )
 from .capabilities import Capabilities, build_capabilities
 from .engine import WRITE_DISABLE, Planner, RaiseState, Report, State, Write
-from .entries import OWNER_LABELS, schedule_hash
+from .entries import schedule_hash
 from .evaluate import Ack, check_plan, rejected_ack
 from .intent import (
     REASON_SUPERSEDED,
@@ -625,15 +625,10 @@ class DeviceControl:
                 }
             )
         for owned in self.planner.owned:
-            entries.append(
-                {
-                    **owned.as_entry(),
-                    "owner": OWNER_LABELS.get(owned.kind, owned.kind),
-                    "serves": owned.serves,
-                    "fires_at": owned.fires_at.isoformat(),
-                    "mode_name": owned.mode,
-                }
-            )
+            # The device's own keys win: `mode` is the device's mode id here,
+            # as in every other entry of this list, with the name in
+            # `mode_name`.
+            entries.append({**owned.as_attributes(), **owned.as_entry()})
         return {
             "hash": schedule_hash(program),
             "entry_count": len(program["reservation"]),

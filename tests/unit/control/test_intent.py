@@ -180,7 +180,7 @@ class TestRejectedDocuments:
         import json
         from pathlib import Path
 
-        examples = sorted(Path("docs/examples").glob("*.json"))
+        examples = sorted(Path("docs/examples").glob("plan-*.json"))
         assert examples
         for path in examples:
             document = json.loads(path.read_text())

@@ -354,16 +354,58 @@ Each is a **state**, so history and statestream carry it:
 |---|---|---|
 | `sensor.<device>_control_intent` | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque top-level keys |
 | `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` | `intent_id`; the document-level rejection reason if any; `segments` and `grants`: each with `id`, `status`, `reason`, `warnings`, and its opaque keys |
-| `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: each with its owner (`owner`, `plan`, `near_term` or `guard`), the segment or grant it serves, when it fires, its mode and setpoint |
+| `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
 | `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
 | `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment not yet on the device, or of the last segment once all are | `complete` (every segment is programmed), `scheduled` (segments waiting for the horizon or for room) |
 | `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
 | `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`), `added`, `removed`, `confirmed` |
+| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`); `added` and `removed`, lists of entry items (below); `confirmed`, `simulated`, `owner_state` (below) |
 | `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | `field`, `value`, `detected_at`, `segment` |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
+
+**Entry items.** Each item of `control_last_write`'s `added` and `removed`
+is one of the feature's own entries, which that write put on the device's
+list or took off it:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `kind` | string | What the entry is for: `plan`, `near_term`, `precedence_exit`, `grant_raise`, `grant_lower` or `guard` |
+| `owner` | string | The program's label for the kind: `plan`, `guard`, or `near_term` for the other four |
+| `serves` | string | The `id` of what it serves: a segment for `plan`, `near_term` and `precedence_exit`, a grant for `grant_raise`, `grant_lower` and `guard`. Ids are unique across a document's segments and grants, so `serves` with `kind` names one item. It is the same string as `control_next_entry`'s `serves` |
+| `fires_at` | string, ISO 8601 with the local offset | The minute the entry fires, as written: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). An entry left on the device fires again a week later |
+| `mode`, `mode_name` | string | The mode it sets, as a name (section 3.4). Both keys hold it |
+| `setpoint_f`, `setpoint_c` | number | The setpoint it sets, to one decimal |
+| `setpoint_raw` | integer | The same setpoint as the device holds it, in half-degrees Celsius |
+| `enabled` | boolean | False only for the feature's own entries while the heater is powered off (section 5.9) |
+| `week`, `hour`, `min` | integer | The device slot, under the Reservation Schedule sensor's key names: the weekday bit of `fires_at`'s local date (Monday 64, Tuesday 32, Wednesday 16, Thursday 8, Friday 4, Saturday 2, Sunday 128) and its local hour and minute |
+
+A `guard` entry serves its grant. It fires at the grant's `end` and sets
+the state the plan wants then (section 5.7); the segment it restores is the
+one in force at its `fires_at`. A surplus raise is a `grant_raise` entry,
+and its lowering a `grant_lower` entry, each serving the grant.
+
+**Program items.** Each item of `control_program_hash`'s `entries` is an
+entry of the list the feature wants on the device, with the device's keys
+as the Reservation Schedule sensor shows them: `enable` (2 on, 1 off),
+`week`, `hour`, `min`, `mode` (the device's mode id) and `param`. It adds
+`owner`: `owner` for an owner entry (switched off while live, section 5.1),
+`foreign` for any other entry the feature does not own, or the label of one
+of its own. An item of the feature's own also carries every key of an entry
+item except `mode`, which keeps the device's id, so the name is read from
+`mode_name`. An entry kept across a plan replacement (section 5.6) is not in
+a later write's `added`: it is kept only when the new plan wants it exactly,
+for a segment of the same id, so its program item has the `serves` and
+`fires_at` it was added with.
+
+**Last-write attributes.** `confirmed` is a boolean for the whole write,
+since a list is written and confirmed whole (section 5.4): `true` once the
+device read back the list sent, `false` if the write and its retry were not
+confirmed or disabling could not restore the owner's list, and `null` for a
+write that was not sent (`simulated` is `true`, in shadow). `owner_state`
+is, for `disable` only, the owner's `[mode, setpoint_raw]` written directly
+(section 6.6), or `null` when it was not written.
 
 **Segment statuses** on the ack entity:
 

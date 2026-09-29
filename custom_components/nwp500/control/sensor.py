@@ -220,8 +220,8 @@ class ControlLastWriteSensor(NWP500ControlEntity, SensorEntity):  # type: ignore
         document = write.as_document()
         return {
             "reason": document["reason"],
-            "added": document["added"],
-            "removed": document["removed"],
+            "added": [e.as_attributes() for e in write.added],
+            "removed": [e.as_attributes() for e in write.removed],
             "confirmed": document["confirmed"],
             "simulated": document["simulated"],
             "owner_state": document["owner_state"],
