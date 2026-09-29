@@ -174,7 +174,7 @@ increasing order of `start`.
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
-| `id` | string, unique in the document | yes | Named in acknowledgements |
+| `id` | string, at most 64 characters, unique in the document | yes | Named in acknowledgements |
 | `start` | ISO 8601 with offset | yes | Truncated to the minute |
 | `setpoint_f`, `setpoint_c` or `setpoint` | number, number, or `"min"` | exactly one | The setpoint. A number is converted and quantised to the device's half-degree-Celsius resolution. `"min"` is the lowest setpoint the feature will write, `setpoint_min` (section 4.1) |
 | `mode` | string (section 3.4) | on the first segment | The operation mode. A later segment that omits it keeps the previous segment's mode |
@@ -210,7 +210,7 @@ available and the compressor is already running (section 5.7).
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
-| `id` | string, unique in the document | yes | Named in acknowledgements |
+| `id` | string, at most 64 characters, unique in the document | yes | Named in acknowledgements |
 | `start`, `end` | ISO 8601 with offset | yes | The window. Truncated to the minute; `end` MUST then be later than `start` |
 | `max_f` **or** `max_c` | number | yes | The highest setpoint a raise may use, in exactly one unit |
 | any other key | any | no | Opaque, echoed back on the grant's acknowledgement, unless it has the name of one of its own keys (`id`, `status`, `reason`, `warnings`), which win |
@@ -232,7 +232,7 @@ unchanged.
 
 | Reason | When |
 |---|---|
-| `invalid_document` | JSON types or required keys are wrong; a setpoint is given in more than one form; the first segment has no mode |
+| `invalid_document` | JSON types or required keys are wrong; an id is empty or longer than 64 characters; a setpoint is given in more than one form; the first segment has no mode |
 | `unsupported_protocol` | `protocol` is not supported |
 | `duplicate_id` | Two segments or grants share an id |
 | `unordered_segments` | After truncation to the minute, a segment does not start after the one before it |
@@ -423,9 +423,10 @@ written, and it is the owner's state as found, whatever its mode.
 16 KiB. `added_count` and `removed_count` always give the lists' lengths.
 When the attributes would come within 1 KiB of the limit, `removed` is set
 to `null`, then `added` if that is not enough, and `truncated` is `true`.
-At the default `entry_limit` this does not happen; it can at 32 entries
-with long ids, when a plan replaces most of its entries. The program
-entity's `entries` still lists every entry the feature wants.
+At the default `entry_limit` this does not happen; it can at 32 entries,
+when a plan replaces most of its entries. The program entity's `entries`
+always lists every entry the feature wants: with ids of at most 64
+characters, 32 entries stay well within the limit.
 `docs/examples/last-write-*.json` are two writes for
 `docs/examples/plan-day.json`, as the entity reports them.
 

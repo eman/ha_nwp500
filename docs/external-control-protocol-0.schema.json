@@ -52,6 +52,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 64,
           "description": "Unique in the document, across segments and grants."
         },
         "start": { "$ref": "#/$defs/timestamp" },
@@ -80,6 +81,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 64,
           "description": "Unique in the document, across segments and grants."
         },
         "start": { "$ref": "#/$defs/timestamp" },

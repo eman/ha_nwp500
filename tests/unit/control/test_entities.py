@@ -18,6 +18,7 @@ from custom_components.nwp500.const import (
     CONTROL_MODE_DISABLED,
     DATA_CONTROL,
     DOMAIN,
+    MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
 )
 from custom_components.nwp500.control import ENTITY_KEYS
 from custom_components.nwp500.control.binary_sensor import (
@@ -38,6 +39,7 @@ from custom_components.nwp500.control.engine import (
 )
 from custom_components.nwp500.control.entries import OwnedEntry
 from custom_components.nwp500.control.evaluate import NO_ACK, Ack, ItemAck
+from custom_components.nwp500.control.intent import ITEM_ID_MAX_LENGTH
 from custom_components.nwp500.control.sensor import (
     ATTRIBUTE_BUDGET,
     SENSOR_KEYS,
@@ -240,6 +242,32 @@ class TestSensors:
         assert (attrs["added"] is not None) is added
         assert (attrs["removed"] is not None) is removed
         assert (attrs["added_count"], attrs["removed_count"]) == (count, count)
+
+    def test_a_full_program_stays_within_the_recorder_limit(self):
+        """A full program needs no truncation (section 4.2).
+
+        It lists every entry, with the longest ids and the largest limit.
+        """
+        entries = [
+            {
+                **entry.as_attributes(),
+                **entry.as_entry(),
+                "mode_name": entry.mode,
+            }
+            for entry in (
+                OwnedEntry(
+                    "precedence_exit",
+                    f"{i:02d}".ljust(ITEM_ID_MAX_LENGTH, "x"),
+                    WHEN + timedelta(hours=i),
+                    "energy_saver",
+                    114,
+                    enabled=False,
+                )
+                for i in range(MAX_CONTROL_RESERVATION_ENTRY_LIMIT)
+            )
+        ]
+        attrs = {"entry_count": len(entries), "entries": entries}
+        assert len(json_bytes(attrs)) <= ATTRIBUTE_BUDGET
 
     def test_heartbeat(self, control):
         sensor = ControlHeartbeatSensor(control, "heartbeat")

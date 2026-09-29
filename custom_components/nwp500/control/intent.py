@@ -33,6 +33,9 @@ PROTOCOL_VERSIONS: tuple[str, ...] = ("1.1", "0")
 # carries the same pattern.
 _PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
 INTENT_ID_MAX_LENGTH = 64
+# Segment and grant ids. Bounded so that the entities naming them stay
+# within the recorder's attribute limit (spec section 4.2).
+ITEM_ID_MAX_LENGTH = 64
 
 # The one setpoint keyword: the lowest setpoint the feature will write.
 SETPOINT_MIN = "min"
@@ -293,9 +296,15 @@ def _parse_id(raw: Mapping[str, Any], where: str) -> str:
     if "id" not in raw:
         raise _reject(REASON_INVALID_DOCUMENT, f"{where} lacks id")
     value = raw["id"]
-    if not isinstance(value, str) or not value:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > ITEM_ID_MAX_LENGTH
+    ):
         raise _reject(
-            REASON_INVALID_DOCUMENT, f"{where} id must be a non-empty string"
+            REASON_INVALID_DOCUMENT,
+            f"{where} id must be a string of 1 to {ITEM_ID_MAX_LENGTH} "
+            "characters",
         )
     return value
 
