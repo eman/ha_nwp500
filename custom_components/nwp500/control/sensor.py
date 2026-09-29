@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.const import UnitOfTemperature
+from homeassistant.helpers.json import json_bytes
 from homeassistant.util import dt as dt_util
 
 from nwp500.temperature import HalfCelsius
@@ -16,6 +17,11 @@ from .evaluate import STATE_NONE
 
 if TYPE_CHECKING:
     from . import ControlFeature
+
+# The recorder keeps no attributes for a state whose attributes exceed
+# 16 KiB (its MAX_STATE_ATTRS_BYTES). The entity's own attributes, such as
+# its name and icon, count too, hence the margin.
+ATTRIBUTE_BUDGET = 15 * 1024
 
 
 def _temperatures(raw: int) -> dict[str, float]:
@@ -218,14 +224,25 @@ class ControlLastWriteSensor(NWP500ControlEntity, SensorEntity):  # type: ignore
         if write is None:
             return {"reason": None}
         document = write.as_document()
-        return {
+        attributes: dict[str, Any] = {
             "reason": document["reason"],
             "added": [e.as_attributes() for e in write.added],
             "removed": [e.as_attributes() for e in write.removed],
+            "added_count": len(write.added),
+            "removed_count": len(write.removed),
+            "truncated": False,
             "confirmed": document["confirmed"],
             "simulated": document["simulated"],
             "owner_state": document["owner_state"],
         }
+        # Too large, the recorder would keep none of them: the lists go,
+        # `removed` first, and the counts stay (section 4.2).
+        for key in ("removed", "added"):
+            if len(json_bytes(attributes)) <= ATTRIBUTE_BUDGET:
+                break
+            attributes[key] = None
+            attributes["truncated"] = True
+        return attributes
 
 
 class ControlHeartbeatSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

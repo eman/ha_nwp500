@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.json import json_bytes
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 
 from custom_components.nwp500 import binary_sensor as binary_platform
@@ -38,6 +39,7 @@ from custom_components.nwp500.control.engine import (
 from custom_components.nwp500.control.entries import OwnedEntry
 from custom_components.nwp500.control.evaluate import NO_ACK, Ack, ItemAck
 from custom_components.nwp500.control.sensor import (
+    ATTRIBUTE_BUDGET,
     SENSOR_KEYS,
     ControlAckSensor,
     ControlCapabilitiesSensor,
@@ -189,6 +191,11 @@ class TestSensors:
         assert attrs["simulated"] is True
         assert attrs["confirmed"] is None
         assert attrs["removed"] == []
+        assert (
+            attrs["added_count"],
+            attrs["removed_count"],
+            attrs["truncated"],
+        ) == (1, 0, False)
         # WHEN is a Sunday: weekday bit 128 (section 4.2).
         assert attrs["added"] == [
             {
@@ -206,6 +213,33 @@ class TestSensors:
                 "min": 0,
             }
         ]
+
+    @pytest.mark.parametrize(
+        ("count", "added", "removed"), [(32, True, False), (64, False, False)]
+    )
+    def test_last_write_stays_within_the_recorder_limit(
+        self, control, count, added, removed
+    ):
+        """Too large, the lists go, `removed` first; the counts stay."""
+        entries = tuple(
+            OwnedEntry(
+                "plan",
+                f"segment-{i:04d}-{'x' * 30}",
+                WHEN + timedelta(minutes=i),
+                "energy_saver",
+                114,
+            )
+            for i in range(count)
+        )
+        control.last_write = Write("plan", WHEN, entries, entries, entries)
+        attrs = ControlLastWriteSensor(
+            control, "last_write"
+        ).extra_state_attributes
+        assert len(json_bytes(attrs)) <= ATTRIBUTE_BUDGET
+        assert attrs["truncated"] is True
+        assert (attrs["added"] is not None) is added
+        assert (attrs["removed"] is not None) is removed
+        assert (attrs["added_count"], attrs["removed_count"]) == (count, count)
 
     def test_heartbeat(self, control):
         sensor = ControlHeartbeatSensor(control, "heartbeat")

@@ -361,8 +361,8 @@ Each is a **state**, so history and statestream carry it:
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, including a surplus raise, in Home Assistant's unit | `segment`, `grant` |
 | `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`); `added` and `removed`, lists of entry items (below); `confirmed`, `simulated`, `owner_state` (below) |
-| `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | `field`, `value`, `detected_at`, `segment` |
+| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
+| `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report, oldest first (below) |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
 
 **Entry items.** Each item of `control_last_write`'s `added` and `removed`
@@ -418,8 +418,28 @@ setpoint_raw]` written directly (section 6.6), or `null` when it was not
 written: the heater is in, or the owner's program sets, vacation or
 power-off, or the owner's list could not be restored. In shadow nothing is
 written, and it is the owner's state as found, whatever its mode.
+
+**Size.** The recorder keeps none of a state's attributes when they exceed
+16 KiB. `added_count` and `removed_count` always give the lists' lengths.
+When the attributes would come within 1 KiB of the limit, `removed` is set
+to `null`, then `added` if that is not enough, and `truncated` is `true`.
+At the default `entry_limit` this does not happen; it can at 32 entries
+with long ids, when a plan replaces most of its entries. The program
+entity's `entries` still lists every entry the feature wants.
 `docs/examples/last-write-*.json` are two writes for
 `docs/examples/plan-day.json`, as the entity reports them.
+
+**Override reports.** Each report, and the override entity's own
+attributes for the latest, has `field`, `value`, `detected_at` (ISO 8601)
+and `segment`:
+
+| `field` | `value` | `segment` |
+|---|---|---|
+| `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first |
+| `mode` | The mode found, as a name | The segment in force, or `null` before the first |
+| `removed` | The entry a person removed, as an entry item | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry |
+| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` |
+| `reservations_switched_off` | `false` | `null` |
 
 **Segment statuses** on the ack entity:
 

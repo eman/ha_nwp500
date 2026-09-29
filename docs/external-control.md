@@ -232,7 +232,7 @@ All belong to the device. Unique ids are `<mac>_control_<key>`.
 | Control Next Entry | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | Control Wanted Mode, Control Wanted Setpoint | The state the plan puts the heater in now, with any surplus raise | `segment`, `grant` |
 | Control Surplus Raise | On while a raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
-| Control Last Write | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
+| Control Last Write | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
 | Control Override | On while a person's change is reported | `field`, `value`, `detected_at`, `segment`, `reports` |
 | Control Heartbeat | Updated at least every 15 minutes | none |
 | Disable External Control (button) | | Switches the feature to `disabled` |

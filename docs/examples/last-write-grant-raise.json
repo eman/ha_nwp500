@@ -63,6 +63,9 @@
         "min": 3
       }
     ],
+    "added_count": 2,
+    "removed_count": 2,
+    "truncated": false,
     "confirmed": true,
     "simulated": false,
     "owner_state": null

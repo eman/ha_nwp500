@@ -846,6 +846,10 @@ class TestPeoplesChanges:
         )
         assert planner.owned == []
         assert f"{REPORT_REMOVED}:a" in planner.reports
+        # Reported as the last write entity reported it (section 4.2).
+        assert planner.reports[f"{REPORT_REMOVED}:a"].value == (
+            entry.as_attributes()
+        )
         assert statuses(planner)["a"][0] == "removed"
         assert planner.ack("i").state == "partly_programmed"
 

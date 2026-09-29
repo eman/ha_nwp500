@@ -188,14 +188,28 @@
     "last_write_attributes": {
       "type": "object",
       "description": "Entity attributes, not part of a plan: control_last_write's attributes once a write has been made. Before the first write they are only reason: null.",
-      "required": ["reason", "added", "removed", "confirmed", "simulated", "owner_state"],
+      "required": ["reason", "added", "removed", "added_count", "removed_count", "truncated", "confirmed", "simulated", "owner_state"],
       "properties": {
         "reason": {
           "type": "string",
           "description": "plan, cleanup, near_term, grant_raise, grant_lower, precedence_exit, power_off, takeover or disable. Treat a value you do not know as opaque."
         },
-        "added": { "type": "array", "items": { "$ref": "#/$defs/entry_item" } },
-        "removed": { "type": "array", "items": { "$ref": "#/$defs/entry_item" } },
+        "added": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/entry_item" },
+          "description": "The entries the write added; null when truncated."
+        },
+        "removed": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/entry_item" },
+          "description": "The entries the write removed; null when truncated, which drops removed before added."
+        },
+        "added_count": { "type": "integer", "minimum": 0 },
+        "removed_count": { "type": "integer", "minimum": 0 },
+        "truncated": {
+          "type": "boolean",
+          "description": "True when a list is null because the attributes would exceed the recorder's 16 KiB limit, which would keep none of them. The counts are always given."
+        },
         "confirmed": {
           "type": ["boolean", "null"],
           "description": "For the whole write: true once the device read back the list sent; false from the first unconfirmed attempt (the retry may still confirm it), for a live write that could not be sent, or for a disable whose owner's list or state did not read back; null for a simulated write (shadow)."
