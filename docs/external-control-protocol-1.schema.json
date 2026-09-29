@@ -146,10 +146,10 @@
       },
       "additionalProperties": true
     },
-    "program_item": {
+    "device_entry": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: an item of control_program_hash's entries. A device entry (enable, week, hour, min, mode, param), plus owner. An entry of the feature's own also carries every key of entry_item, except that mode stays the device's mode id, and mode_name holds the mode name. The Reservation Schedule sensor's own mode_name is a display label, not this.",
-      "required": ["enable", "week", "hour", "min", "mode", "param", "owner"],
+      "description": "Entity attributes, not part of a plan: a reservation entry with the device's keys, as the heater holds it.",
+      "required": ["enable", "week", "hour", "min", "mode", "param"],
       "properties": {
         "enable": {
           "type": "integer",
@@ -161,9 +161,18 @@
         "min": { "type": "integer", "minimum": 0, "maximum": 59 },
         "mode": {
           "type": "integer",
-          "description": "The device's mode id. For the feature's own entries the mode name is in mode_name."
+          "description": "The device's mode id."
         },
-        "param": { "type": "integer" },
+        "param": { "type": "integer" }
+      },
+      "additionalProperties": true
+    },
+    "program_item": {
+      "$ref": "#/$defs/device_entry",
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: an item of control_program_hash's entries. A device entry, plus owner. An entry of the feature's own also carries every key of entry_item, except that mode stays the device's mode id, and mode_name holds the mode name. The Reservation Schedule sensor's own mode_name is a display label, not this.",
+      "required": ["owner"],
+      "properties": {
         "owner": {
           "type": "string",
           "description": "owner (the owner's entry, switched off while live), foreign (another entry the feature does not own), or the owner label of one of the feature's own: plan, near_term or guard."
@@ -245,7 +254,7 @@
           "description": "setpoint, mode, removed, foreign_entry or reservations_switched_off. Treat a value you do not know as opaque."
         },
         "value": {
-          "description": "By field: see the allOf below."
+          "description": "setpoint: half-degrees Celsius; mode: a mode name (never vacation or power_off, whose changes are not reported); removed: an entry_item; foreign_entry: a device_entry; reservations_switched_off: false."
         },
         "detected_at": { "type": "string", "format": "date-time" },
         "segment": {
@@ -260,7 +269,7 @@
         },
         {
           "if": { "properties": { "field": { "const": "mode" } } },
-          "then": { "properties": { "value": { "type": "string" } } }
+          "then": { "properties": { "value": { "$ref": "#/$defs/mode_name" } } }
         },
         {
           "if": { "properties": { "field": { "const": "removed" } } },
@@ -275,10 +284,7 @@
           "if": { "properties": { "field": { "const": "foreign_entry" } } },
           "then": {
             "properties": {
-              "value": {
-                "type": "object",
-                "required": ["enable", "week", "hour", "min", "mode", "param"]
-              },
+              "value": { "$ref": "#/$defs/device_entry" },
               "segment": { "type": "string" }
             }
           }

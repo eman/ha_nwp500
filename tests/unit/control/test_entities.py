@@ -347,6 +347,31 @@ class TestBinarySensors:
             "truncated": False,
         }
 
+    def test_every_kind_of_override_report_fits_the_schema(self, control):
+        entry = OwnedEntry("guard", "g1", WHEN, "heat_pump", 120)
+        added = {"enable": 2, "week": 2, "hour": 7, "min": 0}
+        added |= {"mode": 1, "param": 100}
+        reports = [
+            Report("setpoint", 100, WHEN, "s1"),
+            Report("mode", "high_demand", WHEN, None),
+            Report("removed", entry.as_attributes(), WHEN, "g1"),
+            Report("foreign_entry", added, WHEN, "(2, 7, 0)"),
+            Report("reservations_switched_off", False, WHEN, None),
+        ]
+        control.reports = {str(i): r for i, r in enumerate(reports)}
+        sensor = ControlOverrideBinarySensor(control, "override")
+        attrs = sensor.extra_state_attributes
+        _override_schema().validate(attrs)
+        # A mode that is not one, or an entry out of range, is not a report.
+        broken = [
+            {**attrs["reports"][1], "value": "not_a_mode"},
+            {**attrs["reports"][3], "value": {**added, "hour": 99}},
+        ]
+        for report in broken:
+            assert not _override_schema().is_valid(
+                {**attrs, "reports": [report]}
+            )
+
     def test_override_stays_within_the_recorder_limit(self, control):
         """Too large, the oldest reports go; the latest and count stay."""
         entries = [

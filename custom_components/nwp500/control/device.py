@@ -361,10 +361,10 @@ class DeviceControl:
         """Section 6.6, once per entry into `disabled`."""
         await self.store.async_clear_intent(self.mac_address)
         if self.store.disabled_done(self.mac_address):
-            if self.planner.reports:
-                # Kept from a version that did not end them on hand-back.
-                self.planner.reports = {}
-                await self._async_persist()
+            # A version that kept them on hand-back may have stored reports
+            # and what the heater was seen to hold before it.
+            self.planner.forget_people()
+            await self._async_persist()
             return
         async with self._lock:
             holds = self.holds_device

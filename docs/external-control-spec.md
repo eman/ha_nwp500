@@ -437,7 +437,7 @@ and `segment`:
 | `field` | `value` | `segment` | Ends when |
 |---|---|---|---|
 | `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` (section 5.10). An entry fires only while the reservation switch is on: one whose minute passes while it is off does not count |
-| `mode` | The mode found, as a name | The segment in force, or `null` before the first | As `setpoint` |
+| `mode` | The mode found, as a name (section 3.4). A change into or out of Vacation or power-off is not a person's change to report (section 5.9) | The segment in force, or `null` before the first | As `setpoint` |
 | `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry | The time it would have set is over, by the plan's clock: for a segment's entry (`plan`, `near_term`, `precedence_exit`), when the next segment starts; for a grant's, when the grant ends. Also when the plan in force no longer has that segment or grant, or, for a `plan` entry, no longer keeps its segment removed (section 5.4). A removed entry of the last segment lasts until a plan changes it, as that segment does. It ends whether or not the heater's status or list can be read |
 | `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` | The entry leaves the heater's list. An entry a person changes is a new entry: the old report ends and a new one begins |
 | `reservations_switched_off` | `false` | `null` | The reservation switch is on again |

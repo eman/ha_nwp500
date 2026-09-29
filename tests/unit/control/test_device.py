@@ -11,6 +11,7 @@ import pytest
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 from jsonschema import Draft202012Validator
 from nwp500.models.schedule import ReservationEntry
 from pytest_homeassistant_custom_component.common import (
@@ -261,16 +262,27 @@ class TestStart:
         assert again.last_write == write
 
     @pytest.mark.asyncio
-    async def test_disabled_ends_reports_kept_from_before(
+    async def test_disabled_forgets_what_an_earlier_version_kept(
         self, hass, control_factory, now
     ):
-        """A version that kept reports on hand-back left some stored."""
+        """Nothing an earlier version kept on hand-back survives.
+
+        It stored reports, and what the heater held before the hand-back.
+        """
         disabled = await control_factory(
             **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
         )
-        disabled.planner.reports = {
-            "setpoint": Report("setpoint", 100, now, None),
-        }
+        disabled.planner.load_document(
+            {
+                "reports": [
+                    Report("setpoint", 100, now, None).as_document(),
+                ],
+                # Live, before the hand-back: Heat Pump at 120, switch on.
+                "device_state": ["heat_pump", 120],
+                "reservations_on": True,
+                "state_seen_at": now.isoformat(),
+            }
+        )
         await disabled._async_persist()
         await disabled.async_stop()
 
@@ -278,7 +290,17 @@ class TestStart:
             **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
         )
         assert again.planner.reports == {}
-        assert again.store.stored_engine(MAC)["reports"] == []
+        stored = again.store.stored_engine(MAC)
+        assert stored["reports"] == []
+        assert stored["device_state"] is None
+        assert stored["reservations_on"] is None
+        await again.async_stop()
+
+        # Enabled again, on the owner's state (Energy Saver at 119, switch
+        # off): the hand-back is not a person's change.
+        enabled = await control_factory()
+        await enabled._async_evaluate(dt_util.utcnow())
+        assert enabled.planner.reports == {}
 
     @pytest.mark.asyncio
     async def test_state_from_an_earlier_version_is_discarded(

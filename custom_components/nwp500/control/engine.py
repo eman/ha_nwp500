@@ -453,6 +453,20 @@ class Planner:
             return f"{report.field}:{report.segment or report.value}"
         return report.field
 
+    def forget_people(self) -> None:
+        """End every report, and forget what the heater was seen to hold.
+
+        On handing back (section 6.6): people's changes were reported
+        against the plan, which is gone, and the hand-back changes the
+        heater's state and switch, which is not a person's doing. The first
+        pass after it takes a new baseline.
+        """
+        self.reports = {}
+        self._device_state = None
+        self._state_seen_at = None
+        self._reservations_on = None
+        self._reservations_on_since = None
+
     def forget_simulated(self) -> None:
         """Drop what shadow simulated, on going live.
 
@@ -737,14 +751,7 @@ class Planner:
         self.carry_state = None
         self.raise_state = None
         self.grant_rejections = {}
-        # People's changes were reported against the plan, which is gone.
-        # What the heater was seen to hold is forgotten too: the hand-back
-        # changes it, and that is not a person's doing.
-        self.reports = {}
-        self._device_state = None
-        self._state_seen_at = None
-        self._reservations_on = None
-        self._reservations_on_since = None
+        self.forget_people()
         self.commit(write)
         # The owner's program is back: the feature holds nothing.
         self.took_over = False
