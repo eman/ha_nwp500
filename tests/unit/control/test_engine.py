@@ -926,11 +926,10 @@ class TestPeoplesChanges:
         # Nothing waits to be written: b's entry is not coming back.
         assert planner.programmed_complete is True
 
-    def test_a_deleted_near_term_entry_leaves_its_segment_removed(self):
-        """The heater never took the state of a segment already begun.
+    def test_a_deleted_near_term_entry_is_not_written_again(self):
+        """Nothing else is written for it either (section 5.10).
 
-        Nothing else is written for it: not the segment before, which a
-        plan beginning in the past has, and not the segment itself.
+        Not the segment before it, which a plan beginning in the past has.
         """
         planner = planner_with(
             [
@@ -953,27 +952,23 @@ class TestPeoplesChanges:
         )
         assert run(planner, minutes(2), without) is None
         assert run(planner, minutes(10), without) is None
-        ack = {s.id: s for s in planner.ack("i").segments}
-        assert ack["a"].status == "removed"
-        assert ack["a"].detail["in_force"] is False
-        assert ack["z"].detail["in_force"] is False
-        assert f"{REPORT_REMOVED}:{KIND_NEAR_TERM}:a" in planner.reports
         assert near not in planner.owned
-        # The plan still wants a; it is only not in force.
-        assert planner.wanted_state(minutes(10)) == State(
-            near.mode, near.setpoint_raw
-        )
+        assert f"{REPORT_REMOVED}:{KIND_NEAR_TERM}:a" in planner.reports
 
-    def test_a_segment_like_a_removed_one_is_still_written(self):
-        """Merging follows what took effect, not the plan alone."""
-        segments = [
-            *self.SEGMENTS,
-            segment(NOW, "c", 180, setpoint_f=130),
-            segment(NOW, "d", 240, setpoint_f=120),
+    def test_deleting_the_entry_of_a_merged_run_removes_the_run(self):
+        """A run of equal segments has one entry on the heater.
+
+        Deleting it is not undone by writing the same state at the next
+        segment of the run.
+        """
+        run_of = [
+            segment(NOW, "a1", 60, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "a2", 120, setpoint_f=140),
+            segment(NOW, "a3", 180, setpoint_f=140),
+            segment(NOW, "y", 240, setpoint_f=120),
         ]
-        planner = planner_with(segments, shadow=False)
-        entries = {e.serves: e for e in planner.owned}
-        assert "c" not in entries  # merged into b, which sets the same
+        planner = planner_with(run_of, shadow=False)
+        assert {e.serves for e in planner.owned} == {"a1", "y"}
         run(
             planner,
             minutes(1),
@@ -982,17 +977,17 @@ class TestPeoplesChanges:
                 reservations=tuple(e.as_entry() for e in planner.owned),
             ),
         )
-        without_b = tuple(
-            e.as_entry() for e in planner.owned if e.serves != "b"
+        only_y = obs(
+            reservations_enabled=True,
+            reservations=tuple(
+                e.as_entry() for e in planner.owned if e.serves == "y"
+            ),
         )
-        write = run(
-            planner,
-            minutes(2),
-            obs(reservations_enabled=True, reservations=without_b),
-        )
-        # b is gone, so c changes the state again: it gets its entry.
-        assert write is not None
-        assert "c" in {e.serves for e in write.added}
+        assert run(planner, minutes(2), only_y) is None
+        assert run(planner, minutes(61), only_y) is None
+        now_status = {s.id: s.status for s in planner.ack("i").segments}
+        assert now_status["a1"] == "removed"
+        assert now_status["a2"] == now_status["a3"] == "merged"
 
     def test_a_removal_ends_though_nothing_is_read(self):
         """Neither the heater's status nor its list is needed."""

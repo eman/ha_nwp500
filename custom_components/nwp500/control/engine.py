@@ -285,9 +285,6 @@ class Planner:
         self.grant_rejections: dict[str, str] = {}
         self.reports: dict[str, Report] = {}
         self.removed_segments: set[str] = set()
-        # Begun segments whose near-term entry a person removed, with the
-        # state it would have set (section 5.10).
-        self.declined: dict[str, State] = {}
         self.last_write: Write | None = None
         self.raise_state: RaiseState | None = None
         self.suspended_by: str | None = None
@@ -343,9 +340,6 @@ class Planner:
             else None,
             "reports": [r.as_document() for r in self.reports.values()],
             "removed_segments": sorted(self.removed_segments),
-            "declined": {
-                k: [v.mode, v.setpoint_raw] for k, v in self.declined.items()
-            },
             "last_write": self.last_write.as_document()
             if self.last_write
             else None,
@@ -404,10 +398,6 @@ class Planner:
             report = _current_shape(Report.from_document(raw))
             self.reports[self._report_key(report)] = report
         self.removed_segments = set(document.get("removed_segments", []))
-        self.declined = {
-            str(k): State(str(v[0]), int(v[1]))
-            for k, v in (document.get("declined") or {}).items()
-        }
         if raw_write := document.get("last_write"):
             self.last_write = Write.from_document(raw_write)
         if raw_raise := document.get("raise"):
@@ -474,7 +464,6 @@ class Planner:
         """
         self.reports = {}
         self.removed_segments = set()
-        self.declined = {}
         self.forget_seen()
 
     def forget_seen(self) -> None:
@@ -499,7 +488,6 @@ class Planner:
         self.extra = []
         self.asserted = set()
         self.removed_segments = set()
-        self.declined = {}
         self.readback = {}
         self._checked = set()
         self.mode_confirmed = set()
@@ -533,9 +521,7 @@ class Planner:
                 state is not None and state == previous and not segment.reassert
             )
             result.append((segment, state, merged))
-            # A removed segment never took effect: the next one is merged
-            # only into what did (section 5.10).
-            if state is not None and segment.id not in self.removed_segments:
+            if state is not None:
                 previous = state
         return result
 
@@ -646,10 +632,6 @@ class Planner:
             if e.kind not in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
             or (e.serves, State(e.mode, e.setpoint_raw)) == keep
         ]
-        # Still declined while the new plan wants the same of that segment.
-        self.declined = {
-            k: v for k, v in self.declined.items() if (k, v) == keep
-        }
         self._reconcile_raise(previous, now, restoring=restoring)
         # A plan entry already programmed with the same state serves the
         # new plan's segment of the same id too.
@@ -1216,13 +1198,6 @@ class Planner:
                 continue
             if owned_entry.kind == KIND_PLAN and owned_entry.serves:
                 self.removed_segments.add(owned_entry.serves)
-            elif owned_entry.kind == KIND_NEAR_TERM and owned_entry.serves:
-                # It was to put a segment already begun in force: the heater
-                # keeps what it had. Only what is reported changes; the plan
-                # still wants that segment, and nothing else is written.
-                self.declined[owned_entry.serves] = State(
-                    owned_entry.mode, owned_entry.setpoint_raw
-                )
             rs = self.raise_state
             if rs is not None and owned_entry == rs.entry:
                 # The raise never fired: there is none to track or bound.
@@ -1989,13 +1964,7 @@ class Planner:
                     ),
                     None,
                 )
-            # A segment whose near-term entry a person removed never took
-            # effect, though the plan still wants it.
-            in_force = (
-                anchor is not None
-                and anchor[0].id == segment.id
-                and segment.id not in self.declined
-            )
+            in_force = anchor is not None and anchor[0].id == segment.id
             detail: dict[str, Any] = {
                 "fires_at": fires_at.isoformat() if fires_at else None,
                 "in_force": in_force,
@@ -2011,9 +1980,7 @@ class Planner:
                 s.start <= now and not m and s.id not in self.removed_segments
                 for s, _, m in timeline[index + 1 :]
             )
-            if segment.id in self.removed_segments or (
-                segment.id in self.declined and segment.start <= now
-            ):
+            if segment.id in self.removed_segments:
                 status = STATUS_REMOVED
             elif merged:
                 status = STATUS_MERGED

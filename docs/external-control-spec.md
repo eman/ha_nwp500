@@ -518,11 +518,11 @@ confirmed its mode, section 5.11; `null` otherwise), and its opaque keys.
 | `scheduled` | Not yet programmed: beyond the horizon, or waiting for room (section 5.3), with that `reason`. Also, with no reason, a segment starting within `near_term_lead_min`, too close to program: it is asserted by a near-term entry once it begins (section 5.2) |
 | `pending` | Being written. A segment that has begun is `pending` until the near-term entry that puts it in force is on the device |
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
-| `merged` | It sets the same state as the segment before it that took effect, so it needs no entry. A segment after a removed one is compared with the segment before that |
+| `merged` | It sets the same state as the segment before it, so it needs no entry. It goes with that segment: if a person removed its entry, the merged segment does not take effect either |
 | `in_force` | It has started and read-back matches (section 5.11) |
 | `ended` | A later segment has taken effect. A `merged` segment, or one a person removed, leaves the one before it in force |
 | `failed` | A list write or read-back failed after its retry |
-| `removed` | A person removed its entry on the device, or, for a segment already begun, the near-term entry that would have put it in force (section 5.10). It never takes effect. For a segment yet to start, the segment before it holds over its time; for one already begun, the heater keeps the state it had, while the plan still wants that segment |
+| `removed` | A person removed its entry on the device (section 5.10). It never takes effect: the segment before it holds over its time, and over any merged segments that follow it |
 
 A segment's `reason`, when it has one:
 
@@ -853,13 +853,11 @@ adopt them into the plan. The scheduler decides.
   - A plan entry a person deletes is not restored (section 5.4). Its segment
     is `removed`, and the segment before it holds over its time.
   - Any other entry of the feature's that a person deletes is not written
-    again either, and is reported as `removed` too. A near-term entry puts a
-    segment already begun in force, so that segment is `removed` as well:
-    it is not in force and not asserted again, and the heater keeps the
-    state it had. The plan still wants it, so the wanted entities show its
-    state. A precedence-exit entry re-asserts a segment that was already in
-    force, and the heater comes back in its state, so deleting one changes
-    nothing else. For a grant's entries, see section 5.7.
+    again either, and is reported as `removed` on the override entity.
+    Nothing else is written in its place. The acknowledgement does not yet
+    reflect every such deletion: a segment already begun whose near-term or
+    precedence-exit entry was deleted keeps the status it had. For a
+    grant's entries, see section 5.7.
   - An entry a person adds is kept as read and reported as `foreign_entry`.
     It counts against the budget, and it fires as the person set it.
   - A person turning the reservation switch off stops every entry. It is
