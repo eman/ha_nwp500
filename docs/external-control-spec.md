@@ -1125,6 +1125,34 @@ cost a write and its read-back; and the heater's clock runs about 4 s ahead
 of Home Assistant's, so an entry's change arrived before its minute and was
 taken for a person's.
 
+### 8.2 The deletion trial (#171)
+
+Run on the same heater on 2026-09-30, 09:07–12:27 PDT, with main at 88efbfc
+(#176–#180), to check section 5.10 on the heater. The owner's program was
+the same as in 8.1: Heat Pump at 141.8 °F, reservations off, and one
+Saturday entry. The trial went live through the options flow, with live
+segments and without grants, and published plans to the intent entity. A
+person's deletion was made with the integration's `update_reservations`
+service, a list without the entry, and Vacation with `set_away_mode`.
+Every stage used Heat Pump only, and both Vacation stages ran with the
+compressor idle and the tank full. Times are PDT.
+
+| Stage | What was done | Result |
+|---|---|---|
+| Going live | `live`, segments only | The first write, a near-term entry re-asserting the segment in force, was not confirmed. Its retry 60 s later was, with the entry moved to the next minute it could make. The switch came on and the owner's entry went off by its flag |
+| 1. A deleted near-term entry | A plan whose segment in force (`t1`, 140.0 °F) began a minute before; its near-term entry (09:16) deleted before it fired | `t1` went `removed`, not in force, and the ack `partly_programmed`. Nothing was written again, before or after 09:16. The wanted state stayed at 141.8 °F, the state before the plan, and the heater stayed there. The deletion was reported on the override entity |
+| 2. A new plan | The same segments, as a new document | The near-term entry for `t1` was written again (09:21), fired, and the heater went to 140.0 °F: the new plan is the scheduler's answer (5.6). The removal and its report ended |
+| 3. A deleted exit, the segment already in force | Vacation on 12:07:45 and off 12:10:51 within segment `t2` (141.8 °F); the exit for `t2` (12:13) deleted | `t2` stayed in force, not `removed`: the exit only re-asserted it. Nothing was written again. The deletion was reported |
+| 4. A deleted exit, the segment begun in Vacation | A plan with `v1` (141.8 °F) in force and `v2` (140.0 °F) at 12:20; Vacation on 12:15:07 and off 12:22:03; the exit for `v2` (12:25) deleted | `v2` went `removed` and `v1` back in force. The heater stayed at 141.8 °F, and nothing was written again |
+| 5. Hand-back | The Disable button | The owner's list came back: the Saturday entry enabled, reservations off, and Heat Pump at 141.8 °F on the heater |
+
+Eight list writes were sent, the hand-back's included; one confirmation was
+lost, and its retry was confirmed. One read-back finding: `v2`'s plan entry,
+whose minute passed in Vacation and which the heater skipped, was checked
+after Vacation ended and flagged `not_applied_on_device`. Read-back does not
+yet leave out an entry skipped in Vacation. Here `v2` was removed
+afterwards, which its status shows instead.
+
 ---
 
 ## 9. Out of scope
