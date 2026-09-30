@@ -41,63 +41,63 @@
   "options": {
     "step": {
       "init": {
-        "title": "NWP500 Options",
-        "description": "Configure advanced settings for your Navien NWP500 integration.",
+        "title": "NWP500 options",
+        "description": "Settings for this Navien NWP500.",
         "data": {
           "scan_interval": "Update interval (seconds)",
           "control_enabled": "External control"
         },
         "data_description": {
-          "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds.",
-          "control_enabled": "Let an external scheduler control the heater through an intent entity. Off by default; enabling starts in shadow mode, which writes nothing. See docs/external-control.md."
+          "scan_interval": "How often Home Assistant asks the heater for its status, from 10 to 300 seconds. Shorter gives fresher readings and more traffic. Default: 30.",
+          "control_enabled": "Let a scheduler you run, for example one following electricity prices or solar, set the heater's temperature and mode over time. It starts in shadow mode, which only shows what it would do. The next page has its settings."
         }
       },
       "external_control": {
-        "title": "External control (protocol 1)",
-        "description": "The scheduler publishes each plan to the intent entity: its state is the intent id and its attributes are the plan. The feature programs the plan into the heater's reservation list, so the heater keeps following it if Home Assistant is unavailable. Shadow mode plans and reports what it would program, and writes nothing. Live mode, when offered, writes the list.",
+        "title": "External control",
+        "description": "Your scheduler publishes a plan: when to change the heater's temperature and mode. This feature turns the plan into entries in the heater's own schedule, so the heater keeps following it even when Home Assistant is down. In shadow mode it only shows what it would write; in live mode it writes to the heater. The plan's format is in docs/external-control.md.",
         "data": {
-          "control_intent_entity": "Intent entity",
+          "control_intent_entity": "Plan entity",
           "control_mode": "Mode",
-          "control_surplus_entity": "Surplus entity",
+          "control_live_segments": "Live: follow the plan",
+          "control_live_grants": "Live: surplus raises",
+          "control_surplus_entity": "Surplus sensor",
           "control_surplus_threshold_kw": "Surplus threshold",
-          "control_setpoint_min": "Setpoint minimum",
-          "control_setpoint_max": "Setpoint maximum",
+          "control_setpoint_min": "Lowest temperature",
+          "control_setpoint_max": "Highest temperature",
           "control_allowed_modes": "Allowed modes",
-          "control_assisted_mode": "Assisted mode",
-          "control_reservation_entry_limit": "Reservation entry limit",
-          "control_reservation_entry_reserve": "Reservation entry reserve",
-          "control_min_run_before_lower_min": "Minimum run before lowering a surplus raise",
-          "control_live_segments": "Live: segments",
-          "control_live_grants": "Live: surplus grants"
+          "control_assisted_mode": "Faster-recovery mode",
+          "control_min_run_before_lower_min": "Minimum run before taking a raise back",
+          "control_reservation_entry_limit": "Schedule entries to use",
+          "control_reservation_entry_reserve": "Schedule entries kept free"
         },
         "data_description": {
-          "control_intent_entity": "Any entity whose state changes on every new intent and whose attributes carry the intent document.",
-          "control_mode": "Shadow plans the reservation list and reports it without writing anything. Live writes it to the heater. Disabled hands the heater back to the owner's program once, then writes nothing further.",
-          "control_surplus_entity": "A binary sensor (on = surplus) or a power sensor in kW. Required for surplus grants.",
-          "control_surplus_threshold_kw": "For a power sensor: surplus when its value is at or above this. Default is the heat pump's running power.",
-          "control_setpoint_min": "Leave empty to follow the device's own minimum. A plan's \"min\" setpoint means this value.",
-          "control_setpoint_max": "Leave empty to follow the device's own maximum.",
-          "control_allowed_modes": "Modes a plan's segments may use. Vacation and power-off are never allowed. Start a cut-over with one mode, so no entry changes the mode.",
-          "control_assisted_mode": "The mode a scheduler should use for faster recovery. Must be one of the allowed modes.",
-          "control_reservation_entry_limit": "The most reservation entries the feature lets the list hold. The unit tested held 32; 16 leaves room.",
-          "control_reservation_entry_reserve": "Entries kept free for changes needed now: a segment already begun, and surplus raises. Must be below the limit.",
-          "control_min_run_before_lower_min": "A surplus raise is lowered once surplus has been gone for 15 minutes, but not before the compressor has run this long. It is always lowered when the compressor stops.",
-          "control_live_segments": "In live, write the plan's segments to the heater. Off: segments are evaluated as in shadow.",
-          "control_live_grants": "In live, write surplus raises too. Needs live segments."
+          "control_intent_entity": "The entity your scheduler publishes plans to, such as an MQTT sensor. Its state is the plan's id and its attributes are the plan.",
+          "control_mode": "Shadow works out the schedule and shows it, but writes nothing to the heater. Live writes it to the heater: after this page you confirm your heater's current program, and only then does it go live. Disabled puts your heater's own program back once, then stops.",
+          "control_live_segments": "In live mode, write the plan's temperature and mode changes to the heater. When off, they are only shown, as in shadow.",
+          "control_live_grants": "In live mode, also raise the temperature when there is spare power, as far as the plan allows. Needs \"Live: follow the plan\".",
+          "control_surplus_entity": "Tells the feature when there is spare power: a binary sensor that is on during surplus, or a power sensor in kW. Needed for surplus raises.",
+          "control_surplus_threshold_kw": "For a power sensor: there is surplus when it reads at or above this. The default is about what the heat pump draws while running.",
+          "control_setpoint_min": "The lowest temperature a plan may set. Leave empty to use the heater's own minimum. A plan asking for \"min\" gets this temperature.",
+          "control_setpoint_max": "The highest temperature a plan or a surplus raise may set. Leave empty to use the heater's own maximum.",
+          "control_allowed_modes": "The modes a plan may choose. Vacation and power off are never allowed. When first going live, allowing only one mode keeps the heater from switching modes.",
+          "control_assisted_mode": "The mode a scheduler should use when it needs hot water back quickly. It must be one of the allowed modes.",
+          "control_min_run_before_lower_min": "When the spare power goes, a surplus raise is taken back after 15 minutes, but not before the compressor has run this long. A plan can set its own times. A raise is always taken back when the compressor stops.",
+          "control_reservation_entry_limit": "The most entries the feature puts in the heater's schedule. The heater tested held 32, so 16 leaves room for your own.",
+          "control_reservation_entry_reserve": "Entries held back for changes that must happen right away, such as a surplus raise. Must be fewer than the entries to use."
         }
       },
       "going_live": {
-        "title": "Going live: the owner's program",
-        "description": "Live mode replaces the heater's own program with the plan. This is the program disabling will restore:\n\n{program}\n\nWhile live, the reservation switch is on and each of these entries is switched off by its own enable flag. The entries stay on the heater. Submit to confirm and go live."
+        "title": "Confirm going live",
+        "description": "Going live replaces your heater's own schedule with the plan. This is your heater's current program, which comes back when you disable external control:\n\n{program}\n\nWhile live, the heater's schedule switch is on, and your own entries are switched off but kept. Submit to go live now."
       }
     },
     "error": {
-      "setpoint_range": "The minimum must be below the maximum.",
-      "reserve_exceeds_limit": "The reserve must be below the entry limit.",
+      "setpoint_range": "The lowest temperature must be below the highest.",
+      "reserve_exceeds_limit": "Keep fewer entries free than the entries to use.",
       "allowed_modes_empty": "Allow at least one mode.",
-      "assisted_mode_not_allowed": "The assisted mode must be one of the allowed modes.",
-      "owner_snapshot_unavailable": "The heater's program cannot be read yet. Wait for the heater to report its mode, setpoint and reservation list, and take it out of vacation or power-off, then submit again.",
-      "grants_need_segments": "Surplus grants can be live only with segments live."
+      "assisted_mode_not_allowed": "The faster-recovery mode must be one of the allowed modes.",
+      "owner_snapshot_unavailable": "Your heater's program can't be read yet. Wait until the heater reports its mode, temperature and schedule, and take it out of vacation or power off, then submit again.",
+      "grants_need_segments": "Surplus raises can be live only when \"Live: follow the plan\" is on."
     }
   },
   "entity": {
@@ -907,9 +907,9 @@
   "selector": {
     "control_mode": {
       "options": {
-        "shadow": "Shadow (evaluate and report, write nothing)",
-        "live": "Live (write the reservation list)",
-        "disabled": "Disabled (hand back once, then write nothing)"
+        "shadow": "Shadow: show what it would do, write nothing",
+        "live": "Live: write to the heater",
+        "disabled": "Disabled: give the heater its own program back, then stop"
       }
     },
     "control_mode_name": {
