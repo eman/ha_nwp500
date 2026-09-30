@@ -41,15 +41,15 @@
   "options": {
     "step": {
       "init": {
-        "title": "NWP500 options",
-        "description": "Settings for this Navien NWP500.",
+        "title": "NWP500 Options",
+        "description": "Configure advanced settings for your Navien NWP500 integration.",
         "data": {
           "scan_interval": "Update interval (seconds)",
           "control_enabled": "External control"
         },
         "data_description": {
-          "scan_interval": "How often Home Assistant asks the heater for its status, from 10 to 300 seconds. Shorter gives fresher readings and more traffic. Default: 30.",
-          "control_enabled": "Let a scheduler you run, for example one following electricity prices or solar, set the heater's temperature and mode over time. It starts in shadow mode, which only shows what it would do. The next page has its settings."
+          "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds.",
+          "control_enabled": "Optional, and off unless you turn it on. Lets a scheduler of your own, such as an automation or a Node-RED flow, set this water heater's temperature and mode over time. Leave it off if you don't have one."
         }
       },
       "external_control": {
