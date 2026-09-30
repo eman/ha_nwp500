@@ -1868,6 +1868,14 @@ class Planner:
         )
         if entry is None:
             return
+        # A lowering of this grant still to fire, from a raise before (one
+        # that became due while powered off waits for power, #175), would
+        # fire after the new raise and undo it.
+        self.extra = [
+            e
+            for e in self.extra
+            if not (e.kind == KIND_GRANT_LOWER and e.serves == grant.id)
+        ]
         # Always a guard, even when a segment's entry would end the raise
         # first: that entry may not reach the heater, or be removed from
         # it, and the raise must stay bounded if Home Assistant stops.
