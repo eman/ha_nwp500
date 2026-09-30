@@ -706,6 +706,14 @@ class TestExternalControlOptions:
                 "load. Default: 30 seconds."
             )
             assert set(init["data"]) == {"scan_interval", "control_enabled"}
+            # The toggle's help needs no knowledge of the feature.
+            assert init["data"]["control_enabled"] == "External control"
+            assert init["data_description"]["control_enabled"] == (
+                "Optional, and off unless you turn it on. Lets a scheduler "
+                "of your own, such as an automation or a Node-RED flow, set "
+                "this water heater's temperature and mode over time. Leave "
+                "it off if you don't have one."
+            )
 
     @pytest.mark.asyncio
     async def test_toggle_on_shows_the_control_form(self, hass: HomeAssistant):
