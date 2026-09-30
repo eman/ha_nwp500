@@ -137,3 +137,119 @@ async def test_remove_keeps_storage_if_a_heater_was_not_handed_back(
     control.async_release.assert_awaited_once()
     assert storage_key(entry.entry_id) in hass_storage
     assert feature.devices == {}
+
+
+def test_earlier_default_ids_move_to_the_documented_ones(
+    hass: HomeAssistant, entry, coordinator
+):
+    """Entity ids made from the earlier names become spec section 4's.
+
+    An id someone chose is left alone, and so is one whose target is taken.
+    """
+    from homeassistant.helpers import device_registry as dr
+
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+
+    def register(domain: str, key: str, object_id: str):
+        return registry.async_get_or_create(
+            domain,
+            DOMAIN,
+            f"{MAC}_control_{key}",
+            config_entry=entry,
+            device_id=device.id,
+            suggested_object_id=object_id,
+        )
+
+    ack = register("sensor", "ack", "nwp500_control_acknowledgement")
+    chosen = register("sensor", "heartbeat", "my_heartbeat")
+    disable = register("button", "disable", "nwp500_disable_external_control")
+    registry.async_get_or_create(
+        "binary_sensor",
+        "other",
+        "x",
+        suggested_object_id="nwp500_control_in_sync",
+    )
+    in_sync = register("binary_sensor", "in_sync", "nwp500_control_in_sync_2")
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+
+    assert registry.async_get(ack.entity_id) is None
+    assert registry.async_get("sensor.nwp500_control_ack") is not None
+    assert registry.async_get("button.nwp500_control_disable") is not None
+    assert registry.async_get(disable.entity_id) is None
+    assert registry.async_get(chosen.entity_id) is not None
+    # Not the default made from the earlier name: left alone.
+    assert registry.async_get(in_sync.entity_id) is not None
+
+
+def test_a_renamed_devices_earlier_default_ids_move_too(
+    hass: HomeAssistant, entry, coordinator
+):
+    """PR #190 review: the default was made from the name the device had."""
+    from homeassistant.helpers import device_registry as dr
+
+    devices = dr.async_get(hass)
+    device = devices.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+    ack = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MAC}_control_ack",
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id="nwp500_control_acknowledgement",
+    )
+    devices.async_update_device(device.id, name_by_user="Garage Heater")
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+
+    assert registry.async_get(ack.entity_id) is None
+    assert registry.async_get("sensor.garage_heater_control_ack") is not None
+
+
+def test_a_removed_entity_comes_back_with_its_documented_id(
+    hass: HomeAssistant, entry, coordinator
+):
+    """PR #190 review: switched off before the update, then on again.
+
+    The registry keeps a removed entity's id and gives it back when the
+    entity is created again, ahead of the new suggestion.
+    """
+    from homeassistant.helpers import device_registry as dr
+
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+    ack = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MAC}_control_ack",
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id="nwp500_control_acknowledgement",
+    )
+    registry.async_remove(ack.entity_id)
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+    again = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MAC}_control_ack",
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id="nwp500_control_ack",
+    )
+
+    assert again.entity_id == "sensor.nwp500_control_ack"
