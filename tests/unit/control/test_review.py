@@ -379,7 +379,9 @@ class TestCopilotReview:
         assert restarted._raised_in_cycle is True
         assert restarted._cycle_started_at == planner._cycle_started_at
 
-    def test_a_removed_segment_moved_to_a_new_start_is_programmed(self):
+    @pytest.mark.parametrize("start", [60, 90])
+    def test_a_new_plan_programs_a_removed_segment_again(self, start):
+        """Moved or not: the new plan is the scheduler's answer (5.6)."""
         planner = planner_with(shadow=False, **LIVE)
         give(
             planner,
@@ -393,24 +395,13 @@ class TestCopilotReview:
             planner,
             [
                 segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
-                segment(NOW, "b", 90, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", start, mode="heat_pump", setpoint_f=140),
             ],
             intent_id="i-2",
             observed=device_obs(planner),
         )
-        assert "b" not in planner.removed_segments
-        # Unmoved, it stays removed.
-        planner.removed_segments = {"b"}
-        give(
-            planner,
-            [
-                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
-                segment(NOW, "b", 90, mode="heat_pump", setpoint_f=140),
-            ],
-            intent_id="i-3",
-            observed=device_obs(planner),
-        )
-        assert planner.removed_segments == {"b"}
+        assert planner.removed_segments == set()
+        assert "b" in {e.serves for e in planner.owned}
 
     @pytest.mark.asyncio
     async def test_a_controller_that_fails_to_start_stops_the_others(

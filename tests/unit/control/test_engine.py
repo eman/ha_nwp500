@@ -1110,17 +1110,24 @@ class TestPeoplesChanges:
         )
         assert foreign.value == added
 
-    def test_a_removal_lasts_while_the_plan_keeps_its_segment(self):
+    def test_a_new_plan_is_the_answer_to_a_removal(self):
+        """Section 5.6: a new plan is programmed as it stands.
+
+        The scheduler saw the removal; publishing a plan with that segment
+        again writes its entry again, and the report ends.
+        """
         planner, only_b = self._remove_a()
-        give(planner, self.SEGMENTS, now=minutes(3), observed=only_b)
-        assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" in planner.reports
-        # A plan that moves a writes its entry again; the report goes.
-        moved = [
-            segment(NOW, "a", 70, mode="energy_saver", setpoint_f=140),
-            self.SEGMENTS[1],
-        ]
-        give(planner, moved, now=minutes(4), observed=only_b)
+        write = give(
+            planner,
+            self.SEGMENTS,
+            now=minutes(3),
+            observed=only_b,
+            intent_id="i-2",
+        )
+        assert write is not None
+        assert (KIND_PLAN, "a") in {(e.kind, e.serves) for e in write.added}
         assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" not in planner.reports
+        assert planner.removed_segments == set()
 
     def test_removals_of_two_kinds_for_one_item_are_both_reported(self):
         """A grant's raise and its guard: one report each."""
@@ -1617,18 +1624,11 @@ class TestPowerOff:
         assert again.owned == planner.owned
 
 
-# The engine still reasons from the plan's timeline when a person deletes
-# a near-term, precedence-exit or corrective entry (issue #171). Strict: a
-# fix makes these pass, and CI fails until the marker is removed.
-_GAP_171 = pytest.mark.xfail(
-    strict=True, reason="#171: deletions beyond plan entries"
-)
+class TestEffectiveTimeline:
+    """A person deleting any of the feature's entries (#171, section 5.10).
 
-
-class TestDeletionGaps:
-    """A person deleting one of the feature's entries, beyond a plan entry.
-
-    Each test states what should happen, and fails today (#171).
+    The segment the entry would have put in force never takes effect: the
+    state before it holds, and nothing is written for that state.
     """
 
     def _on_heater(self, planner: Planner, **overrides) -> Observed:
@@ -1638,7 +1638,16 @@ class TestDeletionGaps:
             **overrides,
         )
 
-    @_GAP_171
+    def _without(self, planner: Planner, drop, **overrides) -> Observed:
+        """The heater's list, less the owned entries `drop` selects."""
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(
+                e.as_entry() for e in planner.owned if not drop(e)
+            ),
+            **overrides,
+        )
+
     def test_a_segment_whose_near_term_entry_was_deleted_is_not_in_force(
         self,
     ):
@@ -1656,13 +1665,28 @@ class TestDeletionGaps:
                 e.as_entry() for e in planner.owned if e.kind != KIND_NEAR_TERM
             ),
         )
-        run(planner, minutes(2), without)
-        run(planner, minutes(10), without)
+        assert run(planner, minutes(2), without) is None
+        assert run(planner, minutes(10), without) is None
         (a,) = (s for s in planner.ack("i").segments if s.id == "a")
         assert a.detail["in_force"] is False
         assert a.status == "removed"
+        # The heater keeps the state it had when the plan arrived.
+        assert planner.wanted_state(minutes(10)) == State(
+            "energy_saver", OWNER_SETPOINT
+        )
+        assert planner.segment_in_force(minutes(10)) is None
+        # b is still programmed, and takes effect at its minute.
+        b = next(e for e in planner.owned if e.serves == "b")
+        at_b = obs(
+            mode=b.mode,
+            setpoint_raw=b.setpoint_raw,
+            reservations_enabled=True,
+            reservations=(b.as_entry(),),
+        )
+        run(planner, minutes(121), at_b)
+        assert planner.segment_in_force(minutes(121)) == "b"
+        assert statuses(planner)["a"][0] == "removed"
 
-    @_GAP_171
     def test_a_deleted_exit_leaves_a_segment_begun_in_vacation_out(self):
         """Segment b begins during Vacation; its exit entry is deleted.
 
@@ -1692,12 +1716,26 @@ class TestDeletionGaps:
             ),
             **on_a,
         )
-        run(planner, minutes(42), without_exit)
-        run(planner, minutes(50), without_exit)
-        (b,) = (s for s in planner.ack("i").segments if s.id == "b")
-        assert b.detail["in_force"] is False
+        assert run(planner, minutes(42), without_exit) is None
+        assert run(planner, minutes(50), without_exit) is None
+        ack = {s.id: s for s in planner.ack("i").segments}
+        assert ack["b"].detail["in_force"] is False
+        assert ack["b"].status == "removed"
+        # The state the heater came back in holds.
+        assert ack["a"].detail["in_force"] is True
+        assert planner.wanted_state(minutes(50)) == State("heat_pump", 120)
+        # Its mode is read from the heater's behaviour, not against b's
+        # entry, which fired during Vacation and was skipped.
+        running = self._without(
+            planner,
+            lambda e: e.kind == KIND_PRECEDENCE_EXIT,
+            elements_on=False,
+            **on_a,
+        )
+        run(planner, minutes(51), running)
+        (a,) = (s for s in planner.ack("i").segments if s.id == "a")
+        assert a.detail["mode_confirmed"] is True
 
-    @_GAP_171
     def test_a_removed_segment_does_not_stop_a_raise_before_it(self):
         """Segment b's entry is gone: it cannot undo a raise at its minute."""
         running = {
@@ -1733,3 +1771,1021 @@ class TestDeletionGaps:
         write = run(planner, minutes(10), without_b)
         assert write is not None
         assert KIND_GRANT_RAISE in {e.kind for e in write.added}
+
+    # The rest pin one rule across every kind of deletion: the state before
+    # holds, and nothing is written for it.
+
+    def test_a_plan_begun_in_the_past_does_not_fall_back_to_its_past(self):
+        """Segment z ended before the plan arrived: it never took effect.
+
+        With a's near-term entry deleted, the state the heater had holds,
+        and z's is not written.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "z", -60, mode="electric", setpoint_f=120),
+                segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 120, setpoint_f=130),
+            ],
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner))
+        without = self._without(planner, lambda e: e.kind == KIND_NEAR_TERM)
+        for m in (2, 10, 60, 119):
+            assert run(planner, minutes(m), without) is None
+        ack = {s.id: s for s in planner.ack("i").segments}
+        assert ack["z"].status == "ended"
+        assert ack["z"].detail["in_force"] is False
+        assert ack["a"].status == "removed"
+        assert not any(s.detail["in_force"] for s in ack.values())
+        assert planner.wanted_state(minutes(119)) == State(
+            "energy_saver", OWNER_SETPOINT
+        )
+
+    def test_a_deleted_exit_for_a_segment_already_in_force_changes_nothing(
+        self,
+    ):
+        """Vacation began and ended within a: the heater came back in a."""
+        planner = planner_with(
+            [
+                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 120, mode="energy_saver", setpoint_f=130),
+            ],
+            shadow=False,
+        )
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        # The pass one minute after a's near-term entry's minute, which the
+        # planner schedules: the entry is found to have fired.
+        run(planner, minutes(3), self._on_heater(planner, **on_a))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        write = run(planner, minutes(41), self._on_heater(planner, **on_a))
+        assert write is not None
+        assert {e.kind for e in write.added} == {KIND_PRECEDENCE_EXIT}
+        without = self._without(
+            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_a
+        )
+        assert run(planner, minutes(42), without) is None
+        assert run(planner, minutes(50), without) is None
+        ack = {s.id: s for s in planner.ack("i").segments}
+        assert ack["a"].status == "in_force"
+        assert ack["a"].detail["in_force"] is True
+        assert "a" not in planner.removed_segments
+        # Reported all the same: a person deleted it.
+        assert f"{REPORT_REMOVED}:{KIND_PRECEDENCE_EXIT}:a" in planner.reports
+
+    @pytest.mark.parametrize("began_during", [True, False])
+    def test_a_deleted_power_off_exit(self, began_during):
+        """As with Vacation: only a segment begun while off is left out."""
+        planner = planner_with(
+            [
+                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            shadow=False,
+        )
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        # The pass one minute after a's near-term entry's minute, which the
+        # planner schedules: the entry is found to have fired.
+        run(planner, minutes(3), self._on_heater(planner, **on_a))
+        back = 41 if began_during else 20
+        run(planner, minutes(10), self._on_heater(planner, mode="power_off"))
+        run(planner, minutes(11), self._on_heater(planner, mode="power_off"))
+        write = run(planner, minutes(back), self._on_heater(planner, **on_a))
+        assert write is not None
+        assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
+        (exit_entry,) = (
+            e for e in planner.owned if e.kind == KIND_PRECEDENCE_EXIT
+        )
+        served = "b" if began_during else "a"
+        assert exit_entry.serves == served
+        without = self._without(
+            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_a
+        )
+        assert run(planner, minutes(back + 1), without) is None
+        assert run(planner, minutes(back + 5), without) is None
+        in_force = planner.segment_in_force(minutes(back + 5))
+        assert in_force == "a"
+        assert (served in planner.removed_segments) is began_during
+
+    def test_deleting_a_merged_runs_entry_writes_nothing_through_the_run(
+        self,
+    ):
+        """With nothing before the run, the state before the plan holds."""
+        run_of = [
+            segment(NOW, "a1", 60, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "a2", 120, setpoint_f=140),
+            segment(NOW, "a3", 180, setpoint_f=140),
+            segment(NOW, "y", 240, setpoint_f=120),
+        ]
+        planner = planner_with(run_of, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner))
+        only_y = self._without(planner, lambda e: e.serves != "y")
+        for m in (2, 61, 121, 181):
+            assert run(planner, minutes(m), only_y) is None
+        assert planner.segment_in_force(minutes(181)) is None
+        assert planner.wanted_state(minutes(181)) == State(
+            "energy_saver", OWNER_SETPOINT
+        )
+        now_status = {s.id: s.status for s in planner.ack("i").segments}
+        assert now_status == {
+            "a1": "removed",
+            "a2": "merged",
+            "a3": "merged",
+            "y": "programmed",
+        }
+
+    def test_a_removed_segment_between_two_equal_ones(self):
+        """The later one keeps its entry, and takes effect at its minute."""
+        planner = planner_with(
+            [
+                segment(NOW, "x", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "a", 60, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "b", 120, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            observed=obs(mode="heat_pump", setpoint_raw=120),
+            shadow=False,
+        )
+        on_x = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(planner, minutes(1), self._on_heater(planner, **on_x))
+        without_a = self._without(planner, lambda e: e.serves == "a", **on_x)
+        assert run(planner, minutes(2), without_a) is None
+        assert {e.serves for e in planner.owned} == {"b", "c"}
+        assert run(planner, minutes(61), without_a) is None
+        assert planner.segment_in_force(minutes(61)) == "x"
+        run(planner, minutes(121), without_a)
+        assert planner.segment_in_force(minutes(121)) == "b"
+        ack = {s.id: s.status for s in planner.ack("i").segments}
+        assert ack == {
+            "x": "ended",
+            "a": "removed",
+            "b": "in_force",
+            "c": "programmed",
+        }
+
+    def _declined_a(self) -> tuple[Planner, Observed]:
+        """Live, with a person deleting segment a's near-term entry."""
+        planner = planner_with(
+            [
+                segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 120, setpoint_f=130),
+            ],
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner))
+        without = self._without(planner, lambda e: e.kind == KIND_NEAR_TERM)
+        assert run(planner, minutes(2), without) is None
+        assert "a" in planner.removed_segments
+        return planner, without
+
+    @pytest.mark.parametrize("rename", [False, True])
+    def test_a_new_plan_asserts_what_a_person_kept_out(self, rename):
+        """A new plan is the scheduler's answer to the removal (5.6).
+
+        Published again, as it was or renamed, it puts a in force.
+        """
+        planner, without = self._declined_a()
+        first = "a2" if rename else "a"
+        write = give(
+            planner,
+            [
+                segment(NOW, first, -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 120, setpoint_f=130),
+            ],
+            now=minutes(5),
+            observed=without,
+            intent_id="i-2",
+        )
+        assert write is not None
+        assert [(e.kind, e.serves) for e in write.added] == [
+            (KIND_NEAR_TERM, first)
+        ]
+        assert planner.removed_segments == set()
+        assert f"{REPORT_REMOVED}:{KIND_NEAR_TERM}:a" not in planner.reports
+
+    def test_the_same_document_again_keeps_the_segment_out(self):
+        """Received again (the source came back), it is not adopted again.
+
+        That is the device controller's rule (section 5.4); restoring at
+        start-up keeps the removal likewise (below).
+        """
+        planner, without = self._declined_a()
+        assert run(planner, minutes(10), without) is None
+        assert statuses(planner)["a"][0] == "removed"
+        assert planner.segment_in_force(minutes(10)) is None
+        assert planner.wanted_state(minutes(10)) == State(
+            "energy_saver", OWNER_SETPOINT
+        )
+
+    def test_a_new_plan_wanting_another_state_now_is_asserted(self):
+        planner, without = self._declined_a()
+        write = give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="electric", setpoint_f=130),
+                segment(NOW, "b", 120, setpoint_f=130),
+            ],
+            now=minutes(5),
+            observed=without,
+            intent_id="i-2",
+        )
+        assert write is not None
+        assert [(e.kind, e.serves) for e in write.added] == [
+            (KIND_NEAR_TERM, "a")
+        ]
+        assert "a" not in planner.removed_segments
+
+    @pytest.mark.parametrize("at", [10, 125])
+    def test_a_restart_keeps_the_segment_declined(self, at):
+        """During a, or after b began: nothing is written either way."""
+        planner, without = self._declined_a()
+        b = next(e for e in planner.owned if e.serves == "b")
+        seen = without
+        if at > 120:
+            seen = obs(
+                mode=b.mode,
+                setpoint_raw=b.setpoint_raw,
+                reservations_enabled=True,
+                reservations=without.reservations,
+            )
+        restarted = Planner(planner.capabilities, TZ, shadow=False)
+        restarted.owner = planner.owner
+        restarted.load_document(planner.as_document())
+        assert planner.plan is not None
+        restarted.set_plan(planner.plan, minutes(at), seen, restoring=True)
+        write = run(restarted, minutes(at), seen)
+        # At most fired entries are cleaned up: nothing is added.
+        assert write is None or not write.added
+        assert statuses(restarted)["a"][0] == "removed"
+        assert restarted.segment_in_force(minutes(at)) == (
+            "b" if at > 120 else None
+        )
+
+    def test_the_state_before_a_plan_holds_after_a_decline(self):
+        """A new plan keeps x and adds w, begun; w's near-term is deleted.
+
+        The state x put in force holds. x is not in force in the new plan:
+        it had ended by the new plan's clock when that plan was adopted.
+        """
+        on_x = {"mode": "heat_pump", "setpoint_raw": 120}
+        planner = planner_with(
+            [
+                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            observed=obs(**on_x),
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **on_x))
+        write = give(
+            planner,
+            [
+                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "v", -30, mode="electric", setpoint_f=120),
+                segment(NOW, "w", 0, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            now=minutes(5),
+            observed=self._on_heater(planner, **on_x),
+            intent_id="i-2",
+        )
+        assert write is not None
+        assert (KIND_NEAR_TERM, "w") in {
+            (e.kind, e.serves) for e in write.added
+        }
+        without = self._without(
+            planner, lambda e: e.kind == KIND_NEAR_TERM, **on_x
+        )
+        assert run(planner, minutes(6), without) is None
+        assert run(planner, minutes(30), without) is None
+        ack = {s.id: s for s in planner.ack("i").segments}
+        assert ack["x"].status == ack["v"].status == "ended"
+        assert ack["w"].status == "removed"
+        assert not any(s.detail["in_force"] for s in ack.values())
+        assert planner.wanted_state(minutes(30)) == State("heat_pump", 120)
+
+    @pytest.mark.parametrize("rename", [False, True])
+    def test_a_new_plan_after_a_hold_over_asserts_its_segment(self, rename):
+        """Segment b's entry was deleted and its minute passed; x holds over.
+
+        A new plan with b, as it was or renamed, puts b in force.
+        """
+        on_x = {"mode": "heat_pump", "setpoint_raw": 120}
+        segments = [
+            segment(NOW, "x", -5, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "b", 60, mode="energy_saver", setpoint_f=130),
+            segment(NOW, "c", 240, setpoint_f=120),
+        ]
+        planner = planner_with(segments, observed=obs(**on_x), shadow=False)
+        run(planner, minutes(1), self._on_heater(planner, **on_x))
+        without_b = self._without(planner, lambda e: e.serves == "b", **on_x)
+        run(planner, minutes(2), without_b)
+        assert run(planner, minutes(61), without_b) is None
+        second = "b2" if rename else "b"
+        renamed = [
+            segments[0],
+            segment(NOW, second, 60, mode="energy_saver", setpoint_f=130),
+            segments[2],
+        ]
+        write = give(
+            planner,
+            renamed,
+            now=minutes(70),
+            observed=without_b,
+            intent_id="i-2",
+        )
+        assert write is not None
+        assert (KIND_NEAR_TERM, second) in {
+            (e.kind, e.serves) for e in write.added
+        }
+        assert planner.removed_segments == set()
+
+    def test_an_exit_just_before_a_removed_segment_is_written(self):
+        """A removed segment puts nothing on the heater at its minute."""
+        on_s = {"mode": "heat_pump", "setpoint_raw": 120}
+        planner = planner_with(
+            [
+                segment(NOW, "s", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 42, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            observed=obs(**on_s),
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **on_s))
+        without_b = self._without(planner, lambda e: e.serves == "b", **on_s)
+        run(planner, minutes(2), without_b)
+        vacation = self._without(
+            planner, lambda e: e.serves == "b", mode="vacation"
+        )
+        run(planner, minutes(10), vacation)
+        write = run(planner, minutes(40), without_b)
+        assert write is not None
+        assert [(e.kind, e.serves) for e in write.added] == [
+            (KIND_PRECEDENCE_EXIT, "s")
+        ]
+
+    def _raised(self, segments) -> tuple[Planner, dict]:
+        running = {
+            "mode": "heat_pump",
+            "setpoint_raw": 120,
+            "compressor_on": True,
+            "surplus_on": True,
+        }
+        planner = planner_with(
+            segments,
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            observed=obs(**running),
+            shadow=False,
+            control_mode="live",
+            control_live_segments=True,
+            control_live_grants=True,
+            **SURPLUS,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **running))
+        run(planner, minutes(10), self._on_heater(planner, **running))
+        assert planner.raise_state is not None
+        return planner, running
+
+    def test_the_guard_follows_a_deletion_inside_the_grant(self):
+        """Segment b's entry is deleted: the guard restores s, not b."""
+        planner, running = self._raised(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 60, setpoint_f=135),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ]
+        )
+        guard = planner.raise_state.guard
+        assert guard is not None and guard.setpoint_raw == 114
+        run(planner, minutes(11), self._on_heater(planner, **running))
+        without_b = self._without(planner, lambda e: e.serves == "b", **running)
+        write = run(planner, minutes(20), without_b)
+        assert write is not None
+        (new_guard,) = (e for e in write.added if e.kind == KIND_GUARD)
+        assert (new_guard.mode, new_guard.setpoint_raw) == ("heat_pump", 120)
+        assert new_guard.fires_at == guard.fires_at
+
+    def test_lowering_after_a_removed_segment_restores_the_state_before(self):
+        planner, running = self._raised(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 60, setpoint_f=135),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ]
+        )
+        run(planner, minutes(11), self._on_heater(planner, **running))
+        without_b = self._without(planner, lambda e: e.serves == "b", **running)
+        run(planner, minutes(20), without_b)
+        stopped = {**running, "compressor_on": False, "setpoint_raw": 127}
+        write = run(
+            planner,
+            minutes(70),
+            self._without(planner, lambda e: e.serves == "b", **stopped),
+        )
+        assert write is not None
+        (lower,) = (e for e in write.added if e.kind == KIND_GRANT_LOWER)
+        assert (lower.mode, lower.setpoint_raw) == ("heat_pump", 120)
+
+    # Found by the adversarial review of the effective timeline.
+
+    def test_an_exit_deleted_while_raised_keeps_the_segment_in_force(self):
+        """Power-off within a, with a raise: the heater is not in a's state.
+
+        Whether the exit only re-asserted a comes from the timeline, not
+        the heater's state: the guard and a lowering keep restoring a.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=130),
+                segment(NOW, "a", 3, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 600, mode="energy_saver", setpoint_f=120),
+            ],
+            grants=[grant(NOW, "g", -5, 300, max_f=146)],
+            observed=obs(mode="heat_pump", setpoint_raw=109),
+            shadow=False,
+            control_mode="live",
+            control_live_segments=True,
+            control_live_grants=True,
+            **SURPLUS,
+        )
+        on_a = {
+            "mode": "heat_pump",
+            "setpoint_raw": 120,
+            "compressor_on": True,
+            "surplus_on": True,
+        }
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        for m in (4, 20, 21):
+            run(planner, minutes(m), self._on_heater(planner, **on_a))
+        assert planner.raise_state is not None
+        raised = {**on_a, "setpoint_raw": 127}
+        run(planner, minutes(25), self._on_heater(planner, **raised))
+        off = {**raised, "mode": "power_off", "compressor_on": None}
+        run(planner, minutes(30), self._on_heater(planner, **off))
+        run(planner, minutes(31), self._on_heater(planner, **off))
+        run(planner, minutes(40), self._on_heater(planner, **raised))
+
+        def no_exit(e):
+            return e.kind == KIND_PRECEDENCE_EXIT
+
+        assert (
+            run(planner, minutes(41), self._without(planner, no_exit, **raised))
+            is None
+        )
+        assert "a" not in planner.removed_segments
+        assert planner.segment_in_force(minutes(41)) == "a"
+        stopped = {**raised, "compressor_on": False}
+        write = run(
+            planner, minutes(60), self._without(planner, no_exit, **stopped)
+        )
+        assert write is not None
+        (lower,) = (e for e in write.added if e.kind == KIND_GRANT_LOWER)
+        assert (lower.mode, lower.setpoint_raw) == ("heat_pump", 120)
+
+    def test_an_exit_deleted_after_a_persons_change_keeps_the_segment(self):
+        planner = planner_with(
+            [
+                segment(NOW, "x", -5, mode="heat_pump", setpoint_f=130),
+                segment(NOW, "a", 30, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 600, mode="energy_saver", setpoint_f=120),
+            ],
+            observed=obs(mode="heat_pump", setpoint_raw=109),
+            shadow=False,
+        )
+        run(
+            planner,
+            minutes(1),
+            self._on_heater(planner, mode="heat_pump", setpoint_raw=109),
+        )
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(planner, minutes(31), self._on_heater(planner, **on_a))
+        mine = {"mode": "heat_pump", "setpoint_raw": 124}
+        run(planner, minutes(40), self._on_heater(planner, **mine))
+        vacation = {"mode": "vacation", "setpoint_raw": 124}
+        run(planner, minutes(50), self._on_heater(planner, **vacation))
+        write = run(planner, minutes(70), self._on_heater(planner, **mine))
+        assert write is not None
+        assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
+        without = self._without(
+            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **mine
+        )
+        assert run(planner, minutes(71), without) is None
+        assert statuses(planner)["a"][0] == "in_force"
+        assert planner.segment_in_force(minutes(71)) == "a"
+
+    @pytest.mark.parametrize("precedence", ["vacation", "power_off"])
+    def test_a_segment_skipped_in_precedence_is_re_asserted(self, precedence):
+        """Segment b's entry was deleted; a's was skipped in the precedence.
+
+        a is in force, not a hold-over: its exit is written.
+        """
+        on_x = {"mode": "heat_pump", "setpoint_raw": 120}
+        planner = planner_with(
+            [
+                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "a", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "b", 50, mode="electric", setpoint_f=120),
+                segment(NOW, "c", 240, mode="heat_pump", setpoint_f=120),
+            ],
+            observed=obs(**on_x),
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **on_x))
+
+        def no_b(e):
+            return e.serves == "b"
+
+        run(planner, minutes(2), self._without(planner, no_b, **on_x))
+        held = {"mode": precedence, "setpoint_raw": 120}
+        run(planner, minutes(20), self._without(planner, no_b, **held))
+        run(planner, minutes(40), self._without(planner, no_b, **held))
+        write = run(planner, minutes(60), self._without(planner, no_b, **on_x))
+        assert write is not None
+        assert (KIND_PRECEDENCE_EXIT, "a") in {
+            (e.kind, e.serves) for e in write.added
+        }
+
+    @pytest.mark.parametrize("keep_x", [False, True])
+    def test_with_nothing_in_force_the_guard_restores_the_state_before(
+        self, keep_x
+    ):
+        """A new plan wants w now; a person deletes w's near-term entry."""
+        running = {
+            "mode": "heat_pump",
+            "setpoint_raw": 120,
+            "compressor_on": True,
+            "surplus_on": True,
+        }
+        grants = [grant(NOW, "g", -5, 180, max_f=146)]
+        segments = [
+            segment(NOW, "x", -5, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "c", 400, mode="energy_saver", setpoint_f=120),
+        ]
+        planner = planner_with(
+            segments,
+            grants=grants,
+            observed=obs(**running),
+            shadow=False,
+            control_mode="live",
+            control_live_segments=True,
+            control_live_grants=True,
+            **SURPLUS,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **running))
+        run(planner, minutes(10), self._on_heater(planner, **running))
+        raised = {**running, "setpoint_raw": 127}
+        run(planner, minutes(13), self._on_heater(planner, **raised))
+        new = [
+            *(segments[:1] if keep_x else []),
+            segment(NOW, "w", 14, mode="heat_pump", setpoint_f=135),
+            segments[1],
+        ]
+        give(
+            planner,
+            new,
+            grants=grants,
+            now=minutes(15),
+            observed=self._on_heater(planner, **raised),
+            intent_id="i-2",
+        )
+
+        def no_w(e):
+            return e.kind == KIND_NEAR_TERM and e.serves == "w"
+
+        run(planner, minutes(16), self._without(planner, no_w, **raised))
+        assert "w" in planner.removed_segments
+        rs = planner.raise_state
+        assert rs is not None and rs.guard is not None
+        assert (rs.guard.mode, rs.guard.setpoint_raw) == ("heat_pump", 120)
+        # The raise is still on the heater.
+        assert planner.wanted_state(minutes(16)) == State("heat_pump", 127)
+        stopped = {**raised, "compressor_on": False}
+        write = run(
+            planner, minutes(30), self._without(planner, no_w, **stopped)
+        )
+        assert write is not None
+        (lower,) = (e for e in write.added if e.kind == KIND_GRANT_LOWER)
+        assert (lower.mode, lower.setpoint_raw) == ("heat_pump", 120)
+
+    def test_a_plan_adopted_in_vacation_falls_back_to_what_took_effect(
+        self,
+    ):
+        """Segment b began in Vacation, skipped; a new plan comes then.
+
+        Its exit for b is deleted: the state a put in force holds, not b's.
+        """
+        segments = [
+            segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+            segment(NOW, "c", 240, setpoint_f=120),
+        ]
+        planner = planner_with(segments, shadow=False)
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        # The pass after a's near-term entry fires.
+        run(planner, minutes(3), self._on_heater(planner, **on_a))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        give(
+            planner,
+            segments,
+            now=minutes(35),
+            observed=self._on_heater(planner, mode="vacation"),
+            intent_id="i-2",
+        )
+        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
+        run(planner, minutes(41), self._on_heater(planner, **on_a))
+        without = self._without(
+            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_a
+        )
+        assert run(planner, minutes(42), without) is None
+        assert run(planner, minutes(50), without) is None
+        assert statuses(planner)["b"][0] == "removed"
+        assert planner.wanted_state(minutes(50)) == State("heat_pump", 120)
+
+    def test_a_plan_adopted_in_vacation_never_wants_vacation(self):
+        vacation = {"mode": "vacation", "setpoint_raw": OWNER_SETPOINT}
+        planner = planner_with(
+            [
+                segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 240, setpoint_f=130),
+            ],
+            observed=obs(**vacation),
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **vacation))
+        run(planner, minutes(20), self._on_heater(planner))
+        without = self._without(
+            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT
+        )
+        run(planner, minutes(21), without)
+        assert "a" in planner.removed_segments
+        wanted = planner.wanted_state(minutes(30))
+        assert wanted is None or wanted.mode != "vacation"
+
+    def test_a_declined_segments_pending_entries_are_withdrawn(self):
+        """Deleting a segment's entry also withdraws its pending near-term.
+
+        And an old plan's entry, stale, is not the new plan's: deleting it
+        declines nothing.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "x", -5, mode="energy_saver", setpoint_f=120),
+                segment(NOW, "s1", 300, mode="heat_pump", setpoint_f=140),
+            ],
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner))
+        run(planner, minutes(10), self._on_heater(planner, mode="power_off"))
+        give(
+            planner,
+            [segment(NOW, "s1", 15, mode="heat_pump", setpoint_f=130)],
+            now=minutes(20),
+            observed=self._on_heater(planner, mode="power_off"),
+            intent_id="i-2",
+        )
+        assert (KIND_NEAR_TERM, "s1") in {
+            (e.kind, e.serves) for e in planner.extra
+        }
+
+        def old(e):
+            return e.kind == KIND_PLAN and e.serves == "s1"
+
+        run(planner, minutes(30), self._without(planner, old, mode="power_off"))
+        assert "s1" not in planner.removed_segments
+        write = run(planner, minutes(40), self._on_heater(planner))
+        assert write is not None
+        assert (KIND_PRECEDENCE_EXIT, "s1") in {
+            (e.kind, e.serves) for e in write.added
+        } or (KIND_NEAR_TERM, "s1") in {(e.kind, e.serves) for e in write.added}
+        # Now its pending entry is deleted: nothing more is written for it.
+        pending = self._without(
+            planner, lambda e: e.serves == "s1" and e.fires_at > minutes(41)
+        )
+        run(planner, minutes(41), pending)
+        assert "s1" in planner.removed_segments
+        assert not [e for e in planner.extra if e.serves == "s1"]
+        assert run(planner, minutes(50), pending) is None
+
+    def test_a_plan_entry_deleted_after_it_fired_leaves_its_segment(self):
+        """Seen on the heater at its minute, it fired: it took effect.
+
+        Deleted within the minute after, it still ends nothing.
+        """
+        on_x = {"mode": "heat_pump", "setpoint_raw": 120}
+        planner = planner_with(
+            [
+                segment(NOW, "x", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "a", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            observed=obs(**on_x),
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **on_x))
+        on_a = {"mode": "energy_saver", "setpoint_raw": 109}
+        run(planner, minutes(30), self._on_heater(planner, **on_a))
+        without_a = self._without(planner, lambda e: e.serves == "a", **on_a)
+        run(planner, minutes(30.5), without_a)
+        assert "a" not in planner.removed_segments
+        assert planner.segment_in_force(minutes(31)) == "a"
+
+    # Found by the second adversarial review.
+
+    def test_a_stale_list_read_does_not_count_an_entry_as_fired(self):
+        """A pass at b's minute on a list read before it, then a fresh read.
+
+        The fresh read shows b's entry gone: it never fired, so b is out.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 60, setpoint_f=120),
+            ],
+            shadow=False,
+        )
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(
+            planner,
+            minutes(1),
+            self._on_heater(planner, reservations_read_at=minutes(1), **on_a),
+        )
+        run(
+            planner,
+            minutes(3),
+            self._on_heater(planner, reservations_read_at=minutes(3), **on_a),
+        )
+        at_b = minutes(30) + timedelta(seconds=1)
+        cached = self._on_heater(
+            planner, reservations_read_at=minutes(3), **on_a
+        )
+        planner.step(at_b, cached)
+        fresh = self._without(
+            planner,
+            lambda e: e.serves == "b",
+            reservations_read_at=at_b,
+            **on_a,
+        )
+        planner.step(at_b, fresh)
+        assert "b" in planner.removed_segments
+        assert planner.segment_in_force(at_b) == "a"
+
+    def test_an_exit_for_a_segment_redefined_under_its_id_is_its_own(self):
+        """A plan in Vacation reuses s0 for another state; its exit goes.
+
+        The heater never took the new s0: it is left out.
+        """
+        on_s0 = {"mode": "heat_pump", "setpoint_raw": 120}
+        planner = planner_with(
+            [segment(NOW, "s0", -5, mode="heat_pump", setpoint_f=140)],
+            observed=obs(**on_s0),
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **on_s0))
+        vacation = {"mode": "vacation", "setpoint_raw": 120}
+        run(planner, minutes(10), self._on_heater(planner, **vacation))
+        give(
+            planner,
+            [segment(NOW, "s0", -5, mode="electric", setpoint_f=130)],
+            now=minutes(20),
+            observed=self._on_heater(planner, **vacation),
+            intent_id="i-2",
+        )
+        run(planner, minutes(21), self._on_heater(planner, **vacation))
+        write = run(planner, minutes(40), self._on_heater(planner, **on_s0))
+        assert write is not None
+        assert (KIND_PRECEDENCE_EXIT, "s0") in {
+            (e.kind, e.serves) for e in write.added
+        }
+        without = self._without(
+            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_s0
+        )
+        assert run(planner, minutes(41), without) is None
+        assert "s0" in planner.removed_segments
+        assert planner.wanted_state(minutes(41)) == State("heat_pump", 120)
+
+    def test_an_old_entry_for_a_segment_moved_earlier_is_not_its_own(self):
+        """While powered off, a new plan moves b earlier, same state.
+
+        The old plan's entry for b, still on the heater, is deleted: that
+        is not the new plan's entry, and b is not left out.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "x", -5, mode="energy_saver", setpoint_f=120),
+                segment(NOW, "b", 40, mode="heat_pump", setpoint_f=140),
+            ],
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner))
+        run(planner, minutes(5), self._on_heater(planner, mode="power_off"))
+        give(
+            planner,
+            [
+                segment(NOW, "x", -5, mode="energy_saver", setpoint_f=120),
+                segment(NOW, "b", 20, mode="heat_pump", setpoint_f=140),
+            ],
+            now=minutes(6),
+            observed=self._on_heater(planner, mode="power_off"),
+            intent_id="i-2",
+        )
+
+        def old_b(e):
+            return e.kind == KIND_PLAN and e.serves == "b"
+
+        run(
+            planner, minutes(7), self._without(planner, old_b, mode="power_off")
+        )
+        assert "b" not in planner.removed_segments
+
+    def test_a_second_entry_for_a_segment_that_took_effect_is_a_re_assert(
+        self,
+    ):
+        """An exit fired and put b in force; its later near-term is deleted.
+
+        b stays in force: that entry could only re-assert it.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            shadow=False,
+        )
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        on_b = {"mode": "energy_saver", "setpoint_raw": 109}
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        run(planner, minutes(3), self._on_heater(planner, **on_a))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        run(planner, minutes(40), self._on_heater(planner, **on_a))
+        (exit_entry,) = (
+            e for e in planner.owned if e.kind == KIND_PRECEDENCE_EXIT
+        )
+        run(planner, minutes(43), self._on_heater(planner, **on_b))
+        assert planner.settled is not None
+        assert planner.settled[:2] == ("b", State("energy_saver", 109))
+        # A near-term for b, as a late confirmation issues (section 5.2).
+        again = OwnedEntry(
+            KIND_NEAR_TERM, "b", minutes(50), "energy_saver", 109
+        )
+        planner.owned.append(again)
+        assert exit_entry.fires_at < again.fires_at
+        run(
+            planner,
+            minutes(44),
+            self._without(planner, lambda e: e == again, **on_b),
+        )
+        assert "b" not in planner.removed_segments
+        assert planner.segment_in_force(minutes(44)) == "b"
+
+    def test_an_entry_due_while_the_state_cannot_be_read_is_skipped(self):
+        """Vacation, with the heater's mode unreadable around b's minute.
+
+        b's entry may have been skipped: its exit is what puts b in force.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            shadow=False,
+        )
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        run(planner, minutes(3), self._on_heater(planner, **on_a))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        unread = {"mode": None, "setpoint_raw": None}
+        run(planner, minutes(29), self._on_heater(planner, **unread))
+        run(planner, minutes(32), self._on_heater(planner, **unread))
+        assert planner.settled is not None
+        assert planner.settled[0] == "a"
+
+    def test_a_restart_keeps_the_exit_of_a_segment_holding_over(self):
+        """Segment b began in Vacation; c's entry is deleted then.
+
+        Vacation ends: the exit for b, holding over c, waits to fire when
+        Home Assistant restarts. It is kept, and b is put in force.
+        """
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        planner = planner_with(
+            [
+                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 45, mode="heat_pump", setpoint_f=125),
+                segment(NOW, "d", 240, mode="heat_pump", setpoint_f=140),
+            ],
+            shadow=False,
+        )
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        run(
+            planner,
+            minutes(40),
+            self._without(planner, lambda e: e.serves == "c", mode="vacation"),
+        )
+        run(planner, minutes(50), self._on_heater(planner, **on_a))
+        (exit_entry,) = (
+            e for e in planner.owned if e.kind == KIND_PRECEDENCE_EXIT
+        )
+        assert exit_entry.serves == "b"
+        restarted = Planner(planner.capabilities, TZ, shadow=False)
+        restarted.owner = planner.owner
+        restarted.load_document(planner.as_document())
+        assert planner.plan is not None
+        seen = self._on_heater(planner, **on_a)
+        restarted.set_plan(planner.plan, minutes(51), seen, restoring=True)
+        run(restarted, minutes(51), seen)
+        assert exit_entry in restarted.owned
+        assert restarted.segment_in_force(minutes(51)) == "b"
+
+    def test_a_blip_in_reading_the_state_outside_precedence_is_no_skip(self):
+        """The mode is unreadable for a pass just before b's minute.
+
+        Outside Vacation and power-off, b's entry still fired, and a new
+        plan carries the state it put in force.
+        """
+        planner = planner_with(
+            [
+                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            shadow=False,
+        )
+        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
+        run(planner, minutes(1), self._on_heater(planner, **on_a))
+        run(planner, minutes(3), self._on_heater(planner, **on_a))
+        unread = {"mode": None, "setpoint_raw": None}
+        run(planner, minutes(29), self._on_heater(planner, **unread))
+        on_b = {"mode": "energy_saver", "setpoint_raw": 109}
+        run(planner, minutes(31), self._on_heater(planner, **on_b))
+        assert planner.settled is not None
+        assert planner.settled[:2] == ("b", State("energy_saver", 109))
+
+    def test_a_rename_before_the_near_term_is_written_asserts_it(self):
+        """A plan is renamed while its near-term entry is still unwritten.
+
+        That entry served the old id and goes; the renamed segment gets its
+        own, since nothing has put its state in force.
+        """
+        planner = planner_with(shadow=False)
+        plan = parse_plan(
+            make_document(
+                NOW, [segment(NOW, "s0", -45, mode="heat_pump", setpoint_f=130)]
+            )
+        )
+        check_plan(plan, planner.capabilities)
+        planner.set_plan(plan, NOW, obs())
+        assert (KIND_NEAR_TERM, "s0") in {
+            (e.kind, e.serves) for e in planner.extra
+        }
+        write = give(
+            planner,
+            [segment(NOW, "s0r", -45, mode="heat_pump", setpoint_f=130)],
+            now=minutes(10),
+            intent_id="i-2",
+        )
+        assert write is not None
+        assert (KIND_NEAR_TERM, "s0r") in {
+            (e.kind, e.serves) for e in write.added
+        }
+
+    def test_a_moved_entry_is_its_segments_after_the_collision_goes(self):
+        """A person removes the entry that moved b's, and b's entry.
+
+        b's entry is still the plan's own though nothing moves it now: b is
+        removed, not written again at its unmoved minute (PR #176 review).
+        """
+        foreign = {"enable": 2, "week": MONDAY, "hour": 11, "min": 0}
+        foreign |= {"mode": 1, "param": 100}
+        segments = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1),
+            segment(NOW, "b", 60, mode="heat_pump", setpoint_f=140),
+        ]
+        with_foreign = obs(reservations_enabled=True, reservations=(foreign,))
+        planner = planner_with(segments, observed=with_foreign, shadow=False)
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert b.fires_at == minutes(61)
+        run(
+            planner,
+            minutes(1),
+            obs(
+                reservations_enabled=True,
+                reservations=(foreign, *(e.as_entry() for e in planner.owned)),
+            ),
+        )
+        neither = obs(
+            reservations_enabled=True,
+            reservations=tuple(
+                e.as_entry() for e in planner.owned if e.serves != "b"
+            ),
+        )
+        assert run(planner, minutes(2), neither) is None
+        assert "b" in planner.removed_segments

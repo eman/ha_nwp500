@@ -120,6 +120,13 @@ REPORT_REMOVED = "removed"
 
 _PRECEDENCE_WITH_EXIT = ("vacation", "power_off")
 
+# The entries that put a segment in force, and their verdicts once their
+# minute has come (`Planner._track_settled`).
+_SEGMENT_KINDS = (KIND_PLAN, KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+_DUE = "due"
+_FIRED = "fired"
+_SKIPPED = "skipped"
+
 # The reason a write reports, by the most telling kind of entry it adds.
 _WRITE_REASONS = (
     (KIND_GRANT_RAISE, WRITE_GRANT_RAISE),
@@ -280,10 +287,18 @@ class Planner:
         self.extra: list[OwnedEntry] = []
         # Segments whose state an entry has put, or will put, in force.
         self.asserted: set[str] = set()
-        # Until a plan's first segment starts, what was in force continues.
+        # The state in force before the plan. It holds until the plan's first
+        # segment starts, and whenever a person's deletion leaves nothing of
+        # the plan in force (section 5.10).
         self.carry_state: State | None = None
+        # The plan's segment in force when it was adopted. The segments
+        # before it had ended by then: none of them ever took effect.
+        self.adopted_from: str | None = None
         self.grant_rejections: dict[str, str] = {}
         self.reports: dict[str, Report] = {}
+        # Segments of this plan that never take effect: a person deleted the
+        # entry that would have put them in force (section 5.10). A new plan
+        # starts with none: it is the scheduler's answer (section 5.6).
         self.removed_segments: set[str] = set()
         self.last_write: Write | None = None
         self.raise_state: RaiseState | None = None
@@ -322,6 +337,23 @@ class Planner:
         self._raised_in_cycle = False
         self._surplus_on_since: datetime | None = None
         self._surplus_off_since: datetime | None = None
+        # What the feature's own entries have put in force: the segment (if
+        # the plan in force has it) and state of the latest segment entry
+        # that fired, and its minute (section 5.10).
+        self.settled: tuple[str | None, State, datetime] | None = None
+        # Each owned entry's verdict once its minute has come, by check key:
+        # `due` until a list read at or after its minute still holds it (or
+        # FIRED_GRACE passes), then `fired`; `skipped` if Vacation or
+        # power-off, or an unreadable state, surrounds its minute.
+        self._judged: dict[str, str] = {}
+        # Whether the last pass found the heater in Vacation or power-off,
+        # or could not read its mode.
+        self._was_unsettled = False
+        # The owned plan entries that are the plan in force's, by check key:
+        # written for it, or found at its adoption to be what it wants. An
+        # entry is recognised by this, not by where it would be placed now:
+        # the entry that moved it past a collision may have gone since.
+        self._plan_entries: set[str] = set()
 
     # -- persistence -------------------------------------------------------
 
@@ -338,6 +370,18 @@ class Planner:
             ]
             if self.carry_state
             else None,
+            "adopted_from": self.adopted_from,
+            "settled": [
+                self.settled[0],
+                self.settled[1].mode,
+                self.settled[1].setpoint_raw,
+                self.settled[2].isoformat(),
+            ]
+            if self.settled
+            else None,
+            "judged": dict(self._judged),
+            "plan_entries": sorted(self._plan_entries),
+            "was_unsettled": self._was_unsettled,
             "reports": [r.as_document() for r in self.reports.values()],
             "removed_segments": sorted(self.removed_segments),
             "last_write": self.last_write.as_document()
@@ -393,6 +437,25 @@ class Planner:
         self.asserted = set(document.get("asserted", []))
         if carry := document.get("carry_state"):
             self.carry_state = State(str(carry[0]), int(carry[1]))
+        self.adopted_from = document.get("adopted_from")
+        if settled := document.get("settled"):
+            self.settled = (
+                settled[0],
+                State(str(settled[1]), int(settled[2])),
+                datetime.fromisoformat(settled[3]),
+            )
+        self._judged = {
+            str(k): str(v) for k, v in document.get("judged", {}).items()
+        }
+        self._was_unsettled = bool(document.get("was_unsettled", False))
+        # Stored before this was kept: every owned plan entry is taken for
+        # the plan in force's, as it was then.
+        self._plan_entries = set(
+            document.get(
+                "plan_entries",
+                [self._check_key(e) for e in self.owned if e.kind == KIND_PLAN],
+            )
+        )
         self.reports = {}
         for raw in document.get("reports", []):
             report = _current_shape(Report.from_document(raw))
@@ -465,6 +528,7 @@ class Planner:
         self.reports = {}
         self.removed_segments = set()
         self.forget_seen()
+        self.forget_settled()
 
     def forget_seen(self) -> None:
         """Forget what the heater was seen to hold, keeping the reports.
@@ -485,6 +549,7 @@ class Planner:
         afresh from what the heater holds; the segment in force is asserted.
         """
         self.owned = []
+        self._plan_entries = set()
         self.extra = []
         self.asserted = set()
         self.removed_segments = set()
@@ -497,6 +562,17 @@ class Planner:
         self.reports = {
             k: v for k, v in self.reports.items() if v.field != REPORT_REMOVED
         }
+        self.forget_settled()
+
+    def forget_settled(self) -> None:
+        """Forget what the feature's entries were found to put in force.
+
+        Shadow's were simulated, and a hand-back puts the owner's state in
+        force.
+        """
+        self.settled = None
+        self._judged = {}
+        self._was_unsettled = False
 
     # -- the timeline ------------------------------------------------------
 
@@ -525,30 +601,87 @@ class Planner:
                 previous = state
         return result
 
-    def _anchor(self, now: datetime) -> tuple[Segment, State | None] | None:
-        """The segment in force, taking merged segments back to their first.
+    def _plan_anchor(
+        self, now: datetime
+    ) -> tuple[Segment, State | None] | None:
+        """The plan's segment in force, whatever people deleted.
 
-        A segment whose entry a person removed never took effect: the one
-        before it holds over its time (section 5.10).
+        Merged segments are taken back to the first of their run.
         """
-        if self.plan is None:
-            return None
         anchor: tuple[Segment, State | None] | None = None
         for segment, state, merged in self._timeline():
             if segment.start > now:
                 break
-            if segment.id in self.removed_segments:
+            if not merged or anchor is None:
+                anchor = (segment, state)
+        return anchor
+
+    def _anchor(self, now: datetime) -> tuple[Segment, State | None] | None:
+        """The segment in force on the heater: the effective timeline.
+
+        The plan's timeline, less what never took effect (section 5.10): a
+        segment whose entry a person deleted, and the merged segments that
+        follow it, and the segments that had ended when the plan was
+        adopted. The last segment left that has started is in force; with
+        none, the state before the plan holds (`carry_state`). A time to
+        come counts the entries programmed for it as firing.
+        """
+        if self.plan is None:
+            return None
+        anchor: tuple[Segment, State | None] | None = None
+        adopted = self.adopted_from is None
+        head_removed = False
+        for segment, state, merged in self._timeline():
+            if segment.start > now:
+                break
+            adopted = adopted or segment.id == self.adopted_from
+            if not adopted:
+                continue
+            if not merged:
+                head_removed = segment.id in self.removed_segments
+            if head_removed or segment.id in self.removed_segments:
                 continue
             if not merged or anchor is None:
                 anchor = (segment, state)
         return anchor
 
-    def wanted_state(self, now: datetime) -> State | None:
-        """The state the plan puts the heater in now, with a surplus raise."""
+    def _state_at(self, when: datetime) -> State | None:
+        """The state in force at `when`, before any surplus raise.
+
+        That of the segment in force, else the state before the plan. None
+        for a plan that stops (no segments): it wants nothing.
+        """
+        anchor = self._anchor(when)
+        if anchor is not None:
+            return anchor[1]
+        if self.plan is not None and self.plan.segments:
+            return self.carry_state
+        return None
+
+    def _holding_over(self, now: datetime) -> bool:
+        """Whether a person's deletion keeps the plan's segment out now.
+
+        What is in force then is a hold-over, never asserted: the heater
+        already holds it, or holds what it had (section 5.10).
+        """
+        planned = self._plan_anchor(now)
+        return planned is not None and planned[0].id in self.removed_segments
+
+    def segment_in_force(self, now: datetime) -> str | None:
+        """The id of the segment in force on the heater, if any."""
         anchor = self._anchor(now)
-        if anchor is None:
-            return self.carry_state if self.plan is not None else None
-        state = anchor[1]
+        return anchor[0].id if anchor is not None else None
+
+    def wanted_state(self, now: datetime) -> State | None:
+        """The state the plan puts the heater in now, with a surplus raise.
+
+        What took effect, not the plan alone: a segment a person's deletion
+        kept out leaves the state before it (section 5.10).
+        """
+        if self.plan is None:
+            return None
+        anchor = self._anchor(now)
+        state = anchor[1] if anchor is not None else self.carry_state
         rs = self.raise_state
         if state is not None and rs is not None and rs.entry.fires_at <= now:
             state = State(rs.entry.mode, rs.entry.setpoint_raw)
@@ -566,64 +699,85 @@ class Planner:
     ) -> None:
         """Replace the plan in force from now (section 5.6).
 
-        `restoring` is start-up re-adopting the stored plan (section 6.5):
-        its segment in force was put in force before the restart, so no
-        near-term entry is written for it, and a device state that differs
-        is a person's change, not something to re-assert.
+        A new plan is the scheduler's answer to everything reported so far,
+        people's changes included: it is programmed as it stands, and what
+        people removed from the plan before it is no longer held against
+        it. `restoring` is start-up re-adopting the stored plan (section
+        6.5): the same plan, so what was removed from it stays removed, its
+        segment in force was put in force before the restart and gets no
+        near-term entry, and a device state that differs is a person's
+        change, not something to re-assert.
         """
         previous = self.plan
+        restored = restoring and previous is None
+        if previous is not None:
+            # What the old plan's entries have put in force by now.
+            self._track_settled(now, observed)
         old_anchor = self._anchor(now)
         old_state = (
             old_anchor[1]
             if old_anchor is not None
             else (self.carry_state if previous is not None else None)
         )
-
-        # A segment is unchanged if its start and state are: one moved to a
-        # new start is a new entry, not the one a person removed.
         old_states = {
             s.id: (s.start, self.resolve(s))
             for s in (previous.segments if previous else ())
         }
+        # Whether the old plan's segment in force may not have taken effect
+        # yet: an entry for it still to fire, or Vacation or power-off, in
+        # which it may have begun with its entry skipped. What the feature's
+        # entries last put in force (`settled`) holds then.
+        unsettled = self._in_precedence(observed) or (
+            old_anchor is not None
+            and any(
+                e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+                and e.serves == old_anchor[0].id
+                # Not fired yet: its minute is to come, or it was never
+                # written, so it cannot have fired.
+                and (e.fires_at > now or not self._written(e))
+                for e in self.extra
+            )
+        )
         self.plan = plan
         self.grant_rejections = check_grants(plan, self.capabilities, now=now)
-        # A segment a person removed stays removed while the new plan has it
-        # unchanged: a restart, or the same plan published again, must not
-        # undo a person's change (sections 5.4 and 5.6).
-        self.removed_segments = {
-            s.id
-            for s in plan.segments
-            if s.id in self.removed_segments
-            and (
-                # At start-up the stored plan is the one they were removed
-                # from, and nothing was adopted before it.
-                (restoring and previous is None)
-                or (
-                    s.id in old_states
-                    and old_states[s.id] == (s.start, self.resolve(s))
-                )
+        ids = {s.id for s in plan.segments}
+        if restored:
+            self.removed_segments &= ids
+            if self.adopted_from not in ids:
+                self.adopted_from = None
+        else:
+            # The removals were reported against the old plan; the new plan
+            # is the scheduler's answer to them.
+            self.removed_segments = set()
+            self.reports = {
+                k: r
+                for k, r in self.reports.items()
+                if r.field != REPORT_REMOVED
+            }
+            planned_now = self._plan_anchor(now)
+            self.adopted_from = (
+                planned_now[0].id if planned_now is not None else None
             )
-        }
-        # A removed plan entry's report goes with its segment: the new plan
-        # writes that segment's entry again.
-        self.reports = {
-            k: r
-            for k, r in self.reports.items()
-            if not (
-                r.field == REPORT_REMOVED
-                and isinstance(r.value, Mapping)
-                and r.value.get("kind") == KIND_PLAN
-                and r.segment not in self.removed_segments
+            self.carry_state = self._state_before(
+                observed, previous, old_state, unsettled=unsettled
             )
-        }
+            # The entries on the heater that are what the new plan wants,
+            # judged against the list they were placed on.
+            self._plan_entries = {
+                self._check_key(e)
+                for e in self.owned
+                if e.kind == KIND_PLAN and self._placed_as_planned(e, observed)
+            }
+            self._relabel_settled(plan, old_states)
         self.failed = {}
-        # A near-term entry still serves the new plan if the new plan wants
-        # the same state from the same segment now; any other served the old
-        # plan only.
-        new_anchor = self._anchor(now)
+        # A near-term or exit entry still serves the new plan if the new
+        # plan has the same segment in force now, in the same state: at
+        # start-up, that can be one holding over a segment a person kept
+        # out. Any other served the old plan only.
+        current = self._anchor(now)
         keep = (
-            (new_anchor[0].id, new_anchor[1])
-            if new_anchor is not None and new_anchor[1] is not None
+            (current[0].id, current[1])
+            if current is not None and current[1] is not None
             else None
         )
         self.extra = [
@@ -649,35 +803,105 @@ class Planner:
         # A confirmation carries over only for the segment in force that the
         # new plan keeps with the same state; another segment of the same id
         # is a new one.
+        new_anchor = self._anchor(now)
         unchanged = (
-            keep is not None
+            new_anchor is not None
             and old_anchor is not None
-            and (old_anchor[0].id, old_anchor[1]) == keep
+            and (old_anchor[0].id, old_anchor[1])
+            == (new_anchor[0].id, new_anchor[1])
         )
-        self.mode_confirmed &= {keep[0]} if unchanged and keep else set()
+        self.mode_confirmed &= (
+            {new_anchor[0].id} if unchanged and new_anchor else set()
+        )
 
-        anchor = self._anchor(now)
-        if anchor is None:
-            if restoring:
-                return
-            if previous is None and observed.mode and observed.setpoint_raw:
-                self.carry_state = State(observed.mode, observed.setpoint_raw)
-            else:
-                self.carry_state = old_state
+        if keep is None or self._holding_over(now):
+            # Nothing of the plan's is in force yet, or a person's deletion
+            # keeps it out: the state before holds, and is not asserted.
             return
-        self.carry_state = None
-        segment, state = anchor
-        if state is None:
-            return
+        segment_id, state = keep
+        self.asserted.add(segment_id)
         if restoring:
-            self.asserted.add(segment.id)
             return
+        # What the feature has in force against what the plan wants now.
         reference = old_state
         if previous is None and observed.mode and observed.setpoint_raw:
             reference = State(observed.mode, observed.setpoint_raw)
-        self.asserted.add(segment.id)
-        if reference != state:
-            self._near_term(KIND_NEAR_TERM, segment.id, state, now)
+        kept = any(
+            e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+            and e.serves == segment_id
+            for e in self.extra
+        )
+        if kept or self._in_precedence(observed):
+            # An entry kept for it will put it in force, or the exit entry
+            # after Vacation or power-off will (section 5.9).
+            if reference != state and not kept:
+                self._near_term(KIND_NEAR_TERM, segment_id, state, now)
+            return
+        if reference != state or (
+            unsettled
+            and (self.settled is None or self.settled[1] != state)
+            and previous is not None
+        ):
+            # Not in force: another state, or the old plan's state, whose
+            # entry still to fire went with the old plan.
+            self._near_term(KIND_NEAR_TERM, segment_id, state, now)
+        else:
+            self.settled = (segment_id, state, now)
+
+    def _in_precedence(self, observed: Observed) -> bool:
+        """Vacation or power-off now, or at the last pass."""
+        return (
+            observed.suspended_by in _PRECEDENCE_WITH_EXIT
+            or self.suspended_by in _PRECEDENCE_WITH_EXIT
+        )
+
+    def _state_before(
+        self,
+        observed: Observed,
+        previous: Plan | None,
+        old_state: State | None,
+        *,
+        unsettled: bool,
+    ) -> State | None:
+        """The state in force when a plan is adopted (`carry_state`).
+
+        The old plan's state in force; while that may not have taken effect
+        yet, what the feature's entries last put in force. For a first
+        plan, the heater's own state. Never Vacation or power-off, which
+        are precedence, not a state to hold.
+        """
+        if previous is not None:
+            if unsettled and self.settled is not None:
+                return self.settled[1]
+            return old_state
+        if (
+            observed.mode
+            and observed.setpoint_raw
+            and observed.mode not in _PRECEDENCE_WITH_EXIT
+        ):
+            return State(observed.mode, observed.setpoint_raw)
+        return None
+
+    def _relabel_settled(
+        self,
+        plan: Plan,
+        old_states: Mapping[str, tuple[datetime, State | None]],
+    ) -> None:
+        """The settled segment as the new plan knows it.
+
+        The same segment only if the new plan has it unchanged: ids can be
+        reused for another segment.
+        """
+        if self.settled is None or self.settled[0] is None:
+            return
+        segment_id = self.settled[0]
+        kept = any(
+            s.id == segment_id
+            and old_states.get(segment_id) == (s.start, self.resolve(s))
+            for s in plan.segments
+        )
+        if not kept:
+            self.settled = (None, self.settled[1], self.settled[2])
 
     def _reconcile_raise(
         self, previous: Plan | None, now: datetime, *, restoring: bool = False
@@ -711,19 +935,27 @@ class Planner:
             and kept == grant_of(previous)
             and rs.grant_id not in self.grant_rejections
         ):
-            # The guard restores what the new plan wants at the grant's end,
-            # at the minute it was placed.
-            old = rs.guard
-            if old is not None:
-                guard = self._guard(kept, State(old.mode, old.setpoint_raw))
-                self._swap_extra(
-                    old,
-                    replace(
-                        old, mode=guard.mode, setpoint_raw=guard.setpoint_raw
-                    ),
-                )
+            self._retarget_guard(kept)
             return
         self._lower(now)
+
+    def _retarget_guard(self, grant: Grant) -> None:
+        """The guard restores what takes effect at the grant's end.
+
+        At the minute it was placed. A new plan, or a person's deletion of
+        a segment's entry within the grant, changes what that is.
+        """
+        rs = self.raise_state
+        old = rs.guard if rs is not None else None
+        if old is None:
+            return
+        guard = self._guard(grant, State(old.mode, old.setpoint_raw))
+        if (guard.mode, guard.setpoint_raw) == (old.mode, old.setpoint_raw):
+            return
+        self._swap_extra(
+            old,
+            replace(old, mode=guard.mode, setpoint_raw=guard.setpoint_raw),
+        )
 
     def disable(
         self,
@@ -765,6 +997,7 @@ class Planner:
         self.extra = []
         self.asserted = set()
         self.carry_state = None
+        self.adopted_from = None
         self.raise_state = None
         self.grant_rejections = {}
         self.forget_people()
@@ -781,6 +1014,7 @@ class Planner:
         self.reconcile_unconfirmed(observed)
         self._track_precedence(now, observed)
         self._track_people(now, observed)
+        self._track_settled(now, observed)
         self._track_cycle(now, observed)
         self._track_surplus(now, observed)
         self._track_grant(now, observed)
@@ -851,6 +1085,17 @@ class Planner:
         """
         self.owned = list(write.result)
         self.last_write = write
+        # A planning write's plan entries are the plan in force's; the
+        # power-off write only switches entries off, whatever plan they are.
+        self._plan_entries = {
+            self._check_key(e)
+            for e in self.owned
+            if e.kind == KIND_PLAN
+            and (
+                write.reason != WRITE_POWER_OFF
+                or self._check_key(e) in self._plan_entries
+            )
+        }
         for entry in write.added:
             if entry.kind == KIND_PLAN and entry.serves:
                 self.asserted.add(entry.serves)
@@ -877,6 +1122,7 @@ class Planner:
                         entry.serves,
                     )
                     self._checked.add(self._check_key(entry))
+                    self._judged[self._check_key(entry)] = _SKIPPED
                     self._retime(entry.kind, entry.serves, confirmed_at)
 
     def reject(
@@ -1010,6 +1256,10 @@ class Planner:
             for entry in write.added:
                 if entry not in self.owned and entry.as_entry() in on_device:
                     self.owned.append(entry)
+                    if entry.kind == KIND_PLAN and self._placed_as_planned(
+                        entry, observed
+                    ):
+                        self._plan_entries.add(self._check_key(entry))
             for entry in write.removed:
                 if entry in self.owned and entry.as_entry() not in on_device:
                     self.owned.remove(entry)
@@ -1029,6 +1279,78 @@ class Planner:
                         KIND_PRECEDENCE_EXIT, segment.id, state, now
                     )
         self.suspended_by = suspended
+
+    def _track_settled(self, now: datetime, observed: Observed) -> None:
+        """Judge the feature's segment entries whose minute has come.
+
+        One fired if it was still on the heater at its minute, outside
+        Vacation and power-off: a list read at or after its minute holds
+        it, or FIRED_GRACE passes without its deletion being found, as
+        section 5.10 counts it. One whose minute a precedence, or a state
+        that could not be read, surrounds is taken as skipped: its segment
+        is put in force by the exit entry after. The latest that fired is
+        what the feature has in force (`settled`).
+        """
+        # Only Vacation and power-off skip entries, and have an exit entry
+        # after. A state that cannot be read keeps the last verdict: a blip
+        # in Vacation is still Vacation, and one outside it is not.
+        unsettled = (
+            observed.suspended_by in _PRECEDENCE_WITH_EXIT
+            if observed.mode is not None
+            else self._was_unsettled
+        )
+        # The list read, and what it holds: an entry fired on its evidence
+        # only if the read holds it, whether or not its deletion has been
+        # taken in yet (a plan can arrive between reads).
+        on_device: list[dict[str, int]] | None = None
+        if self.shadow:
+            read_at: datetime | None = now
+        elif observed.reservations is None:
+            read_at = None
+        else:
+            read_at = observed.reservations_read_at or now
+            on_device = [dict(e) for e in observed.reservations]
+        keys = {self._check_key(e) for e in self.owned}
+        self._judged = {k: v for k, v in self._judged.items() if k in keys}
+        for entry in sorted(self.owned, key=lambda e: e.fires_at):
+            if entry.kind not in _SEGMENT_KINDS or entry.fires_at > now:
+                continue
+            key = self._check_key(entry)
+            verdict = self._judged.get(key)
+            if verdict is None:
+                verdict = (
+                    _SKIPPED
+                    if not entry.enabled or unsettled or self._was_unsettled
+                    else _DUE
+                )
+            if verdict == _DUE and (
+                (
+                    read_at is not None
+                    and read_at >= entry.fires_at
+                    and (on_device is None or entry.as_entry() in on_device)
+                )
+                or now >= entry.fires_at + FIRED_GRACE
+            ):
+                verdict = _FIRED
+                if self.settled is None or entry.fires_at >= self.settled[2]:
+                    self.settled = (
+                        self._serves_segment(entry),
+                        State(entry.mode, entry.setpoint_raw),
+                        entry.fires_at,
+                    )
+            self._judged[key] = verdict
+        self._was_unsettled = unsettled
+
+    def _serves_segment(self, entry: OwnedEntry) -> str | None:
+        """The plan's segment an entry puts in force, if it has it."""
+        for segment in self.plan.segments if self.plan else ():
+            if segment.id == entry.serves:
+                if self.resolve(segment) == State(
+                    entry.mode, entry.setpoint_raw
+                ):
+                    return segment.id
+                return None
+        return None
 
     def _device_entries(self, observed: Observed) -> list[Mapping[str, int]]:
         """The entries that can fire on the device now."""
@@ -1196,8 +1518,19 @@ class Planner:
                 or owned_entry.as_entry() in on_device
             ):
                 continue
-            if owned_entry.kind == KIND_PLAN and owned_entry.serves:
-                self.removed_segments.add(owned_entry.serves)
+            serves = owned_entry.serves
+            if serves is not None and self._puts_in_force(owned_entry):
+                # Its segment never takes effect (section 5.10), and nothing
+                # else is written for it.
+                self.removed_segments.add(serves)
+                self.extra = [
+                    e
+                    for e in self.extra
+                    if not (
+                        e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+                        and e.serves == serves
+                    )
+                ]
             rs = self.raise_state
             if rs is not None and owned_entry == rs.entry:
                 # The raise never fired: there is none to track or bound.
@@ -1214,6 +1547,57 @@ class Planner:
             # A person removed it: it is not written again (section 5.4).
             self.owned = [e for e in self.owned if e != owned_entry]
             self.extra = [e for e in self.extra if e != owned_entry]
+
+    def _puts_in_force(self, entry: OwnedEntry) -> bool:
+        """Whether a deleted entry was what would put its segment in force.
+
+        Not one that had already fired, or been skipped (section 5.9: the
+        exit entry after puts its segment in force). A plan entry is, if it
+        is the plan in force's for its segment: one a newer plan replaced,
+        not yet removed from the heater, is not. A near-term or precedence
+        exit is, unless the feature's entries had already put that segment,
+        in that state, in force: then it only re-asserts it, as an exit
+        after Vacation or power-off within the segment does.
+        """
+        if self._judged.get(self._check_key(entry)) in (_FIRED, _SKIPPED):
+            return False
+        if entry.kind == KIND_PLAN:
+            return self._check_key(entry) in self._plan_entries
+        if entry.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT):
+            settled = self.settled
+            return settled is None or settled[:2] != (
+                entry.serves,
+                State(entry.mode, entry.setpoint_raw),
+            )
+        return False
+
+    def _placed_as_planned(self, entry: OwnedEntry, observed: Observed) -> bool:
+        """Whether a plan entry is where the plan in force places it now.
+
+        Its segment's state, at the segment's start or moved from there
+        only past minutes other entries on the heater occupy (section 5.2).
+        """
+        segment = next(
+            (
+                s
+                for s in (self.plan.segments if self.plan else ())
+                if s.id == entry.serves
+            ),
+            None,
+        )
+        if segment is None or self.resolve(segment) != State(
+            entry.mode, entry.setpoint_raw
+        ):
+            return False
+        occupied = self._occupied(self.others(observed))
+        probe = replace(entry, fires_at=segment.start.astimezone(self.tz))
+        while probe.fires_at < entry.fires_at:
+            if not any(slots_collide(probe.slot, slot) for slot in occupied):
+                return False
+            probe = replace(
+                probe, fires_at=probe.fires_at + timedelta(minutes=1)
+            )
+        return probe.fires_at == entry.fires_at
 
     # Read-back (section 5.11)
 
@@ -1422,6 +1806,8 @@ class Planner:
                 (g for g in self._accepted_grants() if g.id == rs.grant_id),
                 None,
             )
+            if grant is not None:
+                self._retarget_guard(grant)
             # With no guard on the heater to end it at the grant's end, the
             # feature lowers it then. A guard a person deleted is not
             # written again (section 5.4).
@@ -1517,13 +1903,8 @@ class Planner:
         return rs.guard is not None and rs.guard in self.owned
 
     def _guard(self, grant: Grant, fallback: State) -> OwnedEntry:
-        """The guard entry: the state the plan wants when the grant ends."""
-        at_end = self._anchor(grant.end)
-        state = (
-            at_end[1]
-            if at_end is not None and at_end[1] is not None
-            else fallback
-        )
+        """The guard entry: the state in force when the grant ends."""
+        state = self._state_at(grant.end) or fallback
         return OwnedEntry(
             KIND_GUARD,
             grant.id,
@@ -1542,12 +1923,17 @@ class Planner:
             self.raise_state = replace(rs, guard=new)
 
     def _next_change_after(self, when: datetime) -> Segment | None:
-        """The first segment after `when` that changes the state.
+        """The first segment after `when` whose entry changes the state.
 
-        A merged segment repeats the state before it and has no entry.
+        A merged segment repeats the state before it and has no entry, and
+        a segment a person removed puts nothing on the heater.
         """
         for segment, _state, merged in self._timeline():
-            if segment.start > when and not merged:
+            if (
+                segment.start > when
+                and not merged
+                and segment.id not in self.removed_segments
+            ):
                 return segment
         return None
 
@@ -1571,11 +1957,10 @@ class Planner:
             self._drop_raise_entries(now)
             self.raise_state = None
             return
-        anchor = self._anchor(now)
-        state = anchor[1] if anchor is not None else None
+        state = self._state_at(now)
         if state is None and rs.guard is not None:
-            # No segment in force (a plan that stops): lower to the
-            # state the guard would have restored.
+            # A plan that stops: lower to the state the guard would have
+            # restored.
             state = State(rs.guard.mode, rs.guard.setpoint_raw)
         if (
             state is not None
@@ -1613,9 +1998,13 @@ class Planner:
         return entry
 
     def _assert_in_force(self, now: datetime) -> None:
-        """A segment in force that no entry put in force gets a near-term."""
+        """A segment in force that no entry put in force gets a near-term.
+
+        Not a hold-over: a person's deletion kept the plan's segment out,
+        and the state before it holds as it is (section 5.10).
+        """
         anchor = self._anchor(now)
-        if anchor is None:
+        if anchor is None or self._holding_over(now):
             return
         segment, state = anchor
         if state is None or segment.id in self.asserted:
@@ -1949,8 +2338,7 @@ class Planner:
         anchor = self._anchor(now)
         segments: list[ItemAck] = []
         statuses: list[str] = []
-        timeline = self._timeline()
-        for index, (segment, _state, merged) in enumerate(timeline):
+        for segment, _state, merged in self._timeline():
             info = self._info.get(segment.id, _SegmentInfo(False))
             fires_at = info.fires_at
             if fires_at is None:
@@ -1974,18 +2362,15 @@ class Planner:
                 else None,
             }
             reason = info.reason
-            # Ended once a later segment takes effect: a merged one, or one
-            # a person removed, leaves this one in force.
-            later_started = any(
-                s.start <= now and not m and s.id not in self.removed_segments
-                for s, _, m in timeline[index + 1 :]
-            )
             if segment.id in self.removed_segments:
                 status = STATUS_REMOVED
             elif merged:
                 status = STATUS_MERGED
             elif segment.start <= now:
-                if later_started:
+                # Begun, and not the one in force: a later one took effect,
+                # or it had ended when the plan arrived. A merged one, or
+                # one a person removed, leaves the one before it in force.
+                if not in_force:
                     status = STATUS_ENDED
                 elif self.shadow:
                     status = STATUS_SHADOW

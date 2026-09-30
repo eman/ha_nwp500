@@ -215,7 +215,8 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
   your own while live: the device fires only the enabled one.
 - **Replacing a plan.** Entries the new plan also wants are kept. A plan
   republished unchanged writes nothing, so it does not undo a person's
-  change.
+  setpoint or mode change. It does put back an entry a person deleted:
+  a new plan is programmed as it stands (see People's changes below).
 
 ## Entities
 
@@ -230,7 +231,7 @@ All belong to the device. Unique ids are `<mac>_control_<key>`.
 | Control In Sync | On when the device's list hashes the same as the program | `device_hash`, `read_at` |
 | Control Programmed Until | How far the device's copy of the plan reaches | `complete`, `scheduled` |
 | Control Next Entry | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
-| Control Wanted Mode, Control Wanted Setpoint | The state the plan puts the heater in now, with any surplus raise | `segment`, `grant` |
+| Control Wanted Mode, Control Wanted Setpoint | The state the plan puts the heater in now, with any surplus raise; a segment a person's deletion kept out does not count (spec section 5.10) | `segment` (the segment in force), `grant` |
 | Control Surplus Raise | On while a raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
 | Control Last Write | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
 | Control Override | On while a person's change is reported | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
@@ -292,8 +293,15 @@ Live mode writes the plan into the heater's reservation list.
 - **Statuses** become `pending`, `programmed`, `in_force`, `failed` and
   `removed`, and the acknowledgement's state `programmed`,
   `partly_programmed` or `pending`.
-- **People's changes.** A plan entry a person deletes is not written again
-  (`removed`). A person turning the reservation switch off keeps it off.
+- **People's changes.** An entry a person deletes is not written again
+  while its plan is in force. If it would have put a segment in force (its
+  plan entry, or the near-term or precedence-exit entry of one already
+  begun), that segment is `removed` and never takes effect: the state
+  before it holds, and is not written either (spec section 5.10). A new
+  plan is the scheduler's answer and is programmed as it stands, so a
+  scheduler that honours a deletion leaves that segment out of its next
+  plan (spec section 5.6). A person turning the reservation switch off
+  keeps it off.
 - **Leaving live** for shadow, or switching segments off, first hands the
   heater back as disabling does, so shadow starts from the owner's program.
 - **Disabling** removes the feature's entries, gives the owner's entries

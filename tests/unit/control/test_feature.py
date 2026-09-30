@@ -46,6 +46,7 @@ def coordinator(mock_device) -> MagicMock:
     coordinator.data = {MAC: {"device": mock_device, "status": None}}
     coordinator.device_features = {}
     coordinator.reservation_schedules = {}
+    coordinator.reservation_schedules_read_at = {}
     coordinator.tou_schedules = {}
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
     return coordinator

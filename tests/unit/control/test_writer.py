@@ -24,6 +24,7 @@ def _coordinator(unit_system: str = "us_customary") -> MagicMock:
     coordinator.reservation_schedules = {
         MAC: {"reservation_use": 1, "reservation": [], "other": "kept"}
     }
+    coordinator.reservation_schedules_read_at = {}
     coordinator.async_fetch_reservations = AsyncMock(return_value=None)
     coordinator.async_control_device = AsyncMock(return_value=True)
     coordinator.unit_system = unit_system

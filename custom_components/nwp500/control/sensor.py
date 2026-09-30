@@ -189,13 +189,15 @@ class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: i
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The segment it comes from, and the grant raising it, if any."""
+        """The segment it comes from, and the grant raising it, if any.
+
+        The segment in force on the heater: one a person's deletion kept
+        out is not (section 5.10).
+        """
         planner = self.control.planner
-        plan = planner.plan
-        segment = plan.segment_at(dt_util.utcnow()) if plan else None
         raised = planner.raise_state
         return {
-            "segment": segment.id if segment else None,
+            "segment": planner.segment_in_force(dt_util.utcnow()),
             "grant": raised.grant_id if raised else None,
         }
 
