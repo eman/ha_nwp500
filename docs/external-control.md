@@ -51,16 +51,16 @@ the toggle on opens a second page:
 
 | Option | Default | Notes |
 |---|---|---|
-| Intent entity | none | Required. Any entity; see below |
-| Mode | `shadow` | `shadow` plans and reports and writes nothing. `live` writes the list (only offered once live mode is switched on in code). `disabled` hands the heater back to the owner's program once and then writes nothing |
-| Live: segments, surplus grants | off, off | Only with `live`. Segments off: live behaves as shadow. Grants need segments |
-| Surplus entity | none | A `binary_sensor` (on = surplus) or a kW `sensor`. Required for surplus grants |
-| Surplus threshold (kW) | 0.45 | For a numeric surplus sensor: surplus when the value is at or above this |
-| Setpoint minimum / maximum | device range | Optional tighter bounds. Empty follows the device's own `dhw_temperature_min` / `max`. A plan's `"min"` setpoint means the minimum |
-| Allowed modes | `heat_pump`, `energy_saver` | Modes a segment may use. Heat Pump must be allowed for a plan to hold it, and for surplus grants. A cautious cut-over can start with one mode |
-| Assisted mode | `energy_saver` | The mode a scheduler should use for faster recovery. Must be one of the allowed modes |
-| Minimum run before lowering a surplus raise (min) | 120 | Section 5.7 |
-| Reservation entry limit / reserve | 16 / 2 | The most entries the feature uses, and how many are kept free for changes needed now. The unit tested held 32; larger lists are untested |
+| Plan entity | none | Required. The entity your scheduler publishes plans to; see below |
+| Mode | `shadow` | Shadow shows what it would write and writes nothing. Live writes to the heater: the next page shows your heater's current program, and it goes live only once you submit that page. Disabled gives the heater its own program back once, then stops |
+| Live: follow the plan, Live: surplus raises | off, off | Only with Live. Following the plan off: live behaves as shadow. Surplus raises need following the plan |
+| Surplus sensor | none | A `binary_sensor` (on = surplus) or a kW `sensor`. Needed for surplus raises |
+| Surplus threshold (kW) | 0.45 | For a power sensor: surplus when it reads at or above this |
+| Lowest / highest temperature | the heater's range | Optional tighter bounds. Empty uses the heater's own `dhw_temperature_min` / `max`. A plan's `"min"` setpoint means the lowest |
+| Allowed modes | `heat_pump`, `energy_saver` | Modes a plan may choose. Heat Pump must be allowed for a plan to hold it, and for surplus raises. When first going live, one mode keeps the heater from switching modes |
+| Faster-recovery mode | `energy_saver` | The mode a scheduler should use to get hot water back quickly. Must be one of the allowed modes |
+| Minimum run before taking a raise back (min) | 120 | Section 5.7. A plan's grant can set its own |
+| Schedule entries to use / kept free | 16 / 2 | The most entries the feature puts in the heater's schedule, and how many are kept free for changes needed right away. The heater tested held 32; larger lists are untested |
 
 Changing any option updates the capability entity, and so its version.
 Options from the first draft of the specification are removed the next time
@@ -72,7 +72,8 @@ entities and deletes its stored data.
 
 ## The intent entity
 
-The scheduler publishes each plan to **any Home Assistant entity**:
+The scheduler publishes each plan to **any Home Assistant entity**, chosen as
+**Plan entity** in the options:
 
 - Its **state** must change on every new plan. Use the `intent_id`.
 - Its **attributes** are the plan, top-level keys as attributes.
