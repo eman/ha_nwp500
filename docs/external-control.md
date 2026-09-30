@@ -70,10 +70,10 @@ While the feature is off, nothing of it loads: no imports, listeners,
 entities, stored data, timers or writes. Turning it off again removes its
 entities and deletes its stored data.
 
-## The intent entity
+## The plan entity
 
 The scheduler publishes each plan to **any Home Assistant entity**, chosen as
-**Plan entity** in the options:
+**Plan entity** in the options (the intent entity of the specification):
 
 - Its **state** must change on every new plan. Use the `intent_id`.
 - Its **attributes** are the plan, top-level keys as attributes.
@@ -129,7 +129,7 @@ to the minute.
 |---|---|---|
 | `id` | yes | Unique across segments and grants |
 | `start` | yes | ISO 8601 with offset |
-| `setpoint_f`, `setpoint_c` or `setpoint: "min"` | exactly one | The setpoint. Numbers are quantised to half a degree Celsius. `"min"` is the setpoint minimum option, else the device's minimum |
+| `setpoint_f`, `setpoint_c` or `setpoint: "min"` | exactly one | The setpoint. Numbers are quantised to half a degree Celsius. `"min"` is the **Lowest temperature** option, else the device's minimum |
 | `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand` or `electric`. A later segment without one keeps the previous mode |
 | `reassert` | no | Protocol 1.1. `true` gives the segment its own entry even when it repeats the state before it, so a person's change is ended at its start |
 
@@ -203,9 +203,9 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
 - **Horizon.** Entries are programmed at most 144 hours ahead, because a
   weekly entry cannot say which week. Later segments are `scheduled` and
   programmed as time passes.
-- **Budget.** Entries fit within the entry limit, minus every other entry on
-  the device, minus the reserve. Segments that do not fit are `scheduled` and
-  programmed as earlier entries fire.
+- **Budget.** Entries fit within **Schedule entries to use**, minus every
+  other entry on the device, minus those **kept free**. Segments that do not
+  fit are `scheduled` and programmed as earlier entries fire.
 - **Fired entries** are removed in the next write, and within a day at most.
   While the feature is unavailable they stay, so after a week the device
   repeats the programmed run.
