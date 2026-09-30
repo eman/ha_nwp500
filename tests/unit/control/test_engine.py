@@ -3174,14 +3174,18 @@ class TestReadBackOfSkippedEntries:
             **overrides,
         )
 
-    def test_a_segment_begun_in_vacation_is_read_back_by_its_exit(self):
+    @pytest.mark.parametrize("precedence", ["vacation", "power_off"])
+    def test_a_segment_begun_in_precedence_is_read_back_by_its_exit(
+        self, precedence
+    ):
+        """Power-off switches the entries off and on again; Vacation not."""
         planner = planner_with(self.SEGMENTS, shadow=False)
         run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
         run(planner, minutes(3), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
-        # Vacation ends: b's plan entry (10:30) was skipped; the heater is
-        # still in a's state, and the exit for b is written.
+        run(planner, minutes(20), self._on_heater(planner, mode=precedence))
+        run(planner, minutes(40), self._on_heater(planner, mode=precedence))
+        # It ends: b's plan entry (10:30) was skipped; the heater is still
+        # in a's state, and the exit for b is written.
         write = run(planner, minutes(41), self._on_heater(planner, **self.ON_A))
         assert write is not None
         assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
