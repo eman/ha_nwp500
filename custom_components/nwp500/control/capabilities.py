@@ -35,7 +35,13 @@ from ..const import (
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
 )
-from .intent import PROTOCOL_VERSIONS, SUPPORTED_PROTOCOLS
+from .intent import (
+    GRANT_RULE_MIN_RUN,
+    GRANT_RULE_SURPLUS_OFF,
+    GRANT_RULE_SURPLUS_ON,
+    PROTOCOL_VERSIONS,
+    SUPPORTED_PROTOCOLS,
+)
 
 # The device's setpoint resolution: reservation params and setpoints are
 # whole half-degrees Celsius.
@@ -49,9 +55,16 @@ HORIZON = timedelta(hours=144)
 # How far ahead a change needed now is written as an entry (section 5.2).
 NEAR_TERM_LEAD = timedelta(minutes=2)
 
-# Surplus grant timing (section 5.7).
+# Surplus grant timing (section 5.7): the declared rules, which a grant
+# may set itself within these ranges, in whole minutes (protocol 1.2).
 SURPLUS_ON_BEFORE_RAISE = timedelta(minutes=10)
 SURPLUS_OFF_BEFORE_LOWER = timedelta(minutes=15)
+GRANT_RULE_RANGES: dict[str, tuple[int, int]] = {
+    GRANT_RULE_SURPLUS_ON: (0, 60),
+    GRANT_RULE_SURPLUS_OFF: (0, 60),
+    # As the option's own range.
+    GRANT_RULE_MIN_RUN: (0, 600),
+}
 
 # The lower-tank turn-on temperature, measured on the NWP500 at every
 # setpoint from 107.6 to 149 degF outside a TOU window. It does not follow
@@ -121,6 +134,9 @@ class Capabilities:
                     SURPLUS_OFF_BEFORE_LOWER.total_seconds() // 60
                 ),
                 "min_run_before_lower_min": self.min_run_before_lower_min,
+            },
+            "grant_rule_ranges": {
+                rule: list(bounds) for rule, bounds in GRANT_RULE_RANGES.items()
             },
             "owner_program": self.owner_program,
             "lower_trigger_f": LOWER_TRIGGER_F,

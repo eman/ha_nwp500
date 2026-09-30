@@ -95,7 +95,19 @@
           "description": "Must be later than start after truncation, or the grant alone is rejected (invalid_window)."
         },
         "max_f": { "type": "number" },
-        "max_c": { "type": "number" }
+        "max_c": { "type": "number" },
+        "surplus_on_before_raise_min": {
+          "type": "integer",
+          "description": "Protocol 1.2: minutes surplus must be on before a raise. Outside grant_rule_ranges, the grant alone is rejected (out_of_bounds)."
+        },
+        "surplus_off_before_lower_min": {
+          "type": "integer",
+          "description": "Protocol 1.2: minutes surplus must be off before a raise is lowered."
+        },
+        "min_run_before_lower_min": {
+          "type": "integer",
+          "description": "Protocol 1.2: minutes the compressor must have run before a raise is lowered for surplus gone."
+        }
       },
       "oneOf": [
         { "required": ["max_f"], "not": { "required": ["max_c"] } },

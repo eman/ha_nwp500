@@ -28,7 +28,7 @@ SUPPORTED_PROTOCOLS: tuple[str, ...] = ("1", "0")
 # (spec section 4.1), so a consumer can check that a minor version's keys
 # are honoured before relying on them. A feature that knew only 1.0 would
 # keep 1.1's keys as opaque.
-PROTOCOL_VERSIONS: tuple[str, ...] = ("1.1", "0")
+PROTOCOL_VERSIONS: tuple[str, ...] = ("1.2", "0")
 # A major version, and optionally a minor one: "1" or "1.1". The schema
 # carries the same pattern.
 _PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
@@ -55,7 +55,17 @@ _TOP_LEVEL_KEYS = frozenset(
 _SEGMENT_KEYS = frozenset(
     {"id", "start", "setpoint", "setpoint_f", "setpoint_c", "mode", "reassert"}
 )
-_GRANT_KEYS = frozenset({"id", "start", "end", "max_f", "max_c"})
+# A grant's own timing rules, in whole minutes (protocol 1.2). Absent, the
+# declared `grant_rules` apply (spec sections 3.3 and 4.1).
+GRANT_RULE_SURPLUS_ON = "surplus_on_before_raise_min"
+GRANT_RULE_SURPLUS_OFF = "surplus_off_before_lower_min"
+GRANT_RULE_MIN_RUN = "min_run_before_lower_min"
+GRANT_RULES = (
+    GRANT_RULE_SURPLUS_ON,
+    GRANT_RULE_SURPLUS_OFF,
+    GRANT_RULE_MIN_RUN,
+)
+_GRANT_KEYS = frozenset({"id", "start", "end", "max_f", "max_c", *GRANT_RULES})
 
 # Attributes Home Assistant adds to a state for presentation. They are not
 # part of the document and are not echoed as opaque keys.
@@ -147,7 +157,20 @@ class Grant:
     end: datetime
     max_raw: int
     max_form: str
+    # The grant's own timing rules, None for the declared ones.
+    surplus_on_min: int | None = None
+    surplus_off_min: int | None = None
+    min_run_min: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def rules(self) -> dict[str, int | None]:
+        """The grant's own timing rules by key, None where not given."""
+        return {
+            GRANT_RULE_SURPLUS_ON: self.surplus_on_min,
+            GRANT_RULE_SURPLUS_OFF: self.surplus_off_min,
+            GRANT_RULE_MIN_RUN: self.min_run_min,
+        }
 
     def contains(self, when: datetime) -> bool:
         """Whether `when` falls inside the window."""
@@ -167,6 +190,7 @@ class Grant:
                 else value.to_fahrenheit(),
                 1,
             ),
+            **{k: v for k, v in self.rules.items() if v is not None},
         }
 
 
@@ -397,6 +421,17 @@ def _parse_grants(raw_grants: Any) -> tuple[Grant, ...]:
             raise _reject(
                 REASON_INVALID_DOCUMENT, f"{where} max_{unit} must be a number"
             )
+        rules: dict[str, int | None] = {}
+        for rule in GRANT_RULES:
+            given_rule = raw.get(rule)
+            if rule in raw and (
+                isinstance(given_rule, bool) or not isinstance(given_rule, int)
+            ):
+                raise _reject(
+                    REASON_INVALID_DOCUMENT,
+                    f"{where} {rule} must be a whole number of minutes",
+                )
+            rules[rule] = given_rule
         grants.append(
             Grant(
                 id=grant_id,
@@ -404,6 +439,9 @@ def _parse_grants(raw_grants: Any) -> tuple[Grant, ...]:
                 end=end,
                 max_raw=_to_raw(float(value), unit),
                 max_form=unit,
+                surplus_on_min=rules[GRANT_RULE_SURPLUS_ON],
+                surplus_off_min=rules[GRANT_RULE_SURPLUS_OFF],
+                min_run_min=rules[GRANT_RULE_MIN_RUN],
                 extra={k: v for k, v in raw.items() if k not in _GRANT_KEYS},
             )
         )

@@ -125,6 +125,30 @@ class TestCheckGrants:
             "past": REASON_IN_PAST,
         }
 
+    @pytest.mark.parametrize(
+        ("rule", "value", "accepted"),
+        [
+            ("surplus_on_before_raise_min", 0, True),
+            ("surplus_on_before_raise_min", 60, True),
+            ("surplus_on_before_raise_min", 61, False),
+            ("surplus_off_before_lower_min", -1, False),
+            ("min_run_before_lower_min", 600, True),
+            ("min_run_before_lower_min", 601, False),
+        ],
+    )
+    def test_a_grants_rules_within_the_declared_ranges(
+        self, now, parse, rule, value, accepted
+    ):
+        """Issue #183: a rule outside its range rejects that grant alone."""
+        plan = parse(
+            make_document(
+                now,
+                grants=[grant(now, "g", 0, 60, max_f=146, **{rule: value})],
+            )
+        )
+        expected = {} if accepted else {"g": REASON_OUT_OF_BOUNDS}
+        assert check_grants(plan, capabilities(**SURPLUS), now=now) == expected
+
     def test_adjacent_grants_do_not_overlap(self, now, parse):
         plan = parse(
             make_document(

@@ -96,10 +96,12 @@ Within major version `1`:
    after this one; `protocols` lists `"0"` while they are.
 
 Minor versions so far: **1.1** adds the segment key `reassert` (section
-3.2). A feature that only knows 1.0 keeps it as an opaque key, so a
-scheduler relies on `reassert` only when `protocol_versions` (section 4.1)
-lists `"1.1"` or later for major `1`. A document may declare `"1"` or
-`"1.1"` either way.
+3.2). **1.2** adds a grant's own timing rules, `surplus_on_before_raise_min`,
+`surplus_off_before_lower_min` and `min_run_before_lower_min` (section 3.3).
+A feature that only knows an earlier minor version keeps such keys as opaque
+ones, so a scheduler relies on them only when `protocol_versions` (section
+4.1) lists that minor version or a later one for major `1`. A document may
+declare `"1"` or any `"1.x"` either way.
 
 ---
 
@@ -213,7 +215,14 @@ available and the compressor is already running (section 5.7).
 | `id` | string, at most 64 characters, unique in the document | yes | Named in acknowledgements |
 | `start`, `end` | ISO 8601 with offset | yes | The window. Truncated to the minute; `end` MUST then be later than `start` |
 | `max_f` **or** `max_c` | number | yes | The highest setpoint a raise may use, in exactly one unit |
+| `surplus_on_before_raise_min` | whole minutes | no (1.2) | How long surplus must be on, with the compressor running, before a raise (section 5.7). Absent, the declared `grant_rules` value |
+| `surplus_off_before_lower_min` | whole minutes | no (1.2) | How long surplus must be off before a raise is lowered. Absent, the declared value |
+| `min_run_before_lower_min` | whole minutes | no (1.2) | How long the compressor must have run before a raise is lowered for surplus gone. Absent, the declared value (the option) |
 | any other key | any | no | Opaque, echoed back on the grant's acknowledgement, unless it has the name of one of its own keys (`id`, `status`, `reason`, `warnings`), which win |
+
+A timing rule that is not a whole number rejects the document
+(`invalid_document`). One outside its declared range (`grant_rule_ranges`,
+section 4.1) rejects that grant alone, `out_of_bounds`.
 
 ### 3.4 Mode names
 
@@ -324,7 +333,7 @@ All belong to the device. Names are indicative; unique ids are
 | Attribute | Meaning |
 |---|---|
 | `protocols` | Supported protocol majors, `["1", "0"]` |
-| `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.1", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
+| `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.2", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
 | `live` | The live switches: `segments`, `grants` |
@@ -338,7 +347,8 @@ All belong to the device. Names are indicative; unique ids are
 | `entry_reserve` | Entries kept free for near-term entries and surplus raises. Option, default 2 |
 | `entries_available` | `entry_limit` minus every entry on the device and the reserve |
 | `grants_supported` | Whether a surplus entity is configured |
-| `grant_rules` | `surplus_on_before_raise_min` (10), `surplus_off_before_lower_min` (15), `min_run_before_lower_min` (option, default 120) |
+| `grant_rules` | The timing rules a grant follows unless it gives its own (section 3.3): `surplus_on_before_raise_min` (10), `surplus_off_before_lower_min` (15), `min_run_before_lower_min` (option, default 120) |
+| `grant_rule_ranges` | The range, `[lowest, highest]` in whole minutes, a grant's own value of each rule must fall in: `surplus_on_before_raise_min` and `surplus_off_before_lower_min` `[0, 60]`, `min_run_before_lower_min` `[0, 600]`. Protocol 1.2 |
 | `owner_program` | What disabling restores (section 5.1): `declared` (false while provisional), `mode`, `setpoint_f`, `setpoint_c`, `reservations_enabled`, and `entries`, the owner's own entries |
 | `lower_trigger_f` | The lower-tank turn-on temperature, which does not follow the setpoint: 104.9 on the unit measured. A low setpoint cannot prevent this trigger |
 | `setpoint_write_starts_recovery` | True on the NWP500. Outside a TOU window, a setpoint left above the upper tank started the compressor within about 30 s in 112 of 117 writes, whether the write came from an entry or directly |
@@ -737,7 +747,8 @@ publishes its own validity should go `unknown` when stale.
 **Raise.** Within a grant's window, and only while the compressor is already
 running and the segment in force is in `heat_pump` mode:
 
-- once surplus has been on for 10 min, raise the setpoint to
+- once surplus has been on for the grant's `surplus_on_before_raise_min`
+  (section 3.3; 10 min unless the grant sets it), raise the setpoint to
   `min(max, setpoint_max)` with a near-term entry, if that is above the
   segment's setpoint, unless a segment that
   changes the state starts at or before that entry would fire: the raise
@@ -758,8 +769,9 @@ running and the segment in force is in `heat_pump` mode:
 5.10), and remove the guard entry, when:
 
 - the compressor stops; or
-- the compressor has run `min_run_before_lower_min` **and** surplus has been
-  off for 15 min.
+- the compressor has run the grant's `min_run_before_lower_min` **and**
+  surplus has been off for its `surplus_off_before_lower_min` (15 min
+  unless the grant sets it).
 
 **Ending a raise.**
 

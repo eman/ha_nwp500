@@ -3207,3 +3207,51 @@ class TestReadBackOfSkippedEntries:
         run(planner, minutes(44), self._on_heater(planner, **self.ON_A))
         run(planner, minutes(46), self._on_heater(planner, **self.ON_A))
         assert statuses(planner)["b"] == ("failed", "not_applied_on_device")
+
+
+class TestGrantRules:
+    """Issue #183: a grant's own timing rules replace the declared ones."""
+
+    RUNNING = obs(
+        mode="heat_pump", setpoint_raw=120, compressor_on=True, surplus_on=True
+    )
+
+    def _planner(self, **rules) -> Planner:
+        return planner_with(
+            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
+            grants=[grant(NOW, "g", -5, 180, max_f=146, **rules)],
+            observed=self.RUNNING,
+            **SURPLUS,
+        )
+
+    def test_the_grants_surplus_on_before_raise(self):
+        planner = self._planner(surplus_on_before_raise_min=3)
+        assert planner.next_event_at == minutes(3)
+        assert run(planner, minutes(2), self.RUNNING) is None
+        write = run(planner, minutes(3), self.RUNNING)
+        assert write is not None
+        assert write.reason == WRITE_GRANT_RAISE
+
+    def test_the_grants_surplus_off_before_lower_and_min_run(self):
+        planner = self._planner(
+            surplus_on_before_raise_min=0,
+            surplus_off_before_lower_min=2,
+            min_run_before_lower_min=0,
+        )
+        assert planner.raise_state is not None
+        raised = replace(self.RUNNING, setpoint_raw=127)
+        run(planner, minutes(3), raised)
+        gone = replace(raised, surplus_on=False)
+        assert run(planner, minutes(5), gone) is None
+        assert planner.next_event_at == minutes(7)
+        assert run(planner, minutes(6), gone) is None
+        write = run(planner, minutes(7), gone)
+        assert write is not None
+        assert write.reason == WRITE_GRANT_LOWER
+
+    def test_without_rules_the_declared_ones_apply(self):
+        planner = self._planner()
+        assert run(planner, minutes(9), self.RUNNING) is None
+        write = run(planner, minutes(10), self.RUNNING)
+        assert write is not None
+        assert write.reason == WRITE_GRANT_RAISE
