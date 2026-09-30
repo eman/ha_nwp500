@@ -17,8 +17,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.const import Platform
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
+from homeassistant.util import slugify
 
 from ..const import (
     CONF_CONTROL_MODE,
@@ -28,6 +30,7 @@ from ..const import (
     DOMAIN,
 )
 from .device import DeviceControl, live_writes
+from .entity import control_entity_id
 from .store import ControlStore
 
 if TYPE_CHECKING:
@@ -67,6 +70,28 @@ ENTITY_KEYS = frozenset(
 )
 
 
+# The English names the entities had before their ids were fixed to the
+# documented ones (spec section 4). An entity whose id is still the default
+# Home Assistant made from one of these is moved to its documented id once;
+# an id someone chose is left alone.
+_EARLIER_NAMES: dict[str, str] = {
+    "capabilities": "Control Capabilities",
+    "intent": "Control Plan",
+    "ack": "Control Acknowledgement",
+    "heartbeat": "Control Heartbeat",
+    "wanted_mode": "Control Wanted Mode",
+    "wanted_setpoint": "Control Wanted Setpoint",
+    "program_hash": "Control Program Hash",
+    "programmed_until": "Control Programmed Until",
+    "next_entry": "Control Next Entry",
+    "last_write": "Control Last Write",
+    "override": "Control Override",
+    "in_sync": "Control In Sync",
+    "grant_raised": "Control Surplus Raise",
+    "disable": "Disable External Control",
+}
+
+
 class ControlFeature:
     """The external control feature for one config entry.
 
@@ -90,6 +115,7 @@ class ControlFeature:
     async def async_start(self) -> None:
         """Load the stored state and start a controller per device."""
         self._remove_entities(stale_only=True)
+        self._move_to_documented_ids()
         await self.store.async_load()
         try:
             for mac_address, device_data in self.coordinator.data.items():
@@ -160,6 +186,47 @@ class ControlFeature:
                     "not be restored. Press Disable to hand the heater back",
                     mac_address,
                 )
+
+    def _move_to_documented_ids(self) -> None:
+        """Give entities the documented ids they lacked before (section 4).
+
+        Only an id that is still the default made from an earlier name is
+        moved, and only to an id that is free.
+        """
+        registry = er.async_get(self.hass)
+        devices = dr.async_get(self.hass)
+        for entity_entry in er.async_entries_for_config_entry(
+            registry, self.entry.entry_id
+        ):
+            if (
+                entity_entry.platform != DOMAIN
+                or UNIQUE_ID_MARKER not in entity_entry.unique_id
+                or entity_entry.device_id is None
+            ):
+                continue
+            key = entity_entry.unique_id.split(UNIQUE_ID_MARKER, 1)[1]
+            earlier = _EARLIER_NAMES.get(key)
+            device = devices.async_get(entity_entry.device_id)
+            if earlier is None or device is None:
+                continue
+            device_name = device.name_by_user or device.name or ""
+            domain = entity_entry.domain
+            default = f"{domain}.{slugify(f'{device_name} {earlier}')}"
+            documented = control_entity_id(domain, device_name, key)
+            if (
+                entity_entry.entity_id != default
+                or entity_entry.entity_id == documented
+                or registry.async_get(documented) is not None
+            ):
+                continue
+            registry.async_update_entity(
+                entity_entry.entity_id, new_entity_id=documented
+            )
+            _LOGGER.info(
+                "External control: %s is now %s, its documented id",
+                entity_entry.entity_id,
+                documented,
+            )
 
     def _remove_entities(self, *, stale_only: bool) -> None:
         """Remove the feature's entities: all of them, or only stale ones."""

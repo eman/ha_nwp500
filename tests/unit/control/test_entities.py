@@ -444,6 +444,35 @@ def test_every_entity_key_is_known():
     assert keys == ENTITY_KEYS
 
 
+def test_every_entity_suggests_its_documented_id(control):
+    """Spec section 4: `<domain>.<device>_control_<key>`, by key."""
+    from homeassistant.util import slugify
+
+    from custom_components.nwp500.control.button import (
+        ControlDisableButton,
+    )
+
+    control.device.device_info.device_name = "Garage Heater"
+    entities = [
+        *((cls(control, key), "sensor", key) for key, cls in SENSOR_KEYS),
+        *(
+            (cls(control, key), "binary_sensor", key)
+            for key, cls in BINARY_SENSOR_KEYS
+        ),
+        (ControlDisableButton(control, "disable"), "button", "disable"),
+    ]
+    for entity, domain, key in entities:
+        assert entity.entity_id == (
+            f"{domain}.{slugify('Garage Heater')}_control_{key}"
+        )
+    assert {e.entity_id for e, _, _ in entities} >= {
+        "sensor.garage_heater_control_ack",
+        "sensor.garage_heater_control_intent",
+        "binary_sensor.garage_heater_control_grant_raised",
+        "button.garage_heater_control_disable",
+    }
+
+
 def test_create_control_sensors(control):
     feature = MagicMock()
     feature.devices = {MAC: control}
