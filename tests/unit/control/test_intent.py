@@ -406,7 +406,31 @@ class TestGrantRules:
         )
         assert not set(self.RULES) & set(g.as_document())
 
-    @pytest.mark.parametrize("value", [2.5, "3", True, None])
+    def test_a_whole_number_written_as_a_float_is_accepted(self, now, parse):
+        """3.0 is an integer to the JSON Schema; it is taken as 3."""
+        plan = parse(
+            make_document(
+                now,
+                grants=[
+                    grant(
+                        now,
+                        "g",
+                        10,
+                        60,
+                        max_f=146,
+                        surplus_on_before_raise_min=3.0,
+                    )
+                ],
+            )
+        )
+        (g,) = plan.grants
+        assert g.surplus_on_min == 3
+        assert isinstance(g.surplus_on_min, int)
+        assert g.as_document()["surplus_on_before_raise_min"] == 3
+
+    @pytest.mark.parametrize(
+        "value", [2.5, "3", True, None, float("inf"), float("nan")]
+    )
     def test_a_rule_is_a_whole_number_of_minutes(self, now, parse, value):
         doc = make_document(
             now,

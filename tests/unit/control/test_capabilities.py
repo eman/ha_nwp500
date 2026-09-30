@@ -16,7 +16,8 @@ class TestDeclaration:
         ).as_attributes()
 
         assert attrs["protocols"] == ["1", "0"]
-        # The newest minor of each major: 1.1 adds `reassert`.
+        # The newest minor of each major: 1.1 adds `reassert`, 1.2 a grant's
+        # own timing rules.
         assert attrs["protocol_versions"] == ["1.2", "0"]
         # One per major, in the same order.
         assert [v.split(".")[0] for v in attrs["protocol_versions"]] == (

@@ -393,6 +393,20 @@ def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
     return tuple(segments)
 
 
+def _whole_number(value: Any) -> int | None:
+    """A whole number as an int, or None, a bool included.
+
+    A finite float with no fraction counts: the JSON Schema's integer.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    return None
+
+
 def _parse_grants(raw_grants: Any) -> tuple[Grant, ...]:
     if not isinstance(raw_grants, list | tuple):
         raise _reject(REASON_INVALID_DOCUMENT, "grants must be a list")
@@ -423,15 +437,16 @@ def _parse_grants(raw_grants: Any) -> tuple[Grant, ...]:
             )
         rules: dict[str, int | None] = {}
         for rule in GRANT_RULES:
-            given_rule = raw.get(rule)
-            if rule in raw and (
-                isinstance(given_rule, bool) or not isinstance(given_rule, int)
-            ):
+            if rule not in raw:
+                rules[rule] = None
+                continue
+            minutes = _whole_number(raw[rule])
+            if minutes is None:
                 raise _reject(
                     REASON_INVALID_DOCUMENT,
                     f"{where} {rule} must be a whole number of minutes",
                 )
-            rules[rule] = given_rule
+            rules[rule] = minutes
         grants.append(
             Grant(
                 id=grant_id,

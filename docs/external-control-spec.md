@@ -220,8 +220,8 @@ available and the compressor is already running (section 5.7).
 | `min_run_before_lower_min` | whole minutes | no (1.2) | How long the compressor must have run before a raise is lowered for surplus gone. Absent, the declared value (the option) |
 | any other key | any | no | Opaque, echoed back on the grant's acknowledgement, unless it has the name of one of its own keys (`id`, `status`, `reason`, `warnings`), which win |
 
-A timing rule that is not a whole number rejects the document
-(`invalid_document`). One outside its declared range (`grant_rule_ranges`,
+A timing rule that is not a whole number (`3` and `3.0` are) rejects the
+document (`invalid_document`). One outside its declared range (`grant_rule_ranges`,
 section 4.1) rejects that grant alone, `out_of_bounds`.
 
 ### 3.4 Mode names

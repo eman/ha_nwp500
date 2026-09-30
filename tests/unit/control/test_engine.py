@@ -3249,6 +3249,28 @@ class TestGrantRules:
         assert write is not None
         assert write.reason == WRITE_GRANT_LOWER
 
+    def test_the_grants_min_run_before_lower(self):
+        """A minimum run of its own, 20 min, not the declared 120."""
+        planner = self._planner(
+            surplus_on_before_raise_min=0,
+            surplus_off_before_lower_min=2,
+            min_run_before_lower_min=20,
+        )
+        assert planner.raise_state is not None
+        raised = replace(self.RUNNING, setpoint_raw=127)
+        run(planner, minutes(3), raised)
+        gone = replace(raised, surplus_on=False)
+        run(planner, minutes(5), gone)
+        # Surplus has been gone 2 min at 7, but the compressor has run
+        # only 7 of its 20: the raise waits for the run.
+        assert run(planner, minutes(7), gone) is None
+        assert planner.raise_state is not None
+        assert planner.next_event_at == minutes(20)
+        assert run(planner, minutes(19), gone) is None
+        write = run(planner, minutes(20), gone)
+        assert write is not None
+        assert write.reason == WRITE_GRANT_LOWER
+
     def test_without_rules_the_declared_ones_apply(self):
         planner = self._planner()
         assert run(planner, minutes(9), self.RUNNING) is None
