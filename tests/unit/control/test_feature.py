@@ -185,3 +185,71 @@ def test_earlier_default_ids_move_to_the_documented_ones(
     assert registry.async_get(chosen.entity_id) is not None
     # Not the default made from the earlier name: left alone.
     assert registry.async_get(in_sync.entity_id) is not None
+
+
+def test_a_renamed_devices_earlier_default_ids_move_too(
+    hass: HomeAssistant, entry, coordinator
+):
+    """PR #190 review: the default was made from the name the device had."""
+    from homeassistant.helpers import device_registry as dr
+
+    devices = dr.async_get(hass)
+    device = devices.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+    ack = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MAC}_control_ack",
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id="nwp500_control_acknowledgement",
+    )
+    devices.async_update_device(device.id, name_by_user="Garage Heater")
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+
+    assert registry.async_get(ack.entity_id) is None
+    assert registry.async_get("sensor.garage_heater_control_ack") is not None
+
+
+def test_a_removed_entity_comes_back_with_its_documented_id(
+    hass: HomeAssistant, entry, coordinator
+):
+    """PR #190 review: switched off before the update, then on again.
+
+    The registry keeps a removed entity's id and gives it back when the
+    entity is created again, ahead of the new suggestion.
+    """
+    from homeassistant.helpers import device_registry as dr
+
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+    ack = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MAC}_control_ack",
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id="nwp500_control_acknowledgement",
+    )
+    registry.async_remove(ack.entity_id)
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+    again = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MAC}_control_ack",
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id="nwp500_control_ack",
+    )
+
+    assert again.entity_id == "sensor.nwp500_control_ack"

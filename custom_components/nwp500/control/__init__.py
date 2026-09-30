@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import attr
 from homeassistant.const import Platform
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -190,34 +191,24 @@ class ControlFeature:
     def _move_to_documented_ids(self) -> None:
         """Give entities the documented ids they lacked before (section 4).
 
-        Only an id that is still the default made from an earlier name is
-        moved, and only to an id that is free.
+        An id is moved only if it is still a default Home Assistant made
+        from an earlier name: its name part is that name's, whatever the
+        device was called then. It moves to an id that is free. The
+        registry's records of removed entities are moved too, since it
+        gives a removed entity its old id back when it comes again.
         """
         registry = er.async_get(self.hass)
-        devices = dr.async_get(self.hass)
         for entity_entry in er.async_entries_for_config_entry(
             registry, self.entry.entry_id
         ):
-            if (
-                entity_entry.platform != DOMAIN
-                or UNIQUE_ID_MARKER not in entity_entry.unique_id
-                or entity_entry.device_id is None
-            ):
+            if entity_entry.platform != DOMAIN:
                 continue
-            key = entity_entry.unique_id.split(UNIQUE_ID_MARKER, 1)[1]
-            earlier = _EARLIER_NAMES.get(key)
-            device = devices.async_get(entity_entry.device_id)
-            if earlier is None or device is None:
-                continue
-            device_name = device.name_by_user or device.name or ""
-            domain = entity_entry.domain
-            default = f"{domain}.{slugify(f'{device_name} {earlier}')}"
-            documented = control_entity_id(domain, device_name, key)
-            if (
-                entity_entry.entity_id != default
-                or entity_entry.entity_id == documented
-                or registry.async_get(documented) is not None
-            ):
+            documented = self._documented_id(
+                entity_entry.domain,
+                entity_entry.unique_id,
+                entity_entry.entity_id,
+            )
+            if documented is None or registry.async_get(documented) is not None:
                 continue
             registry.async_update_entity(
                 entity_entry.entity_id, new_entity_id=documented
@@ -227,6 +218,49 @@ class ControlFeature:
                 entity_entry.entity_id,
                 documented,
             )
+        moved = False
+        for key, deleted in list(registry.deleted_entities.items()):
+            if (
+                deleted.platform != DOMAIN
+                or deleted.config_entry_id != self.entry.entry_id
+            ):
+                continue
+            documented = self._documented_id(
+                deleted.domain, deleted.unique_id, deleted.entity_id
+            )
+            if documented is None or registry.async_get(documented) is not None:
+                continue
+            registry.deleted_entities[key] = attr.evolve(
+                deleted, entity_id=documented
+            )
+            moved = True
+        if moved:
+            registry.async_schedule_save()
+
+    def _documented_id(
+        self, domain: str, unique_id: str, entity_id: str
+    ) -> str | None:
+        """The documented id to move an earlier default id to, if any."""
+        if UNIQUE_ID_MARKER not in unique_id:
+            return None
+        mac_address, key = unique_id.split(UNIQUE_ID_MARKER, 1)
+        earlier = _EARLIER_NAMES.get(key)
+        if earlier is None:
+            return None
+        object_id = entity_id.split(".", 1)[1]
+        name_part = slugify(earlier)
+        if object_id != name_part and not object_id.endswith(f"_{name_part}"):
+            # Chosen by someone, or already the documented id.
+            return None
+        device = dr.async_get(self.hass).async_get_device(
+            identifiers={(DOMAIN, mac_address)}
+        )
+        if device is None:
+            return None
+        documented = control_entity_id(
+            domain, device.name_by_user or device.name or "", key
+        )
+        return None if documented == entity_id else documented
 
     def _remove_entities(self, *, stale_only: bool) -> None:
         """Remove the feature's entities: all of them, or only stale ones."""
