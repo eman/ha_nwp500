@@ -1283,14 +1283,17 @@ class Planner:
 
     def _track_precedence(self, now: datetime, observed: Observed) -> None:
         suspended = observed.suspended_by
-        if observed.mode is None and (
-            self.suspended_by in _PRECEDENCE_WITH_EXIT or self._exit_owed
+        if (
+            observed.mode is None
+            and suspended is None
+            and (self.suspended_by in _PRECEDENCE_WITH_EXIT or self._exit_owed)
         ):
             # A state that cannot be read is neither Vacation nor power-off
             # ending: the last known one holds until the mode reads again
             # (#173). Ending it here would spend the exit entry while the
             # heater still skips entries, or switch entries back on while
-            # it is powered off.
+            # it is powered off. A cycle the heater still reports is known,
+            # and taken as it is.
             return
         if (
             self.suspended_by in _PRECEDENCE_WITH_EXIT

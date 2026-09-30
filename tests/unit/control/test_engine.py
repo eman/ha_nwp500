@@ -3130,3 +3130,27 @@ class TestExitAfterAntiLegionella:
         assert not self._exit_for_b(write)
         write = run(planner, minutes(70), self._on_heater(planner, **self.ON_A))
         assert self._exit_for_b(write)
+
+    def test_a_known_cycle_is_kept_though_the_mode_is_unreadable(self):
+        """PR #180 review: restarted during the cycle, the mode unread.
+
+        The heater still reports the cycle: nothing is written during it,
+        and the owed exit follows once it ends.
+        """
+        planner = self._vacation_into_anti_legionella()
+        restarted = Planner(planner.capabilities, TZ, shadow=False)
+        restarted.owner = planner.owner
+        restarted.load_document(planner.as_document())
+        assert planner.plan is not None
+        unread_cycle = self._on_heater(
+            planner, anti_legionella_busy=True, mode=None, setpoint_raw=None
+        )
+        restarted.set_plan(
+            planner.plan, minutes(55), unread_cycle, restoring=True
+        )
+        assert run(restarted, minutes(55), unread_cycle) is None
+        assert restarted.suspended_by == "anti_legionella"
+        write = run(
+            restarted, minutes(70), self._on_heater(restarted, **self.ON_A)
+        )
+        assert self._exit_for_b(write)
