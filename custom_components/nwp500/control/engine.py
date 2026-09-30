@@ -2141,6 +2141,18 @@ class Planner:
             desired = [e for e in desired if e != self.raise_state.guard]
             self._drop_raise_entries(now)
             self.raise_state = None
+        rs = self.raise_state
+        if rs is not None and rs.entry in desired:
+            # A lowering of this grant still to fire, from a raise before
+            # (one that became due while powered off waits for power, #175),
+            # would fire after the new raise and undo it. Withdrawn only
+            # once the new raise is kept: a raise dropped above leaves it to
+            # restore the earlier raise's setpoint.
+            def lowers(e: OwnedEntry) -> bool:
+                return e.kind == KIND_GRANT_LOWER and e.serves == rs.grant_id
+
+            self.extra = [e for e in self.extra if not lowers(e)]
+            desired = [e for e in desired if not lowers(e)]
 
         self._info = info
         scheduled = [

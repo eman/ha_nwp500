@@ -2851,3 +2851,107 @@ class TestUnreadableState:
         )
         assert planner.suspended_by is None
         assert planner.owned
+
+
+class TestLoweringAndANewRaise:
+    """Issue #175: a lowering still to fire is withdrawn by a new raise."""
+
+    def _on_heater(self, planner: Planner, **overrides) -> Observed:
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(e.as_entry() for e in planner.owned),
+            **overrides,
+        )
+
+    def test_a_lowering_queued_while_powered_off_goes_with_a_new_raise(self):
+        planner = planner_with(
+            [
+                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=130),
+                segment(NOW, "a", 3, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 600, mode="energy_saver", setpoint_f=120),
+            ],
+            grants=[grant(NOW, "g", -5, 300, max_f=146)],
+            observed=obs(mode="heat_pump", setpoint_raw=109),
+            shadow=False,
+            control_mode="live",
+            control_live_segments=True,
+            control_live_grants=True,
+            **SURPLUS,
+        )
+        on_a = {
+            "mode": "heat_pump",
+            "setpoint_raw": 120,
+            "compressor_on": True,
+            "surplus_on": True,
+        }
+        run(
+            planner,
+            minutes(1),
+            self._on_heater(planner, mode="heat_pump", setpoint_raw=109),
+        )
+        for m in (4, 20, 21):
+            run(planner, minutes(m), self._on_heater(planner, **on_a))
+        assert planner.raise_state is not None
+        raised = {**on_a, "setpoint_raw": 127}
+        run(planner, minutes(25), self._on_heater(planner, **raised))
+        off = {**raised, "mode": "power_off", "compressor_on": False}
+        run(planner, minutes(30), self._on_heater(planner, **off))
+        run(planner, minutes(31), self._on_heater(planner, **off))
+        # The compressor stopped: the raise is being lowered.
+        assert KIND_GRANT_LOWER in {e.kind for e in planner.extra}
+        write = run(planner, minutes(40), self._on_heater(planner, **raised))
+        assert write is not None
+        added = {e.kind for e in write.added}
+        assert KIND_GRANT_RAISE in added
+        # The lowering would fire after the new raise and undo it.
+        assert KIND_GRANT_LOWER not in added
+        assert not [e for e in planner.owned if e.kind == KIND_GRANT_LOWER]
+        assert planner.raise_state is not None
+
+    def test_a_raise_dropped_by_a_collision_keeps_the_lowering(self):
+        """PR #178 review: the new raise is moved onto the next segment.
+
+        No raise reaches the heater then, so the lowering still to fire
+        from before is kept: it restores the earlier raise's setpoint.
+        """
+        running = {
+            "mode": "heat_pump",
+            "setpoint_raw": 127,
+            "compressor_on": True,
+            "surplus_on": True,
+        }
+        planner = planner_with(
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 13, mode="energy_saver", setpoint_f=130),
+                segment(NOW, "c", 240, setpoint_f=120),
+            ],
+            grants=[grant(NOW, "g", -5, 180, max_f=146)],
+            observed=obs(**running),
+            shadow=False,
+            control_mode="live",
+            control_live_segments=True,
+            control_live_grants=True,
+            **SURPLUS,
+        )
+        # A lowering of an earlier raise, written and still to fire.
+        lowering = OwnedEntry(
+            KIND_GRANT_LOWER, "g", minutes(11), "heat_pump", 120
+        )
+        planner.extra.append(lowering)
+        planner.owned.append(lowering)
+        # Someone else's entry takes the raise's minute (10:12), so the
+        # raise would move to 10:13, b's start.
+        foreign = {"enable": 2, "week": MONDAY, "hour": 10, "min": 12}
+        foreign |= {"mode": 1, "param": 100}
+        run(
+            planner,
+            minutes(10),
+            obs(
+                reservations_enabled=True,
+                reservations=(foreign, *(e.as_entry() for e in planner.owned)),
+                **running,
+            ),
+        )
+        assert planner.raise_state is None
+        assert lowering in planner.owned

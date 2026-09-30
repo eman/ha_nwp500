@@ -778,6 +778,11 @@ running and the segment in force is in `heat_pump` mode:
   entry, and does not hold a lowering back.
 - **A raise not yet fired** when the conditions end is removed instead of
   lowered.
+- **A new raise withdraws a lowering still to fire** for the same grant, such
+  as one that became due while the heater was powered off and waits for
+  power: fired after the raise, it would undo it. Only a raise that is
+  written does: one that moving past other entries drops (above) leaves the
+  lowering to restore the earlier raise's setpoint.
 - **Moved entries.** If moving a raise entry past another entry in the same
   minute would make it fire at or after a segment that changes the state,
   no raise is made. A guard or near-term entry moved that way keeps the
