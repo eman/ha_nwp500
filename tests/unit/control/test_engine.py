@@ -3033,3 +3033,35 @@ class TestStaleNearTerm:
             if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
         ]
         assert for_b == [(KIND_PRECEDENCE_EXIT, "b")]
+
+    @pytest.mark.parametrize("late", [False, True])
+    def test_an_exit_whose_write_fails_into_the_next_segment_is_dropped(
+        self, late
+    ):
+        """PR #179 review: the exit half of the rule.
+
+        Vacation ends just before b begins, and the exit for a is written.
+        Its write is rejected, or confirmed only after its minute, with the
+        retry after b's start: it is dropped, not moved into b's time.
+        """
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner))
+        run(planner, minutes(10), self._on_heater(planner, mode="vacation"))
+        write = planner.step(minutes(26), self._on_heater(planner))
+        assert write is not None
+        (exit_entry,) = (
+            e for e in write.added if e.kind == KIND_PRECEDENCE_EXIT
+        )
+        assert exit_entry.serves == "a"
+        assert exit_entry.fires_at < minutes(30)
+        if late:
+            planner.commit(write, confirmed_at=minutes(31))
+        else:
+            planner.reject(
+                write, minutes(26), retry_at=minutes(31), final=False
+            )
+        assert not [
+            e
+            for e in planner.extra
+            if e.kind == KIND_PRECEDENCE_EXIT and e.serves == "a"
+        ]
