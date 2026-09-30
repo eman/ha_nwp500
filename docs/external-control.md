@@ -144,14 +144,16 @@ with that value switched the unit tested to Energy Saver (#160). Use
 |---|---|---|
 | `id`, `start`, `end` | yes | The window |
 | `max_f` or `max_c` | yes | The highest setpoint a raise may use |
+| `surplus_on_before_raise_min`, `surplus_off_before_lower_min`, `min_run_before_lower_min` | no | The grant's own timing, in whole minutes (protocol 1.2). Absent, the capability declaration's `grant_rules`; each within its `grant_rule_ranges` |
 
 Within a grant's window, while the compressor is already running and the
 segment in force is in `heat_pump` mode, the feature raises the setpoint to
-the grant's maximum once surplus has been on for 10 minutes. It adds a guard
-entry at the grant's end, so the device lowers the setpoint on its own if Home
-Assistant stops. It lowers the raise when the compressor stops, or once the
-minimum run has passed and surplus has been off for 15 minutes. It raises at
-most once per compressor cycle, and never to start one.
+the grant's maximum once surplus has been on for 10 minutes, or the grant's
+own time. It adds a guard entry at the grant's end, so the device lowers the
+setpoint on its own if Home Assistant stops. It lowers the raise when the
+compressor stops, or once the minimum run has passed and surplus has been off
+for 15 minutes, or the grant's own times. It raises at most once per
+compressor cycle, and never to start one.
 
 ### Validation
 
@@ -162,7 +164,8 @@ A plan is **rejected whole**, and the plan in force stays, for:
 skipping it would leave the segment before it in force over its time.
 
 A **grant** is rejected on its own for `grants_unsupported` (no surplus
-entity), `invalid_window`, `overlapping_grant`, `out_of_bounds` or `in_past`.
+entity), `invalid_window`, `overlapping_grant`, `out_of_bounds` (its maximum,
+or one of its timing rules outside its range) or `in_past`.
 
 ### Example
 
@@ -250,11 +253,11 @@ last write's `reason` is one of `plan`, `cleanup`, `near_term`,
 
 | Attribute | Meaning |
 |---|---|
-| `protocols`, `protocol_versions`, `feature_version`, `mode`, `live` | What runs, and the live switches. `protocol_versions` names the newest minor of each major, `["1.1", "0"]`; a scheduler checks it before relying on `reassert` |
+| `protocols`, `protocol_versions`, `feature_version`, `mode`, `live` | What runs, and the live switches. `protocol_versions` names the newest minor of each major, `["1.2", "0"]`; a scheduler checks it before relying on `reassert` (1.1) or a grant's own timing (1.2) |
 | `setpoint_min_f` / `_c`, `setpoint_max_f` / `_c`, `setpoint_resolution_c` | The bounds, and the device's half-degree resolution. Absent until the device's feature data has arrived |
 | `allowed_modes`, `assisted_mode` | The modes a segment may use, and the one for faster recovery |
 | `horizon_h`, `near_term_lead_min`, `entry_limit`, `entry_reserve`, `entries_available` | How entries are budgeted. `entries_available` changes as entries fire, so it is left out of the version |
-| `grants_supported`, `grant_rules` | Whether grants can run, and their timing |
+| `grants_supported`, `grant_rules`, `grant_rule_ranges` | Whether grants can run, their timing unless a grant gives its own, and the range each of a grant's own timing rules must fall in |
 | `owner_program` | What disabling restores: `declared`, `mode`, `setpoint_f`, `setpoint_c`, `reservations_enabled`, `entries`. `declared: false` is the provisional snapshot shadow uses |
 | `lower_trigger_f` | 104.9: the lower-tank turn-on temperature, which does not follow the setpoint |
 | `setpoint_write_starts_recovery`, `setpoint_write_stops_compressor`, `entry_mode_in_tou_window`, `list_write_starts_recovery`, `unchanged_entry_starts_recovery`, `entries_fire_when_powered_off`, `entries_fire_in_vacation` | Device facts a scheduler's model needs; the last five were measured on the unit tested |

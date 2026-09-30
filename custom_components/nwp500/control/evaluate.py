@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 from ..const import CONTROL_MODE_LIVE
-from .capabilities import Capabilities
+from .capabilities import GRANT_RULE_RANGES, Capabilities
 from .intent import (
     REASON_MODE_NOT_ALLOWED,
     REASON_OUT_OF_BOUNDS,
@@ -182,8 +182,16 @@ def check_grants(
             for other in accepted
         ):
             reason = REASON_OVERLAPPING_GRANT
-        elif (high is not None and grant.max_raw > high) or (
-            low is not None and grant.max_raw < low
+        elif (
+            (high is not None and grant.max_raw > high)
+            or (low is not None and grant.max_raw < low)
+            or any(
+                value is not None
+                and not GRANT_RULE_RANGES[rule][0]
+                <= value
+                <= GRANT_RULE_RANGES[rule][1]
+                for rule, value in grant.rules.items()
+            )
         ):
             reason = REASON_OUT_OF_BOUNDS
         elif grant.end <= now:

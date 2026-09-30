@@ -1861,12 +1861,12 @@ class Planner:
             run_time = (
                 now - self._cycle_started_at if self._cycle_started_at else None
             )
+            _on, surplus_off, min_run = self._grant_timing(grant)
             surplus_gone = (
                 run_time is not None
-                and run_time
-                >= timedelta(minutes=self.capabilities.min_run_before_lower_min)
+                and run_time >= min_run
                 and self._surplus_off_since is not None
-                and now - self._surplus_off_since >= SURPLUS_OFF_BEFORE_LOWER
+                and now - self._surplus_off_since >= surplus_off
             )
             if (
                 observed.compressor_on is False
@@ -1893,7 +1893,7 @@ class Planner:
             or not observed.compressor_on
             or self._raised_in_cycle
             or self._surplus_on_since is None
-            or now - self._surplus_on_since < SURPLUS_ON_BEFORE_RAISE
+            or now - self._surplus_on_since < self._grant_timing(grant)[0]
             or grant.end - now >= HORIZON
         ):
             return
@@ -1920,6 +1920,25 @@ class Planner:
         _LOGGER.info(
             "Surplus raise under grant %s to %d half-degrees", grant.id, target
         )
+
+    def _grant_timing(
+        self, grant: Grant | None
+    ) -> tuple[timedelta, timedelta, timedelta]:
+        """A grant's surplus-on, surplus-off and minimum-run times (5.7).
+
+        Its own where it gives them (protocol 1.2), else the declared ones.
+        """
+        on = SURPLUS_ON_BEFORE_RAISE
+        off = SURPLUS_OFF_BEFORE_LOWER
+        min_run = timedelta(minutes=self.capabilities.min_run_before_lower_min)
+        if grant is not None:
+            if grant.surplus_on_min is not None:
+                on = timedelta(minutes=grant.surplus_on_min)
+            if grant.surplus_off_min is not None:
+                off = timedelta(minutes=grant.surplus_off_min)
+            if grant.min_run_min is not None:
+                min_run = timedelta(minutes=grant.min_run_min)
+        return on, off, min_run
 
     def _raise_ended(self, rs: RaiseState, now: datetime) -> bool:
         """Whether an entry on the heater has replaced the raise.
@@ -2300,15 +2319,27 @@ class Planner:
         ]
         if fired:
             times.append(min(fired) + CLEANUP_DEFER)
-        if self._surplus_on_since:
-            times.append(self._surplus_on_since + SURPLUS_ON_BEFORE_RAISE)
-        if self._surplus_off_since and self.raise_state:
-            times.append(self._surplus_off_since + SURPLUS_OFF_BEFORE_LOWER)
-        if self._cycle_started_at and self.raise_state:
-            times.append(
-                self._cycle_started_at
-                + timedelta(minutes=self.capabilities.min_run_before_lower_min)
+        open_grant = next(
+            (g for g in self._accepted_grants() if g.contains(now)), None
+        )
+        rs = self.raise_state
+        raised_grant = (
+            next(
+                (g for g in self._accepted_grants() if g.id == rs.grant_id),
+                None,
             )
+            if rs is not None
+            else None
+        )
+        if self._surplus_on_since:
+            times.append(
+                self._surplus_on_since + self._grant_timing(open_grant)[0]
+            )
+        _on, surplus_off, min_run = self._grant_timing(raised_grant)
+        if self._surplus_off_since and rs:
+            times.append(self._surplus_off_since + surplus_off)
+        if self._cycle_started_at and rs:
+            times.append(self._cycle_started_at + min_run)
         future = [t for t in times if t > now]
         return min(future) if future else None
 

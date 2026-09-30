@@ -369,3 +369,80 @@ def test_document_from_attributes_drops_presentation_keys():
 def test_parse_plan_directly(now):
     plan = parse_plan(make_document(now))
     assert plan.segments == ()
+
+
+class TestGrantRules:
+    """Issue #183: a grant may set its own timing rules (protocol 1.2)."""
+
+    RULES = {
+        "surplus_on_before_raise_min": 3,
+        "surplus_off_before_lower_min": 5,
+        "min_run_before_lower_min": 0,
+    }
+
+    def test_parsed_and_given_back(self, now, parse):
+        plan = parse(
+            make_document(
+                now,
+                grants=[grant(now, "g", 10, 60, max_f=146, **self.RULES)],
+                protocol="1.2",
+            )
+        )
+        (g,) = plan.grants
+        assert (g.surplus_on_min, g.surplus_off_min, g.min_run_min) == (3, 5, 0)
+        # Grant keys, not opaque ones.
+        assert g.extra == {}
+        assert {k: g.as_document()[k] for k in self.RULES} == self.RULES
+
+    def test_absent_rules_are_the_declared_ones(self, now, parse):
+        plan = parse(
+            make_document(now, grants=[grant(now, "g", 10, 60, max_f=146)])
+        )
+        (g,) = plan.grants
+        assert (g.surplus_on_min, g.surplus_off_min, g.min_run_min) == (
+            None,
+            None,
+            None,
+        )
+        assert not set(self.RULES) & set(g.as_document())
+
+    def test_a_whole_number_written_as_a_float_is_accepted(self, now, parse):
+        """3.0 is an integer to the JSON Schema; it is taken as 3."""
+        plan = parse(
+            make_document(
+                now,
+                grants=[
+                    grant(
+                        now,
+                        "g",
+                        10,
+                        60,
+                        max_f=146,
+                        surplus_on_before_raise_min=3.0,
+                    )
+                ],
+            )
+        )
+        (g,) = plan.grants
+        assert g.surplus_on_min == 3
+        assert isinstance(g.surplus_on_min, int)
+        assert g.as_document()["surplus_on_before_raise_min"] == 3
+
+    @pytest.mark.parametrize(
+        "value", [2.5, "3", True, None, float("inf"), float("nan")]
+    )
+    def test_a_rule_is_a_whole_number_of_minutes(self, now, parse, value):
+        doc = make_document(
+            now,
+            grants=[
+                grant(
+                    now,
+                    "g",
+                    10,
+                    60,
+                    max_f=146,
+                    surplus_on_before_raise_min=value,
+                )
+            ],
+        )
+        TestRejectedDocuments._rejects(parse, doc, REASON_INVALID_DOCUMENT)

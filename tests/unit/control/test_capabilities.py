@@ -16,8 +16,9 @@ class TestDeclaration:
         ).as_attributes()
 
         assert attrs["protocols"] == ["1", "0"]
-        # The newest minor of each major: 1.1 adds `reassert`.
-        assert attrs["protocol_versions"] == ["1.1", "0"]
+        # The newest minor of each major: 1.1 adds `reassert`, 1.2 a grant's
+        # own timing rules.
+        assert attrs["protocol_versions"] == ["1.2", "0"]
         # One per major, in the same order.
         assert [v.split(".")[0] for v in attrs["protocol_versions"]] == (
             attrs["protocols"]
@@ -35,6 +36,12 @@ class TestDeclaration:
             "surplus_on_before_raise_min": 10,
             "surplus_off_before_lower_min": 15,
             "min_run_before_lower_min": 120,
+        }
+        # A grant may set each rule itself, within these (protocol 1.2).
+        assert attrs["grant_rule_ranges"] == {
+            "surplus_on_before_raise_min": [0, 60],
+            "surplus_off_before_lower_min": [0, 60],
+            "min_run_before_lower_min": [0, 600],
         }
         assert attrs["owner_program"] is None
         assert attrs["lower_trigger_f"] == 104.9
