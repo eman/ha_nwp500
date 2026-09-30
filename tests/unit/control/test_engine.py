@@ -2756,3 +2756,36 @@ class TestEffectiveTimeline:
         assert (KIND_NEAR_TERM, "s0r") in {
             (e.kind, e.serves) for e in write.added
         }
+
+    def test_a_moved_entry_is_its_segments_after_the_collision_goes(self):
+        """A person removes the entry that moved b's, and b's entry.
+
+        b's entry is still the plan's own though nothing moves it now: b is
+        removed, not written again at its unmoved minute (PR #176 review).
+        """
+        foreign = {"enable": 2, "week": MONDAY, "hour": 11, "min": 0}
+        foreign |= {"mode": 1, "param": 100}
+        segments = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1),
+            segment(NOW, "b", 60, mode="heat_pump", setpoint_f=140),
+        ]
+        with_foreign = obs(reservations_enabled=True, reservations=(foreign,))
+        planner = planner_with(segments, observed=with_foreign, shadow=False)
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert b.fires_at == minutes(61)
+        run(
+            planner,
+            minutes(1),
+            obs(
+                reservations_enabled=True,
+                reservations=(foreign, *(e.as_entry() for e in planner.owned)),
+            ),
+        )
+        neither = obs(
+            reservations_enabled=True,
+            reservations=tuple(
+                e.as_entry() for e in planner.owned if e.serves != "b"
+            ),
+        )
+        assert run(planner, minutes(2), neither) is None
+        assert "b" in planner.removed_segments

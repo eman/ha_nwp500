@@ -349,6 +349,11 @@ class Planner:
         # Whether the last pass found the heater in Vacation or power-off,
         # or could not read its mode.
         self._was_unsettled = False
+        # The owned plan entries that are the plan in force's, by check key:
+        # written for it, or found at its adoption to be what it wants. An
+        # entry is recognised by this, not by where it would be placed now:
+        # the entry that moved it past a collision may have gone since.
+        self._plan_entries: set[str] = set()
 
     # -- persistence -------------------------------------------------------
 
@@ -375,6 +380,7 @@ class Planner:
             if self.settled
             else None,
             "judged": dict(self._judged),
+            "plan_entries": sorted(self._plan_entries),
             "was_unsettled": self._was_unsettled,
             "reports": [r.as_document() for r in self.reports.values()],
             "removed_segments": sorted(self.removed_segments),
@@ -442,6 +448,14 @@ class Planner:
             str(k): str(v) for k, v in document.get("judged", {}).items()
         }
         self._was_unsettled = bool(document.get("was_unsettled", False))
+        # Stored before this was kept: every owned plan entry is taken for
+        # the plan in force's, as it was then.
+        self._plan_entries = set(
+            document.get(
+                "plan_entries",
+                [self._check_key(e) for e in self.owned if e.kind == KIND_PLAN],
+            )
+        )
         self.reports = {}
         for raw in document.get("reports", []):
             report = _current_shape(Report.from_document(raw))
@@ -535,6 +549,7 @@ class Planner:
         afresh from what the heater holds; the segment in force is asserted.
         """
         self.owned = []
+        self._plan_entries = set()
         self.extra = []
         self.asserted = set()
         self.removed_segments = set()
@@ -746,6 +761,13 @@ class Planner:
             self.carry_state = self._state_before(
                 observed, previous, old_state, unsettled=unsettled
             )
+            # The entries on the heater that are what the new plan wants,
+            # judged against the list they were placed on.
+            self._plan_entries = {
+                self._check_key(e)
+                for e in self.owned
+                if e.kind == KIND_PLAN and self._placed_as_planned(e, observed)
+            }
             self._relabel_settled(plan, old_states)
         self.failed = {}
         # A near-term or exit entry still serves the new plan if the new
@@ -1063,6 +1085,17 @@ class Planner:
         """
         self.owned = list(write.result)
         self.last_write = write
+        # A planning write's plan entries are the plan in force's; the
+        # power-off write only switches entries off, whatever plan they are.
+        self._plan_entries = {
+            self._check_key(e)
+            for e in self.owned
+            if e.kind == KIND_PLAN
+            and (
+                write.reason != WRITE_POWER_OFF
+                or self._check_key(e) in self._plan_entries
+            )
+        }
         for entry in write.added:
             if entry.kind == KIND_PLAN and entry.serves:
                 self.asserted.add(entry.serves)
@@ -1223,6 +1256,10 @@ class Planner:
             for entry in write.added:
                 if entry not in self.owned and entry.as_entry() in on_device:
                     self.owned.append(entry)
+                    if entry.kind == KIND_PLAN and self._placed_as_planned(
+                        entry, observed
+                    ):
+                        self._plan_entries.add(self._check_key(entry))
             for entry in write.removed:
                 if entry in self.owned and entry.as_entry() not in on_device:
                     self.owned.remove(entry)
@@ -1482,9 +1519,7 @@ class Planner:
             ):
                 continue
             serves = owned_entry.serves
-            if serves is not None and self._puts_in_force(
-                owned_entry, observed
-            ):
+            if serves is not None and self._puts_in_force(owned_entry):
                 # Its segment never takes effect (section 5.10), and nothing
                 # else is written for it.
                 self.removed_segments.add(serves)
@@ -1513,7 +1548,7 @@ class Planner:
             self.owned = [e for e in self.owned if e != owned_entry]
             self.extra = [e for e in self.extra if e != owned_entry]
 
-    def _puts_in_force(self, entry: OwnedEntry, observed: Observed) -> bool:
+    def _puts_in_force(self, entry: OwnedEntry) -> bool:
         """Whether a deleted entry was what would put its segment in force.
 
         Not one that had already fired, or been skipped (section 5.9: the
@@ -1527,7 +1562,7 @@ class Planner:
         if self._judged.get(self._check_key(entry)) in (_FIRED, _SKIPPED):
             return False
         if entry.kind == KIND_PLAN:
-            return self._plan_entry_current(entry, observed)
+            return self._check_key(entry) in self._plan_entries
         if entry.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT):
             settled = self.settled
             return settled is None or settled[:2] != (
@@ -1536,13 +1571,11 @@ class Planner:
             )
         return False
 
-    def _plan_entry_current(
-        self, entry: OwnedEntry, observed: Observed
-    ) -> bool:
-        """Whether a plan entry is the plan in force's for its segment.
+    def _placed_as_planned(self, entry: OwnedEntry, observed: Observed) -> bool:
+        """Whether a plan entry is where the plan in force places it now.
 
-        Its state, at the segment's start or moved from there only past
-        minutes other entries on the heater occupy (section 5.2).
+        Its segment's state, at the segment's start or moved from there
+        only past minutes other entries on the heater occupy (section 5.2).
         """
         segment = next(
             (
