@@ -2789,3 +2789,65 @@ class TestEffectiveTimeline:
         )
         assert run(planner, minutes(2), neither) is None
         assert "b" in planner.removed_segments
+
+
+class TestUnreadableState:
+    """Issue #173: a heater state that cannot be read is not precedence's end.
+
+    The last known Vacation or power-off holds until the mode reads again.
+    """
+
+    SEGMENTS = [
+        segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+        segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+        segment(NOW, "c", 240, mode="heat_pump", setpoint_f=130),
+    ]
+    ON_A = {"mode": "heat_pump", "setpoint_raw": 120}
+    UNREAD = {"mode": None, "setpoint_raw": None}
+
+    def _on_heater(self, planner: Planner, **overrides) -> Observed:
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(e.as_entry() for e in planner.owned),
+            **overrides,
+        )
+
+    def test_the_exit_waits_for_vacation_to_be_read_as_over(self):
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
+        for m in range(45, 50):
+            write = run(
+                planner, minutes(m), self._on_heater(planner, **self.UNREAD)
+            )
+            assert write is None or not write.added
+        write = run(planner, minutes(50), self._on_heater(planner, **self.ON_A))
+        assert write is not None
+        assert [(e.kind, e.serves) for e in write.added] == [
+            (KIND_PRECEDENCE_EXIT, "b")
+        ]
+
+    def test_power_off_keeps_the_entries_off_through_a_blip(self):
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(5), self._on_heater(planner, mode="power_off"))
+        assert all(not e.enabled for e in planner.owned)
+        for m in (6, 7, 8):
+            write = run(
+                planner, minutes(m), self._on_heater(planner, **self.UNREAD)
+            )
+            assert write is None
+        assert all(not e.enabled for e in planner.owned)
+        write = run(planner, minutes(10), self._on_heater(planner, **self.ON_A))
+        assert write is not None
+        assert all(e.enabled for e in planner.owned)
+        assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
+
+    def test_an_unread_state_before_any_is_read_is_no_precedence(self):
+        """At start-up, nothing is known yet: passes run as usual."""
+        planner = planner_with(
+            self.SEGMENTS, observed=obs(**self.UNREAD), shadow=False
+        )
+        assert planner.suspended_by is None
+        assert planner.owned
