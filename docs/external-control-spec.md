@@ -854,6 +854,10 @@ setpoint or mode writes.
   (section 8).
 - **Vacation and power-off are precedence**, not a person's change to the
   setpoint or mode.
+- **A state that cannot be read** (the heater's status unavailable) is not
+  the end of Vacation or power-off. The last known one holds until the mode
+  reads again: the exit entry is written only then, and while powered off
+  the feature's entries stay switched off.
 
 ### 5.10 People's changes
 
