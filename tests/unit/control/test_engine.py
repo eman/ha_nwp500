@@ -2955,3 +2955,113 @@ class TestLoweringAndANewRaise:
         )
         assert planner.raise_state is None
         assert lowering in planner.owned
+
+
+class TestStaleNearTerm:
+    """Issue #172: a near-term entry serves only while its segment is in force."""
+
+    SEGMENTS = [
+        segment(NOW, "a", -10, mode="high_demand", setpoint_f=125),
+        segment(NOW, "b", 30, mode="heat_pump", setpoint_f=130),
+        segment(NOW, "c", 240, mode="energy_saver", setpoint_f=140),
+    ]
+
+    def _on_heater(self, planner: Planner, **overrides) -> Observed:
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(e.as_entry() for e in planner.owned),
+            **overrides,
+        )
+
+    def _powered_off_through_b(self) -> Planner:
+        """A plan arrives while powered off; b begins before power returns."""
+        planner = Planner(capabilities(), TZ, shadow=False)
+        planner.owner = OWNER
+        run(planner, NOW, obs(mode="power_off", reservations_enabled=True))
+        plan = parse_plan(make_document(minutes(1), self.SEGMENTS))
+        check_plan(plan, planner.capabilities)
+        planner.set_plan(
+            plan, minutes(1), self._on_heater(planner, mode="power_off")
+        )
+        for m in (1, 5, 20, 40, 50):
+            run(planner, minutes(m), self._on_heater(planner, mode="power_off"))
+        return planner
+
+    def test_an_ended_segments_near_term_is_not_written(self):
+        planner = self._powered_off_through_b()
+        write = run(planner, minutes(60), self._on_heater(planner))
+        assert write is not None
+        assert "a" not in {e.serves for e in write.added}
+        assert not [e for e in planner.extra if e.serves == "a"]
+
+    def test_the_exit_is_the_one_entry_for_the_segment_in_force(self):
+        planner = self._powered_off_through_b()
+        write = run(planner, minutes(60), self._on_heater(planner))
+        assert write is not None
+        for_b = [
+            (e.kind, e.serves)
+            for e in write.added
+            if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+        ]
+        assert for_b == [(KIND_PRECEDENCE_EXIT, "b")]
+
+    def test_power_returning_as_a_segment_begins_writes_one_entry(self):
+        """The exit asserts b; no near-term is added beside it.
+
+        b comes with a plan adopted while powered off, so no entry of its
+        own was written for it.
+        """
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner))
+        run(planner, minutes(20), self._on_heater(planner, mode="power_off"))
+        give(
+            planner,
+            [
+                self.SEGMENTS[0],
+                segment(NOW, "b", 30, mode="electric", setpoint_f=130),
+                self.SEGMENTS[2],
+            ],
+            now=minutes(25),
+            observed=self._on_heater(planner, mode="power_off"),
+            intent_id="i-2",
+        )
+        write = run(planner, minutes(30), self._on_heater(planner))
+        assert write is not None
+        for_b = [
+            (e.kind, e.serves)
+            for e in write.added
+            if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+        ]
+        assert for_b == [(KIND_PRECEDENCE_EXIT, "b")]
+
+    @pytest.mark.parametrize("late", [False, True])
+    def test_an_exit_whose_write_fails_into_the_next_segment_is_dropped(
+        self, late
+    ):
+        """PR #179 review: the exit half of the rule.
+
+        Vacation ends just before b begins, and the exit for a is written.
+        Its write is rejected, or confirmed only after its minute, with the
+        retry after b's start: it is dropped, not moved into b's time.
+        """
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner))
+        run(planner, minutes(10), self._on_heater(planner, mode="vacation"))
+        write = planner.step(minutes(26), self._on_heater(planner))
+        assert write is not None
+        (exit_entry,) = (
+            e for e in write.added if e.kind == KIND_PRECEDENCE_EXIT
+        )
+        assert exit_entry.serves == "a"
+        assert exit_entry.fires_at < minutes(30)
+        if late:
+            planner.commit(write, confirmed_at=minutes(31))
+        else:
+            planner.reject(
+                write, minutes(26), retry_at=minutes(31), final=False
+            )
+        assert not [
+            e
+            for e in planner.extra
+            if e.kind == KIND_PRECEDENCE_EXIT and e.serves == "a"
+        ]

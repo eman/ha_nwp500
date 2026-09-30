@@ -656,8 +656,10 @@ disabling restores.
   it tries again. A near-term entry in an unconfirmed write moves to the
   first minute it can still make after the retry, so the retry never writes
   an entry whose minute has passed. A surplus raise whose write failed is
-  withdrawn. A near-term entry is never dropped unwritten: while writes are
-  paused, or once its minute has passed unwritten, it moves forward.
+  withdrawn. A near-term entry is never dropped unwritten while its segment
+  is in force: while writes are paused, or once its minute has passed
+  unwritten, it moves forward. Once a later segment is in force, it is
+  dropped instead: it would put an ended segment's state back.
 - **An unconfirmed write may have landed.** Its confirmation can be lost
   while the device took the list. The next read settles it: if the device
   holds the list sent, the write is committed; otherwise any of its entries
@@ -844,7 +846,9 @@ setpoint or mode writes.
   heater powered off, it turns off its own entries' enable flags, which the
   device honours (section 8). This is the one list write it makes under
   precedence. When power returns, it turns them back on and re-asserts the
-  segment in force with a near-term entry (`precedence_exit`). This depends on
+  segment in force with a near-term entry (`precedence_exit`), which
+  replaces any near-term entry still waiting to be written for that
+  segment. This depends on
   Home Assistant being up when the heater is switched off. If it is not, the
   next entry turns the heater back on.
   - A plan accepted while the heater is powered off is written when power

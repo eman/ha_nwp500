@@ -1178,7 +1178,9 @@ class Planner:
 
         Matched by kind and what it serves, not by equality: the copy that
         was written may have been moved past a collision. Dropped if the
-        next segment starts by then; a raise moves with its entry.
+        next segment starts by then, and a segment's entry once that segment
+        is no longer the one in force (#172): it would put an ended
+        segment's state back. A raise moves with its entry.
         """
         earliest = near_term_minute(when, NEAR_TERM_LEAD)
         for entry in [
@@ -1187,6 +1189,10 @@ class Planner:
             if entry.fires_at >= earliest:
                 continue
             self.extra = [e for e in self.extra if e != entry]
+            if kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT):
+                anchor = self._anchor(when)
+                if anchor is None or anchor[0].id != serves:
+                    continue
             moved = self._near_term(
                 kind, serves, State(entry.mode, entry.setpoint_raw), when
             )
@@ -1281,10 +1287,12 @@ class Planner:
                 segment, state = anchor
                 if state is not None:
                     # Entries were skipped while it lasted; re-assert the
-                    # segment in force.
+                    # segment in force. The exit is its asserting entry: no
+                    # near-term entry is added beside it (#172).
                     self._near_term(
                         KIND_PRECEDENCE_EXIT, segment.id, state, now
                     )
+                    self.asserted.add(segment.id)
         self.suspended_by = suspended
 
     def _track_settled(self, now: datetime, observed: Observed) -> None:
@@ -1998,8 +2006,15 @@ class Planner:
         entry = OwnedEntry(
             kind, serves, fires_at, state.mode, state.setpoint_raw
         )
+        # An exit re-asserts the segment: it replaces a near-term entry
+        # still pending for it (#172).
+        replaced = (
+            (kind, KIND_NEAR_TERM) if kind == KIND_PRECEDENCE_EXIT else (kind,)
+        )
         self.extra = [
-            e for e in self.extra if not (e.kind == kind and e.serves == serves)
+            e
+            for e in self.extra
+            if not (e.kind in replaced and e.serves == serves)
         ]
         self.extra.append(entry)
         return entry
