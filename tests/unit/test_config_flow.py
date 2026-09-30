@@ -671,6 +671,51 @@ class TestExternalControlOptions:
         }
 
     @pytest.mark.asyncio
+    async def test_never_enabled_stores_what_the_release_did(
+        self, hass: HomeAssistant
+    ):
+        """Spec 1.1.4: off, the options are what v0.21.1 stored."""
+        handler, _ = self._handler(hass, {"scan_interval": 30})
+
+        result = await handler.async_step_init(
+            {"scan_interval": 45, "control_enabled": False}
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"] == {"scan_interval": 45}
+
+    def test_the_first_page_reads_as_the_release_did(self):
+        """Spec 1.1.4: its text is v0.21.1's; only the toggle is added."""
+        import json
+        from pathlib import Path as _Path
+
+        root = _Path("custom_components/nwp500")
+        for name in ("strings.json", "translations/en.json"):
+            init = json.loads((root / name).read_text())["options"]["step"][
+                "init"
+            ]
+            assert init["title"] == "NWP500 Options"
+            assert init["description"] == (
+                "Configure advanced settings for your Navien NWP500 "
+                "integration."
+            )
+            assert init["data"]["scan_interval"] == "Update interval (seconds)"
+            assert init["data_description"]["scan_interval"] == (
+                "How often to poll device status (10-300 seconds). Lower "
+                "values provide faster updates but may increase server "
+                "load. Default: 30 seconds."
+            )
+            assert set(init["data"]) == {"scan_interval", "control_enabled"}
+            # The toggle's help needs no knowledge of the feature.
+            assert init["data"]["control_enabled"] == "External control"
+            assert init["data_description"]["control_enabled"] == (
+                "Optional, and off unless you turn it on. Lets a scheduler "
+                "of your own, such as an automation or a Node-RED flow, set "
+                "this water heater's temperature and mode over time. Leave "
+                "it off if you don't have one."
+            )
+
+    @pytest.mark.asyncio
     async def test_toggle_on_shows_the_control_form(self, hass: HomeAssistant):
         handler, _ = self._handler(hass)
 

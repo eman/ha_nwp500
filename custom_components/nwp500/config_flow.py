@@ -494,9 +494,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             self._init_input = user_input
             if user_input.get(CONF_CONTROL_ENABLED):
                 return await self.async_step_external_control()
-            return self.async_create_entry(
-                title="", data={**self.config_entry.options, **user_input}
-            )
+            data = {**self.config_entry.options, **user_input}
+            if CONF_CONTROL_ENABLED not in self.config_entry.options:
+                # Never switched on: store what the release before the
+                # feature stored (spec section 1.1.4).
+                data.pop(CONF_CONTROL_ENABLED, None)
+            return self.async_create_entry(title="", data=data)
 
         return self.async_show_form(
             step_id="init",
