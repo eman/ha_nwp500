@@ -3065,3 +3065,68 @@ class TestStaleNearTerm:
             for e in planner.extra
             if e.kind == KIND_PRECEDENCE_EXIT and e.serves == "a"
         ]
+
+
+class TestExitAfterAntiLegionella:
+    """Issue #174: an exit owed at Vacation's end waits out anti-legionella."""
+
+    SEGMENTS = [
+        segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+        segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+        segment(NOW, "c", 240, mode="heat_pump", setpoint_f=130),
+    ]
+    ON_A = {"mode": "heat_pump", "setpoint_raw": 120}
+
+    def _on_heater(self, planner: Planner, **overrides) -> Observed:
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(e.as_entry() for e in planner.owned),
+            **overrides,
+        )
+
+    def _vacation_into_anti_legionella(self) -> Planner:
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
+        cycle = self._on_heater(planner, anti_legionella_busy=True, **self.ON_A)
+        # The feature does not write the list during the cycle (5.9).
+        assert run(planner, minutes(50), cycle) is None
+        return planner
+
+    def _exit_for_b(self, write) -> bool:
+        return write is not None and (KIND_PRECEDENCE_EXIT, "b") in {
+            (e.kind, e.serves) for e in write.added
+        }
+
+    def test_the_exit_is_written_when_the_cycle_ends(self):
+        planner = self._vacation_into_anti_legionella()
+        write = run(planner, minutes(70), self._on_heater(planner, **self.ON_A))
+        assert self._exit_for_b(write)
+        # Written once.
+        assert (
+            run(planner, minutes(71), self._on_heater(planner, **self.ON_A))
+            is None
+        )
+
+    def test_the_owed_exit_survives_a_restart(self):
+        planner = self._vacation_into_anti_legionella()
+        restarted = Planner(planner.capabilities, TZ, shadow=False)
+        restarted.owner = planner.owner
+        restarted.load_document(planner.as_document())
+        assert planner.plan is not None
+        cycle = self._on_heater(planner, anti_legionella_busy=True, **self.ON_A)
+        restarted.set_plan(planner.plan, minutes(55), cycle, restoring=True)
+        run(restarted, minutes(55), cycle)
+        write = run(
+            restarted, minutes(70), self._on_heater(restarted, **self.ON_A)
+        )
+        assert self._exit_for_b(write)
+
+    def test_an_unreadable_state_does_not_spend_the_owed_exit(self):
+        planner = self._vacation_into_anti_legionella()
+        unread = self._on_heater(planner, mode=None, setpoint_raw=None)
+        write = run(planner, minutes(60), unread)
+        assert not self._exit_for_b(write)
+        write = run(planner, minutes(70), self._on_heater(planner, **self.ON_A))
+        assert self._exit_for_b(write)

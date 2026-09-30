@@ -859,6 +859,8 @@ setpoint or mode writes.
     it powered on in, with no plan entries firing.
     Leaving them on while it is powered off would let them power it back on.
 - **Anti-Legionella.** The feature does not write the list during a cycle.
+  When Vacation or power-off ends straight into one, its exit entry is
+  owed, and is written once the cycle is over, across a restart too.
   Whether an entry firing mid-cycle interrupts the cycle is untested
   (section 8).
 - **Vacation and power-off are precedence**, not a person's change to the

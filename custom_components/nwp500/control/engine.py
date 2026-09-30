@@ -349,6 +349,10 @@ class Planner:
         # Whether the last pass found the heater in Vacation or power-off,
         # or could not read its mode.
         self._was_unsettled = False
+        # Vacation or power-off has ended, and its exit entry is still to be
+        # written once nothing takes precedence (an anti-legionella cycle
+        # can follow straight on).
+        self._exit_owed = False
         # The owned plan entries that are the plan in force's, by check key:
         # written for it, or found at its adoption to be what it wants. An
         # entry is recognised by this, not by where it would be placed now:
@@ -382,6 +386,7 @@ class Planner:
             "judged": dict(self._judged),
             "plan_entries": sorted(self._plan_entries),
             "was_unsettled": self._was_unsettled,
+            "exit_owed": self._exit_owed,
             "reports": [r.as_document() for r in self.reports.values()],
             "removed_segments": sorted(self.removed_segments),
             "last_write": self.last_write.as_document()
@@ -448,6 +453,7 @@ class Planner:
             str(k): str(v) for k, v in document.get("judged", {}).items()
         }
         self._was_unsettled = bool(document.get("was_unsettled", False))
+        self._exit_owed = bool(document.get("exit_owed", False))
         # Stored before this was kept: every owned plan entry is taken for
         # the plan in force's, as it was then.
         self._plan_entries = set(
@@ -550,6 +556,7 @@ class Planner:
         """
         self.owned = []
         self._plan_entries = set()
+        self._exit_owed = False
         self.extra = []
         self.asserted = set()
         self.removed_segments = set()
@@ -849,10 +856,11 @@ class Planner:
             self.settled = (segment_id, state, now)
 
     def _in_precedence(self, observed: Observed) -> bool:
-        """Vacation or power-off now, or at the last pass."""
+        """Vacation or power-off now, or at the last pass, or its exit owed."""
         return (
             observed.suspended_by in _PRECEDENCE_WITH_EXIT
             or self.suspended_by in _PRECEDENCE_WITH_EXIT
+            or self._exit_owed
         )
 
     def _state_before(
@@ -998,6 +1006,7 @@ class Planner:
         self.asserted = set()
         self.carry_state = None
         self.adopted_from = None
+        self._exit_owed = False
         self.raise_state = None
         self.grant_rejections = {}
         self.forget_people()
@@ -1274,14 +1283,25 @@ class Planner:
 
     def _track_precedence(self, now: datetime, observed: Observed) -> None:
         suspended = observed.suspended_by
-        if observed.mode is None and self.suspended_by in _PRECEDENCE_WITH_EXIT:
+        if observed.mode is None and (
+            self.suspended_by in _PRECEDENCE_WITH_EXIT or self._exit_owed
+        ):
             # A state that cannot be read is neither Vacation nor power-off
             # ending: the last known one holds until the mode reads again
             # (#173). Ending it here would spend the exit entry while the
             # heater still skips entries, or switch entries back on while
             # it is powered off.
             return
-        if self.suspended_by in _PRECEDENCE_WITH_EXIT and suspended is None:
+        if (
+            self.suspended_by in _PRECEDENCE_WITH_EXIT
+            and suspended not in _PRECEDENCE_WITH_EXIT
+        ):
+            # Vacation or power-off is over: its exit is owed, and written
+            # once nothing takes precedence. An anti-legionella cycle it
+            # ends into holds it until the cycle is over (#174).
+            self._exit_owed = True
+        if self._exit_owed and suspended is None:
+            self._exit_owed = False
             anchor = self._anchor(now)
             if anchor is not None:
                 segment, state = anchor
