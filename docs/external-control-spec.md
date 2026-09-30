@@ -936,7 +936,8 @@ adopt them into the plan. The scheduler decides.
   setpoint and mode with the entry's, within the poll interval plus one
   minute. Setpoints are compared within the device's half-degree resolution.
   A setpoint that does not match marks the segment or grant with reason
-  `not_applied_on_device`.
+  `not_applied_on_device`. An entry the heater skipped, its minute in
+  Vacation or power-off, is not read back: the exit entry after it is.
 - **A mode counts as applied only when the heater's behaviour confirms it,**
   not on its read-back alone, because the read-back can be held or masked in
   a TOU window. For a mode that uses an element, confirmation is an element
@@ -1149,9 +1150,9 @@ compressor idle and the tank full. Times are PDT.
 Eight list writes were sent, the hand-back's included; one confirmation was
 lost, and its retry was confirmed. One read-back finding: `v2`'s plan entry,
 whose minute passed in Vacation and which the heater skipped, was checked
-after Vacation ended and flagged `not_applied_on_device`. Read-back does not
-yet leave out an entry skipped in Vacation. Here `v2` was removed
-afterwards, which its status shows instead.
+after Vacation ended and flagged `not_applied_on_device`. Read-back did not
+yet leave out an entry skipped in Vacation (#182, since fixed). Here `v2`
+was removed afterwards, which its status shows instead.
 
 ---
 

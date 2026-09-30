@@ -1662,12 +1662,15 @@ class Planner:
             or observed.suspended_by is not None
         ):
             return
+        # An entry the heater skipped, its minute in Vacation or power-off,
+        # set nothing to read back: the exit entry after it is (#182).
         due = [
             e
             for e in self.owned
             if e.enabled
             and e.fires_at + self.explain_window <= now
             and self._check_key(e) not in self._checked
+            and self._judged.get(self._check_key(e)) != _SKIPPED
         ]
         if not due:
             return
@@ -1733,6 +1736,7 @@ class Planner:
             if e.enabled
             and e.fires_at <= now
             and self._check_key(e) in self._checked
+            and self._judged.get(self._check_key(e)) != _SKIPPED
         ]
         latest: OwnedEntry | None = (
             max(fired, key=lambda e: e.fires_at) if fired else None

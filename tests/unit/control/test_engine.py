@@ -3154,3 +3154,52 @@ class TestExitAfterAntiLegionella:
             restarted, minutes(70), self._on_heater(restarted, **self.ON_A)
         )
         assert self._exit_for_b(write)
+
+
+class TestReadBackOfSkippedEntries:
+    """Issue #182: an entry the heater skipped in Vacation is not read back."""
+
+    SEGMENTS = [
+        segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
+        segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
+        segment(NOW, "c", 240, mode="heat_pump", setpoint_f=130),
+    ]
+    ON_A = {"mode": "heat_pump", "setpoint_raw": 120}
+    ON_B = {"mode": "energy_saver", "setpoint_raw": 109}
+
+    def _on_heater(self, planner: Planner, **overrides) -> Observed:
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(e.as_entry() for e in planner.owned),
+            **overrides,
+        )
+
+    def test_a_segment_begun_in_vacation_is_read_back_by_its_exit(self):
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(3), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
+        # Vacation ends: b's plan entry (10:30) was skipped; the heater is
+        # still in a's state, and the exit for b is written.
+        write = run(planner, minutes(41), self._on_heater(planner, **self.ON_A))
+        assert write is not None
+        assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
+        assert "b" not in planner.readback
+        assert statuses(planner)["b"][0] != "failed"
+        # The exit fires and the heater takes b's state: read back, applied.
+        run(planner, minutes(44), self._on_heater(planner, **self.ON_B))
+        run(planner, minutes(46), self._on_heater(planner, **self.ON_B))
+        assert "b" not in planner.readback
+        assert statuses(planner)["b"][0] == "in_force"
+
+    def test_an_exit_not_applied_is_still_flagged(self):
+        """The exit is read back as any entry: not applied, it fails."""
+        planner = planner_with(self.SEGMENTS, shadow=False)
+        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(3), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
+        run(planner, minutes(41), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(44), self._on_heater(planner, **self.ON_A))
+        run(planner, minutes(46), self._on_heater(planner, **self.ON_A))
+        assert statuses(planner)["b"] == ("failed", "not_applied_on_device")
