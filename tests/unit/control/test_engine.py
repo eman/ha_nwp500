@@ -50,7 +50,7 @@ from custom_components.nwp500.control.intent import parse_plan
 from custom_components.nwp500.control.observed import Observed
 from custom_components.nwp500.control.sensor import ControlLastWriteSensor
 
-from .conftest import capabilities, grant, make_document, segment
+from .conftest import capabilities, make_document, segment
 
 TZ = ZoneInfo("America/Los_Angeles")
 # A Monday morning, local time.
@@ -93,16 +93,13 @@ def give(
     planner: Planner,
     segments: list[dict],
     *,
-    grants: list[dict] | None = None,
     now: datetime = NOW,
     observed: Observed | None = None,
     restoring: bool = False,
     **document_kwargs,
 ):
     """Hand the planner a checked plan, and run a pass."""
-    plan = parse_plan(
-        make_document(now, segments, grants=grants, **document_kwargs)
-    )
+    plan = parse_plan(make_document(now, segments, **document_kwargs))
     check_plan(plan, planner.capabilities)
     planner.set_plan(plan, now, observed or obs(), restoring=restoring)
     return run(planner, now, observed)
@@ -111,7 +108,6 @@ def give(
 def planner_with(
     segments: list[dict] | None = None,
     *,
-    grants: list[dict] | None = None,
     observed: Observed | None = None,
     shadow: bool = True,
     **options,
@@ -119,7 +115,7 @@ def planner_with(
     planner = Planner(capabilities(**options), TZ, shadow=shadow)
     run(planner, NOW, observed)
     if segments is not None:
-        give(planner, segments, grants=grants, observed=observed)
+        give(planner, segments, observed=observed)
     return planner
 
 
@@ -161,7 +157,6 @@ class TestSpecExample:
                     ),
                     segment(base, "s4", 1020, setpoint="min"),
                 ],
-                grants=[grant(base, "g1", 360, 540, max_f=146)],
             )
         )
         check_plan(plan, planner.capabilities)

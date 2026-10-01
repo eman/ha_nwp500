@@ -1356,7 +1356,6 @@ CONTROL_MODE_NAMES: Final = (
 )
 
 DEFAULT_CONTROL_MODE: Final = CONTROL_MODE_SHADOW
-DEFAULT_CONTROL_ASSISTED_MODE: Final = "energy_saver"
 # The unit tested accepted and read back a list of 32 entries (spec
 # section 8); larger lists are untested. The default stays at the library's
 # documented 16, and the option goes no higher than what was measured.

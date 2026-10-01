@@ -132,6 +132,10 @@ class DeviceControl:
                 "(CONTROL_LIVE_AVAILABLE); running in shadow"
             )
             mode = CONTROL_MODE_SHADOW
+        elif mode == CONTROL_MODE_LIVE and not control_follows_plan(options):
+            # An earlier version's live with its segments switch off wrote
+            # nothing; the declaration says what runs.
+            mode = CONTROL_MODE_SHADOW
         self.mode = mode
         self.writes = live_writes(options, mac_address)
         self.intent_entity_id: str | None = options.get(
@@ -783,9 +787,8 @@ class DeviceControl:
         self.planner.capabilities = self._build_capabilities()
         self.planner.set_plan(plan, now, observed, restoring=restoring)
         _LOGGER.debug(
-            "Plan %s for %s adopted: %d segment(s), %d grant(s)",
+            "Plan %s for %s adopted: %d segment(s)",
             plan.intent_id,
             self.mac_address,
             len(plan.segments),
-            len(plan.grants),
         )

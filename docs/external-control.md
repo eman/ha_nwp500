@@ -21,13 +21,8 @@ own. A **plan** is the specification's *intent* (its id is `intent_id`), a
 program*. Raw states and attribute values are the protocol's, whatever the
 display shows.
 
-**The feature operates and reports the water heater, and nothing else.** It
-reads only the heater, never the home's power, solar, prices or forecasts,
-and makes no decision of its own. When to heat, and in which mode, is your
-scheduler's. Surplus grants, the assisted mode and mode confirmation from
-the compressor and elements were removed for that reason (2026-09-30). The
-protocol still lists them, fixed or empty, until
-[#192](https://github.com/eman/ha_nwp500/issues/192) removes them.
+**The feature applies your scheduler's plan and reports the result.** It
+reads only the heater and makes no decision of its own.
 
 The complete specification is [`external-control-spec.md`](external-control-spec.md),
 also published as [issue #158](https://github.com/eman/ha_nwp500/issues/158).
@@ -131,7 +126,6 @@ restart; the feature then keeps its stored copy of the plan.
 | `intent_id` | string, at most 64 characters | yes | Unique per plan |
 | `issued_at` | ISO 8601 with offset | yes | An older plan never replaces a newer one (`superseded`) |
 | `segments` | list | yes | The timeline. **An empty list stops the plan**: every programmed entry is withdrawn and the heater keeps its state |
-| `grants` | list | no | Surplus grants: **not supported**. Accepted, and each rejected (`grants_unsupported`); send none |
 | any other key | any | no | Opaque. Echoed on the plan entity, for example `plan_id` |
 
 There is no validity period. The last segment holds until a new plan
@@ -157,12 +151,6 @@ not end it. Whether an entry with the power-off mode powers the heater off
 is untested, and the mode command with that value switched the unit tested
 to Energy Saver (#160).
 
-### Surplus grants
-
-Not supported: the feature reads nothing about the home's power. A plan's
-grants are rejected on their own, `grants_unsupported`, and its segments are
-programmed as usual. Store surplus energy with ordinary segments instead.
-
 ### Validation
 
 A plan is **rejected whole**, and the plan in force stays, for:
@@ -170,8 +158,6 @@ A plan is **rejected whole**, and the plan in force stays, for:
 `unordered_segments`, `mode_not_allowed` (a mode the heater does not have)
 or `superseded`. One bad segment rejects the plan, because
 skipping it would leave the segment before it in force over its time.
-
-Every **grant** is rejected on its own, `grants_unsupported`.
 
 ### Example
 
@@ -233,14 +219,13 @@ reads.
 | Entity (key) | State | Attributes |
 |---|---|---|
 | External control interface (`capabilities`), diagnostic | The declaration's version | The declaration (below) |
-| Plan (`intent`) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque keys |
-| Plan status (`ack`) | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, `mode_confirmed` (always `null`; withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) and its opaque keys; `grants`, each `rejected` with reason `grants_unsupported` (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
+| Plan (`intent`) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque keys |
+| Plan status (`ack`) | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force` and its opaque keys |
 | External control schedule fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `foreign` (not the feature's), `plan`, `near_term` or `guard`; the feature's own also say what they serve and when they fire (spec section 4.2) |
 | Plan written to heater (`in_sync`) | On when the device's list hashes the same as the program; off in Preview whenever the plan has entries of its own | `device_hash`, `read_at` |
 | Plan written up to (`programmed_until`) | How far the device's copy of the plan reaches | `complete`, `scheduled` |
 | Plan next change (`next_entry`) | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
-| Plan mode now, Plan temperature now (`wanted_mode`, `wanted_setpoint`) | The state the plan puts the heater in now; a segment a person's deletion kept out does not count (spec section 5.10) | `segment` (the segment in force), `grant` (always `null`) |
-| Surplus raise active (`grant_raised`) | Always off (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) | `grant`, `raised_at`, `setpoint_f`, all `null` |
+| Plan mode now, Plan temperature now (`wanted_mode`, `wanted_setpoint`) | The state the plan puts the heater in now; a segment a person's deletion kept out does not count (spec section 5.10) | `segment` (the segment in force) |
 | External control last write (`last_write`), diagnostic | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
 | Manual change detected (`override`) | On while a person's change is reported | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
 | External control heartbeat (`heartbeat`), diagnostic | Updated at least every 15 minutes | none |
@@ -248,23 +233,17 @@ reads.
 
 Segment statuses are `shadow`, `scheduled`, `merged` and `ended` in shadow;
 live adds `pending`, `programmed`, `in_force`, `failed` and `removed`.
-Every grant is `rejected`. The last write's `reason` is one of `plan`,
+The last write's `reason` is one of `plan`,
 `cleanup`, `near_term` and `takeover`.
 
 ### The capability declaration
 
 | Attribute | Meaning |
 |---|---|
-| `protocols`, `protocol_versions`, `feature_version`, `mode`, `live` | What runs. `protocol_versions` names the newest minor of each major, `["1.2", "0"]`; a scheduler checks it before relying on `reassert` (1.1). `live` is `{"segments": <the mode is live>, "grants": false}` (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
-| `setpoint_min_f` / `_c`, `setpoint_max_f` / `_c`, `setpoint_resolution_c` | The bounds, and the device's half-degree resolution. Absent until the device's feature data has arrived |
-| `allowed_modes` | Every mode a segment may use: all six (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
-| `assisted_mode` | Always `energy_saver` (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192): the scheduler's choice, not the heater's) |
+| `protocols`, `protocol_versions`, `feature_version`, `mode` | What runs. `protocol_versions` names the newest minor of each major, `["1.2", "0"]`; a scheduler checks it before relying on `reassert` (1.1) |
+| `setpoint_resolution_c` | The device's half-degree resolution |
 | `horizon_h`, `near_term_lead_min`, `entry_limit`, `entry_reserve`, `entries_available` | How entries are budgeted. `entries_available` changes as entries fire, so it is left out of the version |
-| `grants_supported`, `grant_rules`, `grant_rule_ranges` | `false`, and fixed values nothing follows (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
-| `owner_program` | Always `null`: the feature keeps no copy of your own settings (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
-| `entry_mode_in_tou_window`, `entries_fire_when_powered_off`, `entries_fire_in_vacation` | How the heater treats reservation entries, measured on the unit tested |
-| `lower_trigger_f`, `setpoint_write_starts_recovery`, `setpoint_write_stops_compressor`, `list_write_starts_recovery`, `unchanged_entry_starts_recovery` | Tank and recovery behaviour measured on the unit tested (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192): tank modelling belongs in time_to_heat) |
-| `telemetry` | Entity ids for this heater's delivery temperature, compressor and power draw; and the delivery-temperature dip (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
+| `telemetry` | Entity ids for this heater's delivery temperature, compressor and power draw |
 
 ## Live mode
 

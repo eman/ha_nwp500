@@ -66,7 +66,6 @@
     "removed_count": 0,
     "truncated": false,
     "confirmed": true,
-    "simulated": false,
-    "owner_state": null
+    "simulated": false
   }
 }

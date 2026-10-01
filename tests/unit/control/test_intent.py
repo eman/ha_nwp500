@@ -7,7 +7,6 @@ from datetime import timedelta
 import pytest
 
 from custom_components.nwp500.control.intent import (
-    REASON_DUPLICATE_ID,
     REASON_INVALID_DOCUMENT,
     REASON_UNORDERED_SEGMENTS,
     REASON_UNSUPPORTED_PROTOCOL,
@@ -18,7 +17,7 @@ from custom_components.nwp500.control.intent import (
     truncate_to_minute,
 )
 
-from .conftest import grant, make_document, segment
+from .conftest import make_document, segment
 
 
 class TestAcceptedPlans:
@@ -42,7 +41,6 @@ class TestAcceptedPlans:
                     ),
                     segment(now, "s4", 1020, setpoint="min"),
                 ],
-                grants=[grant(now, "g1", 360, 540, max_f=146)],
                 plan_id="opaque",
             )
         )
@@ -61,8 +59,6 @@ class TestAcceptedPlans:
         assert s2.mode == "heat_pump"
         assert s2.mode_given is False
         assert s4.mode == "energy_saver"
-        (g1,) = plan.grants
-        assert g1.max_raw == 127
 
     def test_times_are_truncated_to_the_minute(self, now, parse):
         start = now + timedelta(minutes=5, seconds=42)
@@ -91,14 +87,6 @@ class TestAcceptedPlans:
 
     def test_empty_segments_stop_the_plan(self, now, parse):
         assert parse(make_document(now, [])).segments == ()
-
-    def test_grants_are_optional(self, now, parse):
-        plan = parse(
-            make_document(
-                now, [segment(now, "s", 0, mode="heat_pump", setpoint="min")]
-            )
-        )
-        assert plan.grants == ()
 
     def test_z_offset(self, now, parse):
         document = make_document(now)
@@ -131,7 +119,6 @@ class TestAcceptedPlans:
                 segment(now, "b", 60, setpoint_c=52.5),
                 segment(now, "c", 120, mode="electric", setpoint_f=140),
             ],
-            grants=[grant(now, "g", 10, 50, max_c=63.5, why="sun")],
             plan_id="p",
         )
         plan = parse(document)
@@ -143,8 +130,20 @@ class TestAcceptedPlans:
         assert stored["segments"][0]["setpoint"] == "min"
         assert stored["segments"][1]["setpoint_c"] == 52.5
         assert "mode" not in stored["segments"][1]
-        assert stored["grants"][0]["max_c"] == 63.5
-        assert stored["grants"][0]["why"] == "sun"
+
+
+class TestGrantsAreNotPartOfThePlan:
+    def test_a_grants_key_is_kept_as_an_opaque_one(self, now, parse):
+        """A plan from an earlier scheduler is still accepted (#192)."""
+        plan = parse(
+            make_document(
+                now,
+                [segment(now, "s", 0, mode="heat_pump", setpoint_f=130)],
+                grants=[{"id": "g", "start": "x"}],
+            )
+        )
+        assert [s.id for s in plan.segments] == ["s"]
+        assert plan.extra == {"grants": [{"id": "g", "start": "x"}]}
 
 
 class TestRejectedDocuments:
@@ -208,7 +207,7 @@ class TestRejectedDocuments:
             parse, make_document(now, intent_id=""), REASON_INVALID_DOCUMENT
         )
 
-    def test_segment_and_grant_ids_are_bounded(self, now, parse):
+    def test_segment_ids_are_bounded(self, now, parse):
         """At most 64 characters (spec section 3.2).
 
         So the entities naming them stay within the recorder's limit.
@@ -217,7 +216,6 @@ class TestRejectedDocuments:
         document = make_document(
             now,
             [segment(now, at_most, 0, mode="heat_pump", setpoint_f=130)],
-            grants=[grant(now, "g" * 64, 10, 60, max_f=140)],
         )
         assert parse(document).segments[0].id == at_most
         self._rejects(
@@ -225,15 +223,6 @@ class TestRejectedDocuments:
             make_document(
                 now,
                 [segment(now, "x" * 65, 0, mode="heat_pump", setpoint_f=130)],
-            ),
-            REASON_INVALID_DOCUMENT,
-        )
-        self._rejects(
-            parse,
-            make_document(
-                now,
-                [segment(now, "s", 0, mode="heat_pump", setpoint_f=130)],
-                grants=[grant(now, "g" * 65, 10, 60, max_f=140)],
             ),
             REASON_INVALID_DOCUMENT,
         )
@@ -294,50 +283,11 @@ class TestRejectedDocuments:
             parse, make_document(now, [a, b]), REASON_UNORDERED_SEGMENTS
         )
 
-    def test_duplicate_ids_across_segments_and_grants(self, now, parse):
-        self._rejects(
-            parse,
-            make_document(
-                now,
-                [segment(now, "x", 0, mode="heat_pump", setpoint_f=130)],
-                grants=[grant(now, "x", 10, 20, max_f=146)],
-            ),
-            REASON_DUPLICATE_ID,
-        )
-
     def test_mode_must_be_a_string(self, now, parse):
         self._rejects(
             parse,
             make_document(now, [segment(now, "s", 0, mode=3, setpoint_f=130)]),
             REASON_INVALID_DOCUMENT,
-        )
-
-    @pytest.mark.parametrize(
-        "bad",
-        [
-            {"id": "g", "start": "x", "end": "y", "max_f": 146},
-            {"id": "g", "end": "2026-10-04T10:00:00+00:00", "max_f": 146},
-            {
-                "id": "g",
-                "start": "2026-10-04T09:00:00+00:00",
-                "end": "2026-10-04T10:00:00+00:00",
-            },
-            {
-                "id": "g",
-                "start": "2026-10-04T09:00:00+00:00",
-                "end": "2026-10-04T10:00:00+00:00",
-                "max_f": "146",
-            },
-        ],
-    )
-    def test_grant_structure(self, now, parse, bad):
-        self._rejects(
-            parse, make_document(now, grants=[bad]), REASON_INVALID_DOCUMENT
-        )
-
-    def test_grants_must_be_a_list(self, now, parse):
-        self._rejects(
-            parse, make_document(now, grants={}), REASON_INVALID_DOCUMENT
         )
 
     def test_segments_must_be_a_list(self, now, parse):
@@ -347,17 +297,6 @@ class TestRejectedDocuments:
 
     def test_items_must_be_objects(self, now, parse):
         self._rejects(parse, make_document(now, ["s"]), REASON_INVALID_DOCUMENT)
-        self._rejects(
-            parse, make_document(now, grants=["g"]), REASON_INVALID_DOCUMENT
-        )
-
-
-def test_a_backwards_grant_is_kept_for_evaluate(now, parse):
-    """A grant whose end is before its start is rejected alone, later."""
-    plan = parse(
-        make_document(now, grants=[grant(now, "g", 20, 10, max_f=146)])
-    )
-    assert plan.grants[0].end < plan.grants[0].start
 
 
 def test_document_from_attributes_drops_presentation_keys():
@@ -369,80 +308,3 @@ def test_document_from_attributes_drops_presentation_keys():
 def test_parse_plan_directly(now):
     plan = parse_plan(make_document(now))
     assert plan.segments == ()
-
-
-class TestGrantRules:
-    """Issue #183: a grant may set its own timing rules (protocol 1.2)."""
-
-    RULES = {
-        "surplus_on_before_raise_min": 3,
-        "surplus_off_before_lower_min": 5,
-        "min_run_before_lower_min": 0,
-    }
-
-    def test_parsed_and_given_back(self, now, parse):
-        plan = parse(
-            make_document(
-                now,
-                grants=[grant(now, "g", 10, 60, max_f=146, **self.RULES)],
-                protocol="1.2",
-            )
-        )
-        (g,) = plan.grants
-        assert (g.surplus_on_min, g.surplus_off_min, g.min_run_min) == (3, 5, 0)
-        # Grant keys, not opaque ones.
-        assert g.extra == {}
-        assert {k: g.as_document()[k] for k in self.RULES} == self.RULES
-
-    def test_absent_rules_are_the_declared_ones(self, now, parse):
-        plan = parse(
-            make_document(now, grants=[grant(now, "g", 10, 60, max_f=146)])
-        )
-        (g,) = plan.grants
-        assert (g.surplus_on_min, g.surplus_off_min, g.min_run_min) == (
-            None,
-            None,
-            None,
-        )
-        assert not set(self.RULES) & set(g.as_document())
-
-    def test_a_whole_number_written_as_a_float_is_accepted(self, now, parse):
-        """3.0 is an integer to the JSON Schema; it is taken as 3."""
-        plan = parse(
-            make_document(
-                now,
-                grants=[
-                    grant(
-                        now,
-                        "g",
-                        10,
-                        60,
-                        max_f=146,
-                        surplus_on_before_raise_min=3.0,
-                    )
-                ],
-            )
-        )
-        (g,) = plan.grants
-        assert g.surplus_on_min == 3
-        assert isinstance(g.surplus_on_min, int)
-        assert g.as_document()["surplus_on_before_raise_min"] == 3
-
-    @pytest.mark.parametrize(
-        "value", [2.5, "3", True, None, float("inf"), float("nan")]
-    )
-    def test_a_rule_is_a_whole_number_of_minutes(self, now, parse, value):
-        doc = make_document(
-            now,
-            grants=[
-                grant(
-                    now,
-                    "g",
-                    10,
-                    60,
-                    max_f=146,
-                    surplus_on_before_raise_min=value,
-                )
-            ],
-        )
-        TestRejectedDocuments._rejects(parse, doc, REASON_INVALID_DOCUMENT)

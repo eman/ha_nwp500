@@ -47,27 +47,10 @@ def segment(
     return doc
 
 
-def grant(
-    base: datetime,
-    grant_id: str,
-    start: float,
-    end: float,
-    **maximum: Any,
-) -> dict[str, Any]:
-    """A grant whose window is given in minutes from `base`."""
-    return {
-        "id": grant_id,
-        "start": ts(base, start),
-        "end": ts(base, end),
-        **maximum,
-    }
-
-
 def make_document(
     now: datetime,
     segments: list[dict[str, Any]] | None = None,
     *,
-    grants: list[dict[str, Any]] | None = None,
     intent_id: str = "i-1",
     issued_at: datetime | None = None,
     **extra: Any,
@@ -80,8 +63,6 @@ def make_document(
         "segments": segments if segments is not None else [],
         **extra,
     }
-    if grants is not None:
-        doc["grants"] = grants
     return doc
 
 

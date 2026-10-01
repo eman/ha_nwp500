@@ -113,7 +113,6 @@ class TestAcks:
             "reason": "superseded",
             "detail": "older",
             "segments": [],
-            "grants": [],
             "rejected": None,
         }
 

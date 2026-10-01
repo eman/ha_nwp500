@@ -450,9 +450,6 @@
           },
           "segment_count": {
             "name": "Plan steps"
-          },
-          "grant_count": {
-            "name": "Surplus windows"
           }
         }
       },
@@ -472,9 +469,6 @@
           },
           "segments": {
             "name": "Plan steps"
-          },
-          "grants": {
-            "name": "Surplus windows"
           },
           "reason": {
             "name": "Reason"
@@ -506,9 +500,6 @@
         "state_attributes": {
           "segment": {
             "name": "Plan step"
-          },
-          "grant": {
-            "name": "Surplus window"
           }
         }
       },
@@ -607,9 +598,6 @@
           },
           "simulated": {
             "name": "Preview only"
-          },
-          "owner_state": {
-            "name": "Your own settings restored"
           }
         }
       }
@@ -735,30 +723,6 @@
           },
           "read_at": {
             "name": "Read at"
-          }
-        }
-      },
-      "control_grant_raised": {
-        "name": "Surplus raise active",
-        "state": {
-          "on": "Yes",
-          "off": "No"
-        },
-        "state_attributes": {
-          "grant": {
-            "name": "Surplus window"
-          },
-          "raised_at": {
-            "name": "Raised at"
-          },
-          "fires_at": {
-            "name": "Takes effect"
-          },
-          "setpoint_f": {
-            "name": "Temperature (°F)"
-          },
-          "setpoint_c": {
-            "name": "Temperature (°C)"
           }
         }
       }

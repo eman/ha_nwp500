@@ -488,7 +488,6 @@ class TestReading:
     async def test_capabilities_carry_the_room(self, control_factory):
         control = await control_factory()
         attrs = control.capabilities.as_attributes()
-        assert attrs["owner_program"] is None
         assert attrs["entries_available"] == 14
 
     @pytest.mark.asyncio
