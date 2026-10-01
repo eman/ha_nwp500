@@ -1364,6 +1364,9 @@ MAX_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 32
 DATA_PLATFORMS: Final = "platforms"
 DATA_CONTROL: Final = "control"
 
+# The Repairs issue raised while external control is on but failed to start.
+ISSUE_CONTROL_START_FAILED: Final = "control_start_failed"
+
 
 def control_enabled(entry: Any) -> bool:
     """Whether the external control feature is switched on for an entry.

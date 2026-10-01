@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import (
     EventStateChangedData,
     async_track_point_in_utc_time,
@@ -87,6 +88,11 @@ WRITE_PAUSE = timedelta(minutes=15)
 # How long disabling waits for the heater to report the owner's state.
 STATE_CONFIRM_TIMEOUT = 60.0
 STATE_CONFIRM_POLL = 2.0
+
+# The Repairs issue raised while a heater may hold the feature's list that
+# could not be handed back (section 6.6). It persists across restarts, and
+# after the feature is switched off: that is when only it tells the owner.
+ISSUE_HAND_BACK_FAILED = "control_hand_back_failed"
 
 
 def live_writes(options: Mapping[str, Any], mac_address: str) -> bool:
@@ -278,11 +284,14 @@ class DeviceControl:
         else:
             if self.holds_device and not self.writes:
                 _LOGGER.warning(
-                    "The heater %s still holds the feature's reservation "
-                    "list, but live writes are off. Press Disable to hand it "
-                    "back to the owner's program",
-                    self.mac_address,
+                    "%s still holds external control's schedule entries, but "
+                    "live writes are off. Press Stop external control to "
+                    "hand it back",
+                    self.device_name,
                 )
+                self._report_hand_back(failed=True)
+            else:
+                self._report_hand_back(failed=False)
             await self.store.async_set_disabled_done(self.mac_address, False)
             if self.intent_entity_id:
                 self._unsubscribe.append(
@@ -381,6 +390,7 @@ class DeviceControl:
             await self.store.async_set_disabled_done(self.mac_address, True)
             await self._async_persist()
             return
+        self._report_hand_back(failed=False)
         write = self.planner.disable(now)
         _LOGGER.info(
             "External control disabled for %s: %d entr%s removed%s",
@@ -422,9 +432,10 @@ class DeviceControl:
         owner = self.planner.owner
         if owner is None:
             _LOGGER.error(
-                "Cannot restore the owner's program on %s: none is known",
-                self.mac_address,
+                "Cannot give %s back its own settings: none are known",
+                self.device_name,
             )
+            self._report_hand_back(failed=True)
             return False
         async with self.writer.locked():
             if await self._async_fresh_read() is None:
@@ -477,6 +488,7 @@ class DeviceControl:
             state_written=state_written,
         )
         await self.store.async_set_took_over(self.mac_address, False)
+        self._report_hand_back(failed=False)
         # Saved now: a reload follows, and the next controller must know the
         # heater no longer holds the feature's list.
         await self._async_persist()
@@ -526,9 +538,33 @@ class DeviceControl:
             confirmed=False,
         )
         _LOGGER.error(
-            "Could not restore the owner's reservation list on %s; the "
-            "feature's entries are still on the heater",
-            self.mac_address,
+            "Could not give %s back its own schedule; external control's "
+            "entries are still on the heater",
+            self.device_name,
+        )
+        self._report_hand_back(failed=True)
+
+    @property
+    def device_name(self) -> str:
+        """The heater's name, as its device shows it, else its MAC."""
+        name = getattr(self.device.device_info, "device_name", None)
+        return name if isinstance(name, str) and name else self.mac_address
+
+    def _report_hand_back(self, *, failed: bool) -> None:
+        """Raise or clear the Repairs issue for a failed hand-back."""
+        issue_id = f"{ISSUE_HAND_BACK_FAILED}_{self.mac_address}"
+        if not failed:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            is_persistent=True,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key=ISSUE_HAND_BACK_FAILED,
+            translation_placeholders={"device": self.device_name},
         )
 
     def _retry_release(self, now: datetime) -> None:

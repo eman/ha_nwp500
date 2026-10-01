@@ -190,11 +190,12 @@ _DAYS = (
     (4, "Fri"),
     (2, "Sat"),
 )
+# As the options form names them (the `control_mode_name` selector).
 _MODE_LABELS = {
-    "heat_pump": "Heat Pump",
+    "heat_pump": "Heat pump",
     "electric": "Electric",
-    "energy_saver": "Energy Saver",
-    "high_demand": "High Demand",
+    "energy_saver": "Energy Saver (Eco)",
+    "high_demand": "High demand",
     "vacation": "Vacation",
     "power_off": "Power off",
 }
@@ -203,38 +204,44 @@ _MODE_LABELS = {
 def _temperature(raw: int, celsius: bool) -> str:
     value = HalfCelsius(raw)
     if celsius:
-        return f"{value.to_celsius():.1f} °C"
-    return f"{value.to_fahrenheit():.1f} °F"
+        return f"{round(value.to_celsius(), 1):g} °C"
+    return f"{round(value.to_fahrenheit(), 1):g} °F"
 
 
 def describe(program: OwnerProgram, *, celsius: bool) -> str:
     """The owner's program as the going-live step shows it (6.3)."""
     lines = [
         f"- Mode: {_MODE_LABELS.get(program.mode, program.mode)}",
-        f"- Setpoint: {_temperature(program.setpoint_raw, celsius)}",
-        "- Reservations: " + ("on" if program.reservations_enabled else "off"),
+        f"- Temperature: {_temperature(program.setpoint_raw, celsius)}",
+        "- Schedule: " + ("on" if program.reservations_enabled else "off"),
     ]
     if not program.entries:
-        lines.append("- Entries: none")
+        lines.append("- Schedule entries: none")
     for entry in program.entries:
-        days = " ".join(
+        days = ", ".join(
             name for bit, name in _DAYS if int(entry.get("week", 0)) & bit
         )
         mode = _DHW_ID_TO_MODE.get(int(entry.get("mode", 0)), "?")
-        state = "on" if entry.get("enable") == DEVICE_BOOL_ON else "off"
-        switched = (
-            ", switched off while live"
+        state = (
+            "on now, switched off while live"
             if entry.get("enable") == DEVICE_BOOL_ON
-            else ""
+            else "off"
         )
         lines.append(
-            f"- Entry {days or '(no days)'} "
-            f"{int(entry.get('hour', 0)):02d}:{int(entry.get('min', 0)):02d}, "
-            f"{_MODE_LABELS.get(mode, mode)} "
-            f"{_temperature(int(entry.get('param', 0)), celsius)}, "
-            f"{state}{switched}"
+            f"- {days or 'No days'} "
+            f"{int(entry.get('hour', 0)):02d}:{int(entry.get('min', 0)):02d}: "
+            f"{_MODE_LABELS.get(mode, mode)}, "
+            f"{_temperature(int(entry.get('param', 0)), celsius)} ({state})"
         )
     return "\n".join(lines)
+
+
+def _device_name(data: Mapping[str, Any], mac_address: str) -> str:
+    """The heater's name, as its device shows it, else its MAC address."""
+    name = getattr(
+        getattr(data.get("device"), "device_info", None), "device_name", None
+    )
+    return name if isinstance(name, str) and name else mac_address
 
 
 async def async_declare_owner_programs(
@@ -267,6 +274,7 @@ async def async_declare_owner_programs(
     sections: list[str] = []
     complete = True
     for mac_address, data in coordinator.data.items():
+        name = _device_name(data, mac_address)
         program: OwnerProgram | None = None
         control = feature.devices.get(mac_address) if feature else None
         holds = (
@@ -279,9 +287,10 @@ async def async_declare_owner_programs(
             if program is None:
                 complete = False
                 sections.append(
-                    f"**{mac_address}**: may still hold the feature's entries "
-                    "and has no declared program. Disable the feature to hand "
-                    "it back before going live again."
+                    f"**{name}** may still hold external control's schedule "
+                    "entries, and its own settings were never recorded. "
+                    "Choose Stopped and save, to hand it back, before going "
+                    "live again."
                 )
                 continue
         if program is None:
@@ -301,9 +310,9 @@ async def async_declare_owner_programs(
         if program is None:
             complete = False
             sections.append(
-                f"**{mac_address}**: not readable yet (the mode, setpoint "
-                "or reservation list has not been read, or the heater is "
-                "in vacation or powered off)."
+                f"**{name}**: its settings can't be read yet. Wait until it "
+                "reports its mode, temperature and schedule, and take it out "
+                "of Vacation or power off."
             )
             continue
         program = OwnerProgram(
@@ -314,9 +323,7 @@ async def async_declare_owner_programs(
             declared=True,
         )
         programs[mac_address] = program.as_document()
-        sections.append(
-            f"**{mac_address}**\n{describe(program, celsius=celsius)}"
-        )
+        sections.append(f"**{name}**\n{describe(program, celsius=celsius)}")
     if not programs:
         complete = False
     return (programs if complete else None), "\n\n".join(sections)

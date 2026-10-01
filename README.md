@@ -37,10 +37,11 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
   shows only to installers.
 - **Alerts** — Error codes, leak detection, and freeze/scald warnings via binary sensors.
 - **Scheduling** — Recurring mode and temperature changes via the reservation service.
-- **External control** — Let an external scheduler drive the heater through an
-  intent entity. The plan is programmed into the heater's own reservation
-  list, so the heater keeps following it if Home Assistant is down. Off by
-  default. See [docs/external-control.md](docs/external-control.md).
+- **External control** — Optional, and off unless you turn it on. Lets a
+  scheduler of your own publish a plan: when to change the heater's
+  temperature and mode. The plan is written into the heater's own schedule,
+  so the heater keeps following it if Home Assistant is down. See
+  [docs/external-control.md](docs/external-control.md).
 
 ## Installation
 

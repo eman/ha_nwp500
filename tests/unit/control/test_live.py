@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
@@ -25,6 +26,7 @@ from custom_components.nwp500.const import (
     CONF_CONTROL_OWNER_PROGRAM,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
+    DOMAIN,
 )
 from custom_components.nwp500.control import device as device_module
 from custom_components.nwp500.control.device import (
@@ -64,6 +66,8 @@ from .test_device import (
     _status,
 )
 from .test_engine import NOW, SURPLUS, TZ, give, minutes, obs, planner_with
+
+HAND_BACK_ISSUE = f"control_hand_back_failed_{MAC}"
 
 LIVE = {
     "control_mode": "live",
@@ -457,13 +461,20 @@ class TestOwnerProgram:
 
     def test_describe(self):
         text = describe(OwnerProgram.from_document(OWNER_DOC), celsius=False)
-        assert "Mode: Energy Saver" in text
-        assert "Setpoint: 139.1 °F" in text
-        assert "Reservations: on" in text
-        assert (
-            "Entry Tue Wed Thu Fri Sat 06:00, Energy Saver 140.0 °F, on, "
-            "switched off while live" in text
+        # The words the options form uses: mode, temperature, schedule.
+        assert text == (
+            "- Mode: Energy Saver (Eco)\n"
+            "- Temperature: 139.1 °F\n"
+            "- Schedule: on\n"
+            "- Tue, Wed, Thu, Fri, Sat 06:00: Energy Saver (Eco), 140 °F "
+            "(on now, switched off while live)"
         )
+
+    def test_describe_in_celsius_without_entries(self):
+        document = {**OWNER_DOC, "entries": [], "reservations_enabled": False}
+        text = describe(OwnerProgram.from_document(document), celsius=True)
+        assert "- Temperature: 59.5 °C\n- Schedule: off\n" in text
+        assert text.endswith("- Schedule entries: none")
 
 
 # -- the controller, against a simulated heater ---------------------------
@@ -960,12 +971,48 @@ class TestLiveDisable:
         assert disabled.last_write.confirmed is False
         assert disabled.store.disabled_done(MAC) is False
         assert heater.states == []
+        # The owner is told in Repairs, not only in the log.
+        issue = ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE)
+        assert issue is not None
+        assert issue.translation_key == "control_hand_back_failed"
+        assert issue.is_persistent is True
 
         await _tick(hass, freezer, WRITE_RETRY + timedelta(seconds=1))
 
         assert heater.schedule == OWNER_LIST
         assert disabled.store.disabled_done(MAC) is True
         assert disabled.last_write.confirmed is True
+        assert (
+            ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE) is None
+        )
+
+    @pytest.mark.asyncio
+    async def test_a_heater_left_holding_the_list_is_reported(
+        self, hass, live_factory, now
+    ):
+        """Live writes off while the heater still holds the feature's list."""
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        await control.async_stop()
+        heater.lose = 2
+        assert await control.async_release(dt_util.utcnow()) is False
+
+        _, shadow = await live_factory(
+            reuse=True, **{CONF_CONTROL_LIVE_SEGMENTS: False}
+        )
+
+        assert shadow.holds_device is True
+        assert ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE)
+        await shadow.async_stop()
+        heater.lose = 0
+
+        _, disabled = await live_factory(
+            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
+        )
+        assert disabled.store.disabled_done(MAC) is True
+        assert (
+            ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE) is None
+        )
 
     @pytest.mark.asyncio
     async def test_a_lost_hand_back_forgets_what_the_heater_held(

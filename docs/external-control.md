@@ -7,11 +7,19 @@ heater's own weekly reservation list, so the heater carries it out itself and
 keeps following it if Home Assistant, the feature or the scheduler becomes
 unavailable.
 
-The feature is off by default. Enabling it starts in `shadow` mode, which
-plans and reports the reservation list it would write and writes nothing to
-the heater. `live` writes the list; choosing it first shows the heater's own
-program for confirmation, which disabling restores. Live mode was cut over in
-stages on a real heater before protocol `1` was declared.
+The feature is off by default, and needs a scheduler of your own: an
+automation, a Node-RED flow or a script. Enabling it starts in **Preview**
+(`shadow` in the protocol), which works out and reports the reservation list
+it would write and writes nothing to the heater. **Live** writes the list;
+choosing it first shows your own settings for confirmation, which
+**Stopped** (`disabled`) restores. Live mode was cut over in stages on a real
+heater before protocol `1` was declared.
+
+The options form and the entities use plain names; the protocol keeps its
+own. A **plan** is the specification's *intent* (its id is `intent_id`), a
+**plan step** is a *segment*, a **surplus window** is a *grant*, and **your
+own settings** are the *owner's program*. Raw states and attribute values
+are the protocol's, whatever the display shows.
 
 The complete specification is [`external-control-spec.md`](external-control-spec.md),
 also published as [issue #158](https://github.com/eman/ha_nwp500/issues/158).
@@ -51,16 +59,26 @@ the toggle on opens a second page:
 
 | Option | Default | Notes |
 |---|---|---|
-| Plan entity | none | Required. The entity your scheduler publishes plans to; see below |
-| Mode | `shadow` | Shadow shows what it would write and writes nothing. Live writes to the heater: the next page shows your heater's current program, and it goes live only once you submit that page. Disabled gives the heater its own program back once, then stops |
-| Live: follow the plan, Live: surplus raises | off, off | Only with Live. Following the plan off: live behaves as shadow. Surplus raises need following the plan |
-| Surplus sensor | none | A `binary_sensor` (on = surplus) or a kW `sensor`. Needed for surplus raises |
-| Surplus threshold (kW) | 0.45 | For a power sensor: surplus when it reads at or above this |
+| Plan entity | none | Required. The entity your scheduler puts its plan on; see below |
+| Mode | Preview | One choice, stored as the `mode` option and its two live switches (spec section 6.1); see the table below |
+| Surplus sensor | none | A `binary_sensor` (on = spare power) or a `sensor` of spare (exported) power in **kW**, positive when there is power to spare. A sensor in W is not converted. Needed for surplus raises |
+| Surplus threshold (kW) | 0.45 | For a power sensor: spare power when it reads at or above this |
 | Lowest / highest temperature | the heater's range | Optional tighter bounds. Empty uses the heater's own `dhw_temperature_min` / `max`. A plan's `"min"` setpoint means the lowest |
-| Allowed modes | `heat_pump`, `energy_saver` | Modes a plan may choose. Heat Pump must be allowed for a plan to hold it, and for surplus raises. When first going live, one mode keeps the heater from switching modes |
-| Faster-recovery mode | `energy_saver` | The mode a scheduler should use to get hot water back quickly. Must be one of the allowed modes |
-| Minimum run before taking a raise back (min) | 120 | Section 5.7. A plan's grant can set its own |
-| Schedule entries to use / kept free | 16 / 2 | The most entries the feature puts in the heater's schedule, and how many are kept free for changes needed right away. The heater tested held 32; larger lists are untested |
+| Allowed modes | Heat pump, Energy Saver (Eco) | Modes a plan may choose. Heat pump must be allowed for a plan to hold it, and for surplus raises. When first going live, one mode keeps the heater from switching modes |
+| Faster-recovery mode | Energy Saver (Eco) | The mode your scheduler is told to use to get hot water back quickly. The integration passes it on and never switches to it by itself. Must be one of the allowed modes |
+| Minimum compressor run before ending a surplus raise (min) | 120 | Section 5.7. A plan's grant can set its own |
+| Schedule size limit / entries kept free | 16 / 2 | The most entries the heater's schedule may hold in total, **your own included**, and how many are kept free for changes needed right away. The feature uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32, and larger lists are untested |
+
+| Mode | Stored as (`mode`, segments live, grants live) | What it does |
+|---|---|---|
+| Preview: show what the plan would do, write nothing | `shadow`, off, off | Works out the schedule and shows it on the entities; writes nothing |
+| Live: follow the plan | `live`, on, off | Writes the plan into the heater's schedule. The next page shows your own settings; it goes live only once you submit it |
+| Live: follow the plan, and raise the temperature with spare power | `live`, on, on | Also raises the temperature, up to the plan's limit, while there is spare power in the plan's surplus windows. Only while the heat pump is already running; it never starts heating by itself |
+| Stopped: give the heater back your own settings, then do nothing | `disabled`, off, off | Hands the heater back once, then does nothing. Its entities stay; turning the toggle off removes them |
+
+Options stored as `live` with segments off write nothing and behave as
+shadow, so the form shows them as Preview. Saving the form while already
+live shows your own settings again, on a page that says it stays live.
 
 Changing any option updates the capability entity, and so its version.
 Options from the first draft of the specification are removed the next time
@@ -87,19 +105,19 @@ topic that carries the plan:
 
 ```json
 {
-  "name": "Water heater intent",
-  "unique_id": "water_heater_intent",
-  "state_topic": "scheduler/water_heater/intent",
+  "name": "Water heater plan",
+  "unique_id": "water_heater_plan",
+  "state_topic": "scheduler/water_heater/plan",
   "value_template": "{{ value_json.intent_id }}",
-  "json_attributes_topic": "scheduler/water_heater/intent"
+  "json_attributes_topic": "scheduler/water_heater/plan"
 }
 ```
 
-A REST sensor or a template sensor works the same way. Exclude the intent
+A REST sensor or a template sensor works the same way. Exclude the plan
 entity from the recorder: its attributes are a document, not history.
 
 For a quick test without a scheduler, a state posted to the REST API
-(`POST /api/states/sensor.water_heater_intent` with the plan as
+(`POST /api/states/sensor.water_heater_plan` with the plan as
 `attributes`) is picked up the same way. Such a state does not survive a
 restart; the feature then keeps its stored copy of the plan.
 
@@ -203,7 +221,7 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
 - **Horizon.** Entries are programmed at most 144 hours ahead, because a
   weekly entry cannot say which week. Later segments are `scheduled` and
   programmed as time passes.
-- **Budget.** Entries fit within **Schedule entries to use**, minus every
+- **Budget.** Entries fit within the **Schedule size limit**, minus every
   other entry on the device, minus those **kept free**. Segments that do not
   fit are `scheduled` and programmed as earlier entries fire.
 - **Fired entries** are removed in the next write, and within a day at most.
@@ -224,23 +242,28 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
 
 ## Entities
 
-All belong to the device. Unique ids are `<mac>_control_<key>`.
+All belong to the device. Unique ids are `<mac>_control_<key>`, and entity
+ids `<domain>.<device>_control_<key>` whatever the display name (spec section
+4). The four marked *diagnostic* are under the device's Diagnostic section;
+they stay enabled. States and attribute names have display labels, such as
+"Preview only" for `shadow`; the raw values below are what a scheduler
+reads.
 
-| Entity | State | Attributes |
+| Entity (key) | State | Attributes |
 |---|---|---|
-| Control Capabilities | The declaration's version | The declaration (below) |
-| Control Plan | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque keys |
-| Control Acknowledgement | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, `mode_confirmed` and its opaque keys; `grants`, each with `id`, `status`, `reason`, `warnings` and its opaque keys |
-| Control Program Hash | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `owner`, `foreign`, `plan`, `near_term` or `guard`; the feature's own also say what they serve and when they fire (spec section 4.2) |
-| Control In Sync | On when the device's list hashes the same as the program | `device_hash`, `read_at` |
-| Control Programmed Until | How far the device's copy of the plan reaches | `complete`, `scheduled` |
-| Control Next Entry | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
-| Control Wanted Mode, Control Wanted Setpoint | The state the plan puts the heater in now, with any surplus raise; a segment a person's deletion kept out does not count (spec section 5.10) | `segment` (the segment in force), `grant` |
-| Control Surplus Raise | On while a raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
-| Control Last Write | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
-| Control Override | On while a person's change is reported | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
-| Control Heartbeat | Updated at least every 15 minutes | none |
-| Disable External Control (button) | | Switches the feature to `disabled` |
+| External control interface (`capabilities`), diagnostic | The declaration's version | The declaration (below) |
+| Plan (`intent`) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, `grant_count`, the opaque keys |
+| Plan status (`ack`) | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`, `mode_confirmed` and its opaque keys; `grants`, each with `id`, `status`, `reason`, `warnings` and its opaque keys |
+| External control schedule fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `owner`, `foreign`, `plan`, `near_term` or `guard`; the feature's own also say what they serve and when they fire (spec section 4.2) |
+| Plan written to heater (`in_sync`) | On when the device's list hashes the same as the program; off in Preview whenever the plan has entries of its own | `device_hash`, `read_at` |
+| Plan written up to (`programmed_until`) | How far the device's copy of the plan reaches | `complete`, `scheduled` |
+| Plan next change (`next_entry`) | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
+| Plan mode now, Plan temperature now (`wanted_mode`, `wanted_setpoint`) | The state the plan puts the heater in now, with any surplus raise; a segment a person's deletion kept out does not count (spec section 5.10) | `segment` (the segment in force), `grant` |
+| Surplus raise active (`grant_raised`) | On while a raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
+| External control last write (`last_write`), diagnostic | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
+| Manual change detected (`override`) | On while a person's change is reported | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
+| External control heartbeat (`heartbeat`), diagnostic | Updated at least every 15 minutes | none |
+| Stop external control (`disable`, button) | | Sets Mode to Stopped. Pressed again while Stopped, it retries a hand-back that failed |
 
 Segment statuses are `shadow`, `scheduled`, `merged` and `ended` in shadow;
 live adds `pending`, `programmed`, `in_force`, `failed` and `removed`.
@@ -268,9 +291,9 @@ last write's `reason` is one of `plan`, `cleanup`, `near_term`,
 
 Live mode writes the plan into the heater's reservation list.
 
-- **Going live.** Choosing `live` shows the heater's current program for
-  confirmation: its mode, setpoint, reservation switch and entries. That is
-  the owner's program, which disabling restores. Live does not run without
+- **Going live.** Choosing Live shows your own settings for confirmation:
+  the heater's mode, temperature, schedule switch and schedule entries. That
+  is the owner's program, which Stopped restores. Live does not run without
   it.
 - **Taking the list over.** The first write, once a plan is in force, turns
   the reservation switch on and switches each of the owner's entries off by
@@ -313,15 +336,19 @@ Live mode writes the plan into the heater's reservation list.
   state: the one set by the owner's latest enabled entry, else the declared
   mode and setpoint. That direct write is skipped in Vacation or power-off.
   A failed hand-back is retried once after a minute, then at the next start.
-  Handing back works even with live mode switched off in code, so a heater
-  left holding the feature's entries can always be returned.
+  Until it succeeds, a Repairs issue says so and how to finish it, even
+  after the feature is turned off. Handing back works even with live mode
+  switched off in code, so a heater left holding the feature's entries can
+  always be returned.
+- **A feature that cannot start** leaves the rest of the integration
+  running, and raises a Repairs issue until it starts or is turned off.
 
 ## Auditing shadow mode
 
-In shadow the program entities show the list the feature would write, and
-the last write entity shows each write it would have made. Compare the
-program with the device's own Reservation Schedule sensor: In Sync is off
-whenever they differ, which in shadow means the plan has entries of its own.
+In Preview (`shadow`) the program entities show the list the feature would
+write, and the last write entity shows each write it would have made.
+Compare the schedule fingerprint with the device's own Reservation Schedule
+sensor: Plan written to heater is off whenever they differ, which in shadow means the plan has entries of its own.
 The acknowledgement shows each segment's status, when its entry fires, and
 any warning.
 

@@ -555,6 +555,76 @@ async def test_setup_with_control_on_starts_the_feature():
 
 
 @pytest.mark.asyncio
+async def test_a_feature_that_cannot_start_is_reported_in_repairs():
+    """The integration runs without it, and the owner is told (#158)."""
+    mock_hass = _hass_for_setup()
+    mock_entry = _entry({"control_enabled": True})
+
+    with (
+        patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
+        patch(
+            "custom_components.nwp500.control.async_setup_control",
+            new=AsyncMock(side_effect=RuntimeError("boom")),
+        ),
+        patch("custom_components.nwp500.ir") as issues,
+    ):
+        cls.return_value.async_config_entry_first_refresh = AsyncMock()
+
+        assert await async_setup_entry(mock_hass, mock_entry) is True
+
+    issues.async_create_issue.assert_called_once()
+    args, kwargs = issues.async_create_issue.call_args
+    assert args[1:] == (
+        DOMAIN,
+        f"control_start_failed_{mock_entry.entry_id}",
+    )
+    assert kwargs["translation_key"] == "control_start_failed"
+    mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
+        mock_entry, _PRE_FEATURE_PLATFORMS
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_feature_that_starts_clears_its_repairs_issue():
+    mock_hass = _hass_for_setup()
+    mock_entry = _entry({"control_enabled": True})
+
+    with (
+        patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
+        patch(
+            "custom_components.nwp500.control.async_setup_control",
+            new=AsyncMock(return_value=[Platform.BUTTON]),
+        ),
+        patch("custom_components.nwp500.ir") as issues,
+    ):
+        cls.return_value.async_config_entry_first_refresh = AsyncMock()
+        assert await async_setup_entry(mock_hass, mock_entry) is True
+
+    issues.async_create_issue.assert_not_called()
+    issues.async_delete_issue.assert_called_once_with(
+        mock_hass, DOMAIN, f"control_start_failed_{mock_entry.entry_id}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_switching_off_after_a_failed_start_clears_the_issue():
+    mock_hass = _hass_for_setup()
+    mock_entry = _entry({"control_enabled": False})
+
+    with (
+        patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
+        patch("custom_components.nwp500.ir") as issues,
+    ):
+        cls.return_value.async_config_entry_first_refresh = AsyncMock()
+        issues.async_get.return_value.async_get_issue.return_value = object()
+        assert await async_setup_entry(mock_hass, mock_entry) is True
+
+    issues.async_delete_issue.assert_called_once_with(
+        mock_hass, DOMAIN, f"control_start_failed_{mock_entry.entry_id}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_only_the_boolean_true_enables_the_feature():
     """A truthy option value that is not True must not enable writes."""
     mock_hass = _hass_for_setup()

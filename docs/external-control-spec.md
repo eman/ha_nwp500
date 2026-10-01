@@ -320,8 +320,11 @@ new plan is programmed. If it stops at 12:00, mid-raise, the guard entry at
 
 ## 4. Entities the feature creates
 
-All belong to the device. Names are indicative; unique ids are
-`<mac>_control_<key>`.
+All belong to the device. Unique ids are `<mac>_control_<key>`, and entity
+ids `<domain>.<device>_control_<key>`, fixed by the key. Display names,
+translated state labels, attribute display names and entity categories are
+not part of the protocol: a scheduler reads ids, raw states and attribute
+keys and values, which are as documented here.
 
 ### 4.1 Capabilities: `sensor.<device>_control_capabilities`
 
@@ -1042,7 +1045,10 @@ Switching to `disabled`, by the Disable button or the options, is a
 
 The list write is confirmed like any other (section 5.4) and retried once
 after 60 s. If that fails too, disabling is left unfinished and tried again
-at the next start; the last write entity shows `confirmed: false`.
+at the next start; the last write entity shows `confirmed: false`. A
+persistent Repairs issue tells the owner, and says how to finish, until a
+hand-back succeeds: it stays after the feature is turned off, since then it
+is the only report left.
 
 Handing back is not gated by the live switch in code: a heater left holding
 the feature's list can always be returned. A plan that arrives during a
@@ -1074,6 +1080,12 @@ is kept, so turning the feature on and disabling can finish.
 | Owner's program | Declared from a snapshot when `live` is chosen from another mode (section 6.3) |
 
 Changing an option updates the capability entity, and so its version.
+
+The form offers the mode and its live switches as one choice: Preview
+(`shadow`), Live (`live`, segments), Live with spare power (`live`,
+segments and grants) and Stopped (`disabled`). Saving stores the three
+options as before. Options stored as `live` with segments off show as
+Preview, since they write nothing.
 
 ---
 
