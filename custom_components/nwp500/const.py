@@ -1371,6 +1371,16 @@ DATA_CONTROL: Final = "control"
 # The Repairs issue raised while external control is on but failed to start.
 ISSUE_CONTROL_START_FAILED: Final = "control_start_failed"
 
+# What external control leaves behind, known here so the off path can remove
+# it without importing the feature: its entities' unique ids carry this
+# marker after the MAC, and its state is kept under this storage key.
+CONTROL_UNIQUE_ID_MARKER: Final = "_control_"
+
+
+def control_storage_key(entry_id: str) -> str:
+    """The storage key of an entry's external control state."""
+    return f"{DOMAIN}.control.{entry_id}"
+
 
 def control_enabled(entry: Any) -> bool:
     """Whether the external control feature is switched on for an entry.
