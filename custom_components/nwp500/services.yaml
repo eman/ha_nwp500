@@ -133,7 +133,7 @@ update_reservations:
         List of reservation entries. Each entry should be a dictionary with keys:
         enable (2=enabled, 1=disabled), week (day bitfield), hour (0-23),
         min (0-59), mode (1-6), param (temperature in half-degrees Celsius).
-        Use the set_reservation service for a simpler interface.
+        Set reservation adds a single entry more simply.
       required: true
       selector:
         object:
@@ -289,7 +289,7 @@ set_vacation_duration:
   name: Set vacation duration
   description: >-
     Change the vacation day count without changing the operation mode.
-    Unlike set_vacation_days, this does not put the device into vacation
+    Unlike Set vacation days, this does not put the device into vacation
     mode; it only updates the number of days (1-30) the next vacation
     period will last.
   fields:

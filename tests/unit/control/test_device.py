@@ -531,13 +531,15 @@ class TestDiagnostics:
         section = result["external_control"]
         assert section["options"]["control_intent_entity"] == INTENT_ENTITY
         (device,) = section["devices"]
+        # Named as in the top-level devices list, to tell heaters apart.
+        assert device["device_name"] == control.device.device_info.device_name
         assert device["mode"] == "shadow"
         assert device["plan"]["intent_id"] == "i-1"
         assert device["ack"]["intent_id"] == "i-1"
         assert device["declaration"]["mode"] == "shadow"
         assert device["last_write"]["simulated"] is True
         assert "owned" in device["engine"]
-        # Nothing names the heater: its MAC is redacted.
+        # The MAC is redacted.
         assert MAC not in repr(result)
 
     @pytest.mark.asyncio

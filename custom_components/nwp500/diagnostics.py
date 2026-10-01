@@ -243,6 +243,7 @@ def _external_control(config_entry: Any, feature: Any) -> dict[str, Any]:
         last_write = control.last_write
         devices.append(
             {
+                "device_name": control.device.device_info.device_name,
                 "mode": control.mode,
                 "writes": control.writes,
                 "declaration": control.capabilities.as_attributes(),
