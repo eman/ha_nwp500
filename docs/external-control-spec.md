@@ -96,7 +96,7 @@ Within major version `1`:
 protocol 1, and with its one consumer changing in step
 (eman/dhw-sensor-apps#389), protocol 1 dropped what was not the feature's
 job of applying the plan: surplus grants, the assisted mode, the owner's
-program, the live switches, the setpoint bounds, the
+program, the live switches, the setpoint bounds and allowed modes, the
 measured tank and recovery facts, and the ack's `mode_confirmed`. A
 document's `grants` key is now opaque, as any key the feature does not know.
 
@@ -302,7 +302,6 @@ keys and values, which are as documented here.
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
 | `setpoint_resolution_c` | 0.5 on the NWP500, so a model can quantise exactly as the heater does |
-| `allowed_modes` | The modes the heater supports, all of which a segment may use: the six of section 3.4. A list, not a restriction |
 | `horizon_h` | How far ahead an entry may be programmed: 144 (section 5.3) |
 | `near_term_lead_min` | How far ahead a near-term entry is written: 2 (section 5.2) |
 | `entry_limit` | The most entries the feature will use on the device. Option, default **16**. The unit tested accepted and read back a list of 32 (section 8); larger lists are untested |

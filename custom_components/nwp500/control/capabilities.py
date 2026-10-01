@@ -17,7 +17,6 @@ from ..const import (
     CONF_CONTROL_MODE,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
-    CONTROL_MODE_NAMES,
     DEFAULT_CONTROL_MODE,
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
@@ -71,8 +70,6 @@ class Capabilities:
             "feature_version": self.feature_version,
             "mode": self.mode,
             "setpoint_resolution_c": SETPOINT_RESOLUTION_C,
-            # The modes the heater supports; a segment may use any of them.
-            "allowed_modes": list(CONTROL_MODE_NAMES),
             "horizon_h": int(HORIZON.total_seconds() // 3600),
             "near_term_lead_min": int(NEAR_TERM_LEAD.total_seconds() // 60),
             "entry_limit": self.entry_limit,

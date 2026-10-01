@@ -242,7 +242,6 @@ The last write's `reason` is one of `plan`,
 |---|---|
 | `protocols`, `protocol_versions`, `feature_version`, `mode` | What runs. `protocol_versions` names the newest minor of each major, `["1.2", "0"]`; a scheduler checks it before relying on `reassert` (1.1) |
 | `setpoint_resolution_c` | The device's half-degree resolution |
-| `allowed_modes` | The modes the heater supports, all six; a segment may use any of them |
 | `horizon_h`, `near_term_lead_min`, `entry_limit`, `entry_reserve`, `entries_available` | How entries are budgeted. `entries_available` changes as entries fire, so it is left out of the version |
 | `telemetry` | Entity ids for this heater's delivery temperature, compressor and power draw |
 
