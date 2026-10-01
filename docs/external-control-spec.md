@@ -315,21 +315,32 @@ command is evaluated, not written (status `shadow`); while `disabled` nothing
 is applied. A plan step can already put the heater in `vacation` or
 `power_off` at a time (section 3.4); a command is for now.
 
-**Validation.** A command whose keys are missing or of the wrong type
-rejects the document (`invalid_document`). Ranges, such as how many days of
-Vacation the heater takes, are the library's to check: a value it refuses
-makes the command `failed` with the library's reason. An unknown `command` is rejected on its own,
-`unsupported_command`, and the plan proceeds, so a scheduler can send a
-command a later version adds.
+**Validation.** A command is checked on its own, and the plan proceeds
+whatever happens to it: a bad command never costs the heater its plan. One
+whose keys are missing or of the wrong type is `rejected`,
+`invalid_command`; an unknown `command` is `rejected`, `unsupported_command`,
+so a scheduler can send a command a later version adds. Ranges, such as how
+many days of Vacation the heater takes, are the library's to check: a value
+it refuses makes the command `failed` with the library's reason. Only
+`commands` that is not a list, or an item that is not an object or has no
+valid `id`, rejects the document (`invalid_document`).
 
-**Open for review:**
-1. Commands apply only when the plan is adopted. Should a command also take
-   an `at` time? The feature would then need to time direct writes; a plan
-   step already times Vacation and power-off.
-2. Mode and setpoint stay in segments only, a single channel, rather than
-   also being direct commands.
-3. Which further library calls to admit (recirculation, the air filter),
-   once a scheduler needs them.
+**A status reports the application, not the setting afterwards.** Once the
+heater has reported what a command set, the command is `applied`, and stays
+so. If a person later changes that setting, the change is theirs: it is not
+undone, and the command is not marked otherwise. A scheduler that wants the
+setting back sends the command again, with a new `id` or changed content.
+
+**Open for the owner's decision** (the scheduler side's recommendation in
+brackets, eman/dhw-sensor-apps#402):
+1. Commands apply only when the plan is adopted, or also take an `at` time?
+   [Adoption only: when to send a command is the scheduler's, and timing
+   direct writes would give the feature a real-time duty.]
+2. Mode and setpoint in segments only, or also as direct commands? [Segments
+   only: one channel; a direct write would contend with the segment in
+   force.]
+3. Recirculation and the air filter now, or when a scheduler needs them?
+   [Later; an unknown command is rejected on its own meanwhile.]
 
 ---
 
@@ -494,7 +505,8 @@ accepted when the acknowledgement's `intent_id` is and it was not rejected.
 (evaluated, not written), `pending` (being written), `applied` (the heater
 reports it), `failed` (`write_not_confirmed`, or `not_applied_on_device`
 when the heater does not report it within the poll interval plus a minute)
-or `rejected` (`unsupported_command`).
+or `rejected` (`invalid_command` or `unsupported_command`). The status
+reports the application only (section 3.7).
 
 **Segments** on the ack entity each have `id`, `status`, `reason`,
 `warnings` (a list), `fires_at` (the minute its entry fires, or will fire
