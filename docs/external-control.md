@@ -142,7 +142,7 @@ to the minute.
 |---|---|---|
 | `id` | yes | Unique in the plan |
 | `start` | yes | ISO 8601 with offset |
-| `setpoint_f` or `setpoint_c` | exactly one | The setpoint, written as given and quantised to half a degree Celsius; the heater clamps it to its range |
+| `setpoint_f` or `setpoint_c` | exactly one | The setpoint, written as given and quantised to half a degree Celsius. The library checks it against the range the heater reports: a setpoint outside it makes the list write fail, and the segments it served are reported `failed`, `write_not_confirmed` |
 | `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand`, `electric`, `vacation` or `power_off`. A later segment without one keeps the previous mode |
 | `reassert` | no | Protocol 1.1. `true` gives the segment its own entry even when it repeats the state before it, so a person's change is ended at its start |
 

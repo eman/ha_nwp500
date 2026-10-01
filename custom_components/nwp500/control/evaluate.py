@@ -123,8 +123,9 @@ def check_plan(plan: Plan, capabilities: Capabilities) -> None:
     """Reject the plan if a segment names a mode the heater does not have.
 
     Every mode it has is accepted, Vacation and power-off included: what a
-    mode does is the scheduler's to know. Setpoints are not checked: the
-    heater clamps what it is given, and limits belong in the library.
+    mode does is the scheduler's to know. Setpoints are not checked here:
+    limits belong in the library, which refuses a list write with a
+    setpoint outside the heater's range.
     """
     del capabilities
     for segment in plan.segments:

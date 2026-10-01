@@ -686,6 +686,42 @@ class TestLiveWrites:
         }
 
     @pytest.mark.asyncio
+    async def test_a_setpoint_the_library_refuses_fails_the_write(
+        self, hass, live_factory, now, freezer, monkeypatch
+    ):
+        """nwp500-python 9.4.3 checks entries against the heater's range.
+
+        The feature checks no setpoint: the library's refusal is a failed
+        write, reported as any other, and nothing reaches the heater.
+        """
+        from nwp500.exceptions import RangeValidationError
+
+        heater, control = await live_factory()
+
+        async def refuse(schedule):
+            raise RangeValidationError(
+                "entry 1: param=200 (half-degrees C) is outside the "
+                "device's setpoint range 81-131"
+            )
+
+        monkeypatch.setattr(heater, "async_write", refuse)
+        _publish(
+            hass,
+            make_document(
+                now,
+                [segment(now, "hot", -5, mode="heat_pump", setpoint_c=100)],
+            ),
+        )
+        await hass.async_block_till_done()
+        await _tick(hass, freezer, WRITE_RETRY + timedelta(seconds=1))
+
+        assert heater.schedule == OWNER_LIST
+        assert statuses(control.ack) == {
+            "hot": ("failed", REASON_WRITE_NOT_CONFIRMED)
+        }
+        assert control.last_write.confirmed is False
+
+    @pytest.mark.asyncio
     async def test_changes_during_a_write_are_folded_into_the_next(
         self, hass, live_factory, now
     ):
