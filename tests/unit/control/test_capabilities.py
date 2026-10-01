@@ -24,6 +24,7 @@ class TestDeclaration:
             "feature_version",
             "mode",
             "setpoint_resolution_c",
+            "allowed_modes",
             "horizon_h",
             "near_term_lead_min",
             "entry_limit",
@@ -41,6 +42,15 @@ class TestDeclaration:
         assert attrs["entry_limit"] == 16
         assert attrs["entry_reserve"] == 2
         assert attrs["setpoint_resolution_c"] == 0.5
+        # The heater's modes, all of which a segment may use.
+        assert attrs["allowed_modes"] == [
+            "heat_pump",
+            "energy_saver",
+            "high_demand",
+            "electric",
+            "vacation",
+            "power_off",
+        ]
         assert attrs["entries_available"] is None
 
     def test_min_resolves_to_the_heaters_floor(self):
