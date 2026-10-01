@@ -25,10 +25,53 @@
       "type": "array",
       "description": "The timeline, in strictly increasing order of start. Each segment holds until the next segment's start; the last holds until a new plan. An empty list stops the plan: every programmed entry is withdrawn and the heater keeps its state.",
       "items": { "$ref": "#/$defs/segment" }
+    },
+    "commands": {
+      "type": "array",
+      "description": "Protocol 1.3. Device commands, each applied once when the plan is adopted, in order, after its entries are written (spec section 3.7). Only a non-list, an item that is not an object, or an item without a valid id rejects the document; a malformed or unknown command is rejected on its own, so this schema describes the commands the feature applies.",
+      "items": { "$ref": "#/$defs/command" }
     }
   },
   "additionalProperties": true,
   "$defs": {
+    "command": {
+      "type": "object",
+      "description": "A device command. Any other key is opaque and echoed on the command's acknowledgement.",
+      "required": ["id", "command"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Unique in the document, segments' ids included." },
+        "command": { "enum": ["vacation", "power", "anti_legionella", "tou", "demand_response"] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "command": { "const": "vacation" } } },
+          "then": { "required": ["days"], "properties": { "days": { "type": "integer", "description": "Days of Vacation; the range is the library's to check." } } }
+        },
+        {
+          "if": { "properties": { "command": { "const": "power" } } },
+          "then": { "required": ["on"], "properties": { "on": { "type": "boolean" } } }
+        },
+        {
+          "if": { "properties": { "command": { "const": "anti_legionella" } } },
+          "then": {
+            "required": ["enabled"],
+            "properties": { "enabled": { "type": "boolean" }, "period_days": { "type": "integer" } },
+            "if": { "properties": { "enabled": { "const": true } } },
+            "then": { "required": ["period_days"] },
+            "else": { "not": { "required": ["period_days"] } }
+          }
+        },
+        {
+          "if": { "properties": { "command": { "const": "tou" } } },
+          "then": { "required": ["enabled"], "properties": { "enabled": { "type": "boolean" } } }
+        },
+        {
+          "if": { "properties": { "command": { "const": "demand_response" } } },
+          "then": { "required": ["enabled"], "properties": { "enabled": { "type": "boolean" } } }
+        }
+      ],
+      "additionalProperties": true
+    },
     "timestamp": {
       "type": "string",
       "format": "date-time",

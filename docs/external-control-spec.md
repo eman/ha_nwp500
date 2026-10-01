@@ -105,7 +105,7 @@ number.
 
 Minor versions so far: **1.1** adds the segment key `reassert` (section
 3.2). **1.2** added a grant's own timing rules; with grants gone it adds
-nothing beyond 1.1, and `protocol_versions` keeps listing it.
+nothing beyond 1.1. **1.3** adds device commands (section 3.7).
 A feature that only knows an earlier minor version keeps such keys as opaque
 ones, so a scheduler relies on them only when `protocol_versions` (section
 4.1) lists that minor version or a later one for major `1`. A document may
@@ -169,7 +169,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 | `intent_id` | string, at most 64 characters | yes | Unique per plan |
 | `issued_at` | ISO 8601 with offset | yes | When the scheduler made it. An older document never replaces a newer one |
 | `segments` | list | yes | The timeline (section 3.2). **An empty list stops the plan**: every programmed entry is withdrawn, and the heater keeps the state it is in |
-| `commands` | list | no | **Proposed, protocol 1.3.** Device commands, each applied once (section 3.7) |
+| `commands` | list | no | Protocol 1.3. Device commands, each applied once (section 3.7) |
 | any other key | any | no | Opaque. Echoed unchanged on the feature's plan entity, `sensor.<device>_control_intent` (section 4.2), for example `plan_id`, unless it has the name of one of that entity's own attributes (section 4.2), which win |
 
 There is no validity period. A plan's last segment holds until a new plan
@@ -283,9 +283,9 @@ If Home Assistant stops at 06:00, the heater still charges at 10:30, moves to
 Energy Saver at 14:30 and goes to the minimum at 22:00, holding there until a
 new plan is programmed.
 
-### 3.7 Device commands (proposed, protocol 1.3)
+### 3.7 Device commands (protocol 1.3)
 
-**Status: agreed (#196), not yet implemented.** A plan may carry
+A plan may carry
 device commands besides its segments: settings the heater has that a
 reservation entry cannot set. The feature applies each as the scheduler sends
 it, with a direct write, and reports what the heater then reports. It decides
@@ -293,26 +293,27 @@ nothing: when to send a command is the scheduler's.
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
-| `id` | string, at most 64 characters, unique in the document (with the segments' ids) | yes | Named in the acknowledgement |
+| `id` | string, 1 to 64 characters, unique in the document, segments' ids included (`duplicate_id`) | yes | Named in the acknowledgement |
 | `command` | string | yes | One of the table below |
 | the command's own keys | | as below | |
 | any other key | any | no | Opaque, echoed on the command's acknowledgement |
 
 | `command` | Keys | Library call | Read back from |
 |---|---|---|---|
-| `vacation` | `days` | `set_vacation_days` | the mode reported as `vacation`, and `vacation_day_setting` |
+| `vacation` | `days`, a whole number | `set_vacation_days` | the mode reported as `vacation`, and `vacation_day_setting` |
 | `power` | `on`, boolean | `set_power` | the mode: `power_off` or not |
-| `anti_legionella` | `enabled`, boolean; `period_days`, with `enabled: true` | `enable_anti_legionella` / `disable_anti_legionella` | `anti_legionella_use` (and its period) |
+| `anti_legionella` | `enabled`, boolean; `period_days`, a whole number, given with `enabled: true` only | `enable_anti_legionella` / `disable_anti_legionella` | `anti_legionella_use`, and `anti_legionella_period` when switched on |
 | `tou` | `enabled`, boolean | `set_tou_enabled` | `tou_status` |
-| `demand_response` | `enabled`, boolean | `enable_demand_response` / `disable_demand_response` | `dr_event_status` |
+| `demand_response` | `enabled`, boolean | `enable_demand_response` / `disable_demand_response` | nothing: the heater reports a utility's events, not whether it takes part, so the command is `applied` once the library has sent it |
 
 **When a command is applied.** Once, when the plan that carries it is adopted
-(section 5.6), in list order, after the plan's list is written. A plan
-received again with the same command, same `id` and same content, does not
-apply it again; a command whose content changed under the same `id` is
-applied again. A restart does not re-apply what was applied. In shadow a
-command is evaluated, not written (status `shadow`); while `disabled` nothing
-is applied. A plan step can already put the heater in `vacation` or
+(section 5.6), in list order, after the plan's list is written. A later plan
+carrying the same `id` with the same content (`command` and its own keys;
+opaque keys do not count) does not apply it again, and its status carries
+over; the same `id` with other content is applied again. A restart does not
+send again a command already sent. In shadow a command is evaluated, not
+written (status `shadow`), and going live applies it; while `disabled`
+nothing is applied. A plan step can already put the heater in `vacation` or
 `power_off` at a time (section 3.4); a command is for now.
 
 **Validation.** A command is checked on its own, and the plan proceeds
@@ -321,7 +322,8 @@ whose keys are missing or of the wrong type is `rejected`,
 `invalid_command`; an unknown `command` is `rejected`, `unsupported_command`,
 so a scheduler can send a command a later version adds. Ranges, such as how
 many days of Vacation the heater takes, are the library's to check: a value
-it refuses makes the command `failed` with the library's reason. Only
+it refuses makes the command `failed`, `write_not_confirmed`, with the
+library's message in `detail`. Only
 `commands` that is not a list, or an item that is not an object or has no
 valid `id`, rejects the document (`invalid_document`).
 
@@ -358,7 +360,7 @@ keys and values, which are as documented here.
 | Attribute | Meaning |
 |---|---|
 | `protocols` | Supported protocol majors, `["1", "0"]` |
-| `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.2", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
+| `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.3", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
 | `setpoint_resolution_c` | 0.5 on the NWP500, so a model can quantise exactly as the heater does |
@@ -496,13 +498,16 @@ the rejection is also the acknowledgement. So a scheduler knows its
 document was rejected when `rejected.intent_id` is that document's, and
 accepted when the acknowledgement's `intent_id` is and it was not rejected.
 
-**Commands** (proposed, protocol 1.3) on the ack entity each have `id`,
-`command`, `status` and `reason`, and their opaque keys. The status is `shadow`
-(evaluated, not written), `pending` (being written), `applied` (the heater
-reports it), `failed` (`write_not_confirmed`, or `not_applied_on_device`
-when the heater does not report it within the poll interval plus a minute)
-or `rejected` (`invalid_command` or `unsupported_command`). The status
-reports the application only (section 3.7).
+**Commands** (protocol 1.3) on the ack entity's `commands`, in the plan's
+order, each have `id`, `command`, `status`, `reason` and `warnings` (empty),
+their opaque keys, and a readable `detail` when rejected or refused. The
+status is `shadow` (evaluated, not written), `pending` (to be sent, or sent
+and not yet reported), `applied` (the heater reports it), `failed`
+(`write_not_confirmed` when it could not be sent or the library refused it,
+or `not_applied_on_device` when the heater does not report it within the
+poll interval plus a minute) or `rejected` (`invalid_command` or
+`unsupported_command`). The status reports the application only (section
+3.7).
 
 **Segments** on the ack entity each have `id`, `status`, `reason`,
 `warnings` (a list), `fires_at` (the minute its entry fires, or will fire
@@ -658,7 +663,7 @@ is the scheduler's to plan around.
 ### 5.5 Direct writes
 
 None. Every change is an entry, including changes that must happen now
-(section 5.2). Device commands (section 3.7, proposed) are the plan's
+(section 5.2). Device commands (section 3.7) are the plan's
 direct writes: each applied once, as sent.
 
 ### 5.6 Replacing a plan

@@ -126,6 +126,7 @@ restart; the feature then keeps its stored copy of the plan.
 | `intent_id` | string, at most 64 characters | yes | Unique per plan |
 | `issued_at` | ISO 8601 with offset | yes | An older plan never replaces a newer one (`superseded`) |
 | `segments` | list | yes | The timeline. **An empty list stops the plan**: every programmed entry is withdrawn and the heater keeps its state |
+| `commands` | list | no | Protocol 1.3. Device commands, each applied once (below) |
 | any other key | any | no | Opaque. Echoed on the plan entity, for example `plan_id` |
 
 There is no validity period. The last segment holds until a new plan
@@ -150,6 +151,31 @@ The heater skips entries during Vacation, so a later entry of the plan does
 not end it. Whether an entry with the power-off mode powers the heater off
 is untested, and the mode command with that value switched the unit tested
 to Energy Saver (#160).
+
+### Commands
+
+Protocol 1.3. Settings a reservation entry cannot set, each sent once when
+the plan is adopted, in order, after its entries are written. Each has an
+`id` (unique in the plan, segments included), a `command`, the command's
+keys, and any opaque keys.
+
+| `command` | Keys | Reported from |
+|---|---|---|
+| `vacation` | `days` | the mode and the vacation days |
+| `power` | `on` | the mode: `power_off` or not |
+| `anti_legionella` | `enabled`; `period_days` with `enabled: true` | Anti-Legionella and its period |
+| `tou` | `enabled` | the TOU switch |
+| `demand_response` | `enabled` | nothing the heater reports; `applied` once sent |
+
+A later plan with the same `id` and the same command and keys does not send
+it again, nor does a restart; change the content or the `id` to send it
+again. The acknowledgement's `commands` give each one's status: `shadow`,
+`pending`, `applied`, `failed` or `rejected`. The status reports the
+application only: a person changing the setting afterwards is not undone,
+and the command stays `applied`. A malformed or unknown command is
+`rejected` on its own, and the plan goes ahead; ranges, such as the days of
+Vacation, are checked by the library, and a value it refuses is `failed`
+with its message. Mode and setpoint are set by segments only.
 
 ### Validation
 
@@ -240,7 +266,7 @@ The last write's `reason` is one of `plan`,
 
 | Attribute | Meaning |
 |---|---|
-| `protocols`, `protocol_versions`, `feature_version`, `mode` | What runs. `protocol_versions` names the newest minor of each major, `["1.2", "0"]`; a scheduler checks it before relying on `reassert` (1.1) |
+| `protocols`, `protocol_versions`, `feature_version`, `mode` | What runs. `protocol_versions` names the newest minor of each major, `["1.3", "0"]`; a scheduler checks it before relying on `reassert` (1.1) |
 | `setpoint_resolution_c` | The device's half-degree resolution |
 | `horizon_h`, `near_term_lead_min`, `entry_limit`, `entry_reserve`, `entries_available` | How entries are budgeted. `entries_available` changes as entries fire, so it is left out of the version |
 

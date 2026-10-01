@@ -76,6 +76,10 @@ class Observed:
     reservations_read_at: datetime | None = None
     # The TOU program's periods, each with its price; empty if unknown.
     tou_periods: tuple[dict[str, int], ...] = ()
+    # What device commands set (section 3.7), to read them back.
+    vacation_days: int | None = None
+    anti_legionella_on: bool | None = None
+    anti_legionella_period: int | None = None
 
     @property
     def schedule(self) -> dict[str, Any] | None:
@@ -99,12 +103,18 @@ def observe(
 ) -> Observed:
     """Build a snapshot from the coordinator's data."""
     mode = setpoint_raw = tou_on = None
+    vacation_days = anti_legionella_on = anti_legionella_period = None
     if status is not None:
         mode = mode_name(getattr(status, "dhw_operation_setting", None))
         setpoint_raw = _int(
             getattr(status, "dhw_target_temperature_setting_raw", None)
         )
         tou_on = _bool(getattr(status, "tou_status", None))
+        vacation_days = _int(getattr(status, "vacation_day_setting", None))
+        anti_legionella_on = _bool(getattr(status, "anti_legionella_use", None))
+        anti_legionella_period = _int(
+            getattr(status, "anti_legionella_period", None)
+        )
 
     reservations_enabled: bool | None = None
     reservations: tuple[dict[str, int], ...] | None = None
@@ -132,4 +142,7 @@ def observe(
         if reservations is not None
         else None,
         tou_periods=tou_periods,
+        vacation_days=vacation_days,
+        anti_legionella_on=anti_legionella_on,
+        anti_legionella_period=anti_legionella_period,
     )

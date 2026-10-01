@@ -24,6 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ..coordinator import NWP500DataUpdateCoordinator
+    from .intent import Command
 
 
 class ListWriter(Protocol):
@@ -58,6 +59,13 @@ class ListWriter(Protocol):
 
     async def async_request_status(self) -> None:
         """Ask the heater for a fresh status, to read a direct write back."""
+        ...
+
+    async def async_send_command(self, command: Command) -> None:
+        """Send a device command (section 3.7); raises if it is not sent.
+
+        The library's own error says why, for example a value it refuses.
+        """
         ...
 
 
@@ -156,3 +164,33 @@ class CoordinatorWriter:
     async def async_request_status(self) -> None:
         """Ask for a fresh status; it arrives through the coordinator."""
         await self.coordinator.async_request_refresh()
+
+    async def async_send_command(self, command: Command) -> None:
+        """Make the command's one library call, as sent."""
+        manager = self.coordinator.mqtt_manager
+        client = manager.mqtt_client if manager is not None else None
+        device = self.coordinator._devices_by_mac.get(  # noqa: SLF001
+            self.mac_address
+        )
+        if client is None or device is None:
+            raise ConnectionError("the heater's MQTT session is not connected")
+        params = command.params
+        match command.command:
+            case "vacation":
+                await client.set_vacation_days(device, params["days"])
+            case "power":
+                await client.set_power(device, params["on"])
+            case "anti_legionella" if params["enabled"]:
+                await client.enable_anti_legionella(
+                    device, params["period_days"]
+                )
+            case "anti_legionella":
+                await client.disable_anti_legionella(device)
+            case "tou":
+                await client.set_tou_enabled(device, params["enabled"])
+            case "demand_response" if params["enabled"]:
+                await client.enable_demand_response(device)
+            case "demand_response":
+                await client.disable_demand_response(device)
+            case _:
+                raise ValueError(f"unsupported command {command.command!r}")
