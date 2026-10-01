@@ -280,7 +280,7 @@ class TestReadBack:
         planner.step(minutes(10.5), fired)
         planner.step(minutes(11.6), fired)
         assert statuses(planner.ack("i"))["b"] == ("in_force", None)
-        assert self._detail(planner, "b")["mode_confirmed"] is None
+        assert "mode_confirmed" not in self._detail(planner, "b")
 
     def _window(self, end_hour: int) -> dict:
         return {
@@ -529,7 +529,8 @@ class TestGate:
         heater, control = await live_factory(
             **{CONF_CONTROL_LIVE_SEGMENTS: False}
         )
-        assert control.mode == "live"
+        # It writes nothing, so it runs, and is declared, as shadow.
+        assert control.mode == "shadow"
         assert control.planner.shadow is True
         assert heater.writes == []
 

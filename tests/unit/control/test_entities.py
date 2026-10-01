@@ -192,7 +192,6 @@ class TestSensors:
         control.planner.segment_in_force.return_value = "s1"
         assert setpoint.extra_state_attributes == {
             "segment": "s1",
-            "grant": None,
         }
         control.wanted = None
         assert mode.native_value is None
@@ -454,7 +453,7 @@ def test_every_entity_suggests_its_documented_id(control):
     assert {e.entity_id for e, _, _ in entities} >= {
         "sensor.garage_heater_control_ack",
         "sensor.garage_heater_control_intent",
-        "binary_sensor.garage_heater_control_grant_raised",
+        "binary_sensor.garage_heater_control_override",
         "button.garage_heater_control_disable",
     }
 

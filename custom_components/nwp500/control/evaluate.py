@@ -7,7 +7,6 @@ whole plan. A grant that does not fit is rejected on its own.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 from ..const import CONTROL_MODE_NAMES
@@ -38,17 +37,10 @@ STATUS_ENDED = "ended"
 STATUS_FAILED = "failed"
 STATUS_REMOVED = "removed"
 
-# A grant's status: surplus grants are not supported, so every one is
-# rejected (section 5.7).
-GRANT_REJECTED = "rejected"
-
 # Reasons a segment is scheduled rather than programmed.
 REASON_BEYOND_HORIZON = "beyond_horizon"
 REASON_ENTRY_BUDGET = "entry_budget"
-REASON_BOUNDS_UNKNOWN = "bounds_unknown"
 
-# Why a grant is rejected.
-REASON_GRANTS_UNSUPPORTED = "grants_unsupported"
 # Live only (sections 5.4 and 5.11).
 REASON_WRITE_NOT_CONFIRMED = "write_not_confirmed"
 REASON_NOT_APPLIED = "not_applied_on_device"
@@ -91,7 +83,6 @@ class Ack:
     reason: str | None = None
     detail: str | None = None
     segments: tuple[ItemAck, ...] = ()
-    grants: tuple[ItemAck, ...] = ()
     # The latest document rejected while this plan stayed in force.
     rejection: Ack | None = None
 
@@ -103,7 +94,6 @@ class Ack:
             "reason": self.reason,
             "detail": self.detail,
             "segments": [s.as_attribute() for s in self.segments],
-            "grants": [g.as_attribute() for g in self.grants],
             "rejected": {
                 "intent_id": rejection.intent_id,
                 "reason": rejection.reason,
@@ -141,15 +131,3 @@ def check_plan(plan: Plan, capabilities: Capabilities) -> None:
                 f"segment {segment.id!r} mode {segment.mode!r} is not one of "
                 f"{', '.join(CONTROL_MODE_NAMES)}",
             )
-
-
-def check_grants(
-    plan: Plan, capabilities: Capabilities, *, now: datetime
-) -> dict[str, str]:
-    """The reason each grant is rejected, by grant id: all of them.
-
-    Surplus grants are not supported (section 5.7). A grant is rejected on
-    its own, and the plan's segments are unaffected.
-    """
-    del capabilities, now
-    return {grant.id: REASON_GRANTS_UNSUPPORTED for grant in plan.grants}

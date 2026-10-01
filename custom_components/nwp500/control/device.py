@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, callback
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
     EventStateChangedData,
     async_track_point_in_utc_time,
@@ -89,15 +88,6 @@ def live_writes(options: Mapping[str, Any], mac_address: str) -> bool:
     return CONTROL_LIVE_AVAILABLE and control_follows_plan(options)
 
 
-# Existing entities a consumer reads for this heater, by the unique id
-# suffix the sensor platforms give them.
-_TELEMETRY_UNIQUE_IDS: tuple[tuple[str, str, str], ...] = (
-    ("delivery_temperature", "sensor", "tank_upper_temperature"),
-    ("compressor_running", "binary_sensor", "comp_use"),
-    ("power", "sensor", "current_inst_power"),
-)
-
-
 class DeviceControl:
     """External control of one heater."""
 
@@ -132,6 +122,10 @@ class DeviceControl:
                 "(CONTROL_LIVE_AVAILABLE); running in shadow"
             )
             mode = CONTROL_MODE_SHADOW
+        elif mode == CONTROL_MODE_LIVE and not control_follows_plan(options):
+            # An earlier version's live with its segments switch off wrote
+            # nothing; the declaration says what runs.
+            mode = CONTROL_MODE_SHADOW
         self.mode = mode
         self.writes = live_writes(options, mac_address)
         self.intent_entity_id: str | None = options.get(
@@ -154,9 +148,7 @@ class DeviceControl:
         self.planner = Planner(
             build_capabilities(
                 self._effective_options(),
-                features=coordinator.device_features.get(mac_address),
                 feature_version=self._feature_version,
-                telemetry={},
             ),
             dt_util.get_default_time_zone(),
             shadow=not self.writes,
@@ -307,9 +299,7 @@ class DeviceControl:
     def _build_capabilities(self) -> Capabilities:
         capabilities = build_capabilities(
             self._effective_options(),
-            features=self.coordinator.device_features.get(self.mac_address),
             feature_version=self._feature_version,
-            telemetry=self._telemetry_entity_ids(),
         )
         observed = self.observe()
         if observed.reservations is None:
@@ -322,15 +312,6 @@ class DeviceControl:
                 0,
             ),
         )
-
-    def _telemetry_entity_ids(self) -> dict[str, str | None]:
-        registry = er.async_get(self.hass)
-        return {
-            name: registry.async_get_entity_id(
-                platform, DOMAIN, f"{self.mac_address}_{suffix}"
-            )
-            for name, platform, suffix in _TELEMETRY_UNIQUE_IDS
-        }
 
     @property
     def ack(self) -> Ack:
@@ -783,9 +764,8 @@ class DeviceControl:
         self.planner.capabilities = self._build_capabilities()
         self.planner.set_plan(plan, now, observed, restoring=restoring)
         _LOGGER.debug(
-            "Plan %s for %s adopted: %d segment(s), %d grant(s)",
+            "Plan %s for %s adopted: %d segment(s)",
             plan.intent_id,
             self.mac_address,
             len(plan.segments),
-            len(plan.grants),
         )

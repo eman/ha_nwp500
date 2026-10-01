@@ -25,11 +25,6 @@
       "type": "array",
       "description": "The timeline, in strictly increasing order of start. Each segment holds until the next segment's start; the last holds until a new plan. An empty list stops the plan: every programmed entry is withdrawn and the heater keeps its state.",
       "items": { "$ref": "#/$defs/segment" }
-    },
-    "grants": {
-      "type": "array",
-      "description": "Surplus grants: permission to raise the setpoint while surplus power is available and the compressor is already running.",
-      "items": { "$ref": "#/$defs/grant" }
     }
   },
   "additionalProperties": true,
@@ -53,15 +48,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 64,
-          "description": "Unique in the document, across segments and grants."
+          "description": "Unique in the document."
         },
         "start": { "$ref": "#/$defs/timestamp" },
         "setpoint_f": { "type": "number" },
         "setpoint_c": { "type": "number" },
-        "setpoint": {
-          "const": "min",
-          "description": "The lowest setpoint the feature will write (setpoint_min). Effectively off: it applies inside TOU windows, and the next segment's entry restores normal operation."
-        },
         "mode": {
           "$ref": "#/$defs/mode_name",
           "description": "Required on the first segment. A later segment that omits it keeps the previous segment's mode."
@@ -74,44 +65,7 @@
       },
       "oneOf": [
         { "required": ["setpoint_f"], "not": { "anyOf": [{ "required": ["setpoint_c"] }, { "required": ["setpoint"] }] } },
-        { "required": ["setpoint_c"], "not": { "anyOf": [{ "required": ["setpoint_f"] }, { "required": ["setpoint"] }] } },
-        { "required": ["setpoint"], "not": { "anyOf": [{ "required": ["setpoint_f"] }, { "required": ["setpoint_c"] }] } }
-      ],
-      "additionalProperties": true
-    },
-    "grant": {
-      "type": "object",
-      "required": ["id", "start", "end"],
-      "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 64,
-          "description": "Unique in the document, across segments and grants."
-        },
-        "start": { "$ref": "#/$defs/timestamp" },
-        "end": {
-          "$ref": "#/$defs/timestamp",
-          "description": "Must be later than start after truncation, or the grant alone is rejected (invalid_window)."
-        },
-        "max_f": { "type": "number" },
-        "max_c": { "type": "number" },
-        "surplus_on_before_raise_min": {
-          "type": "integer",
-          "description": "Protocol 1.2: minutes surplus must be on before a raise. Outside grant_rule_ranges, the grant alone is rejected (out_of_bounds)."
-        },
-        "surplus_off_before_lower_min": {
-          "type": "integer",
-          "description": "Protocol 1.2: minutes surplus must be off before a raise is lowered."
-        },
-        "min_run_before_lower_min": {
-          "type": "integer",
-          "description": "Protocol 1.2: minutes the compressor must have run before a raise is lowered for surplus gone."
-        }
-      },
-      "oneOf": [
-        { "required": ["max_f"], "not": { "required": ["max_c"] } },
-        { "required": ["max_c"], "not": { "required": ["max_f"] } }
+        { "required": ["setpoint_c"], "not": { "anyOf": [{ "required": ["setpoint_f"] }, { "required": ["setpoint"] }] } }
       ],
       "additionalProperties": true
     },
@@ -122,16 +76,16 @@
       "properties": {
         "kind": {
           "type": "string",
-          "description": "plan, near_term, precedence_exit, grant_raise, grant_lower or guard. Treat a value you do not know as opaque.",
-          "examples": ["plan", "near_term", "precedence_exit", "grant_raise", "grant_lower", "guard"]
+          "description": "plan or near_term; an earlier version's entry may be precedence_exit, grant_raise, grant_lower or guard. Treat a value you do not know as opaque.",
+          "examples": ["plan", "near_term"]
         },
         "owner": {
           "type": "string",
-          "description": "The program's label for the kind: plan, guard, or near_term for near_term, precedence_exit, grant_raise and grant_lower."
+          "description": "The program's label for the kind: plan, or near_term for near_term (and an earlier version's precedence_exit, grant_raise and grant_lower; guard for guard)."
         },
         "serves": {
           "type": "string",
-          "description": "The id of a segment (kinds plan, near_term, precedence_exit) or of a grant (grant_raise, grant_lower, guard). Ids are unique across a document's segments and grants. The same string as control_next_entry's serves."
+          "description": "The id of the segment it serves; for an earlier version's grant_raise, grant_lower or guard entry, still being removed, the old grant's id. The same string as control_next_entry's serves."
         },
         "fires_at": {
           "$ref": "#/$defs/timestamp",
@@ -191,7 +145,7 @@
         }
       },
       "if": {
-        "properties": { "owner": { "enum": ["owner", "foreign"] } }
+        "properties": { "owner": { "const": "foreign" } }
       },
       "else": {
         "required": ["kind", "serves", "fires_at", "mode_name", "setpoint_f", "setpoint_c", "setpoint_raw", "enabled"],
@@ -211,11 +165,11 @@
     "last_write_attributes": {
       "type": "object",
       "description": "Entity attributes, not part of a plan: control_last_write's attributes once a write has been made. Before the first write they are only reason: null.",
-      "required": ["reason", "added", "removed", "added_count", "removed_count", "truncated", "confirmed", "simulated", "owner_state"],
+      "required": ["reason", "added", "removed", "added_count", "removed_count", "truncated", "confirmed", "simulated"],
       "properties": {
         "reason": {
           "type": "string",
-          "description": "plan, cleanup, near_term, grant_raise, grant_lower, precedence_exit, power_off, takeover or disable. Treat a value you do not know as opaque."
+          "description": "plan, cleanup, near_term or takeover; a write stored by an earlier version may carry another. Treat a value you do not know as opaque."
         },
         "added": {
           "type": ["array", "null"],
@@ -235,23 +189,11 @@
         },
         "confirmed": {
           "type": ["boolean", "null"],
-          "description": "For the whole write: true once the device read back the list sent; false from the first unconfirmed attempt (the retry may still confirm it), for a live write that could not be sent, or for a disable whose owner's list or state did not read back; null for a simulated write (shadow)."
+          "description": "For the whole write: true once the device read back the list sent; false from the first unconfirmed attempt (the retry may still confirm it), or for a live write that could not be sent; null for a simulated write (shadow)."
         },
         "simulated": {
           "type": "boolean",
           "description": "True for a write made in shadow, which was not sent."
-        },
-        "owner_state": {
-          "description": "For disable only: the owner's [mode, setpoint_raw] written directly, or null when it was not written: the heater is in, or the owner's program sets, vacation or power-off, or the owner's list could not be restored. In shadow nothing is written; it is the owner's state as found, whatever its mode, vacation and power_off included.",
-          "oneOf": [
-            {
-              "type": "array",
-              "prefixItems": [{ "type": "string" }, { "type": "integer" }],
-              "minItems": 2,
-              "maxItems": 2
-            },
-            { "type": "null" }
-          ]
         }
       },
       "additionalProperties": true

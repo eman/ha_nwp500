@@ -62,7 +62,6 @@ ENTITY_KEYS = frozenset(
         "last_write",
         "heartbeat",
         "in_sync",
-        "grant_raised",
         "override",
         "disable",
     }
@@ -86,7 +85,6 @@ _EARLIER_NAMES: dict[str, str] = {
     "last_write": "Control Last Write",
     "override": "Control Override",
     "in_sync": "Control In Sync",
-    "grant_raised": "Control Surplus Raise",
     "disable": "Disable External Control",
 }
 

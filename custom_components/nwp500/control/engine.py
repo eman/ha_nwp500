@@ -37,9 +37,7 @@ from .entries import (
     slots_collide,
 )
 from .evaluate import (
-    GRANT_REJECTED,
     REASON_BEYOND_HORIZON,
-    REASON_BOUNDS_UNKNOWN,
     REASON_ENTRY_BUDGET,
     REASON_HELD_IN_TOU_WINDOW,
     REASON_NOT_APPLIED,
@@ -61,7 +59,6 @@ from .evaluate import (
     WARNING_MOVED,
     Ack,
     ItemAck,
-    check_grants,
 )
 from .intent import Plan, Segment
 from .observed import Observed
@@ -188,8 +185,6 @@ class Write:
     result: tuple[OwnedEntry, ...]
     simulated: bool = True
     confirmed: bool | None = None
-    # Disabling's direct write of the owner's state.
-    owner_state: tuple[str, int] | None = None
 
     def as_document(self) -> dict[str, Any]:
         """For storage and the last write entity's attributes."""
@@ -201,13 +196,11 @@ class Write:
             "result": [e.as_document() for e in self.result],
             "simulated": self.simulated,
             "confirmed": self.confirmed,
-            "owner_state": list(self.owner_state) if self.owner_state else None,
         }
 
     @classmethod
     def from_document(cls, document: Mapping[str, Any]) -> Write:
         """The inverse of `as_document`."""
-        owner_state = document.get("owner_state")
         return cls(
             reason=str(document["reason"]),
             at=datetime.fromisoformat(document["at"]),
@@ -222,9 +215,6 @@ class Write:
             ),
             simulated=bool(document.get("simulated", True)),
             confirmed=document.get("confirmed"),
-            owner_state=(str(owner_state[0]), int(owner_state[1]))
-            if owner_state
-            else None,
         )
 
 
@@ -270,7 +260,6 @@ class Planner:
         # The plan's segment in force when it was adopted. The segments
         # before it had ended by then: none of them ever took effect.
         self.adopted_from: str | None = None
-        self.grant_rejections: dict[str, str] = {}
         self.reports: dict[str, Report] = {}
         # Segments of this plan that never take effect: a person deleted the
         # entry that would have put them in force (section 5.10). A new plan
@@ -510,13 +499,8 @@ class Planner:
     # -- the timeline ------------------------------------------------------
 
     def resolve(self, segment: Segment) -> State | None:
-        """A segment's state, with `"min"` resolved; None if unknown yet."""
-        raw = segment.setpoint_raw
-        if raw is None:
-            raw = self.capabilities.setpoint_min_raw
-        if raw is None:
-            return None
-        return State(segment.mode, raw)
+        """A segment's state."""
+        return State(segment.mode, segment.setpoint_raw)
 
     def _timeline(self) -> list[tuple[Segment, State | None, bool]]:
         """Each segment, its state, and whether it merges into the last."""
@@ -664,7 +648,6 @@ class Planner:
             for e in self.extra
         )
         self.plan = plan
-        self.grant_rejections = check_grants(plan, self.capabilities, now=now)
         ids = {s.id for s in plan.segments}
         if restored:
             self.removed_segments &= ids
@@ -1523,7 +1506,6 @@ class Planner:
                 info[segment.id] = _SegmentInfo(False, warnings=tuple(warnings))
                 continue
             if state is None:
-                info[segment.id] = _SegmentInfo(False, REASON_BOUNDS_UNKNOWN)
                 continue
             entry = OwnedEntry(
                 KIND_PLAN,
@@ -1793,10 +1775,6 @@ class Planner:
             detail: dict[str, Any] = {
                 "fires_at": fires_at.isoformat() if fires_at else None,
                 "in_force": in_force,
-                # Always null: the mode is not inferred from what the
-                # heater's compressor or elements do (section 5.11).
-                # Protocol 1 keeps the key.
-                "mode_confirmed": None,
             }
             reason = info.reason
             if segment.id in self.removed_segments:
@@ -1838,18 +1816,6 @@ class Planner:
                 )
             )
 
-        # Surplus grants are not supported: each is rejected on its own
-        # (section 5.7), and the segments are unaffected.
-        grants = [
-            ItemAck(
-                id=grant.id,
-                status=GRANT_REJECTED,
-                reason=self.grant_rejections.get(grant.id),
-                extra=grant.extra,
-            )
-            for grant in plan.grants
-        ]
-
         if self.shadow:
             state = STATE_SHADOW
         elif STATUS_PENDING in statuses:
@@ -1862,7 +1828,6 @@ class Planner:
             intent_id=intent_id,
             state=state,
             segments=tuple(segments),
-            grants=tuple(grants),
         )
 
 

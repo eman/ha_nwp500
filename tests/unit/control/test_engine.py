@@ -40,7 +40,6 @@ from custom_components.nwp500.control.entries import (
 )
 from custom_components.nwp500.control.evaluate import (
     REASON_BEYOND_HORIZON,
-    REASON_BOUNDS_UNKNOWN,
     REASON_ENTRY_BUDGET,
     WARNING_MODE_IN_TOU_WINDOW,
     WARNING_MOVED,
@@ -50,7 +49,7 @@ from custom_components.nwp500.control.intent import parse_plan
 from custom_components.nwp500.control.observed import Observed
 from custom_components.nwp500.control.sensor import ControlLastWriteSensor
 
-from .conftest import capabilities, grant, make_document, segment
+from .conftest import capabilities, make_document, segment
 
 TZ = ZoneInfo("America/Los_Angeles")
 # A Monday morning, local time.
@@ -93,16 +92,13 @@ def give(
     planner: Planner,
     segments: list[dict],
     *,
-    grants: list[dict] | None = None,
     now: datetime = NOW,
     observed: Observed | None = None,
     restoring: bool = False,
     **document_kwargs,
 ):
     """Hand the planner a checked plan, and run a pass."""
-    plan = parse_plan(
-        make_document(now, segments, grants=grants, **document_kwargs)
-    )
+    plan = parse_plan(make_document(now, segments, **document_kwargs))
     check_plan(plan, planner.capabilities)
     planner.set_plan(plan, now, observed or obs(), restoring=restoring)
     return run(planner, now, observed)
@@ -111,7 +107,6 @@ def give(
 def planner_with(
     segments: list[dict] | None = None,
     *,
-    grants: list[dict] | None = None,
     observed: Observed | None = None,
     shadow: bool = True,
     **options,
@@ -119,7 +114,7 @@ def planner_with(
     planner = Planner(capabilities(**options), TZ, shadow=shadow)
     run(planner, NOW, observed)
     if segments is not None:
-        give(planner, segments, grants=grants, observed=observed)
+        give(planner, segments, observed=observed)
     return planner
 
 
@@ -152,16 +147,15 @@ class TestSpecExample:
                         "s1",
                         0,
                         mode="heat_pump",
-                        setpoint="min",
+                        setpoint_f=104.9,
                         purpose="hold_off",
                     ),
                     segment(base, "s2", 330, setpoint_f=140, purpose="charge"),
                     segment(
                         base, "s3", 570, mode="energy_saver", setpoint_f=135
                     ),
-                    segment(base, "s4", 1020, setpoint="min"),
+                    segment(base, "s4", 1020, setpoint_f=104.9),
                 ],
-                grants=[grant(base, "g1", 360, 540, max_f=146)],
             )
         )
         check_plan(plan, planner.capabilities)
@@ -320,42 +314,12 @@ class TestTranslation:
         ]
         assert statuses(planner)["b"] == ("merged", None)
 
-    def test_min_resolves_to_the_heaters_own_minimum(self):
-        planner = planner_with(
-            [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
-        )
-        assert (
-            planner.owned[0].setpoint_raw
-            == planner.capabilities.setpoint_min_raw
-        )
-
     def test_a_setpoint_is_written_as_the_plan_gives_it(self):
         """No bounds: the heater clamps what it is given."""
         planner = planner_with(
             [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=170)],
         )
         assert planner.owned[0].setpoint_raw == 153
-
-    def test_min_waits_for_the_bounds(self):
-        from custom_components.nwp500.control.capabilities import (
-            build_capabilities,
-        )
-
-        planner = Planner(
-            build_capabilities(
-                {"control_allowed_modes": ["energy_saver"]},
-                features=None,
-                feature_version="v",
-                telemetry={},
-            ),
-            TZ,
-        )
-        give(
-            planner,
-            [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
-        )
-        assert planner.owned == []
-        assert statuses(planner)["a"] == ("scheduled", REASON_BOUNDS_UNKNOWN)
 
     def test_a_segment_too_close_is_asserted_when_it_begins(self):
         planner = planner_with(

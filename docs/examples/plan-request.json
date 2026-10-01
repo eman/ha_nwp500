@@ -5,6 +5,6 @@
   "segments": [
     {"id": "guest-shower", "start": "2026-10-04T18:02:00-07:00", "setpoint_c": 60.0, "mode": "energy_saver", "purpose": "request"},
     {"id": "evening", "start": "2026-10-04T19:30:00-07:00", "setpoint_c": 55.0, "mode": "heat_pump"},
-    {"id": "overnight", "start": "2026-10-04T23:00:00-07:00", "setpoint": "min"}
+    {"id": "overnight", "start": "2026-10-04T23:00:00-07:00", "setpoint_f": 104.9}
   ]
 }

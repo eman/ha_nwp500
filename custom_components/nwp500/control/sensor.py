@@ -67,7 +67,6 @@ class ControlIntentSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[re
             "issued_at": plan.issued_at.isoformat(),
             "received_at": received_at.isoformat() if received_at else None,
             "segment_count": len(plan.segments),
-            "grant_count": len(plan.grants),
         }
 
 
@@ -194,12 +193,10 @@ class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: i
         """The segment it comes from.
 
         The segment in force on the heater: one a person's deletion kept
-        out is not (section 5.10). `grant` is always None: surplus grants
-        are not supported (section 5.7).
+        out is not (section 5.10).
         """
         return {
-            "segment": self.control.planner.segment_in_force(dt_util.utcnow()),
-            "grant": None,
+            "segment": self.control.planner.segment_in_force(dt_util.utcnow())
         }
 
 
@@ -232,7 +229,6 @@ class ControlLastWriteSensor(NWP500ControlEntity, SensorEntity):  # type: ignore
             "truncated": False,
             "confirmed": document["confirmed"],
             "simulated": document["simulated"],
-            "owner_state": document["owner_state"],
         }
         # Too large, the recorder would keep none of them: the lists go,
         # `removed` first, and the counts stay (section 4.2).

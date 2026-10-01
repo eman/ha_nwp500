@@ -43,27 +43,6 @@ class ControlInSyncBinarySensor(  # type: ignore[reportIncompatibleVariableOverr
         }
 
 
-class ControlGrantRaisedBinarySensor(  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    NWP500ControlEntity, BinarySensorEntity
-):
-    """Always off: surplus grants are not supported (spec section 5.7).
-
-    Kept, with its attributes, while protocol 1 lists it (section 1.3).
-    """
-
-    _attr_icon = "mdi:solar-power-variant"
-
-    @property
-    def is_on(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Never on."""
-        return False
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The keys protocol 1 lists, all empty."""
-        return {"grant": None, "raised_at": None, "setpoint_f": None}
-
-
 class ControlOverrideBinarySensor(  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     NWP500ControlEntity, BinarySensorEntity
 ):
@@ -111,7 +90,6 @@ class ControlOverrideBinarySensor(  # type: ignore[reportIncompatibleVariableOve
 
 BINARY_SENSOR_KEYS: tuple[tuple[str, type[NWP500ControlEntity]], ...] = (
     ("in_sync", ControlInSyncBinarySensor),
-    ("grant_raised", ControlGrantRaisedBinarySensor),
     ("override", ControlOverrideBinarySensor),
 )
 

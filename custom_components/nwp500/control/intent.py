@@ -1,4 +1,4 @@
-"""The intent document: a plan of segments, and surplus grants.
+"""The intent document: a plan of segments.
 
 Spec section 3 of issue #158. Parsing checks what the document says on its
 own terms: types, required keys, ids and the order of segments. Checks that
@@ -33,12 +33,9 @@ PROTOCOL_VERSIONS: tuple[str, ...] = ("1.2", "0")
 # carries the same pattern.
 _PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
 INTENT_ID_MAX_LENGTH = 64
-# Segment and grant ids. Bounded so that the entities naming them stay
+# Segment ids. Bounded so that the entities naming them stay
 # within the recorder's attribute limit (spec section 4.2).
 ITEM_ID_MAX_LENGTH = 64
-
-# The one setpoint keyword: the lowest setpoint the feature will write.
-SETPOINT_MIN = "min"
 
 # Document-level rejection reasons (spec section 3.5).
 REASON_INVALID_DOCUMENT = "invalid_document"
@@ -49,24 +46,10 @@ REASON_OUT_OF_BOUNDS = "out_of_bounds"
 REASON_MODE_NOT_ALLOWED = "mode_not_allowed"
 REASON_SUPERSEDED = "superseded"
 
-_TOP_LEVEL_KEYS = frozenset(
-    {"protocol", "intent_id", "issued_at", "segments", "grants"}
-)
+_TOP_LEVEL_KEYS = frozenset({"protocol", "intent_id", "issued_at", "segments"})
 _SEGMENT_KEYS = frozenset(
-    {"id", "start", "setpoint", "setpoint_f", "setpoint_c", "mode", "reassert"}
+    {"id", "start", "setpoint_f", "setpoint_c", "mode", "reassert"}
 )
-# A grant's own timing rules, in whole minutes (protocol 1.2). Absent, the
-# declared `grant_rules` apply (spec sections 3.3 and 4.1).
-GRANT_RULE_SURPLUS_ON = "surplus_on_before_raise_min"
-GRANT_RULE_SURPLUS_OFF = "surplus_off_before_lower_min"
-GRANT_RULE_MIN_RUN = "min_run_before_lower_min"
-GRANT_RULES = (
-    GRANT_RULE_SURPLUS_ON,
-    GRANT_RULE_SURPLUS_OFF,
-    GRANT_RULE_MIN_RUN,
-)
-_GRANT_KEYS = frozenset({"id", "start", "end", "max_f", "max_c", *GRANT_RULES})
-
 # Attributes Home Assistant adds to a state for presentation. They are not
 # part of the document and are not echoed as opaque keys.
 HA_PRESENTATION_ATTRIBUTES = frozenset(
@@ -100,16 +83,14 @@ class Segment:
     """One segment: a state from its start until the next segment's start.
 
     The setpoint is held in the device's own resolution, half-degrees
-    Celsius, so a value converts exactly once, on parsing. `setpoint_raw` is
-    None for the `"min"` keyword, which resolves against the declaration at
-    planning time, because the bounds can change after the plan arrives.
+    Celsius, so a value converts exactly once, on parsing.
     """
 
     id: str
     start: datetime
     mode: str
-    setpoint_raw: int | None
-    # How the setpoint was given: `f`, `c` or `min`, so that it is echoed
+    setpoint_raw: int
+    # How the setpoint was given: `f` or `c`, so that it is echoed
     # and stored the way it arrived.
     setpoint_form: str
     # Whether `mode` was given, or kept from the previous segment.
@@ -126,72 +107,18 @@ class Segment:
             "id": self.id,
             "start": self.start.isoformat(),
         }
-        if self.setpoint_form == SETPOINT_MIN:
-            doc["setpoint"] = SETPOINT_MIN
-        elif self.setpoint_raw is not None:
-            value = HalfCelsius(self.setpoint_raw)
-            doc[f"setpoint_{self.setpoint_form}"] = round(
-                value.to_celsius()
-                if self.setpoint_form == "c"
-                else value.to_fahrenheit(),
-                1,
-            )
+        value = HalfCelsius(self.setpoint_raw)
+        doc[f"setpoint_{self.setpoint_form}"] = round(
+            value.to_celsius()
+            if self.setpoint_form == "c"
+            else value.to_fahrenheit(),
+            1,
+        )
         if self.mode_given:
             doc["mode"] = self.mode
         if self.reassert:
             doc["reassert"] = True
         return doc
-
-
-@dataclass(frozen=True)
-class Grant:
-    """A surplus grant: permission to raise up to a ceiling in a window.
-
-    A window whose end is not after its start is kept rather than rejected
-    here: the spec rejects that grant alone, in `evaluate.py`, while the
-    plan proceeds.
-    """
-
-    id: str
-    start: datetime
-    end: datetime
-    max_raw: int
-    max_form: str
-    # The grant's own timing rules, None for the declared ones.
-    surplus_on_min: int | None = None
-    surplus_off_min: int | None = None
-    min_run_min: int | None = None
-    extra: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def rules(self) -> dict[str, int | None]:
-        """The grant's own timing rules by key, None where not given."""
-        return {
-            GRANT_RULE_SURPLUS_ON: self.surplus_on_min,
-            GRANT_RULE_SURPLUS_OFF: self.surplus_off_min,
-            GRANT_RULE_MIN_RUN: self.min_run_min,
-        }
-
-    def contains(self, when: datetime) -> bool:
-        """Whether `when` falls inside the window."""
-        return self.start <= when < self.end
-
-    def as_document(self) -> dict[str, Any]:
-        """The grant as it was given."""
-        value = HalfCelsius(self.max_raw)
-        return {
-            **self.extra,
-            "id": self.id,
-            "start": self.start.isoformat(),
-            "end": self.end.isoformat(),
-            f"max_{self.max_form}": round(
-                value.to_celsius()
-                if self.max_form == "c"
-                else value.to_fahrenheit(),
-                1,
-            ),
-            **{k: v for k, v in self.rules.items() if v is not None},
-        }
 
 
 @dataclass(frozen=True)
@@ -201,7 +128,6 @@ class Plan:
     intent_id: str
     issued_at: datetime
     segments: tuple[Segment, ...]
-    grants: tuple[Grant, ...] = ()
     extra: dict[str, Any] = field(default_factory=dict)
 
     def segment_at(self, when: datetime) -> Segment | None:
@@ -230,8 +156,6 @@ class Plan:
             "issued_at": self.issued_at.isoformat(),
             "segments": [s.as_document() for s in self.segments],
         }
-        if self.grants:
-            doc["grants"] = [g.as_document() for g in self.grants]
         return doc
 
 
@@ -289,25 +213,16 @@ def _to_raw(value: float, unit: str) -> int:
 
 def _parse_segment_setpoint(
     raw: Mapping[str, Any], where: str
-) -> tuple[int | None, str]:
-    """Exactly one of `setpoint_f`, `setpoint_c` or `setpoint: "min"`."""
-    given = [k for k in ("setpoint", "setpoint_f", "setpoint_c") if k in raw]
-    if len(given) != 1:
+) -> tuple[int, str]:
+    """Exactly one of `setpoint_f` or `setpoint_c`, a number."""
+    given = [k for k in ("setpoint_f", "setpoint_c") if k in raw]
+    if len(given) != 1 or "setpoint" in raw:
         raise _reject(
             REASON_INVALID_DOCUMENT,
-            f"{where} needs exactly one of setpoint_f, setpoint_c or "
-            'setpoint: "min"',
+            f"{where} needs exactly one of setpoint_f or setpoint_c",
         )
     key = given[0]
     value = raw[key]
-    if key == "setpoint":
-        if value != SETPOINT_MIN:
-            raise _reject(
-                REASON_INVALID_DOCUMENT,
-                f'{where} setpoint must be "min"; give a number as '
-                "setpoint_f or setpoint_c",
-            )
-        return None, SETPOINT_MIN
     if not _is_number(value):
         raise _reject(
             REASON_INVALID_DOCUMENT, f"{where} {key} must be a number"
@@ -393,76 +308,6 @@ def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
     return tuple(segments)
 
 
-def _whole_number(value: Any) -> int | None:
-    """A whole number as an int, or None, a bool included.
-
-    A finite float with no fraction counts: the JSON Schema's integer.
-    """
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
-        return int(value)
-    return None
-
-
-def _parse_grants(raw_grants: Any) -> tuple[Grant, ...]:
-    if not isinstance(raw_grants, list | tuple):
-        raise _reject(REASON_INVALID_DOCUMENT, "grants must be a list")
-    grants: list[Grant] = []
-    for index, raw in enumerate(raw_grants):
-        where = f"grants[{index}]"
-        if not isinstance(raw, Mapping):
-            raise _reject(REASON_INVALID_DOCUMENT, f"{where} must be an object")
-        grant_id = _parse_id(raw, where)
-        for key in ("start", "end"):
-            if key not in raw:
-                raise _reject(REASON_INVALID_DOCUMENT, f"{where} lacks {key}")
-        start = truncate_to_minute(
-            _parse_timestamp(raw["start"], f"{where} start")
-        )
-        end = truncate_to_minute(_parse_timestamp(raw["end"], f"{where} end"))
-        given = [unit for unit in ("f", "c") if f"max_{unit}" in raw]
-        if len(given) != 1:
-            raise _reject(
-                REASON_INVALID_DOCUMENT,
-                f"{where} needs exactly one of max_f or max_c",
-            )
-        unit = given[0]
-        value = raw[f"max_{unit}"]
-        if not _is_number(value):
-            raise _reject(
-                REASON_INVALID_DOCUMENT, f"{where} max_{unit} must be a number"
-            )
-        rules: dict[str, int | None] = {}
-        for rule in GRANT_RULES:
-            if rule not in raw:
-                rules[rule] = None
-                continue
-            minutes = _whole_number(raw[rule])
-            if minutes is None:
-                raise _reject(
-                    REASON_INVALID_DOCUMENT,
-                    f"{where} {rule} must be a whole number of minutes",
-                )
-            rules[rule] = minutes
-        grants.append(
-            Grant(
-                id=grant_id,
-                start=start,
-                end=end,
-                max_raw=_to_raw(float(value), unit),
-                max_form=unit,
-                surplus_on_min=rules[GRANT_RULE_SURPLUS_ON],
-                surplus_off_min=rules[GRANT_RULE_SURPLUS_OFF],
-                min_run_min=rules[GRANT_RULE_MIN_RUN],
-                extra={k: v for k, v in raw.items() if k not in _GRANT_KEYS},
-            )
-        )
-    return tuple(grants)
-
-
 def parse_plan(document: Mapping[str, Any]) -> Plan:
     """Parse a document. Raises `IntentRejected` on failure."""
     for key in ("protocol", "intent_id", "issued_at", "segments"):
@@ -498,10 +343,9 @@ def parse_plan(document: Mapping[str, Any]) -> Plan:
 
     issued_at = _parse_timestamp(document["issued_at"], "issued_at")
     segments = _parse_segments(document["segments"])
-    grants = _parse_grants(document.get("grants", []))
 
     seen: set[str] = set()
-    for item_id in [s.id for s in segments] + [g.id for g in grants]:
+    for item_id in [s.id for s in segments]:
         if item_id in seen:
             raise _reject(
                 REASON_DUPLICATE_ID, f"id {item_id!r} appears more than once"
@@ -512,7 +356,6 @@ def parse_plan(document: Mapping[str, Any]) -> Plan:
         intent_id=intent_id,
         issued_at=issued_at,
         segments=segments,
-        grants=grants,
         extra={k: v for k, v in document.items() if k not in _TOP_LEVEL_KEYS},
     )
 
