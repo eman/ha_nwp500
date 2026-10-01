@@ -25,6 +25,23 @@
   and a regression test holds set-up to what it was before. (#158, #191,
   #193, #194, #192)
 
+### Changed
+- **Names in sentence case.** Entity, attribute and service names follow
+  Home Assistant's style ("Tank upper temperature", "Set reservation");
+  acronyms such as DHW, MQTT and TOU are kept. Only the displayed names
+  change: entity ids stay as they are. "Navilink" is spelled "NaviLink".
+  Service help no longer mentions the integration's internals. (#197)
+- **External control diagnostics.** While external control runs, the
+  integration's diagnostics include its options, what each heater runs, the
+  plan, its acknowledgement, the last write, people's changes and the
+  program. With it off the output is unchanged. (#197)
+
+### Fixed
+- **The Set reservation temperature works in Celsius.** The service reads
+  the temperature in Home Assistant's own unit, but its field was a slider
+  fixed at 80-150 °F, so a Celsius value could not be entered. It is now a
+  plain number box; the heater's range is still checked. (#197)
+
 ## [0.21.1] - 2026-09-25
 
 ### Fixed

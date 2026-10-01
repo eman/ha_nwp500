@@ -196,84 +196,84 @@ MAX_TEMPERATURE_C: Final = 65  # °C (~149°F)
 # Most will be disabled by default but available for users to enable
 DEVICE_STATUS_SENSORS: Final = {
     "outside_temperature": {
-        "name": "Outside Temperature",
+        "name": "Outside temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": True,
     },
     "tank_upper_temperature": {
-        "name": "Tank Upper Temperature",
+        "name": "Tank upper temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": True,
     },
     "tank_lower_temperature": {
-        "name": "Tank Lower Temperature",
+        "name": "Tank lower temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": True,
     },
     "discharge_temperature": {
-        "name": "Compressor Discharge Temperature",
+        "name": "Compressor discharge temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "suction_temperature": {
-        "name": "Compressor Suction Temperature",
+        "name": "Compressor suction temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "evaporator_temperature": {
-        "name": "Evaporator Coil Temperature",
+        "name": "Evaporator coil temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "ambient_temperature": {
-        "name": "Ambient Temperature",
+        "name": "Ambient temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "dhw_temperature": {
-        "name": "DHW Outlet Temperature",
+        "name": "DHW outlet temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": True,
     },
     "dhw_temperature_2": {
-        "name": "DHW Secondary Sensor Temperature",
+        "name": "DHW secondary sensor temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "current_inlet_temperature": {
-        "name": "Cold Water Inlet Temperature",
+        "name": "Cold water inlet temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "current_inst_power": {
-        "name": "Current Power",
+        "name": "Current power",
         "device_class": "power",
         "unit": "W",
         "state_class": "measurement",
         "entity_registry_enabled_default": True,
     },
     "dhw_charge_per": {
-        "name": "DHW Charge Percentage",
+        "name": "DHW charge percentage",
         "device_class": None,
         "unit": "%",
         "state_class": "measurement",
@@ -287,49 +287,49 @@ DEVICE_STATUS_SENSORS: Final = {
         "entity_registry_enabled_default": False,
     },
     "error_code": {
-        "name": "Error Code",
+        "name": "Error code",
         "device_class": None,
         "unit": None,
         "state_class": None,
         "entity_registry_enabled_default": True,
     },
     "sub_error_code": {
-        "name": "Sub Error Code",
+        "name": "Sub error code",
         "device_class": None,
         "unit": None,
         "state_class": None,
         "entity_registry_enabled_default": False,
     },
     "current_dhw_flow_rate": {
-        "name": "Current DHW Flow Rate",
+        "name": "Current DHW flow rate",
         "device_class": None,
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "target_super_heat": {
-        "name": "Target Superheat",
+        "name": "Target superheat",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "current_super_heat": {
-        "name": "Current Superheat",
+        "name": "Current superheat",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "target_fan_rpm": {
-        "name": "Target Fan RPM",
+        "name": "Target fan RPM",
         "device_class": None,
         "unit": "RPM",
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "current_fan_rpm": {
-        "name": "Current Fan RPM",
+        "name": "Current fan RPM",
         "device_class": None,
         "unit": "RPM",
         "state_class": "measurement",
@@ -343,54 +343,54 @@ DEVICE_STATUS_SENSORS: Final = {
         "entity_registry_enabled_default": False,
     },
     "mixing_rate": {
-        "name": "Mixing Rate",
+        "name": "Mixing rate",
         "device_class": None,
         "unit": "%",
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "eev_step": {
-        "name": "EEV Step",
+        "name": "EEV step",
         "device_class": None,
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "vacation_day_setting": {
-        "name": "Vacation Day Setting",
+        "name": "Vacation day setting",
         "device_class": None,
         "unit": "days",
         "state_class": None,
         "entity_registry_enabled_default": False,
     },
     "vacation_day_elapsed": {
-        "name": "Vacation Day Elapsed",
+        "name": "Vacation day elapsed",
         "device_class": None,
         "unit": "days",
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "cumulated_dhw_flow_rate": {
-        "name": "Cumulated DHW Flow Rate",
+        "name": "Cumulated DHW flow rate",
         "device_class": None,
         "unit": None,
         "state_class": "total_increasing",
         "entity_registry_enabled_default": False,
     },
     "usable_energy": {
-        "name": "Usable Energy",
+        "name": "Usable energy",
         "device_class": "energy_storage",
         "unit": "Wh",
         "entity_registry_enabled_default": True,
     },
     "energy_to_setpoint": {
-        "name": "Energy to Setpoint",
+        "name": "Energy to setpoint",
         "device_class": None,
         "unit": "Wh",
         "entity_registry_enabled_default": False,
     },
     "full_recovery_energy": {
-        "name": "Full Recovery Energy",
+        "name": "Full recovery energy",
         "device_class": None,
         "unit": "Wh",
         "entity_registry_enabled_default": False,
@@ -400,118 +400,118 @@ DEVICE_STATUS_SENSORS: Final = {
 # Binary sensor fields for on/off states
 DEVICE_STATUS_BINARY_SENSORS: Final = {
     "operation_busy": {
-        "name": "Operation Busy",
+        "name": "Operation busy",
         "device_class": "running",
         "entity_registry_enabled_default": True,
     },
     "freeze_protection_use": {
-        "name": "Freeze Protection Active",
+        "name": "Freeze protection active",
         "entity_registry_enabled_default": False,
     },
     "dhw_use": {
-        "name": "DHW In Use",
+        "name": "DHW in use",
         "device_class": "running",
         "entity_registry_enabled_default": True,
     },
     "dhw_use_sustained": {
-        "name": "DHW Use Sustained",
+        "name": "DHW use sustained",
         "device_class": "running",
         "entity_registry_enabled_default": False,
     },
     "comp_use": {
-        "name": "Compressor Running",
+        "name": "Compressor running",
         "device_class": "running",
         "entity_registry_enabled_default": True,
     },
     "eev_use": {
-        "name": "EEV Active",
+        "name": "EEV active",
         "device_class": "running",
         "entity_registry_enabled_default": False,
     },
     "eva_fan_use": {
-        "name": "Evaporator Fan Running",
+        "name": "Evaporator fan running",
         "device_class": "running",
         "entity_registry_enabled_default": False,
     },
     "heat_upper_use": {
-        "name": "Upper Electric Heating Element",
+        "name": "Upper electric heating element",
         "device_class": "heat",
         "entity_registry_enabled_default": True,
     },
     "heat_lower_use": {
-        "name": "Lower Electric Heating Element",
+        "name": "Lower electric heating element",
         "device_class": "heat",
         "entity_registry_enabled_default": True,
     },
     "scald_use": {
-        "name": "Scald Protection Warning",
+        "name": "Scald protection warning",
         "device_class": "safety",
         "entity_registry_enabled_default": False,
     },
     "anti_legionella_use": {
-        "name": "Anti-Legionella Enabled",
+        "name": "Anti-Legionella enabled",
         "entity_registry_enabled_default": False,
     },
     "anti_legionella_operation_busy": {
-        "name": "Anti-Legionella Cycle Running",
+        "name": "Anti-Legionella cycle running",
         "device_class": "running",
         "entity_registry_enabled_default": False,
     },
     "air_filter_alarm_use": {
-        "name": "Air Filter Alarm Enabled",
+        "name": "Air filter alarm enabled",
         "entity_registry_enabled_default": False,
     },
     "error_buzzer_use": {
-        "name": "Error Buzzer Enabled",
+        "name": "Error buzzer enabled",
         "entity_registry_enabled_default": False,
     },
     "eco_use": {
-        "name": "Overheat Protection Enabled",
+        "name": "Overheat protection enabled",
         "entity_registry_enabled_default": False,
     },
     "program_reservation_use": {
-        "name": "Program Reservation Active",
+        "name": "Program reservation active",
         "device_class": None,
         "entity_registry_enabled_default": False,
     },
     # Recirculation sensors
     "recirculation_use": {
-        "name": "Recirculation Active",
+        "name": "Recirculation active",
         "device_class": "running",
         "entity_registry_enabled_default": False,
     },
     "recirculation_pump_operation_status": {
-        "name": "Recirculation Pump Running",
+        "name": "Recirculation pump running",
         "device_class": "running",
         "entity_registry_enabled_default": False,
     },
     "recirculation_operation_busy": {
-        "name": "Recirculation Operation Busy",
+        "name": "Recirculation operation busy",
         "device_class": "running",
         "entity_registry_enabled_default": False,
     },
     "recirculation_hot_button_ready": {
-        "name": "Recirculation Hot Button Ready",
+        "name": "Recirculation hot button ready",
         "device_class": None,
         "entity_registry_enabled_default": False,
     },
     "recirculation_reservation_use": {
-        "name": "Recirculation Reservation Active",
+        "name": "Recirculation reservation active",
         "device_class": None,
         "entity_registry_enabled_default": False,
     },
     # Sensor status
     "con_ovr_sensor_use": {
-        "name": "Condensate Overflow Sensor Active",
+        "name": "Condensate overflow sensor active",
         "entity_registry_enabled_default": False,
     },
     "wtr_ovr_sensor_use": {
-        "name": "Water Leak Detected",
+        "name": "Water leak detected",
         "device_class": "safety",
         "entity_registry_enabled_default": False,
     },
     "shut_off_valve_use": {
-        "name": "Shut-Off Valve Status",
+        "name": "Shut-off valve status",
         "entity_registry_enabled_default": False,
     },
 }
@@ -522,7 +522,7 @@ SENSOR_CONFIGS: Final = {
     # Temperature sensors
     "outside_temperature": {
         "attr": "outside_temperature",
-        "name": "Outside Temperature",
+        "name": "Outside temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -530,7 +530,7 @@ SENSOR_CONFIGS: Final = {
     },
     "tank_upper_temperature": {
         "attr": "tank_upper_temperature",
-        "name": "Tank Upper Temperature",
+        "name": "Tank upper temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -538,7 +538,7 @@ SENSOR_CONFIGS: Final = {
     },
     "tank_lower_temperature": {
         "attr": "tank_lower_temperature",
-        "name": "Tank Lower Temperature",
+        "name": "Tank lower temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -546,7 +546,7 @@ SENSOR_CONFIGS: Final = {
     },
     "discharge_temperature": {
         "attr": "discharge_temperature",
-        "name": "Compressor Discharge Temperature",
+        "name": "Compressor discharge temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -554,7 +554,7 @@ SENSOR_CONFIGS: Final = {
     },
     "suction_temperature": {
         "attr": "suction_temperature",
-        "name": "Compressor Suction Temperature",
+        "name": "Compressor suction temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -562,7 +562,7 @@ SENSOR_CONFIGS: Final = {
     },
     "evaporator_temperature": {
         "attr": "evaporator_temperature",
-        "name": "Evaporator Coil Temperature",
+        "name": "Evaporator coil temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -570,7 +570,7 @@ SENSOR_CONFIGS: Final = {
     },
     "ambient_temperature": {
         "attr": "ambient_temperature",
-        "name": "Ambient Temperature",
+        "name": "Ambient temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -578,7 +578,7 @@ SENSOR_CONFIGS: Final = {
     },
     "dhw_temperature": {
         "attr": "dhw_temperature",
-        "name": "DHW Outlet Temperature",
+        "name": "DHW outlet temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -586,7 +586,7 @@ SENSOR_CONFIGS: Final = {
     },
     "dhw_temperature_2": {
         "attr": "dhw_temperature2",
-        "name": "DHW Secondary Sensor Temperature",
+        "name": "DHW secondary sensor temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -594,7 +594,7 @@ SENSOR_CONFIGS: Final = {
     },
     "current_inlet_temperature": {
         "attr": "current_inlet_temperature",
-        "name": "Cold Water Inlet Temperature",
+        "name": "Cold water inlet temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -602,7 +602,7 @@ SENSOR_CONFIGS: Final = {
     },
     "freeze_protection_temperature": {
         "attr": "freeze_protection_temperature",
-        "name": "Freeze Protection Temperature",
+        "name": "Freeze protection temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -610,7 +610,7 @@ SENSOR_CONFIGS: Final = {
     },
     "target_super_heat": {
         "attr": "target_super_heat",
-        "name": "Target Superheat",
+        "name": "Target superheat",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -618,7 +618,7 @@ SENSOR_CONFIGS: Final = {
     },
     "current_super_heat": {
         "attr": "current_super_heat",
-        "name": "Current Superheat",
+        "name": "Current superheat",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -627,7 +627,7 @@ SENSOR_CONFIGS: Final = {
     # Power and energy sensors
     "current_inst_power": {
         "attr": "current_inst_power",
-        "name": "Current Power",
+        "name": "Current power",
         "device_class": "power",
         "unit": "W",
         "state_class": "measurement",
@@ -639,7 +639,7 @@ SENSOR_CONFIGS: Final = {
     # though the water in the tank does not.
     "usable_energy": {
         "attr": "usable_energy",
-        "name": "Usable Energy",
+        "name": "Usable energy",
         "device_class": "energy_storage",
         "unit": "Wh",
         "state_class": "measurement",
@@ -649,7 +649,7 @@ SENSOR_CONFIGS: Final = {
     # setpoint. No device_class: a deficit is not stored energy.
     "energy_to_setpoint": {
         "attr": "energy_to_setpoint",
-        "name": "Energy to Setpoint",
+        "name": "Energy to setpoint",
         "unit": "Wh",
         "state_class": "measurement",
         "precision": 0,
@@ -658,7 +658,7 @@ SENSOR_CONFIGS: Final = {
     # Energy to recover a fully depleted tank to the current setpoint.
     "full_recovery_energy": {
         "attr": "full_recovery_energy",
-        "name": "Full Recovery Energy",
+        "name": "Full recovery energy",
         "unit": "Wh",
         "state_class": "measurement",
         "precision": 0,
@@ -667,14 +667,14 @@ SENSOR_CONFIGS: Final = {
     # Percentage sensors
     "dhw_charge_per": {
         "attr": "dhw_charge_per",
-        "name": "DHW Charge",
+        "name": "DHW charge",
         "unit": "%",
         "state_class": "measurement",
         "enabled": True,
     },
     "mixing_rate": {
         "attr": "mixing_rate",
-        "name": "Mixing Rate",
+        "name": "Mixing rate",
         "unit": "%",
         "state_class": "measurement",
         "enabled": False,
@@ -698,28 +698,28 @@ SENSOR_CONFIGS: Final = {
     # Status and error codes
     "error_code": {
         "attr": "error_code",
-        "name": "Error Code",
+        "name": "Error code",
         "special": "enum_name",
         "enabled": True,
         "entity_category": "diagnostic",
     },
     "sub_error_code": {
         "attr": "sub_error_code",
-        "name": "Sub Error Code",
+        "name": "Sub error code",
         "enabled": False,
         "entity_category": "diagnostic",
     },
     # Flow rate sensors
     "current_dhw_flow_rate": {
         "attr": "current_dhw_flow_rate",
-        "name": "Current DHW Flow Rate",
+        "name": "Current DHW flow rate",
         "unit": "GPM",
         "state_class": "measurement",
         "enabled": False,
     },
     "cumulated_dhw_flow_rate": {
         "attr": "cumulated_dhw_flow_rate",
-        "name": "Cumulated DHW Flow Rate",
+        "name": "Cumulated DHW flow rate",
         "device_class": "water",
         "unit": "gal",
         "state_class": "total_increasing",
@@ -728,14 +728,14 @@ SENSOR_CONFIGS: Final = {
     # Fan sensors
     "target_fan_rpm": {
         "attr": "target_fan_rpm",
-        "name": "Target Fan RPM",
+        "name": "Target fan RPM",
         "unit": "RPM",
         "state_class": "measurement",
         "enabled": False,
     },
     "current_fan_rpm": {
         "attr": "current_fan_rpm",
-        "name": "Current Fan RPM",
+        "name": "Current fan RPM",
         "unit": "RPM",
         "state_class": "measurement",
         "enabled": False,
@@ -743,14 +743,14 @@ SENSOR_CONFIGS: Final = {
     # Vacation sensors
     "vacation_day_setting": {
         "attr": "vacation_day_setting",
-        "name": "Vacation Day Setting",
+        "name": "Vacation day setting",
         "unit": "d",
         "device_class": "duration",
         "enabled": False,
     },
     "vacation_day_elapsed": {
         "attr": "vacation_day_elapsed",
-        "name": "Vacation Day Elapsed",
+        "name": "Vacation day elapsed",
         "unit": "d",
         "device_class": "duration",
         "state_class": "measurement",
@@ -759,65 +759,65 @@ SENSOR_CONFIGS: Final = {
     # Heat source sensor
     "current_heat_use": {
         "attr": "current_heat_use",
-        "name": "Current Heat Source",
+        "name": "Current heat source",
         "special": "enum_name",
         "enabled": True,
     },
     # Diagnostic sensors
     "eev_step": {
         "attr": "eev_step",
-        "name": "EEV Step",
+        "name": "EEV step",
         "state_class": "measurement",
         "enabled": False,
         "entity_category": "diagnostic",
     },
     "current_state_num": {
         "attr": "current_statenum",
-        "name": "Current State Number",
+        "name": "Current state number",
         "enabled": False,
         "entity_category": "diagnostic",
     },
     "smart_diagnostic": {
         "attr": "smart_diagnostic",
-        "name": "Smart Diagnostic",
+        "name": "Smart diagnostic",
         "enabled": False,
         "entity_category": "diagnostic",
     },
     "special_function_status": {
         "attr": "special_function_status",
-        "name": "Special Function Status",
+        "name": "Special function status",
         "enabled": False,
         "entity_category": "diagnostic",
     },
     "fault_status_1": {
         "attr": "fault_status1",
-        "name": "Fault Status 1",
+        "name": "Fault status 1",
         "enabled": False,
         "entity_category": "diagnostic",
     },
     "fault_status_2": {
         "attr": "fault_status2",
-        "name": "Fault Status 2",
+        "name": "Fault status 2",
         "enabled": False,
         "entity_category": "diagnostic",
     },
     # Operation mode sensors (these have custom value_fn handling)
     "operation_mode": {
         "attr": "operation_mode",
-        "name": "Current Operation Mode",
+        "name": "Current operation mode",
         "enabled": True,
         "special": "enum_name",  # Custom handling for enum.name
     },
     "dhw_operation_setting": {
         "attr": "dhw_operation_setting",
-        "name": "DHW Operation Setting",
+        "name": "DHW operation setting",
         "enabled": True,
         "special": "enum_name",  # Custom handling for enum.name
     },
     # DHW temperature settings
     "dhw_target_temperature_setting": {
         "attr": "dhw_target_temperature_setting",
-        "name": "DHW Target Temperature Setting",
+        "name": "DHW target temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -825,7 +825,7 @@ SENSOR_CONFIGS: Final = {
     },
     "dhw_temperature_setting": {
         "attr": "dhw_temperature_setting",
-        "name": "DHW Target Temperature",
+        "name": "DHW target temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -834,7 +834,7 @@ SENSOR_CONFIGS: Final = {
     # Heat pump temperature settings
     "hp_upper_on_temp_setting": {
         "attr": "hp_upper_on_temp_setting",
-        "name": "HP Upper On Temperature Setting",
+        "name": "HP upper on temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -842,7 +842,7 @@ SENSOR_CONFIGS: Final = {
     },
     "hp_lower_on_temp_setting": {
         "attr": "hp_lower_on_temp_setting",
-        "name": "HP Lower On Temperature Setting",
+        "name": "HP lower on temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -850,7 +850,7 @@ SENSOR_CONFIGS: Final = {
     },
     "hp_upper_off_temp_setting": {
         "attr": "hp_upper_off_temp_setting",
-        "name": "HP Upper Off Temperature Setting",
+        "name": "HP upper off temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -858,7 +858,7 @@ SENSOR_CONFIGS: Final = {
     },
     "hp_lower_off_temp_setting": {
         "attr": "hp_lower_off_temp_setting",
-        "name": "HP Lower Off Temperature Setting",
+        "name": "HP lower off temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -872,28 +872,28 @@ SENSOR_CONFIGS: Final = {
     # absolute values, so the conversion would produce invalid results.
     "hp_upper_on_diff_temp_setting": {
         "attr": "hp_upper_on_diff_temp_setting",
-        "name": "HP Upper On Diff Temperature Setting",
+        "name": "HP upper on diff temperature setting",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
     },
     "hp_lower_on_diff_temp_setting": {
         "attr": "hp_lower_on_diff_temp_setting",
-        "name": "HP Lower On Diff Temperature Setting",
+        "name": "HP lower on diff temperature setting",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
     },
     "hp_upper_off_diff_temp_setting": {
         "attr": "hp_upper_off_diff_temp_setting",
-        "name": "HP Upper Off Diff Temperature Setting",
+        "name": "HP upper off diff temperature setting",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
     },
     "hp_lower_off_diff_temp_setting": {
         "attr": "hp_lower_off_diff_temp_setting",
-        "name": "HP Lower Off Diff Temperature Setting",
+        "name": "HP lower off diff temperature setting",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -901,7 +901,7 @@ SENSOR_CONFIGS: Final = {
     # Electric heating temperature settings
     "he_upper_on_temp_setting": {
         "attr": "he_upper_on_temp_setting",
-        "name": "HE Upper On Temperature Setting",
+        "name": "HE upper on temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -909,7 +909,7 @@ SENSOR_CONFIGS: Final = {
     },
     "he_lower_on_temp_setting": {
         "attr": "he_lower_on_temp_setting",
-        "name": "HE Lower On Temperature Setting",
+        "name": "HE lower on temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -917,7 +917,7 @@ SENSOR_CONFIGS: Final = {
     },
     "he_upper_off_temp_setting": {
         "attr": "he_upper_off_temp_setting",
-        "name": "HE Upper Off Temperature Setting",
+        "name": "HE upper off temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -925,7 +925,7 @@ SENSOR_CONFIGS: Final = {
     },
     "he_lower_off_temp_setting": {
         "attr": "he_lower_off_temp_setting",
-        "name": "HE Lower Off Temperature Setting",
+        "name": "HE lower off temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -933,28 +933,28 @@ SENSOR_CONFIGS: Final = {
     },
     "he_upper_on_diff_temp_setting": {
         "attr": "he_upper_on_diff_temp_setting",
-        "name": "HE Upper On Diff Temperature Setting",
+        "name": "HE upper on diff temperature setting",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
     },
     "he_lower_on_diff_temp_setting": {
         "attr": "he_lower_on_diff_temp_setting",
-        "name": "HE Lower On Diff Temperature Setting",
+        "name": "HE lower on diff temperature setting",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
     },
     "he_upper_off_diff_temp_setting": {
         "attr": "he_upper_off_diff_temp_setting",
-        "name": "HE Upper Off Diff Temperature Setting",
+        "name": "HE upper off diff temperature setting",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
     },
     "he_lower_off_diff_temp_setting": {
         "attr": "he_lower_off_diff_temp_setting",
-        "name": "HE Lower Off Diff Temperature Setting",
+        "name": "HE lower off diff temperature setting",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -962,7 +962,7 @@ SENSOR_CONFIGS: Final = {
     # Other temperature settings
     "heat_min_op_temperature": {
         "attr": "heat_min_op_temperature",
-        "name": "Heat Min Operating Temperature",
+        "name": "Heat min operating temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -970,7 +970,7 @@ SENSOR_CONFIGS: Final = {
     },
     "freeze_protection_temp_min": {
         "attr": "freeze_protection_temp_min",
-        "name": "Freeze Protection Min Temperature",
+        "name": "Freeze protection min temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -978,7 +978,7 @@ SENSOR_CONFIGS: Final = {
     },
     "freeze_protection_temp_max": {
         "attr": "freeze_protection_temp_max",
-        "name": "Freeze Protection Max Temperature",
+        "name": "Freeze protection max temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -986,7 +986,7 @@ SENSOR_CONFIGS: Final = {
     },
     "recirculation_temp_setting": {
         "attr": "recirc_temp_setting",
-        "name": "Recirculation Temperature Setting",
+        "name": "Recirculation temperature setting",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -994,7 +994,7 @@ SENSOR_CONFIGS: Final = {
     },
     "recirculation_temperature": {
         "attr": "recirc_temperature",
-        "name": "Recirculation Temperature",
+        "name": "Recirculation temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -1002,7 +1002,7 @@ SENSOR_CONFIGS: Final = {
     },
     "recirculation_faucet_temperature": {
         "attr": "recirc_faucet_temperature",
-        "name": "Recirculation Faucet Temperature",
+        "name": "Recirculation faucet temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -1011,7 +1011,7 @@ SENSOR_CONFIGS: Final = {
     # Flow rate sensors
     "recirculation_dhw_flow_rate": {
         "attr": "recirc_dhw_flow_rate",
-        "name": "Recirculation DHW Flow Rate",
+        "name": "Recirculation DHW flow rate",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -1019,7 +1019,7 @@ SENSOR_CONFIGS: Final = {
     # Operation time sensors
     "cumulated_evaporator_fan_op_time": {
         "attr": "cumulated_op_time_eva_fan",
-        "name": "Cumulated Evaporator Fan Operation Time",
+        "name": "Cumulated evaporator fan operation time",
         "unit": "h",
         "device_class": "duration",
         "state_class": "total_increasing",
@@ -1028,7 +1028,7 @@ SENSOR_CONFIGS: Final = {
     # Anti-legionella and alarm settings
     "anti_legionella_period": {
         "attr": "anti_legionella_period",
-        "name": "Anti-Legionella Period",
+        "name": "Anti-Legionella period",
         "unit": "d",
         "device_class": "duration",
         "state_class": "measurement",
@@ -1036,7 +1036,7 @@ SENSOR_CONFIGS: Final = {
     },
     "air_filter_alarm_period": {
         "attr": "air_filter_alarm_period",
-        "name": "Air Filter Alarm Period",
+        "name": "Air filter alarm period",
         "unit": "h",
         "device_class": "duration",
         "state_class": "measurement",
@@ -1044,7 +1044,7 @@ SENSOR_CONFIGS: Final = {
     },
     "air_filter_alarm_elapsed": {
         "attr": "air_filter_alarm_elapsed",
-        "name": "Air Filter Alarm Elapsed",
+        "name": "Air filter alarm elapsed",
         "unit": "h",
         "device_class": "duration",
         "state_class": "measurement",
@@ -1053,25 +1053,25 @@ SENSOR_CONFIGS: Final = {
     # Diagnostic and status sensors
     "temperature_type": {
         "attr": "temperature_type",
-        "name": "Temperature Type",
+        "name": "Temperature type",
         "special": "enum_name",
         "enabled": False,
     },
     "temp_formula_type": {
         "attr": "temp_formula_type",
-        "name": "Temperature Formula Type",
+        "name": "Temperature formula type",
         "special": "enum_name",
         "enabled": False,
     },
     "dr_event_status": {
         "attr": "dr_event_status",
-        "name": "DR Event Status",
+        "name": "DR event status",
         "special": "enum_name",
         "enabled": False,
     },
     "dr_override_status": {
         "attr": "dr_override_status",
-        "name": "DR Override Hours Remaining",
+        "name": "DR override hours remaining",
         "unit": "h",
         "device_class": "duration",
         "state_class": "measurement",
@@ -1079,33 +1079,33 @@ SENSOR_CONFIGS: Final = {
     },
     "recirculation_error_status": {
         "attr": "recirc_error_status",
-        "name": "Recirculation Error Status",
+        "name": "Recirculation error status",
         "enabled": False,
     },
     "recirculation_operation_reason": {
         "attr": "recirc_operation_reason",
-        "name": "Recirculation Operation Reason",
+        "name": "Recirculation operation reason",
         "enabled": False,
     },
     "recirculation_operation_mode": {
         "attr": "recirc_operation_mode",
-        "name": "Recirculation Operation Mode",
+        "name": "Recirculation operation mode",
         "special": "enum_name",
         "enabled": False,
     },
     "recirculation_model_type_code": {
         "attr": "recirc_model_type_code",
-        "name": "Recirculation Model Type Code",
+        "name": "Recirculation model type code",
         "enabled": False,
     },
     "recirculation_sw_version": {
         "attr": "recirc_sw_version",
-        "name": "Recirculation Software Version",
+        "name": "Recirculation software version",
         "enabled": False,
     },
     "recirculation_temperature_min": {
         "attr": "recirc_temperature_min",
-        "name": "Recirculation Minimum Temperature",
+        "name": "Recirculation minimum temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -1113,7 +1113,7 @@ SENSOR_CONFIGS: Final = {
     },
     "recirculation_temperature_max": {
         "attr": "recirc_temperature_max",
-        "name": "Recirculation Maximum Temperature",
+        "name": "Recirculation maximum temperature",
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
@@ -1121,7 +1121,7 @@ SENSOR_CONFIGS: Final = {
     },
     "program_reservation_type": {
         "attr": "program_reservation_type",
-        "name": "Program Reservation Type",
+        "name": "Program reservation type",
         "enabled": False,
     },
 }

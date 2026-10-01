@@ -498,3 +498,65 @@ class TestReading:
         remove()
         control._notify()
         assert calls == [1]
+
+
+class TestDiagnostics:
+    """External control's section of the integration's diagnostics (#197)."""
+
+    @pytest.mark.asyncio
+    async def test_a_running_feature_reports_its_plan_and_writes(
+        self, hass, control_factory, now
+    ):
+        from custom_components.nwp500.const import DATA_CONTROL
+        from custom_components.nwp500.diagnostics import (
+            async_get_config_entry_diagnostics,
+        )
+
+        _publish(hass, _plan(now))
+        control = await control_factory()
+        coordinator = MagicMock()
+        coordinator.mqtt_manager = None
+        coordinator.data = {}
+        coordinator.get_mqtt_telemetry.return_value = {}
+        coordinator.get_performance_stats.return_value = {}
+        control.entry.runtime_data = coordinator
+        feature = MagicMock()
+        feature.devices = {MAC: control}
+        hass.data.setdefault(DOMAIN, {})[control.entry.entry_id] = {
+            DATA_CONTROL: feature
+        }
+
+        result = await async_get_config_entry_diagnostics(hass, control.entry)
+
+        section = result["external_control"]
+        assert section["options"]["control_intent_entity"] == INTENT_ENTITY
+        (device,) = section["devices"]
+        # Named as in the top-level devices list, to tell heaters apart.
+        assert device["device_name"] == control.device.device_info.device_name
+        assert device["mode"] == "shadow"
+        assert device["plan"]["intent_id"] == "i-1"
+        assert device["ack"]["intent_id"] == "i-1"
+        assert device["declaration"]["mode"] == "shadow"
+        assert device["last_write"]["simulated"] is True
+        assert "owned" in device["engine"]
+        # The MAC is redacted.
+        assert MAC not in repr(result)
+
+    @pytest.mark.asyncio
+    async def test_no_section_while_the_feature_is_off(self, hass):
+        """With the feature off the output is what it was before it."""
+        from custom_components.nwp500.diagnostics import (
+            async_get_config_entry_diagnostics,
+        )
+
+        entry = _entry(hass)
+        coordinator = MagicMock()
+        coordinator.mqtt_manager = None
+        coordinator.data = {}
+        coordinator.get_mqtt_telemetry.return_value = {}
+        coordinator.get_performance_stats.return_value = {}
+        entry.runtime_data = coordinator
+
+        result = await async_get_config_entry_diagnostics(hass, entry)
+
+        assert "external_control" not in result
