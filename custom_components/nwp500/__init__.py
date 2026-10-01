@@ -27,11 +27,14 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
 from . import energy_report
 from .const import (
+    CONF_CONTROL_ENABLED,
+    CONTROL_UNIQUE_ID_MARKER,
     DATA_CONTROL,
     DATA_PLATFORMS,
     DEFAULT_TEMPERATURE_C,
@@ -45,6 +48,7 @@ from .const import (
     MODE_TO_DHW_ID,
     control_enabled,
     control_feature,
+    control_storage_key,
 )
 from .coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
 
@@ -1137,12 +1141,57 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when options are updated."""
     # Switching external control off removes what it created -- its
     # entities and its stored data -- before the entry comes back without
-    # it. Only a running feature can do that, so it happens here rather
-    # than on the next set-up, which must not touch the feature at all.
+    # it. It happens here rather than on the next set-up, which must not
+    # touch the feature at all.
     feature = control_feature(hass, entry)
     if feature is not None and not control_enabled(entry):
         await feature.async_remove()
+    elif (
+        feature is None
+        and _control_was_on(entry)
+        and not control_enabled(entry)
+    ):
+        # It failed to start, so nothing ran to remove it (#189).
+        await _async_remove_control_leftovers(hass, entry.entry_id)
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove what external control stored; Home Assistant removes the rest.
+
+    The entities go with the entry. The heater keeps what the plans put on
+    it, as when the feature is switched off.
+    """
+    if _control_was_on(entry):
+        await _async_remove_control_leftovers(hass, entry.entry_id)
+
+
+def _control_was_on(entry: ConfigEntry) -> bool:
+    """Whether external control was ever switched on for this entry.
+
+    The option is stored only once it has been (spec section 1.1.4), so an
+    entry that never had the feature touches nothing of it.
+    """
+    return CONF_CONTROL_ENABLED in entry.options
+
+
+async def _async_remove_control_leftovers(
+    hass: HomeAssistant, entry_id: str
+) -> None:
+    """External control's entities, stored state and Repairs issue."""
+    registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
+        if (
+            entity_entry.platform == DOMAIN
+            and CONTROL_UNIQUE_ID_MARKER in entity_entry.unique_id
+        ):
+            registry.async_remove(entity_entry.entity_id)
+    await Store[dict[str, Any]](
+        hass, 1, control_storage_key(entry_id)
+    ).async_remove()
+    ir.async_delete_issue(
+        hass, DOMAIN, f"{ISSUE_CONTROL_START_FAILED}_{entry_id}"
+    )
 
 
 # Services that answer the caller instead of acting on the device. Home

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.storage import Store
 
-from ..const import DOMAIN
+from ..const import control_storage_key
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -22,7 +22,7 @@ STORAGE_VERSION = 1
 
 def storage_key(entry_id: str) -> str:
     """The storage key for an entry's control state."""
-    return f"{DOMAIN}.control.{entry_id}"
+    return control_storage_key(entry_id)
 
 
 class ControlStore:

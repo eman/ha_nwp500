@@ -55,9 +55,10 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
 5. **A regression test.** With the feature disabled, set-up produces exactly
    the entities, listeners and stored data it produced on the release before
    the feature.
-6. **Turning it off removes the feature.** Its entities and stored data go.
-   Nothing is written to the heater: the entries the plans put there stay,
-   and clearing them is the scheduler's (section 6.6).
+6. **Turning it off removes the feature.** Its entities and stored data go,
+   even if it had failed to start; deleting the integration removes its
+   stored data too. Nothing is written to the heater: the entries the plans
+   put there stay, and clearing them is the scheduler's (section 6.6).
 
 ### 1.2 Safe when enabled
 

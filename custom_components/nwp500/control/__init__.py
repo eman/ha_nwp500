@@ -23,6 +23,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import slugify
 
 from ..const import (
+    CONTROL_UNIQUE_ID_MARKER,
     DATA_CONTROL,
     DATA_PLATFORMS,
     DOMAIN,
@@ -44,7 +45,7 @@ _LOGGER = logging.getLogger(__name__)
 CONTROL_PLATFORMS: tuple[Platform, ...] = (Platform.BUTTON,)
 
 # Unique ids of the feature's entities carry this marker after the MAC.
-UNIQUE_ID_MARKER = "_control_"
+UNIQUE_ID_MARKER = CONTROL_UNIQUE_ID_MARKER
 
 # The key of every entity the feature creates. An entity whose key is not
 # here belongs to an earlier version of the feature and is removed.
