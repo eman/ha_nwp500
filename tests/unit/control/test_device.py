@@ -431,6 +431,25 @@ class TestTiming:
         assert control.heartbeat > first
 
     @pytest.mark.asyncio
+    async def test_started_at_marks_each_start(
+        self, hass, control_factory, now, freezer
+    ):
+        """Set once per start; heartbeats leave it, a reload moves it."""
+        freezer.move_to(now)
+        control = await control_factory()
+        assert control.started_at == now
+        later = now + HEARTBEAT_INTERVAL + timedelta(seconds=1)
+        freezer.move_to(later)
+        async_fire_time_changed(hass, later)
+        await hass.async_block_till_done()
+        assert control.heartbeat > now
+        assert control.started_at == now
+
+        await control.async_stop()
+        again = await control_factory()
+        assert again.started_at == later
+
+    @pytest.mark.asyncio
     async def test_coordinator_updates_evaluate(self, hass, control_factory):
         control = await control_factory()
         listener = control.coordinator.async_add_listener.call_args.args[0]

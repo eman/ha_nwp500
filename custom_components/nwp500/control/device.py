@@ -137,6 +137,8 @@ class DeviceControl:
         self.plan: Plan | None = None
         self.received_at: datetime | None = None
         self.heartbeat: datetime | None = None
+        # When this controller started: the entry's setup or reload.
+        self.started_at: datetime | None = None
         self._rejected: Ack | None = None
         # Documents are numbered as they arrive, so that accepting one that
         # waited clears only a rejection of an earlier document.
@@ -181,6 +183,7 @@ class DeviceControl:
         self._feature_version = await self._async_feature_version()
         now = dt_util.utcnow()
         self.heartbeat = now
+        self.started_at = now
         if engine_state := self.store.stored_engine(self.mac_address):
             try:
                 self.planner.load_document(engine_state)

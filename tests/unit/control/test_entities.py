@@ -102,6 +102,7 @@ def control(
         segments=(ItemAck(id="s1", status="shadow"),),
     )
     control.heartbeat = WHEN
+    control.started_at = WHEN
     control.wanted = State("heat_pump", 120)
     control.raise_state = None
     control.last_write = None
@@ -289,8 +290,9 @@ class TestSensors:
         assert sensor.native_value == WHEN
 
     def test_no_device_attributes_leak(self, control):
+        """Only when the feature started, nothing of the device's."""
         sensor = ControlHeartbeatSensor(control, "heartbeat")
-        assert sensor.extra_state_attributes in (None, {})
+        assert sensor.extra_state_attributes == {"started_at": WHEN.isoformat()}
 
     @pytest.mark.asyncio
     async def test_follows_the_controller(self, hass: HomeAssistant, control):

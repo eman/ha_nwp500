@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- **External control reports its start.** The heartbeat entity's
+  `started_at` attribute is when the feature last started: Home Assistant's
+  start or the entry's reload. The heartbeat alone does not show a reload.
 - **Device commands in the plan (protocol 1.3).** A plan may carry
   `commands` for settings a reservation entry cannot set: Vacation for a
   number of days, power, Anti-Legionella, TOU and demand response. Each is
