@@ -1,7 +1,7 @@
 # Service definitions for Navien NWP500 integration
 
 set_reservation:
-  name: Set Reservation
+  name: Set reservation
   description: >-
     Create or update a single reservation schedule entry. An existing entry
     scheduled for the same days and time is replaced, so repeating a call
@@ -74,7 +74,7 @@ set_reservation:
           max: 59
           mode: box
     mode:
-      name: Operation Mode
+      name: Operation mode
       description: DHW operation mode to set when reservation activates
       required: true
       selector:
@@ -95,22 +95,22 @@ set_reservation:
     temperature:
       name: Temperature
       description: >-
-        Target temperature in Fahrenheit (80-150°F). Required for heating modes,
-        ignored for vacation and power off modes.
+        Target temperature, in Home Assistant's temperature unit and within the
+        heater's range. Required for heating modes, ignored for Vacation and
+        power off.
       required: false
       selector:
         number:
-          min: 80
+          min: 0
           max: 150
-          unit_of_measurement: °F
-          mode: slider
+          step: 0.5
+          mode: box
 
 update_reservations:
-  name: Update All Reservations
+  name: Update all reservations
   description: >-
-    Replace all reservation schedules with a new set. This is an advanced service
-    that allows setting multiple reservations at once. Use set_reservation for
-    simpler single-entry updates.
+    Replace all reservation entries with a new list. An advanced service for
+    setting several entries at once; Set reservation adds a single entry.
   fields:
     device_id:
       name: Device
@@ -138,7 +138,7 @@ update_reservations:
       selector:
         object:
     enabled:
-      name: System Enabled
+      name: System enabled
       description: Whether the reservation system is enabled overall
       required: false
       default: true
@@ -146,7 +146,7 @@ update_reservations:
         boolean:
 
 clear_reservations:
-  name: Clear All Reservations
+  name: Clear all reservations
   description: Remove all reservation schedules from the device
   fields:
     device_id:
@@ -166,11 +166,11 @@ clear_reservations:
           integration: nwp500
 
 request_reservations:
-  name: Request Reservations
+  name: Request reservations
   description: >-
-    Request the current reservation schedules from the device. The response
-    will be stored in the coordinator and fired as a
-    nwp500_reservations_updated event.
+    Read the current reservation schedule from the device. It updates the
+    Reservation schedule sensor and fires an nwp500_reservations_updated
+    event.
   fields:
     device_id:
       name: Device
@@ -189,7 +189,7 @@ request_reservations:
           integration: nwp500
 
 enable_demand_response:
-  name: Enable Demand Response
+  name: Enable demand response
   description: >-
     Enable participation in utility demand response programs. When enabled,
     the device can respond to utility signals to reduce power consumption
@@ -212,7 +212,7 @@ enable_demand_response:
           integration: nwp500
 
 disable_demand_response:
-  name: Disable Demand Response
+  name: Disable demand response
   description: Disable utility demand response participation
   fields:
     device_id:
@@ -232,7 +232,7 @@ disable_demand_response:
           integration: nwp500
 
 reset_air_filter:
-  name: Reset Air Filter Timer
+  name: Reset air filter timer
   description: >-
     Reset the air filter maintenance timer. Use this after cleaning or
     replacing the air filter to restart the maintenance tracking.
@@ -254,7 +254,7 @@ reset_air_filter:
           integration: nwp500
 
 set_vacation_days:
-  name: Set Vacation Days
+  name: Set vacation days
   description: >-
     Configure vacation mode duration. Sets the device to vacation mode for
     the specified number of days (1-30). Vacation mode reduces energy
@@ -286,7 +286,7 @@ set_vacation_days:
           mode: box
 
 set_vacation_duration:
-  name: Set Vacation Duration
+  name: Set vacation duration
   description: >-
     Change the vacation day count without changing the operation mode.
     Unlike set_vacation_days, this does not put the device into vacation
@@ -319,7 +319,7 @@ set_vacation_duration:
           mode: box
 
 set_air_filter_life:
-  name: Set Air Filter Service Interval
+  name: Set air filter service interval
   description: >-
     Set how many evaporator-fan hours the air filter alarm counts before it
     trips. Accepts 0 to switch the alarm off, or 1000-10000 hours in steps
@@ -393,7 +393,7 @@ set_air_filter_life:
               value: "10000"
 
 reset_condenser_fault:
-  name: Reset Condenser Fault
+  name: Reset condenser fault
   description: >-
     Clear a condenser fault. The NaviLink app shows this only to installer
     accounts, but the device accepts the command from any account. Use it
@@ -416,7 +416,7 @@ reset_condenser_fault:
           integration: nwp500
 
 set_recirculation_mode:
-  name: Set Recirculation Mode
+  name: Set recirculation mode
   description: >-
     Set the recirculation pump operation mode. Controls how the hot water
     recirculation system operates.
@@ -455,7 +455,7 @@ set_recirculation_mode:
               value: "4"
 
 trigger_recirculation:
-  name: Trigger Recirculation
+  name: Trigger recirculation
   description: >-
     Manually trigger the recirculation pump hot button. Immediately starts
     the recirculation pump to deliver hot water to fixtures.
@@ -477,7 +477,7 @@ trigger_recirculation:
           integration: nwp500
 
 configure_tou_schedule:
-  name: Configure TOU Schedule
+  name: Configure TOU schedule
   description: >-
     Configure the Time of Use (TOU) pricing schedule on the device.
     Up to 16 periods can be defined with seasonal, weekly, and
@@ -500,7 +500,7 @@ configure_tou_schedule:
           domain: water_heater
           integration: nwp500
     periods:
-      name: TOU Periods
+      name: TOU periods
       description: >-
         List of TOU period entries (max 16). Each entry is a dictionary with
         keys: season (month bitfield 0-4095), week (day bitfield 0-254,
@@ -520,12 +520,12 @@ configure_tou_schedule:
         boolean:
 
 request_tou_settings:
-  name: Request TOU Settings
+  name: Request TOU settings
   description: >-
     Read the programmed Time of Use (TOU) plan from the Navien cloud. The
     device has no way to report its TOU plan directly, so this reads the
-    stored plan over the REST API. The result is stored in the coordinator
-    and fired as a nwp500_tou_updated event.
+    stored plan over the REST API. It updates the TOU schedule sensor and
+    fires an nwp500_tou_updated event.
   fields:
     device_id:
       name: Device
@@ -544,7 +544,7 @@ request_tou_settings:
           integration: nwp500
 
 get_energy_usage:
-  name: Get Energy Usage
+  name: Get energy usage
   description: >-
     Ask the water heater for its recorded energy usage and return it as a
     report. The device keeps daily totals split between the heat pump and

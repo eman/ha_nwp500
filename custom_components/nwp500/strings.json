@@ -2,7 +2,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "Enter your Navilink Smart Control account credentials.",
+        "description": "Enter your NaviLink Smart Control account credentials.",
         "data": {
           "email": "Email",
           "password": "Password"
@@ -76,89 +76,89 @@
   "entity": {
     "water_heater": {
       "water_heater": {
-        "name": "Water Heater",
+        "name": "Water heater",
         "state_attributes": {
           "operation_mode_raw": {
-            "name": "Operation Mode Raw"
+            "name": "Operation mode raw"
           },
           "dhw_operation_setting_raw": {
-            "name": "DHW Operation Setting Raw"
+            "name": "DHW operation setting raw"
           },
           "compressor_running": {
-            "name": "Compressor Running"
+            "name": "Compressor running"
           },
           "upper_element_active": {
-            "name": "Upper Element Active"
+            "name": "Upper element active"
           },
           "lower_element_active": {
-            "name": "Lower Element Active"
+            "name": "Lower element active"
           },
           "dhw_charge_percentage": {
-            "name": "DHW Charge Percentage"
+            "name": "DHW charge percentage"
           },
           "error_code": {
-            "name": "Error Code"
+            "name": "Error code"
           }
         }
       }
     },
     "sensor": {
       "outside_temperature": {
-        "name": "Outside Temperature"
+        "name": "Outside temperature"
       },
       "tank_upper_temperature": {
-        "name": "Tank Upper Temperature"
+        "name": "Tank upper temperature"
       },
       "tank_lower_temperature": {
-        "name": "Tank Lower Temperature"
+        "name": "Tank lower temperature"
       },
       "discharge_temperature": {
-        "name": "Compressor Discharge Temperature"
+        "name": "Compressor discharge temperature"
       },
       "suction_temperature": {
-        "name": "Compressor Suction Temperature"
+        "name": "Compressor suction temperature"
       },
       "evaporator_temperature": {
-        "name": "Evaporator Coil Temperature"
+        "name": "Evaporator coil temperature"
       },
       "ambient_temperature": {
-        "name": "Ambient Temperature"
+        "name": "Ambient temperature"
       },
       "dhw_temperature": {
-        "name": "DHW Outlet Temperature"
+        "name": "DHW outlet temperature"
       },
       "dhw_temperature_2": {
-        "name": "DHW Secondary Sensor Temperature"
+        "name": "DHW secondary sensor temperature"
       },
       "current_inlet_temperature": {
-        "name": "Cold Water Inlet Temperature"
+        "name": "Cold water inlet temperature"
       },
       "freeze_protection_temperature": {
-        "name": "Freeze Protection Temperature"
+        "name": "Freeze protection temperature"
       },
       "target_super_heat": {
-        "name": "Target Superheat"
+        "name": "Target superheat"
       },
       "current_super_heat": {
-        "name": "Current Superheat"
+        "name": "Current superheat"
       },
       "current_inst_power": {
-        "name": "Current Power"
+        "name": "Current power"
       },
       "usable_energy": {
-        "name": "Usable Energy"
+        "name": "Usable energy"
       },
       "energy_to_setpoint": {
-        "name": "Energy to Setpoint"
+        "name": "Energy to setpoint"
       },
       "full_recovery_energy": {
-        "name": "Full Recovery Energy"
+        "name": "Full recovery energy"
       },
       "dhw_charge_per": {
-        "name": "DHW Charge"
+        "name": "DHW charge"
       },
       "mixing_rate": {
-        "name": "Mixing Rate"
+        "name": "Mixing rate"
       },
       "fan_pwm": {
         "name": "Fan PWM"
@@ -167,271 +167,271 @@
         "name": "WiFi RSSI"
       },
       "error_code": {
-        "name": "Error Code"
+        "name": "Error code"
       },
       "sub_error_code": {
-        "name": "Sub Error Code"
+        "name": "Sub error code"
       },
       "current_dhw_flow_rate": {
-        "name": "Current DHW Flow Rate"
+        "name": "Current DHW flow rate"
       },
       "cumulated_dhw_flow_rate": {
-        "name": "Cumulated DHW Flow Rate"
+        "name": "Cumulated DHW flow rate"
       },
       "target_fan_rpm": {
-        "name": "Target Fan RPM"
+        "name": "Target fan RPM"
       },
       "current_fan_rpm": {
-        "name": "Current Fan RPM"
+        "name": "Current fan RPM"
       },
       "vacation_day_setting": {
-        "name": "Vacation Day Setting"
+        "name": "Vacation day setting"
       },
       "vacation_day_elapsed": {
-        "name": "Vacation Day Elapsed"
+        "name": "Vacation day elapsed"
       },
       "current_heat_use": {
-        "name": "Current Heat Source"
+        "name": "Current heat source"
       },
       "eev_step": {
-        "name": "EEV Step"
+        "name": "EEV step"
       },
       "current_state_num": {
-        "name": "Current State Number"
+        "name": "Current state number"
       },
       "smart_diagnostic": {
-        "name": "Smart Diagnostic"
+        "name": "Smart diagnostic"
       },
       "special_function_status": {
-        "name": "Special Function Status"
+        "name": "Special function status"
       },
       "fault_status_1": {
-        "name": "Fault Status 1"
+        "name": "Fault status 1"
       },
       "fault_status_2": {
-        "name": "Fault Status 2"
+        "name": "Fault status 2"
       },
       "operation_mode": {
-        "name": "Current Operation Mode"
+        "name": "Current operation mode"
       },
       "dhw_operation_setting": {
-        "name": "DHW Operation Setting"
+        "name": "DHW operation setting"
       },
       "dhw_target_temperature_setting": {
-        "name": "DHW Target Temperature Setting"
+        "name": "DHW target temperature setting"
       },
       "dhw_temperature_setting": {
-        "name": "DHW Target Temperature"
+        "name": "DHW target temperature"
       },
       "hp_upper_on_temp_setting": {
-        "name": "HP Upper On Temperature Setting"
+        "name": "HP upper on temperature setting"
       },
       "hp_lower_on_temp_setting": {
-        "name": "HP Lower On Temperature Setting"
+        "name": "HP lower on temperature setting"
       },
       "hp_upper_off_temp_setting": {
-        "name": "HP Upper Off Temperature Setting"
+        "name": "HP upper off temperature setting"
       },
       "hp_lower_off_temp_setting": {
-        "name": "HP Lower Off Temperature Setting"
+        "name": "HP lower off temperature setting"
       },
       "hp_upper_on_diff_temp_setting": {
-        "name": "HP Upper On Diff Temperature Setting"
+        "name": "HP upper on diff temperature setting"
       },
       "hp_lower_on_diff_temp_setting": {
-        "name": "HP Lower On Diff Temperature Setting"
+        "name": "HP lower on diff temperature setting"
       },
       "hp_upper_off_diff_temp_setting": {
-        "name": "HP Upper Off Diff Temperature Setting"
+        "name": "HP upper off diff temperature setting"
       },
       "hp_lower_off_diff_temp_setting": {
-        "name": "HP Lower Off Diff Temperature Setting"
+        "name": "HP lower off diff temperature setting"
       },
       "he_upper_on_temp_setting": {
-        "name": "HE Upper On Temperature Setting"
+        "name": "HE upper on temperature setting"
       },
       "he_lower_on_temp_setting": {
-        "name": "HE Lower On Temperature Setting"
+        "name": "HE lower on temperature setting"
       },
       "he_upper_off_temp_setting": {
-        "name": "HE Upper Off Temperature Setting"
+        "name": "HE upper off temperature setting"
       },
       "he_lower_off_temp_setting": {
-        "name": "HE Lower Off Temperature Setting"
+        "name": "HE lower off temperature setting"
       },
       "he_upper_on_diff_temp_setting": {
-        "name": "HE Upper On Diff Temperature Setting"
+        "name": "HE upper on diff temperature setting"
       },
       "he_lower_on_diff_temp_setting": {
-        "name": "HE Lower On Diff Temperature Setting"
+        "name": "HE lower on diff temperature setting"
       },
       "he_upper_off_diff_temp_setting": {
-        "name": "HE Upper Off Diff Temperature Setting"
+        "name": "HE upper off diff temperature setting"
       },
       "he_lower_off_diff_temp_setting": {
-        "name": "HE Lower Off Diff Temperature Setting"
+        "name": "HE lower off diff temperature setting"
       },
       "heat_min_op_temperature": {
-        "name": "Heat Min Operating Temperature"
+        "name": "Heat min operating temperature"
       },
       "freeze_protection_temp_min": {
-        "name": "Freeze Protection Min Temperature"
+        "name": "Freeze protection min temperature"
       },
       "freeze_protection_temp_max": {
-        "name": "Freeze Protection Max Temperature"
+        "name": "Freeze protection max temperature"
       },
       "recirculation_temp_setting": {
-        "name": "Recirculation Temperature Setting"
+        "name": "Recirculation temperature setting"
       },
       "recirculation_temperature": {
-        "name": "Recirculation Temperature"
+        "name": "Recirculation temperature"
       },
       "recirculation_faucet_temperature": {
-        "name": "Recirculation Faucet Temperature"
+        "name": "Recirculation faucet temperature"
       },
       "recirculation_dhw_flow_rate": {
-        "name": "Recirculation DHW Flow Rate"
+        "name": "Recirculation DHW flow rate"
       },
       "cumulated_evaporator_fan_op_time": {
-        "name": "Cumulated Evaporator Fan Operation Time"
+        "name": "Cumulated evaporator fan operation time"
       },
       "anti_legionella_period": {
-        "name": "Anti-Legionella Period"
+        "name": "Anti-Legionella period"
       },
       "air_filter_alarm_period": {
-        "name": "Air Filter Alarm Period"
+        "name": "Air filter alarm period"
       },
       "air_filter_alarm_elapsed": {
-        "name": "Air Filter Alarm Elapsed"
+        "name": "Air filter alarm elapsed"
       },
       "temperature_type": {
-        "name": "Temperature Type"
+        "name": "Temperature type"
       },
       "temp_formula_type": {
-        "name": "Temperature Formula Type"
+        "name": "Temperature formula type"
       },
       "dr_event_status": {
-        "name": "DR Event Status"
+        "name": "DR event status"
       },
       "dr_override_status": {
-        "name": "DR Override Hours Remaining"
+        "name": "DR override hours remaining"
       },
       "recirculation_error_status": {
-        "name": "Recirculation Error Status"
+        "name": "Recirculation error status"
       },
       "recirculation_operation_reason": {
-        "name": "Recirculation Operation Reason"
+        "name": "Recirculation operation reason"
       },
       "recirculation_operation_mode": {
-        "name": "Recirculation Operation Mode"
+        "name": "Recirculation operation mode"
       },
       "recirculation_model_type_code": {
-        "name": "Recirculation Model Type Code"
+        "name": "Recirculation model type code"
       },
       "recirculation_sw_version": {
-        "name": "Recirculation Software Version"
+        "name": "Recirculation software version"
       },
       "recirculation_temperature_min": {
-        "name": "Recirculation Minimum Temperature"
+        "name": "Recirculation minimum temperature"
       },
       "recirculation_temperature_max": {
-        "name": "Recirculation Maximum Temperature"
+        "name": "Recirculation maximum temperature"
       },
       "program_reservation_type": {
-        "name": "Program Reservation Type"
+        "name": "Program reservation type"
       },
       "last_response": {
-        "name": "Last MQTT Response"
+        "name": "Last MQTT response"
       },
       "request_count": {
-        "name": "MQTT Requests Sent"
+        "name": "MQTT requests sent"
       },
       "response_count": {
-        "name": "MQTT Responses Received"
+        "name": "MQTT responses received"
       },
       "mqtt_status": {
-        "name": "MQTT Connection Status"
+        "name": "MQTT connection status"
       },
       "consecutive_timeouts": {
-        "name": "Consecutive Timeouts"
+        "name": "Consecutive timeouts"
       },
       "reservation_schedule": {
-        "name": "Reservation Schedule"
+        "name": "Reservation schedule"
       },
       "tou_schedule": {
-        "name": "TOU Schedule"
+        "name": "TOU schedule"
       },
       "cloud_error_code": {
-        "name": "Last Reported Error"
+        "name": "Last reported error"
       },
       "descaling_start_time": {
-        "name": "Descaling Start"
+        "name": "Descaling start"
       },
       "descaling_end_time": {
-        "name": "Descaling End"
+        "name": "Descaling end"
       },
       "recirculation_schedule": {
-        "name": "Recirculation Schedule"
+        "name": "Recirculation schedule"
       },
       "lifetime_heat_pump_energy": {
-        "name": "Lifetime Heat Pump Energy"
+        "name": "Lifetime heat pump energy"
       },
       "lifetime_heat_element_energy": {
-        "name": "Lifetime Heating Element Energy"
+        "name": "Lifetime heating element energy"
       },
       "days_since_installation": {
-        "name": "Days Since Installation"
+        "name": "Days since installation"
       },
       "compressor_run_time": {
-        "name": "Compressor Run Time"
+        "name": "Compressor run time"
       },
       "compressor_start_count": {
-        "name": "Compressor Start Count"
+        "name": "Compressor start count"
       },
       "evaporator_fan_run_time": {
-        "name": "Evaporator Fan Run Time"
+        "name": "Evaporator fan run time"
       },
       "evaporator_fan_start_count": {
-        "name": "Evaporator Fan Start Count"
+        "name": "Evaporator fan start count"
       },
       "upper_element_run_time": {
-        "name": "Upper Heating Element Run Time"
+        "name": "Upper heating element run time"
       },
       "upper_element_start_count": {
-        "name": "Upper Heating Element Start Count"
+        "name": "Upper heating element start count"
       },
       "lower_element_run_time": {
-        "name": "Lower Heating Element Run Time"
+        "name": "Lower heating element run time"
       },
       "lower_element_start_count": {
-        "name": "Lower Heating Element Start Count"
+        "name": "Lower heating element start count"
       },
       "recirculation_pump_run_time": {
-        "name": "Recirculation Pump Run Time"
+        "name": "Recirculation pump run time"
       },
       "recirculation_pump_start_count": {
-        "name": "Recirculation Pump Start Count"
+        "name": "Recirculation pump start count"
       },
       "freeze_protection_event_count": {
-        "name": "Freeze Protection Event Count"
+        "name": "Freeze protection event count"
       },
       "dry_fire_event_count": {
-        "name": "Dry Fire Event Count"
+        "name": "Dry fire event count"
       },
       "condensate_overflow_event_count": {
-        "name": "Condensate Overflow Event Count"
+        "name": "Condensate overflow event count"
       },
       "water_leak_event_count": {
-        "name": "Water Leak Event Count"
+        "name": "Water leak event count"
       },
       "heat_pump_error_count": {
-        "name": "Heat Pump Error Count"
+        "name": "Heat pump error count"
       },
       "abnormal_discharge_temperature_count": {
-        "name": "Abnormal Discharge Temperature Count"
+        "name": "Abnormal discharge temperature count"
       },
       "abnormal_suction_temperature_count": {
-        "name": "Abnormal Suction Temperature Count"
+        "name": "Abnormal suction temperature count"
       },
       "control_capabilities": {
         "name": "External control interface"
@@ -604,82 +604,82 @@
     },
     "binary_sensor": {
       "operation_busy": {
-        "name": "Operation Busy"
+        "name": "Operation busy"
       },
       "freeze_protection_use": {
-        "name": "Freeze Protection Active"
+        "name": "Freeze protection active"
       },
       "dhw_use": {
-        "name": "DHW In Use"
+        "name": "DHW in use"
       },
       "dhw_use_sustained": {
-        "name": "DHW Use Sustained"
+        "name": "DHW use sustained"
       },
       "comp_use": {
-        "name": "Compressor Running"
+        "name": "Compressor running"
       },
       "eev_use": {
-        "name": "EEV Active"
+        "name": "EEV active"
       },
       "eva_fan_use": {
-        "name": "Evaporator Fan Running"
+        "name": "Evaporator fan running"
       },
       "heat_upper_use": {
-        "name": "Upper Electric Heating Element"
+        "name": "Upper electric heating element"
       },
       "heat_lower_use": {
-        "name": "Lower Electric Heating Element"
+        "name": "Lower electric heating element"
       },
       "scald_use": {
-        "name": "Scald Protection Warning"
+        "name": "Scald protection warning"
       },
       "anti_legionella_use": {
-        "name": "Anti-Legionella Enabled"
+        "name": "Anti-Legionella enabled"
       },
       "anti_legionella_operation_busy": {
-        "name": "Anti-Legionella Cycle Running"
+        "name": "Anti-Legionella cycle running"
       },
       "air_filter_alarm_use": {
-        "name": "Air Filter Alarm Enabled"
+        "name": "Air filter alarm enabled"
       },
       "error_buzzer_use": {
-        "name": "Error Buzzer Enabled"
+        "name": "Error buzzer enabled"
       },
       "eco_use": {
-        "name": "Overheat Protection Enabled"
+        "name": "Overheat protection enabled"
       },
       "program_reservation_use": {
-        "name": "Program Reservation Active"
+        "name": "Program reservation active"
       },
       "shut_off_valve_use": {
-        "name": "Shut-Off Valve Status"
+        "name": "Shut-off valve status"
       },
       "con_ovr_sensor_use": {
-        "name": "Condensate Overflow Sensor Active"
+        "name": "Condensate overflow sensor active"
       },
       "wtr_ovr_sensor_use": {
-        "name": "Water Leak Detected"
+        "name": "Water leak detected"
       },
       "did_reload": {
-        "name": "Device Recently Reloaded"
+        "name": "Device recently reloaded"
       },
       "recirculation_pump_operation_status": {
-        "name": "Recirculation Pump Running"
+        "name": "Recirculation pump running"
       },
       "recirculation_operation_busy": {
-        "name": "Recirculation Operation Busy"
+        "name": "Recirculation operation busy"
       },
       "recirculation_hot_button_ready": {
-        "name": "Recirculation Hot Button Ready"
+        "name": "Recirculation hot button ready"
       },
       "recirculation_reservation_use": {
-        "name": "Recirculation Reservation Active"
+        "name": "Recirculation reservation active"
       },
       "tou_override_status": {
-        "name": "TOU Override Status"
+        "name": "TOU override status"
       },
       "tou_status": {
-        "name": "TOU Status"
+        "name": "TOU status"
       },
       "control_override": {
         "name": "Manual change detected",
@@ -740,7 +740,7 @@
     },
     "number": {
       "target_temperature": {
-        "name": "Target Temperature"
+        "name": "Target temperature"
       }
     },
     "button": {
@@ -751,7 +751,7 @@
   },
   "services": {
     "set_reservation": {
-      "name": "Set Reservation",
+      "name": "Set reservation",
       "description": "Create or update a single reservation schedule entry. An existing entry scheduled for the same days and time is replaced, so repeating a call updates it rather than adding a duplicate. Reservations allow automatic mode and temperature changes at scheduled times. The device supports up to 16 reservation entries.",
       "fields": {
         "device_id": {
@@ -775,12 +775,12 @@
           "description": "Minute of hour (0-59) when reservation activates"
         },
         "mode": {
-          "name": "Operation Mode",
+          "name": "Operation mode",
           "description": "DHW operation mode to set when reservation activates"
         },
         "temperature": {
           "name": "Temperature",
-          "description": "Target temperature in Fahrenheit (80-150°F). Required for heating modes, ignored for vacation and power off modes."
+          "description": "Target temperature, in Home Assistant's temperature unit and within the heater's range. Required for heating modes, ignored for Vacation and power off."
         },
         "entity_id": {
           "name": "Entity",
@@ -789,8 +789,8 @@
       }
     },
     "update_reservations": {
-      "name": "Update All Reservations",
-      "description": "Replace all reservation schedules with a new set. This is an advanced service that allows setting multiple reservations at once. Use set_reservation for simpler single-entry updates.",
+      "name": "Update all reservations",
+      "description": "Replace all reservation entries with a new list. An advanced service for setting several entries at once; Set reservation adds a single entry.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -801,7 +801,7 @@
           "description": "List of reservation entries. Each entry should be a dictionary with keys: enable (2=enabled, 1=disabled), week (day bitfield), hour (0-23), min (0-59), mode (1-6), param (temperature in half-degrees Celsius). Use the set_reservation service for a simpler interface."
         },
         "enabled": {
-          "name": "System Enabled",
+          "name": "System enabled",
           "description": "Whether the reservation system is enabled overall"
         },
         "entity_id": {
@@ -811,7 +811,7 @@
       }
     },
     "clear_reservations": {
-      "name": "Clear All Reservations",
+      "name": "Clear all reservations",
       "description": "Remove all reservation schedules from the device",
       "fields": {
         "device_id": {
@@ -825,8 +825,8 @@
       }
     },
     "request_reservations": {
-      "name": "Request Reservations",
-      "description": "Request the current reservation schedules from the device. The response will be stored in the coordinator and fired as a nwp500_reservations_updated event.",
+      "name": "Request reservations",
+      "description": "Read the current reservation schedule from the device. It updates the Reservation schedule sensor and fires an nwp500_reservations_updated event.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -839,7 +839,7 @@
       }
     },
     "enable_demand_response": {
-      "name": "Enable Demand Response",
+      "name": "Enable demand response",
       "description": "Enable participation in utility demand response programs. When enabled, the device can respond to utility signals to reduce power consumption during peak demand periods.",
       "fields": {
         "device_id": {
@@ -853,7 +853,7 @@
       }
     },
     "disable_demand_response": {
-      "name": "Disable Demand Response",
+      "name": "Disable demand response",
       "description": "Disable utility demand response participation",
       "fields": {
         "device_id": {
@@ -867,7 +867,7 @@
       }
     },
     "reset_air_filter": {
-      "name": "Reset Air Filter Timer",
+      "name": "Reset air filter timer",
       "description": "Reset the air filter maintenance timer. Use this after cleaning or replacing the air filter to restart the maintenance tracking.",
       "fields": {
         "device_id": {
@@ -881,7 +881,7 @@
       }
     },
     "set_vacation_duration": {
-      "name": "Set Vacation Duration",
+      "name": "Set vacation duration",
       "description": "Change the vacation day count without changing the operation mode. Unlike set_vacation_days, this does not put the device into vacation mode; it only updates the number of days (1-30) the next vacation period will last.",
       "fields": {
         "device_id": {
@@ -899,7 +899,7 @@
       }
     },
     "set_air_filter_life": {
-      "name": "Set Air Filter Service Interval",
+      "name": "Set air filter service interval",
       "description": "Set how many evaporator-fan hours the air filter alarm counts before it trips. Accepts 0 to switch the alarm off, or 1000-10000 hours in steps of 500, which is what the NaviLink app offers. The device reports the interval back as the Air Filter Alarm Period sensor.",
       "fields": {
         "device_id": {
@@ -917,7 +917,7 @@
       }
     },
     "reset_condenser_fault": {
-      "name": "Reset Condenser Fault",
+      "name": "Reset condenser fault",
       "description": "Clear a condenser fault. The NaviLink app shows this only to installer accounts, but the device accepts the command from any account. Use it after the cause of the fault has been dealt with.",
       "fields": {
         "device_id": {
@@ -931,7 +931,7 @@
       }
     },
     "set_vacation_days": {
-      "name": "Set Vacation Days",
+      "name": "Set vacation days",
       "description": "Configure vacation mode duration. Sets the device to vacation mode for the specified number of days (1-30). Vacation mode reduces energy consumption during extended absences.",
       "fields": {
         "device_id": {
@@ -949,7 +949,7 @@
       }
     },
     "set_recirculation_mode": {
-      "name": "Set Recirculation Mode",
+      "name": "Set recirculation mode",
       "description": "Set the recirculation pump operation mode. Controls how the hot water recirculation system operates.",
       "fields": {
         "device_id": {
@@ -967,7 +967,7 @@
       }
     },
     "trigger_recirculation": {
-      "name": "Trigger Recirculation",
+      "name": "Trigger recirculation",
       "description": "Manually trigger the recirculation pump hot button. Immediately starts the recirculation pump to deliver hot water to fixtures.",
       "fields": {
         "device_id": {
@@ -981,7 +981,7 @@
       }
     },
     "configure_tou_schedule": {
-      "name": "Configure TOU Schedule",
+      "name": "Configure TOU schedule",
       "description": "Configure the Time of Use (TOU) pricing schedule on the device. Up to 16 periods can be defined with seasonal, weekly, and time-based pricing information. The device uses this to optimize heating based on electricity rates.",
       "fields": {
         "device_id": {
@@ -989,7 +989,7 @@
           "description": "The target NWP500 water heater device"
         },
         "periods": {
-          "name": "TOU Periods",
+          "name": "TOU periods",
           "description": "List of TOU period entries (max 16). Each entry is a dictionary with keys: season (month bitfield 0-4095), week (day bitfield 0-254, Sun=128..Sat=2), start_hour (0-23), start_minute (0-59), end_hour (0-23), end_minute (0-59), price_min (encoded price), price_max (encoded price), decimal_point (decimal places for price)."
         },
         "enabled": {
@@ -1003,8 +1003,8 @@
       }
     },
     "request_tou_settings": {
-      "name": "Request TOU Settings",
-      "description": "Read the programmed Time of Use (TOU) plan from the Navien cloud. The device has no way to report its TOU plan directly, so this reads the stored plan over the REST API. The result is stored in the coordinator and fired as a nwp500_tou_updated event.",
+      "name": "Request TOU settings",
+      "description": "Read the programmed Time of Use (TOU) plan from the Navien cloud. The device has no way to report its TOU plan directly, so this reads the stored plan over the REST API. It updates the TOU schedule sensor and fires an nwp500_tou_updated event.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -1017,7 +1017,7 @@
       }
     },
     "get_energy_usage": {
-      "name": "Get Energy Usage",
+      "name": "Get energy usage",
       "description": "Ask the water heater for its recorded energy usage and return it as a report. The device keeps daily totals split between the heat pump and the electric heating elements; nothing is recorded in Home Assistant, the data is returned to the caller. Defaults to the current month. Ask for whole years instead to get one total per month.",
       "fields": {
         "device_id": {

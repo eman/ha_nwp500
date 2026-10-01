@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
+from .const import control_feature
+
 if TYPE_CHECKING:
     from .coordinator import NWP500ConfigEntry
 
@@ -214,8 +216,53 @@ async def async_get_config_entry_diagnostics(
     # Add performance statistics
     diagnostics_data["performance_stats"] = coordinator.get_performance_stats()
 
+    # External control, only while it runs: with it off the output is what
+    # it was before the feature (spec section 1.1).
+    feature = control_feature(hass, config_entry)
+    if feature is not None:
+        diagnostics_data["external_control"] = _external_control(
+            config_entry, feature
+        )
+
     # Redact credentials and MAC addresses before returning
     redacted: dict[str, Any] = _redact_macs(
         async_redact_data(diagnostics_data, _TO_REDACT)
     )
     return redacted
+
+
+def _external_control(config_entry: Any, feature: Any) -> dict[str, Any]:
+    """What external control runs, has adopted, wrote and reported.
+
+    Typed loosely: naming the feature's classes here would import its
+    package on every path.
+    """
+    devices: list[dict[str, Any]] = []
+    for control in feature.devices.values():
+        plan = control.plan
+        last_write = control.last_write
+        devices.append(
+            {
+                "mode": control.mode,
+                "writes": control.writes,
+                "declaration": control.capabilities.as_attributes(),
+                "plan": plan.as_document() if plan is not None else None,
+                "received_at": control.received_at,
+                "ack": control.ack.as_attributes(),
+                "last_write": last_write.as_document()
+                if last_write is not None
+                else None,
+                "reports": [r.as_document() for r in control.reports.values()],
+                "program": control.program_details(),
+                "heartbeat": control.heartbeat,
+                "engine": control.planner.as_document(),
+            }
+        )
+    return {
+        "options": {
+            key: value
+            for key, value in config_entry.options.items()
+            if key.startswith("control_")
+        },
+        "devices": devices,
+    }
