@@ -698,7 +698,7 @@ class TestLiveWrites:
 
         heater, control = await live_factory()
 
-        async def refuse(schedule):
+        async def refuse(schedule: dict[str, Any]) -> dict[str, Any] | None:
             raise RangeValidationError(
                 "entry 1: param=200 (half-degrees C) is outside the "
                 "device's setpoint range 81-131"
