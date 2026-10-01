@@ -15,7 +15,6 @@ from typing import Any
 
 import pytest
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
@@ -25,21 +24,17 @@ from custom_components.nwp500.const import (
     CONF_CONTROL_OWNER_PROGRAM,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
-    DOMAIN,
 )
 from custom_components.nwp500.control import device as device_module
 from custom_components.nwp500.control.device import (
     WRITE_PAUSE,
     WRITE_RETRY,
     DeviceControl,
-    declared_owner,
 )
 from custom_components.nwp500.control.engine import (
     REPORT_SWITCHED_OFF,
-    WRITE_POWER_OFF,
     WRITE_TAKEOVER,
     Planner,
-    Report,
 )
 from custom_components.nwp500.control.entries import (
     KIND_NEAR_TERM,
@@ -51,7 +46,6 @@ from custom_components.nwp500.control.evaluate import (
     REASON_NOT_APPLIED,
     REASON_WRITE_NOT_CONFIRMED,
 )
-from custom_components.nwp500.control.owner import OwnerProgram, describe
 from custom_components.nwp500.control.store import ControlStore
 
 from .conftest import make_document, segment
@@ -341,42 +335,6 @@ class TestReadBack:
         assert copy_.took_over is True
 
 
-class TestOwnerProgram:
-    def test_restore_gives_back_the_owner_flags_and_switch(self):
-        owner = OwnerProgram.from_document(OWNER_DOC)
-        switched_off = {**OWNER_ENTRY, "enable": 1}
-        restored = owner.restore([(switched_off, True), (FOREIGN_ENTRY, False)])
-        assert restored == {
-            "reservation_use": 2,
-            "reservation": [OWNER_ENTRY, FOREIGN_ENTRY],
-        }
-
-    def test_declared_from_the_options(self):
-        options = {CONF_CONTROL_OWNER_PROGRAM: {MAC: OWNER_DOC}}
-        owner = declared_owner(options, MAC)
-        assert owner is not None
-        assert owner.declared is True
-        assert declared_owner(options, "other") is None
-        assert declared_owner({}, MAC) is None
-
-    def test_describe(self):
-        text = describe(OwnerProgram.from_document(OWNER_DOC), celsius=False)
-        # The words the options form uses: mode, temperature, schedule.
-        assert text == (
-            "- Mode: Energy Saver (Eco)\n"
-            "- Temperature: 139.1 °F\n"
-            "- Schedule: on\n"
-            "- Tue, Wed, Thu, Fri, Sat 06:00: Energy Saver (Eco), 140 °F "
-            "(on now, switched off while live)"
-        )
-
-    def test_describe_in_celsius_without_entries(self):
-        document = {**OWNER_DOC, "entries": [], "reservations_enabled": False}
-        text = describe(OwnerProgram.from_document(document), celsius=True)
-        assert "- Temperature: 59.5 °C\n- Schedule: off\n" in text
-        assert text.endswith("- Schedule entries: none")
-
-
 # -- the controller, against a simulated heater ---------------------------
 
 
@@ -564,13 +522,6 @@ class TestGate:
             await control.async_stop()
 
     @pytest.mark.asyncio
-    async def test_live_needs_a_declared_owner(self, hass, live_factory, now):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory(**{CONF_CONTROL_OWNER_PROGRAM: {}})
-        assert control.mode == "shadow"
-        assert heater.writes == []
-
-    @pytest.mark.asyncio
     async def test_segments_switch_off_writes_nothing(
         self, hass, live_factory, now
     ):
@@ -581,6 +532,39 @@ class TestGate:
         assert control.mode == "live"
         assert control.planner.shadow is True
         assert heater.writes == []
+
+
+class TestStopped:
+    """Stopped stops applying plans, and nothing else (#192)."""
+
+    @pytest.mark.asyncio
+    async def test_it_writes_nothing_and_leaves_the_heater_as_it_is(
+        self, hass, live_factory, now
+    ):
+        _publish(hass, _two_segments(now))
+        heater, live = await live_factory()
+        written = copy.deepcopy(heater.schedule)
+        writes = len(heater.writes)
+        await live.async_stop()
+
+        _, stopped = await live_factory(
+            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
+        )
+        _publish(
+            hass,
+            make_document(
+                now,
+                [segment(now, "x", 60, mode="heat_pump", setpoint_f=125)],
+                intent_id="i-2",
+                issued_at=now + timedelta(seconds=1),
+            ),
+        )
+        await hass.async_block_till_done()
+
+        assert len(heater.writes) == writes
+        assert heater.states == []
+        assert heater.schedule == written
+        assert stopped.plan is None or stopped.plan.intent_id != "i-2"
 
 
 class TestLiveWrites:
@@ -594,15 +578,12 @@ class TestLiveWrites:
         assert len(heater.writes) == 1
         written = heater.writes[0]
         assert written["reservation_use"] == 2
-        # The owner's entry stays, switched off by its own flag.
-        assert _entries(written, hour=6, min=0) == [
-            {**OWNER_ENTRY, "enable": 1}
-        ]
+        # Every entry that is not the feature's is kept as read.
+        assert _entries(written, hour=6, min=0) == [OWNER_ENTRY]
         assert len(written["reservation"]) == 3
         assert control.last_write.simulated is False
         assert control.last_write.confirmed is True
         assert control.store.took_over(MAC) is True
-        assert control.planner.owner.declared is True
         assert sorted(e.kind for e in control.planner.owned) == [
             KIND_NEAR_TERM,
             KIND_PLAN,
@@ -786,293 +767,6 @@ class TestLiveWrites:
         assert statuses(control.ack)["later"] == ("removed", None)
         assert len(heater.writes) == writes
 
-    @pytest.mark.asyncio
-    async def test_power_off_switches_the_feature_entries_off(
-        self, hass, live_factory, now
-    ):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        control.coordinator.data[MAC]["status"].dhw_operation_setting = 6
-        await control._async_evaluate(dt_util.utcnow())
-
-        assert control.last_write.reason == WRITE_POWER_OFF
-        assert control.last_write.confirmed is True
-        written = heater.writes[-1]
-        assert all(e["enable"] == 1 for e in written["reservation"])
-        assert len(written["reservation"]) == 3
-
-
-class TestLiveDisable:
-    @pytest.mark.asyncio
-    async def test_disabling_hands_the_heater_back(
-        self, hass, live_factory, now
-    ):
-        heater, control = await live_factory()
-        heater.person_sets(
-            {"reservation_use": 2, "reservation": [OWNER_ENTRY, FOREIGN_ENTRY]}
-        )
-        _publish(hass, _two_segments(now))
-        await hass.async_block_till_done()
-        assert control.store.took_over(MAC) is True
-        await control.async_stop()
-
-        _, disabled = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-
-        assert heater.schedule == {
-            "reservation_use": 2,
-            "reservation": [OWNER_ENTRY, FOREIGN_ENTRY],
-        }
-        # The owner's latest enabled entry: weekdays at 06:00, 140 degF.
-        assert heater.states == [("energy_saver", 120)]
-        write = disabled.last_write
-        assert write.reason == "disable"
-        assert write.simulated is False
-        assert write.confirmed is True
-        assert write.owner_state == ("energy_saver", 120)
-        assert disabled.store.took_over(MAC) is False
-        assert disabled.store.disabled_done(MAC) is True
-        assert disabled.planner.owned == []
-
-    @pytest.mark.asyncio
-    async def test_the_direct_write_is_read_back(self, hass, live_factory, now):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        assert await control.async_release(dt_util.utcnow()) is True
-        assert heater.status_requests == 1
-        assert control.last_write.confirmed is True
-
-    @pytest.mark.asyncio
-    async def test_a_direct_write_not_read_back_is_unconfirmed(
-        self, hass, live_factory, now, monkeypatch
-    ):
-        monkeypatch.setattr(device_module, "STATE_CONFIRM_TIMEOUT", 0.05)
-        monkeypatch.setattr(device_module, "STATE_CONFIRM_POLL", 0.01)
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        heater.applies_state = False
-        assert await control.async_release(dt_util.utcnow()) is True
-        assert heater.schedule == OWNER_LIST
-        assert control.last_write.confirmed is False
-
-    @pytest.mark.asyncio
-    async def test_a_lost_disabling_write_is_retried_once(
-        self, hass, live_factory, now, freezer
-    ):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await control.async_stop()
-        heater.lose = 1
-
-        _, disabled = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-        assert disabled.last_write.confirmed is False
-        assert disabled.store.disabled_done(MAC) is False
-        assert heater.states == []
-        # The owner is told in Repairs, not only in the log.
-        issue = ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE)
-        assert issue is not None
-        assert issue.translation_key == "control_hand_back_failed"
-        assert issue.is_persistent is True
-
-        await _tick(hass, freezer, WRITE_RETRY + timedelta(seconds=1))
-
-        assert heater.schedule == OWNER_LIST
-        assert disabled.store.disabled_done(MAC) is True
-        assert disabled.last_write.confirmed is True
-        assert (
-            ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE) is None
-        )
-
-    @pytest.mark.asyncio
-    async def test_going_live_again_does_not_clear_a_failed_hand_back(
-        self, hass, live_factory, now
-    ):
-        """Only a hand-back clears it (#191 review)."""
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await control.async_stop()
-        heater.lose = 2
-        assert await control.async_release(dt_util.utcnow()) is False
-        heater.lose = 0
-
-        _, live = await live_factory(reuse=True)
-
-        assert live.holds_device is True
-        assert ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE)
-
-    @pytest.mark.asyncio
-    async def test_a_heater_left_holding_the_list_is_reported(
-        self, hass, live_factory, now
-    ):
-        """Live writes off while the heater still holds the feature's list."""
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await control.async_stop()
-        heater.lose = 2
-        assert await control.async_release(dt_util.utcnow()) is False
-
-        _, shadow = await live_factory(
-            reuse=True, **{CONF_CONTROL_LIVE_SEGMENTS: False}
-        )
-
-        assert shadow.holds_device is True
-        assert ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE)
-        await shadow.async_stop()
-        heater.lose = 0
-
-        _, disabled = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-        assert disabled.store.disabled_done(MAC) is True
-        assert (
-            ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE) is None
-        )
-
-    @pytest.mark.asyncio
-    async def test_a_lost_hand_back_forgets_what_the_heater_held(
-        self, hass, live_factory, now
-    ):
-        """Its list may have landed; what it changes is not a person's."""
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        assert control.planner.as_document()["device_state"] is not None
-        control.planner.reports = {
-            "setpoint": Report("setpoint", 100, now, None),
-        }
-        heater.lose = 2
-        assert await control.async_release(dt_util.utcnow()) is False
-        stored = control.planner.as_document()
-        assert stored["device_state"] is None
-        assert stored["reservations_on"] is None
-        # The reports stay until the hand-back succeeds (section 4.2).
-        assert control.planner.reports
-
-    @pytest.mark.asyncio
-    async def test_a_hand_back_that_landed_is_not_taken_for_removals(
-        self, hass, live_factory, now
-    ):
-        """The owner's list landed with its confirmation lost.
-
-        The feature's entries are gone from the heater because of the
-        hand-back, not because a person removed them.
-        """
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        assert control.planner.owned
-        heater.land_unconfirmed = 2
-        assert await control.async_release(dt_util.utcnow()) is False
-        assert heater.schedule == OWNER_LIST
-        await control.async_stop()
-
-        _, again = await live_factory(reuse=True)
-        assert not [
-            r for r in again.planner.reports.values() if r.field == "removed"
-        ]
-        assert "removed" not in {s.status for s in again.ack.segments}
-
-    @pytest.mark.asyncio
-    async def test_no_direct_write_in_vacation(self, hass, live_factory, now):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await control.async_stop()
-        control.coordinator.data[MAC]["status"].dhw_operation_setting = 5
-
-        _, disabled = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-        assert heater.schedule == OWNER_LIST
-        assert heater.states == []
-        assert disabled.last_write.owner_state is None
-        assert disabled.store.disabled_done(MAC) is True
-
-    @pytest.mark.asyncio
-    async def test_release_before_switching_off(self, hass, live_factory, now):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-
-        assert await control.async_release(dt_util.utcnow()) is True
-        assert heater.schedule == OWNER_LIST
-        assert control.holds_device is False
-
-    @pytest.mark.asyncio
-    async def test_nothing_to_release_in_shadow(self, hass, live_factory, now):
-        heater, control = await live_factory(
-            **{CONF_CONTROL_LIVE_SEGMENTS: False}
-        )
-        assert await control.async_release(dt_util.utcnow()) is True
-        assert heater.writes == []
-        assert heater.states == []
-
-
-class TestLeavingLive:
-    @pytest.mark.asyncio
-    async def test_shadow_options_hand_the_heater_back_first(
-        self, hass, live_factory, now
-    ):
-        from custom_components.nwp500.control import ControlFeature
-
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        feature = ControlFeature(hass, control.entry, control.coordinator)
-        feature.devices[MAC] = control
-        hass.config_entries.async_update_entry(
-            control.entry,
-            options={**control.entry.options, CONF_CONTROL_MODE: "shadow"},
-        )
-
-        await feature.async_options_changed()
-
-        assert heater.schedule == OWNER_LIST
-        assert control.holds_device is False
-
-    @pytest.mark.asyncio
-    async def test_staying_live_writes_nothing_extra(
-        self, hass, live_factory, now
-    ):
-        from custom_components.nwp500.control import ControlFeature
-
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        writes = len(heater.writes)
-        feature = ControlFeature(hass, control.entry, control.coordinator)
-        feature.devices[MAC] = control
-        hass.config_entries.async_update_entry(
-            control.entry,
-            options={**control.entry.options, "control_setpoint_max_f": 145.0},
-        )
-
-        await feature.async_options_changed()
-
-        assert len(heater.writes) == writes
-        assert control.holds_device is True
-
-    @pytest.mark.asyncio
-    async def test_disabled_is_left_to_the_disabled_start(
-        self, hass, live_factory, now
-    ):
-        from custom_components.nwp500.control import ControlFeature
-
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        writes = len(heater.writes)
-        feature = ControlFeature(hass, control.entry, control.coordinator)
-        feature.devices[MAC] = control
-        hass.config_entries.async_update_entry(
-            control.entry,
-            options={
-                **control.entry.options,
-                CONF_CONTROL_MODE: CONTROL_MODE_DISABLED,
-            },
-        )
-
-        await feature.async_options_changed()
-
-        assert len(heater.writes) == writes
-        assert control.holds_device is True
-
 
 class TestReviewFindings:
     """Regressions for the review of the first live-mode commit."""
@@ -1094,42 +788,6 @@ class TestReviewFindings:
         # No duplicate entries, and nothing of its own reported as foreign.
         assert len(heater.schedule["reservation"]) == len(landed["reservation"])
         assert not [k for k in control.reports if k.startswith("foreign")]
-        assert await control.async_release(dt_util.utcnow()) is True
-        assert heater.schedule == OWNER_LIST
-
-    @pytest.mark.asyncio
-    async def test_landed_unconfirmed_then_released_leaves_no_orphans(
-        self, hass, live_factory, now
-    ):
-        heater, control = await live_factory()
-        heater.land_unconfirmed = 1
-        _publish(hass, _two_segments(now))
-        await hass.async_block_till_done()
-
-        assert control.holds_device is True
-        assert await control.async_release(dt_util.utcnow()) is True
-        assert heater.schedule == OWNER_LIST
-
-    @pytest.mark.asyncio
-    async def test_release_waits_for_a_write_in_flight(
-        self, hass, live_factory, now
-    ):
-        heater, control = await live_factory()
-        heater.gate = asyncio.Event()
-        _publish(hass, _two_segments(now))
-        for _ in range(5):
-            await asyncio.sleep(0)
-        release = hass.async_create_task(
-            control.async_release(dt_util.utcnow())
-        )
-        for _ in range(5):
-            await asyncio.sleep(0)
-        heater.gate.set()
-        await hass.async_block_till_done()
-
-        assert release.result() is True
-        assert heater.schedule == OWNER_LIST
-        assert control.holds_device is False
 
     @pytest.mark.asyncio
     async def test_a_stopped_controller_arms_no_retry(
@@ -1153,36 +811,6 @@ class TestReviewFindings:
         await _tick(hass, freezer, WRITE_PAUSE)
 
         assert len(heater.writes) == 1
-
-    @pytest.mark.asyncio
-    async def test_no_plan_is_adopted_after_a_release(
-        self, hass, live_factory, now
-    ):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        heater.gate = asyncio.Event()
-        release = hass.async_create_task(
-            control.async_release(dt_util.utcnow())
-        )
-        for _ in range(5):
-            await asyncio.sleep(0)
-        _publish(
-            hass,
-            make_document(
-                now,
-                [segment(now, "x", -1, mode="heat_pump", setpoint_f=125)],
-                intent_id="i-2",
-                issued_at=now + timedelta(seconds=1),
-            ),
-        )
-        for _ in range(5):
-            await asyncio.sleep(0)
-        heater.gate.set()
-        await hass.async_block_till_done()
-
-        assert release.result() is True
-        assert heater.schedule == OWNER_LIST
-        assert control.plan.intent_id == "i-1"
 
     @pytest.mark.asyncio
     async def test_a_segment_begun_during_a_pause_is_put_in_force(
@@ -1216,23 +844,6 @@ class TestReviewFindings:
         ]
         assert len(near_terms) == 1
         assert near_terms[0].fires_at > dt_util.utcnow()
-
-    @pytest.mark.asyncio
-    async def test_the_owner_state_is_written_during_anti_legionella(
-        self, hass, live_factory, now
-    ):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await control.async_stop()
-        status = control.coordinator.data[MAC]["status"]
-        status.anti_legionella_operation_busy = True
-
-        _, disabled = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-
-        assert heater.states == [("energy_saver", 120)]
-        assert disabled.store.disabled_done(MAC) is True
 
     @pytest.mark.asyncio
     async def test_an_older_document_waiting_on_a_write_is_superseded(
@@ -1300,8 +911,6 @@ class TestReviewFindings:
 
         assert shadow.holds_device is True
         assert shadow.planner.owned == live_owned
-        assert await shadow.async_release(dt_util.utcnow()) is True
-        assert heater.schedule == OWNER_LIST
 
 
 class TestTrialFindings:

@@ -1291,9 +1291,6 @@ CONF_CONTROL_ENABLED: Final = "control_enabled"
 CONF_CONTROL_MODE: Final = "control_mode"
 CONF_CONTROL_INTENT_ENTITY: Final = "control_intent_entity"
 CONF_CONTROL_LIVE_SEGMENTS: Final = "control_live_segments"
-CONF_CONTROL_SETPOINT_MIN_F: Final = "control_setpoint_min_f"
-CONF_CONTROL_SETPOINT_MAX_F: Final = "control_setpoint_max_f"
-CONF_CONTROL_ALLOWED_MODES: Final = "control_allowed_modes"
 CONF_CONTROL_ASSISTED_MODE: Final = "control_assisted_mode"
 CONF_CONTROL_RESERVATION_ENTRY_LIMIT: Final = "control_reservation_entry_limit"
 CONF_CONTROL_RESERVATION_ENTRY_RESERVE: Final = (
@@ -1322,6 +1319,13 @@ CONTROL_OBSOLETE_OPTIONS: Final = (
     # Which mode a scheduler uses to recover quickly is the scheduler's
     # choice, not the heater's.
     "control_assisted_mode",
+    # The heater clamps a setpoint and applies any mode: the adapter checks
+    # neither (limits belong in the library).
+    "control_setpoint_min_f",
+    "control_setpoint_max_f",
+    "control_allowed_modes",
+    # The adapter keeps no copy of the owner's program: it applies the plan.
+    "control_owner_program",
 )
 
 CONF_CONTROL_OWNER_PROGRAM: Final = "control_owner_program"
@@ -1339,23 +1343,19 @@ CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 # gated by it.
 CONTROL_LIVE_AVAILABLE: Final = True
 
-# The mode names a segment may use (spec section 3.4). Vacation and
-# power-off are never accepted. Entries are skipped during Vacation, so the
-# plan's next entry would never end it; whether an entry with the power-off
-# mode powers the heater off is untested, and the mode command with that
-# value switched the unit tested to Energy Saver (#160).
+# The mode names a segment may use (spec section 3.4): every mode the heater
+# has. What a mode does, Vacation and power-off included, is the
+# scheduler's to know; the adapter applies it.
 CONTROL_MODE_NAMES: Final = (
     "heat_pump",
     "energy_saver",
     "high_demand",
     "electric",
+    "vacation",
+    "power_off",
 )
 
 DEFAULT_CONTROL_MODE: Final = CONTROL_MODE_SHADOW
-# A segment carries the heater's whole state and the last one holds, so the
-# owner's usual Heat Pump must be allowed. A single-mode cut-over (spec
-# 1.2.2) is the owner's choice in the options.
-DEFAULT_CONTROL_ALLOWED_MODES: Final = ("heat_pump", "energy_saver")
 DEFAULT_CONTROL_ASSISTED_MODE: Final = "energy_saver"
 # The unit tested accepted and read back a list of 32 entries (spec
 # section 8); larger lists are untested. The default stays at the library's

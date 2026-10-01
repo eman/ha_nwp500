@@ -20,17 +20,14 @@ import attr
 from homeassistant.const import Platform
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
-from homeassistant.util import dt as dt_util
 from homeassistant.util import slugify
 
 from ..const import (
-    CONF_CONTROL_MODE,
-    CONTROL_MODE_DISABLED,
     DATA_CONTROL,
     DATA_PLATFORMS,
     DOMAIN,
 )
-from .device import DeviceControl, live_writes
+from .device import DeviceControl
 from .entity import control_entity_id
 from .store import ControlStore
 
@@ -146,47 +143,12 @@ class ControlFeature:
         """Turn the feature off for good: entities and stored data go.
 
         Called when the option is switched off, before the entry reloads
-        without the feature (spec section 1.1.6). A heater that holds the
-        feature's list is handed back first, as disabling does (section
-        6.6). If that fails, the stored state is kept, so switching the
-        feature on again and disabling can finish the job.
+        without the feature (spec section 1.1.6). Nothing is written to the
+        heater: what the plans put there stays, and is the scheduler's.
         """
-        released = True
-        for control in self.devices.values():
-            if not await control.async_release(dt_util.utcnow()):
-                released = False
         await self.async_stop()
         self._remove_entities(stale_only=False)
-        if released:
-            await self.store.async_remove()
-            return
-        _LOGGER.error(
-            "External control was switched off, but not every heater could be "
-            "given back its own schedule. Its state is kept: turn external "
-            "control on again with Mode set to Stopped to finish"
-        )
-
-    async def async_options_changed(self) -> None:
-        """Before the entry reloads with new options: leave live cleanly.
-
-        A heater that holds the feature's list, under options that no
-        longer write it (shadow, or segments no longer live), is handed back
-        first, as disabling does. Otherwise shadow would plan as if nothing
-        were on the heater while the feature's entries kept firing. Going
-        to `disabled` is left to the disabled start, which records it.
-        """
-        options = self.entry.options
-        if options.get(CONF_CONTROL_MODE) == CONTROL_MODE_DISABLED:
-            return
-        for mac_address, control in self.devices.items():
-            if not control.holds_device or live_writes(options, mac_address):
-                continue
-            if not await control.async_release(dt_util.utcnow()):
-                _LOGGER.error(
-                    "Leaving live on %s: its own schedule could not be given "
-                    "back. Press Stop external control to try again",
-                    control.device_name,
-                )
+        await self.store.async_remove()
 
     def _move_to_documented_ids(self) -> None:
         """Give entities the documented ids they lacked before (section 4).

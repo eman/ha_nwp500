@@ -5,30 +5,23 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
-from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
-    CONF_CONTROL_ALLOWED_MODES,
     CONF_CONTROL_ENABLED,
     CONF_CONTROL_INTENT_ENTITY,
     CONF_CONTROL_MODE,
-    CONF_CONTROL_OWNER_PROGRAM,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
-    CONF_CONTROL_SETPOINT_MAX_F,
-    CONF_CONTROL_SETPOINT_MIN_F,
     CONF_SCAN_INTERVAL,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_LIVE,
-    CONTROL_MODE_NAMES,
     CONTROL_MODE_SHADOW,
     CONTROL_MODES_SELECTABLE,
     CONTROL_OBSOLETE_OPTIONS,
-    DEFAULT_CONTROL_ALLOWED_MODES,
     DEFAULT_CONTROL_MODE,
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
@@ -233,19 +226,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
 # The setpoint bounds are stored in degF whatever Home Assistant displays,
 # so a later change of unit system cannot misread them. The form shows and
 # takes them in the configured unit.
-_SETPOINT_FORM_KEYS: dict[str, str] = {
-    "control_setpoint_min": CONF_CONTROL_SETPOINT_MIN_F,
-    "control_setpoint_max": CONF_CONTROL_SETPOINT_MAX_F,
-}
-
-# Options the form may leave empty. An empty field clears the stored value
-# rather than keeping it, so "follow the device" can be chosen again.
-_OPTIONAL_CONTROL_KEYS = (
-    CONF_CONTROL_SETPOINT_MIN_F,
-    CONF_CONTROL_SETPOINT_MAX_F,
-)
-
-
 # The user guide, linked from the form: translations may not hold URLs.
 CONTROL_GUIDE_URL = (
     "https://github.com/eman/ha_nwp500/blob/main/docs/external-control.md"
@@ -266,20 +246,6 @@ def _form_mode(options: dict[str, Any]) -> str:
 
 def _control_schema(hass: HomeAssistant) -> vol.Schema:
     """The external control options form."""
-    celsius = hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
-    unit = (
-        UnitOfTemperature.CELSIUS if celsius else UnitOfTemperature.FAHRENHEIT
-    )
-    setpoint_selector = selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            min=20 if celsius else 70,
-            max=70 if celsius else 160,
-            step=0.1,
-            unit_of_measurement=unit,
-            mode=selector.NumberSelectorMode.BOX,
-        )
-    )
-    mode_name_options = list(CONTROL_MODE_NAMES)
     modes: list[str] = list(CONTROL_MODES_SELECTABLE)
     if CONTROL_LIVE_AVAILABLE:
         # Live writes the heater's reservation list; it is offered only
@@ -294,18 +260,6 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
                 selector.SelectSelectorConfig(
                     options=modes,
                     translation_key="control_mode",
-                )
-            ),
-            vol.Optional("control_setpoint_min"): setpoint_selector,
-            vol.Optional("control_setpoint_max"): setpoint_selector,
-            vol.Required(
-                CONF_CONTROL_ALLOWED_MODES,
-                default=list(DEFAULT_CONTROL_ALLOWED_MODES),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=mode_name_options,
-                    multiple=True,
-                    translation_key="control_mode_name",
                 )
             ),
             vol.Required(
@@ -334,36 +288,6 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
     )
 
 
-def _to_display_unit(hass: HomeAssistant, fahrenheit: Any) -> float | None:
-    if fahrenheit is None:
-        return None
-    if hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS:
-        return round(
-            TemperatureConverter.convert(
-                float(fahrenheit),
-                UnitOfTemperature.FAHRENHEIT,
-                UnitOfTemperature.CELSIUS,
-            ),
-            1,
-        )
-    return float(fahrenheit)
-
-
-def _to_fahrenheit(hass: HomeAssistant, value: Any) -> float | None:
-    if value is None:
-        return None
-    if hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS:
-        return round(
-            TemperatureConverter.convert(
-                float(value),
-                UnitOfTemperature.CELSIUS,
-                UnitOfTemperature.FAHRENHEIT,
-            ),
-            1,
-        )
-    return float(value)
-
-
 def _control_suggested_values(
     hass: HomeAssistant, options: dict[str, Any]
 ) -> dict[str, Any]:
@@ -372,18 +296,7 @@ def _control_suggested_values(
         key: value
         for key, value in options.items()
         if key.startswith("control_")
-        and key
-        not in (
-            CONF_CONTROL_SETPOINT_MIN_F,
-            CONF_CONTROL_SETPOINT_MAX_F,
-            CONF_CONTROL_OWNER_PROGRAM,
-        )
     }
-    for form_key, option_key in _SETPOINT_FORM_KEYS.items():
-        if (
-            value := _to_display_unit(hass, options.get(option_key))
-        ) is not None:
-            suggested[form_key] = value
     for key in CONTROL_OBSOLETE_OPTIONS:
         suggested.pop(key, None)
     suggested[CONF_CONTROL_MODE] = _form_mode(options)
@@ -393,18 +306,11 @@ def _control_suggested_values(
 def _validate_control_input(user_input: dict[str, Any]) -> dict[str, str]:
     """Cross-field checks the schema cannot express."""
     errors: dict[str, str] = {}
-    minimum = user_input.get("control_setpoint_min")
-    maximum = user_input.get("control_setpoint_max")
-    if minimum is not None and maximum is not None and minimum >= maximum:
-        errors["control_setpoint_min"] = "setpoint_range"
     if (
         user_input[CONF_CONTROL_RESERVATION_ENTRY_RESERVE]
         >= (user_input[CONF_CONTROL_RESERVATION_ENTRY_LIMIT])
     ):
         errors[CONF_CONTROL_RESERVATION_ENTRY_RESERVE] = "reserve_exceeds_limit"
-    allowed = user_input.get(CONF_CONTROL_ALLOWED_MODES) or []
-    if not allowed:
-        errors[CONF_CONTROL_ALLOWED_MODES] = "allowed_modes_empty"
     return errors
 
 
@@ -412,15 +318,7 @@ def _normalise_control_input(
     hass: HomeAssistant, user_input: dict[str, Any]
 ) -> dict[str, Any]:
     """Turn form values into stored options."""
-    stored: dict[str, Any] = {
-        key: value
-        for key, value in user_input.items()
-        if key not in _SETPOINT_FORM_KEYS
-    }
-    for form_key, option_key in _SETPOINT_FORM_KEYS.items():
-        value = _to_fahrenheit(hass, user_input.get(form_key))
-        if value is not None:
-            stored[option_key] = value
+    stored: dict[str, Any] = dict(user_input)
     for key in (
         CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
         CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
@@ -433,13 +331,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for NWP500 integration."""
 
     def __init__(self) -> None:
-        """Hold the earlier pages' answers while the next is shown."""
+        """Hold the first page's answers while the next is shown."""
         self._init_input: dict[str, Any] = {}
-        self._control_data: dict[str, Any] = {}
-        # The owner's programs shown on the going-live page: what is saved
-        # is exactly what was confirmed.
-        self._owner_programs: dict[str, dict[str, Any]] | None = None
-        self._owner_summary = ""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -489,25 +382,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             errors = _validate_control_input(user_input)
             if not errors:
-                for key in (*_OPTIONAL_CONTROL_KEYS, *CONTROL_OBSOLETE_OPTIONS):
+                for key in CONTROL_OBSOLETE_OPTIONS:
                     options.pop(key, None)
                 data = {
                     **options,
                     **self._init_input,
                     **_normalise_control_input(self.hass, user_input),
                 }
-                if data.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE:
-                    # Every save in live confirms the owner's program: the
-                    # owner may have changed it since it was declared.
-                    self._control_data = data
-                    # As stored: `options` has lost an earlier version's
-                    # switches, which can make a stored live not live.
-                    if (
-                        _form_mode(dict(self.config_entry.options))
-                        == CONTROL_MODE_LIVE
-                    ):
-                        return await self.async_step_stay_live()
-                    return await self.async_step_going_live()
                 return self.async_create_entry(title="", data=data)
 
         suggested = _control_suggested_values(self.hass, options)
@@ -520,53 +401,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             errors=errors,
             description_placeholders={"guide_url": CONTROL_GUIDE_URL},
-        )
-
-    async def async_step_going_live(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """Declare the owner's program before going live (spec 6.3).
-
-        The heater's mode, setpoint, reservation switch and entries are
-        shown for confirmation. Disabling restores exactly this.
-        """
-        return await self._async_confirm_owner("going_live", user_input)
-
-    async def async_step_stay_live(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """The same confirmation, saving options while already live."""
-        return await self._async_confirm_owner("stay_live", user_input)
-
-    async def _async_confirm_owner(
-        self, step_id: str, user_input: dict[str, Any] | None
-    ) -> config_entries.ConfigFlowResult:
-        from .control.owner import async_declare_owner_programs
-
-        if user_input is not None and self._owner_programs is not None:
-            return self.async_create_entry(
-                title="",
-                data={
-                    **self._control_data,
-                    CONF_CONTROL_OWNER_PROGRAM: self._owner_programs,
-                },
-            )
-        celsius = (
-            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
-        )
-        programs, summary = await async_declare_owner_programs(
-            self.hass, self.config_entry, celsius=celsius
-        )
-        self._owner_programs = programs
-        self._owner_summary = summary
-        errors: dict[str, str] = {}
-        if programs is None:
-            errors["base"] = "owner_snapshot_unavailable"
-        return self.async_show_form(
-            step_id=step_id,
-            data_schema=vol.Schema({}),
-            description_placeholders={"program": summary},
-            errors=errors,
         )
 
 

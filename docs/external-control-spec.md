@@ -55,19 +55,17 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
 5. **A regression test.** With the feature disabled, set-up produces exactly
    the entities, listeners and stored data it produced on the release before
    the feature.
-6. **Turning it off cleans up.** Turning the toggle off removes the feature's
-   entries from the device and restores the owner's program (section 6.6),
-   removes its entities, and deletes its stored data.
+6. **Turning it off removes the feature.** Its entities and stored data go.
+   Nothing is written to the heater: the entries the plans put there stay,
+   and clearing them is the scheduler's (section 6.6).
 
 ### 1.2 Safe when enabled
 
 1. **Enabling starts in `shadow`.** The feature reads the device, plans the
    list it would program, and reports it. It writes nothing to the heater.
-2. **`live` is a separate option,** chosen in the options flow. A cut-over
-   SHOULD start with a single allowed mode, so that no entry changes the mode
-   until setpoints have been proven.
-3. **The dashboard gets only a Disable button** (section 4.4). Enabling, going
-   live and changing bounds happen in the options flow.
+2. **`live` is a separate option,** chosen in the options flow.
+3. **The dashboard gets only a Disable button** (section 4.4), which stops
+   applying plans. Enabling and going live happen in the options flow.
 4. **Nothing goes live before the device tests in section 8,** run on
    2026-09-24 and 25.
 5. **Proven before promised.** Protocol `0` was experimental. Protocol `1`,
@@ -203,11 +201,12 @@ example:
   does not move with the setpoint (`lower_trigger_f` in section 4.1); it then
   heats only to the minimum.
 
-`vacation` and `power_off` are never accepted as a segment's mode. Entries are
-skipped during Vacation (section 8), so the plan's next entry would never fire
-to end it. Whether an entry with the power-off mode powers the heater off is
-untested, and the mode command with that value switched the unit tested to
-Energy Saver instead (#160). Use `setpoint: "min"` instead.
+Every mode the heater has may be a segment's, `vacation` and `power_off`
+included: the feature applies it. What it does is the scheduler's to know.
+The heater skips entries during Vacation (section 8), so a plan's later entry
+does not end it. Whether an entry with the power-off mode powers the heater
+off is untested; the mode command with that value switched the unit tested
+to Energy Saver (#160).
 
 ### 3.3 Surplus grants
 
@@ -251,8 +250,7 @@ statuses, with the rejection beside them.
 | `unsupported_protocol` | `protocol` is not supported |
 | `duplicate_id` | Two segments or grants share an id |
 | `unordered_segments` | After truncation to the minute, a segment does not start after the one before it |
-| `out_of_bounds` | A segment's setpoint is outside `setpoint_min`–`setpoint_max` |
-| `mode_not_allowed` | A segment's mode is not in `allowed_modes`, or is `vacation` or `power_off` |
+| `mode_not_allowed` | A segment's mode is not one the heater has (section 3.4) |
 | `superseded` | `issued_at` is earlier than that of the plan in force. A document with the same `issued_at` is accepted |
 
 A segment is part of a timeline, so one bad segment rejects the plan rather
@@ -323,18 +321,18 @@ keys and values, which are as documented here.
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
 | `live` | `segments`: whether the plan is written (the mode is `live`); `grants`: always false. **Withdrawn (#192)**: reduces to `mode` |
-| `setpoint_min_f`, `setpoint_max_f` (and `_c`) | The bounds a setpoint must be within. Options, defaulting to the device's own `dhw_temperature_min` / `max`. A user MAY set a tighter floor, for example 120 °F. `"min"` resolves to `setpoint_min` |
+| `setpoint_min_f`, `setpoint_max_f` (and `_c`) | The heater's own range, `dhw_temperature_min` / `max`, as it reports it. Not a check: the feature writes a setpoint as the plan gives it, and the heater clamps it. `"min"` resolves to `setpoint_min`. **Withdrawn (#192)** as a bound |
 | `setpoint_resolution_c` | 0.5 on the NWP500, so a model can quantise exactly as the heater does |
-| `allowed_modes` | Modes a segment may use. Option; default `["heat_pump", "energy_saver"]`: a segment carries the heater's whole state and the last one holds, so the owner's usual Heat Pump must be allowed. A single-mode cut-over (section 1.2) is the owner's choice |
+| `allowed_modes` | Every mode a segment may use: all six of section 3.4. **Withdrawn (#192)** |
 | `assisted_mode` | Always `energy_saver`. **Withdrawn (#192)**: which mode recovers hot water fast is the scheduler's choice, not the heater's |
 | `horizon_h` | How far ahead an entry may be programmed: 144 (section 5.3) |
 | `near_term_lead_min` | How far ahead a near-term entry is written: 2 (section 5.2) |
 | `entry_limit` | The most entries the feature will use on the device. Option, default **16**. The unit tested accepted and read back a list of 32 (section 8); larger lists are untested |
-| `entry_reserve` | Entries kept free for near-term and precedence-exit entries. Option, default 2 |
+| `entry_reserve` | Entries kept free for near-term entries. Option, default 2 |
 | `entries_available` | `entry_limit` minus every entry on the device and the reserve |
 | `grants_supported` | Always false (section 5.7). **Withdrawn (#192)** |
 | `grant_rules`, `grant_rule_ranges` | Fixed: `{"surplus_on_before_raise_min": 10, "surplus_off_before_lower_min": 15, "min_run_before_lower_min": 120}` and the ranges `[0, 60]`, `[0, 60]`, `[0, 600]`. Nothing follows them. **Withdrawn (#192)** |
-| `owner_program` | What disabling restores (section 5.1): `declared` (false while provisional), `mode`, `setpoint_f`, `setpoint_c`, `reservations_enabled`, and `entries`, the owner's own entries |
+| `owner_program` | Always `null`: the feature keeps no copy of the owner's program (section 5.1). **Withdrawn (#192)** |
 | `lower_trigger_f` | **Withdrawn (#192)**: tank modelling, which belongs in time_to_heat, and the heater reports it live as `hp_lower_on_temp_setting`. The lower-tank turn-on temperature, which does not follow the setpoint: 104.9 on the unit measured. A low setpoint cannot prevent this trigger |
 | `setpoint_write_starts_recovery` | **Withdrawn (#192)**, as `lower_trigger_f`. True on the NWP500. Outside a TOU window, a setpoint left above the upper tank started the compressor within about 30 s in 112 of 117 writes, whether the write came from an entry or directly |
 | `setpoint_write_stops_compressor` | **Withdrawn (#192)**, as `lower_trigger_f`. True on the NWP500. A setpoint lowered well below the upper tank stopped a running compressor within 5 s |
@@ -360,7 +358,7 @@ Each is a **state**, so history and statestream carry it:
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now: that of the segment in force, which a person's deletion can keep out (section 5.10), or, with none in force, the state in force when the plan was adopted: what the feature's entries last put in force, or, for a first plan, the heater's own (unknown if it was then in Vacation or powered off) | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, as for the mode, in Home Assistant's unit | `segment` (the segment in force, as the ack's `in_force`), `grant` (always null; **Withdrawn (#192)**) |
 | `binary_sensor.<device>_control_grant_raised` | Always off: grants are not supported. **Withdrawn (#192)** | `grant`, `raised_at`, `setpoint_f`, all null |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `precedence_exit`, `power_off`, `takeover`, `disable`; a write stored by an earlier version may say `grant_raise` or `grant_lower`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
+| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `takeover`; a write stored by an earlier version may say `grant_raise`, `grant_lower`, `precedence_exit`, `power_off` or `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
 | `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
 
@@ -370,7 +368,7 @@ list or took off it:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `kind` | string | What the entry is for: `plan`, `near_term` or `precedence_exit`. An entry an earlier version wrote for a grant is `grant_raise`, `grant_lower` or `guard`, until a write removes it |
+| `kind` | string | What the entry is for: `plan` or `near_term`. An entry an earlier version wrote is `precedence_exit`, or for a grant `grant_raise`, `grant_lower` or `guard`, until a write removes it |
 | `owner` | string | The program's label for the kind: `plan`, `guard`, or `near_term` for the others |
 | `serves` | string | The `id` of the segment it serves (of the grant, for an earlier version's grant entry). Ids are unique across a document's segments and grants, so `serves` with `kind` names one item. It is the same string as `control_next_entry`'s `serves` |
 | `fires_at` | string, ISO 8601 with the local offset | The minute the entry is written for: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). A near-term entry confirmed only after its minute never fired; it is issued again, for a later minute, in a later write. An entry left on the device fires again a week later |
@@ -383,9 +381,8 @@ list or took off it:
 **Program items.** Each item of `control_program_hash`'s `entries` is an
 entry of the list the feature wants on the device, with the device's keys:
 `enable` (2 on, 1 off), `week`, `hour`, `min`, `mode` (the device's mode id)
-and `param`. It adds `owner`: `owner` for an owner entry (shown switched
-off, as the feature writes it while live, section 5.1), `foreign` for any
-other entry the feature does not own, or the label of one of its own. An
+and `param`. It adds `owner`: `foreign` for an entry the feature does not
+own, kept as read (section 5.1), or the label of one of its own. An
 item of the feature's own also carries every key of an entry item, except
 that `mode` keeps the device's id, and adds `mode_name`, the mode as a name
 (section 3.4). The Reservation Schedule sensor's entries carry display keys
@@ -402,15 +399,10 @@ not of the plan in force.
 **Last-write attributes.** `confirmed` is a boolean for the whole write,
 since a list is written and confirmed whole (section 5.4). It is `true`
 once the device read back the list sent. It is `false` from a write's first
-unconfirmed attempt, while its retry is pending (section 5.4); for a live
-write that could not be sent because the list could not be read first; and
-for a `disable` whose owner's list or state did not read back (section
-6.6). It is `null` for a simulated write (`simulated` is `true`, in
-shadow). `owner_state` is, for `disable` only, the owner's `[mode,
-setpoint_raw]` written directly (section 6.6), or `null` when it was not
-written: the heater is in, or the owner's program sets, vacation or
-power-off, or the owner's list could not be restored. In shadow nothing is
-written, and it is the owner's state as found, whatever its mode.
+unconfirmed attempt, while its retry is pending (section 5.4); and for a live
+write that could not be sent because the list could not be read first. It is
+`null` for a simulated write (`simulated` is `true`, in shadow).
+`owner_state` is always `null` (section 6.6; **Withdrawn (#192)**).
 
 **Size.** The recorder keeps none of a state's attributes when they exceed
 16 KiB. `added_count` and `removed_count` always give the lists' lengths.
@@ -430,32 +422,21 @@ and `segment`:
 | `field` | `value` | `segment` | Ends when |
 |---|---|---|---|
 | `setpoint` | The setpoint found, in half-degrees Celsius | The segment in force, or `null` before the first | An entry on the heater fires after `detected_at` (section 5.10). An entry fires only while the reservation switch is on: one whose minute passes while it is off does not count |
-| `mode` | The mode found, as a name (section 3.4). A change into or out of Vacation or power-off is not a person's change to report (section 5.9) | The segment in force, or `null` before the first | As `setpoint` |
+| `mode` | The mode found, as a name (section 3.4), Vacation and power-off included | The segment in force, or `null` before the first | As `setpoint` |
 | `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment, or a grant for a `grant_raise`, `grant_lower` or `guard` entry | The time it would have set is over, by the plan's clock: for a segment's entry (`plan`, `near_term`, `precedence_exit`), when the next segment starts; for a grant's, when the grant ends. Also when a new plan is adopted (section 5.6). A removed entry of the last segment lasts until a new plan, as that segment does. It ends whether or not the heater's status or list can be read |
-| `foreign_entry` | The entry a person added, with the device's keys | Its slot, as text: `(week, hour, min)` | The entry leaves the heater's list. An entry a person changes is a new entry: the old report ends and a new one begins |
 | `reservations_switched_off` | `false` | `null` | The reservation switch is on again |
 
 The list holds the changes in force, not a history:
 
-- **One report per key.** The key is `field`; for `foreign_entry`, `field`
-  and the whole entry; for `removed`, `field`, `segment` and `value`'s
-  `kind`. A newer report with the same key replaces the older one, with a
-  new `detected_at`, as a second setpoint change before the next entry
-  fires does. Two reports can share `field` and `detected_at`, for example
-  two added entries found in one read, or `field` and `segment`, for
-  example two added entries in one slot, but never a key.
-- **Lifetime.** Each report ends by its own rule, above. Handing the heater
-  back ends every report (section 6.6), whether by disabling, by leaving
-  live or by switching the feature off, and none is made while `disabled`;
-  what the hand-back restores is not reported as a person's change, nor is
-  what a failed hand-back may have changed. Until a failed hand-back
-  succeeds, the reports stay as they were. Nothing else
-  empties the list: a new plan ends only the `removed` reports above, and
-  reports are kept across a reload or a restart of Home Assistant that is
-  not a hand-back.
+- **One report per key.** The key is `field`; for `removed`, `field`,
+  `segment` and `value`'s `kind`. A newer report with the same key replaces
+  the older one, with a new `detected_at`, as a second setpoint change
+  before the next entry fires does.
+- **Lifetime.** Each report ends by its own rule, above. Nothing else empties
+  the list: a new plan ends only the `removed` reports above, and reports
+  are kept across a reload or a restart of Home Assistant.
 - **Bound.** At most one `setpoint`, one `mode` and one
-  `reservations_switched_off`; one `foreign_entry` per entry on the
-  heater's list that the feature does not own; and one `removed` per kind
+  `reservations_switched_off`, and one `removed` per kind
   of entry for each segment or grant of the plan in force whose time is not
   over. `report_count` gives the number. If the attributes would come
   within 1 KiB of the recorder's 16 KiB limit, the oldest reports are left
@@ -512,7 +493,7 @@ or elements do, section 5.11; **Withdrawn (#192)**), and its opaque keys.
 | `in_force` | It has started and read-back matches (section 5.11) |
 | `ended` | A later segment has taken effect, or it had ended when the plan arrived. A `merged` segment, or one a person removed, leaves the one before it in force |
 | `failed` | A list write or read-back failed after its retry |
-| `removed` | A person removed the entry that puts it in force (section 5.10): its plan entry, or, for a segment already begun, its near-term or precedence-exit entry. It never takes effect: the state before it holds over its time, and over any merged segments that follow it |
+| `removed` | A person removed the entry that puts it in force (section 5.10): its plan entry, or, for a segment already begun, its near-term entry. It never takes effect: the state before it holds over its time, and over any merged segments that follow it |
 
 A segment's `reason`, when it has one:
 
@@ -542,36 +523,29 @@ audit.
 
 | Status field or entity | Used for |
 |---|---|
-| The Reservation Schedule sensor (`entries`, `enabled`, `schedule_hash`) | The owner's entries, and read-back of every list write |
+| The Reservation Schedule sensor (`entries`, `enabled`, `schedule_hash`) | The entries already on the heater, and read-back of every list write |
 | `dhw_target_temperature_setting` (water heater target, target-temperature number) | Setpoint read-back after each entry |
 | `dhw_operation_setting` (water heater operation mode) | Mode read-back after each entry |
 | `tou_status`, the TOU schedule | Flagging a mode change inside a TOU window (section 5.8) |
-| `anti_legionella_operation_busy`, `vacation_day_setting`, power state | Precedence (section 5.9) |
 
 ### 4.4 Controls
 
-`button.<device>_control_disable` switches the feature to `disabled`
-(section 6.6). Nothing on the dashboard switches it to `live`.
+`button.<device>_control_disable` switches the feature to `disabled`: it
+stops applying plans (section 6.6). Nothing on the dashboard switches it to
+`live`.
 
 ---
 
 ## 5. The program
 
-### 5.1 The owner's program
+### 5.1 Entries that are not the feature's
 
-The **owner's program** is what the heater did before the feature went live:
-the owner's own reservation entries, the reservation switch, and the mode and
-setpoint the heater held. It is not a fallback inside a plan. It is what
-disabling restores.
-
-- **Declared** when `live` is chosen, from a snapshot of the device
-  that the options flow shows for confirmation (section 6.3). **In shadow**
-  the feature uses a provisional snapshot, marked `declared: false`.
-- **While live, the plan replaces the owner's program.** The feature turns the
-  reservation switch on and turns each owner entry's own enable flag off, so
-  none of them fires against the plan. The entries stay on the device, exactly
-  as they were apart from that flag, and still count against `entry_limit`.
-- **Disabling reverses both** (section 6.6).
+The feature owns only the entries it writes. Every other entry on the
+heater, the owner's or anyone's, is kept exactly as read: not switched off,
+not restored, and counted against `entry_limit`. While live, the first write
+turns the reservation switch on, so the plan's entries fire. The feature
+keeps no copy of the owner's program; what the heater runs besides the plan
+is the scheduler's to plan around.
 
 ### 5.2 From plan to entries
 
@@ -585,8 +559,7 @@ disabling restores.
    time zone (section 8, test 1).
 4. **Near-term entries.** A change that must happen now is written as an entry
    for the first minute that starts at least `near_term_lead_min` (2) minutes
-   ahead. This covers a segment already begun when its plan arrives, and
-   re-asserting a segment after precedence ends.
+   ahead. This covers a segment already begun when its plan arrives.
 5. **No entry for a passed minute.** An entry for a minute that has passed
    would fire a week later. If a write confirms only after its near-term
    entry's minute, the feature checks the read-back. If the heater did not
@@ -608,7 +581,7 @@ disabling restores.
   leaves a day's margin.
 - **Budget.** The plan's entries fit within `entry_limit`, minus every other
   entry on the device, minus `entry_reserve`. The reserve is kept free for
-  near-term and precedence-exit entries.
+  near-term entries.
 - **In time order.** Segments are programmed in order of `start`, as far as
   the horizon and the budget allow. The rest are `scheduled`, and are
   programmed as earlier entries fire and are removed. `programmed_until`
@@ -663,12 +636,9 @@ disabling restores.
 
 ### 5.5 Direct writes
 
-The feature writes the setpoint or mode directly in **one** case: disabling
-(section 6.6), a one-off write of the owner's state. Every other change is an
-entry, including changes that must happen now (section 5.2).
-
-A direct write uses the library, not the `water_heater` service. A library
-`False` or exception is a refusal, reported with its reason (see #157).
+None. Every change is an entry, including changes that must happen now
+(section 5.2). Device commands besides the plan's segments (Vacation, power,
+Anti-Legionella, TOU) are a protocol addition, #192.
 
 ### 5.6 Replacing a plan
 
@@ -688,7 +658,7 @@ A new accepted plan applies from its receipt:
   `removed` reports end. The feature keeps a record of what its own entries
   put in force, not of the heater's state:
   - A person's setpoint or mode change is outside that record. A plan
-    republished unchanged writes nothing, and does not undo it.
+    republished unchanged writes nothing.
   - A person's deletion of the feature's entry means that entry's state
     never took effect. A new plan that still wants that state puts it in
     force. A scheduler that honours the deletion leaves that segment out
@@ -730,58 +700,17 @@ Documented in `nwp500-python` `docs/how-to/schedule-operation.rst`,
   `docs/explanation/tou-recovery-cap.rst`). A scheduler should not wait for
   the tank to reach the setpoint.
 
-### 5.9 Precedence
+### 5.9 Vacation, power-off and Anti-Legionella
 
-**While Vacation or power-off is active, or an Anti-Legionella cycle is
-running** (`anti_legionella_operation_busy`), the feature makes no direct
-setpoint or mode writes.
-
-- **Vacation.** The device skips entries during Vacation, and an entry whose
-  minute passes is missed, not run late (section 8). So writing the list is
-  harmless then, and the feature keeps writing it: a plan accepted during
-  Vacation is programmed at once, and the heater holds the newest plan even
-  if Home Assistant is unavailable when Vacation ends. When Vacation ends,
-  the feature re-asserts the segment in force with a near-term entry
-  (`precedence_exit`): the plan's segment in force on the heater, even one
-  whose entry was skipped. With none, because a person's deletion left the
-  state from before the plan, nothing is re-asserted (section 5.10). If Home Assistant is unavailable then, the heater
-  leaves Vacation in the state it had, and the newest plan's next entry
-  puts the plan in force.
-- **Power-off.** The device does **not** skip entries while powered off. An
-  entry fires, and powers the heater back on in the entry's mode (section 8).
-  Without intervention, a person who switches the heater off would have it
-  switched back on by the plan's next entry. So when the feature sees the
-  heater powered off, it turns off its own entries' enable flags, which the
-  device honours (section 8). This is the one list write it makes under
-  precedence. When power returns, it turns them back on and re-asserts the
-  segment in force with a near-term entry (`precedence_exit`), which
-  replaces any near-term entry still waiting to be written for that
-  segment. This depends on
-  Home Assistant being up when the heater is switched off. If it is not, the
-  next entry turns the heater back on.
-  - A plan accepted while the heater is powered off is written when power
-    returns, in the same write as the re-assert. The entries whose flags
-    come back on are those of the plan in force then, the newest.
-  - If Home Assistant is unavailable when power returns, the feature's
-    entries stay switched off until it is back: the heater runs in the state
-    it powered on in, with no plan entries firing.
-    Leaving them on while it is powered off would let them power it back on.
-- **Anti-Legionella.** The feature does not write the list during a cycle.
-  When Vacation or power-off ends straight into one, its exit entry is
-  owed, and is written once the cycle is over, across a restart too.
-  Whether an entry firing mid-cycle interrupts the cycle is untested
-  (section 8).
-- **Vacation and power-off are precedence**, not a person's change to the
-  setpoint or mode.
-- **A state that cannot be read** (the heater's status unavailable) is not
-  the end of Vacation or power-off. The last known one holds until the mode
-  reads again: the exit entry is written only then, and while powered off
-  the feature's entries stay switched off.
+**No special handling.** The feature applies the plan whatever state the
+heater is in, and writes as usual. The heater skips entries during Vacation
+and fires them while powered off (section 8). A person putting the heater in
+Vacation or powering it off is reported like any other change (section
+5.10); what to do about it is the scheduler's.
 
 ### 5.10 People's changes
 
-The feature reports people's changes. It does not undo them, and it does not
-adopt them into the plan. The scheduler decides.
+The feature reports people's changes. The scheduler decides.
 
 - **A setpoint or mode change** that no entry explains is a person's, whether
   it was made in the app, on the panel, or through Home Assistant's own
@@ -801,35 +730,27 @@ adopt them into the plan. The scheduler decides.
     Nothing else is written in its place.
   - **One rule for every deletion, within the plan in force.** A segment
     takes effect only through the entry that puts it in force: its plan
-    entry, or, for a segment already begun, its near-term or
-    precedence-exit entry. A person deleting that entry before it fires
+    entry, or, for a segment already begun, its near-term entry. A person
+    deleting that entry before it fires
     keeps the segment out: it is `removed`, and never takes effect, and
     neither do the merged segments that follow it. The state before it
     holds over its time: the segment before it, or, if that had ended when
     the plan was adopted, the state in force then. The feature never writes
     that state on its own, and everything that reads the segment in force
-    reads this one: `in_force`, the wanted entities, the guard's and a
-    lowering's target, read-back, and whether a later segment stops a raise
-    or holds back an entry due before its start, which a removed segment,
-    with nothing on the heater, does not. A restart keeps it out; a new
+    reads this one: `in_force`, the wanted entities and read-back. A
+    restart keeps it out; a new
     plan is the scheduler's answer (section 5.6).
   - **Whether an entry fired** is judged from the heater's list, not from
     its setpoint and mode, which a raise or a person's change can alter.
     An entry fired if a list read at or after its minute still holds it,
-    or once a minute has passed without its deletion being found. One whose
-    minute Vacation or power-off surrounds, or a state that could not be
-    read, is taken as skipped: the exit entry after puts its segment in
-    force. Deleting an entry that fired or was skipped is reported, and
-    changes nothing else.
-  - **An exit or near-term entry that only re-asserts** a segment the
-    feature's entries already put in force, in that state (Vacation or
-    power-off that began and ended within it), puts nothing new in force:
-    deleting it changes nothing else. A plan entry that a newer plan
-    replaced, still on the heater, is not the new plan's segment's.
-    Keeping a segment out also withdraws any near-term or exit entry still
-    waiting to be written for it.
-  - An entry a person adds is kept as read and reported as `foreign_entry`.
-    It counts against the budget, and it fires as the person set it.
+    or once a minute has passed without its deletion being found. Deleting
+    an entry that fired is reported, and changes nothing else.
+  - A plan entry that a newer plan replaced, still on the heater, is not
+    the new plan's segment's. Keeping a segment out also withdraws any
+    near-term entry still waiting to be written for it.
+  - An entry a person adds is not the feature's: it is kept as read
+    (section 5.1), counts against the budget, and fires as the person set
+    it.
   - A person turning the reservation switch off stops every entry. It is
     reported as `reservations_switched_off`, and the feature does not turn it
     back on.
@@ -843,8 +764,7 @@ adopt them into the plan. The scheduler decides.
   setpoint and mode with the entry's, within the poll interval plus one
   minute. Setpoints are compared within the device's half-degree resolution.
   A setpoint or mode that does not match marks the segment with reason
-  `not_applied_on_device`. An entry the heater skipped, its minute in
-  Vacation or power-off, is not read back: the exit entry after it is.
+  `not_applied_on_device`.
 - **Only what the heater reports counts.** A mode is applied when the heater
   reports it; nothing is inferred from what its compressor or elements do.
   Inside a TOU window a mode the heater does not report yet is
@@ -869,29 +789,19 @@ in shadow. That is how a consumer knows the feature is alive.
 - **`live`:** writes the list. Options an earlier version stored as `live`
   with its separate segments switch off write nothing, and behave as
   shadow, until the form is saved again.
-- **Leaving live** for options that no longer write the list first hands the
-  heater back as disabling does (section 6.6), so shadow starts from the
-  owner's program.
+- **Leaving live** writes nothing: what is on the heater stays.
 - **`disabled`:** section 6.6.
 
 ### 6.2 Enabling
 
-Turning the toggle on starts the feature in `shadow` with a provisional owner
-program.
+Turning the toggle on starts the feature in `shadow`.
 
 ### 6.3 Going live
 
-Each time the options are saved with `live`, the options flow shows a
-snapshot of the device, from a fresh read of its list, for confirmation as
-the owner's program: the mode,
-the setpoint, the reservation switch and the owner's entries. It lists the
-owner entries that will be switched off while live (section 5.1). A heater
-that still holds the feature's list keeps the program declared before, since
-a snapshot would take the feature's own entries for the owner's. What is
-saved is exactly what was shown. Going live on a heater that holds nothing
-of the feature's discards anything shadow simulated, and programs the plan
-afresh, asserting the segment in force. Live does not run without a
-declared program.
+Saving the options with `live` goes live. Going live on a heater that holds
+nothing of the feature's discards anything shadow simulated, and programs
+the plan afresh, asserting the segment in force. The first write turns the
+reservation switch on (section 5.1).
 
 ### 6.4 Unload and restart
 
@@ -915,39 +825,14 @@ Start-up never withdraws a programmed entry because time has passed.
 
 ### 6.6 Disabling
 
-Switching to `disabled`, by the Disable button or the options, is a
-**one-off, unconditional** clean-up:
+Switching to `disabled`, by the Disable button or the options, stops
+applying plans: no plan is adopted and nothing is written. What is on the
+heater stays there, the plan's entries included; the scheduler's next plan,
+or the owner, decides what happens to them. Turning the toggle off does the
+same, then removes the entities and the stored data.
 
-1. Remove every entry the feature owns.
-2. Restore the owner's reservation switch and the owner entries' own enable
-   flags (section 5.1).
-3. Write the owner's state now: the state set by the owner's latest enabled
-   entry, else the declared mode and setpoint. This is the feature's only
-   direct write (section 5.5). It is skipped while Vacation or power-off is
-   in force, or when the owner's own entry sets one of them, since those
-   take precedence. An Anti-Legionella cycle does not skip it.
-4. Read back: the list by the confirmed write, and the owner's state by
-   waiting up to a minute for the heater's status to report it. Report on
-   the last write entity, `confirmed: false` if either did not read back.
-5. End every report on the override entity (section 4.2): people's changes
-   were reported against the plan, which is gone. What the hand-back
-   restores is not a person's change, and none is made while `disabled`.
-
-The list write is confirmed like any other (section 5.4) and retried once
-after 60 s. If that fails too, disabling is left unfinished and tried again
-at the next start; the last write entity shows `confirmed: false`. A
-persistent Repairs issue tells the owner, and says how to finish, until a
-hand-back succeeds: it stays after the feature is turned off, since then it
-is the only report left.
-
-Handing back is not gated by the live switch in code: a heater left holding
-the feature's list can always be returned. A plan that arrives during a
-hand-back is not adopted.
-
-After that the feature writes nothing until the mode is changed in the
-options flow. Turning the toggle off does the same, then removes the entities
-and the stored data. If the heater could not be handed back, the stored data
-is kept, so turning the feature on and disabling can finish.
+An earlier version handed the heater back to a snapshot of the owner's
+program here. That is removed (#192).
 
 ---
 
@@ -958,18 +843,16 @@ is kept, so turning the feature on and disabling can finish.
 | External control enabled | off |
 | Mode | `shadow` (Preview), `live` or `disabled` (Stopped) |
 | Intent entity | none (required to enable) |
-| Setpoint min / max | The device's `dhw_temperature_min` / `max` |
-| Allowed modes | `heat_pump`, `energy_saver` |
 | Entry limit | 16 (the unit tested held 32; section 8) |
 | Entry reserve | 2 |
-| Owner's program | Declared from a snapshot when `live` is chosen from another mode (section 6.3) |
 
 Changing an option updates the capability entity, and so its version.
 
 Options of earlier versions are dropped the next time the form is saved: the
 live switches, the surplus entity and threshold, the minimum run before
-lowering a raise, and the assisted mode. Options stored as `live` with the
-segments switch off show as Preview, since they write nothing.
+lowering a raise, the assisted mode, the setpoint bounds, the allowed modes
+and the owner's program. Options stored as `live` with the segments switch
+off show as Preview, since they write nothing.
 
 ---
 
@@ -1131,9 +1014,12 @@ was removed afterwards, which its status shows instead.
    compatibility promises of section 1.3, a JSON Schema
    (`docs/external-control-protocol-1.schema.json`) and the examples.
    Protocol `0` documents are still accepted.
-7. **The boundary** (2026-09-30, #191): what was not the water heater's is
-   removed. That covers surplus grants, the assisted mode, mode confirmation
-   from the compressor and elements, and the separate live switches. After
+7. **The boundary** (2026-09-30, #191 and the PR after it): the feature
+   applies the scheduler's plan and reports the result, nothing else.
+   Removed: surplus grants, the assisted mode, mode confirmation from the
+   compressor and elements, the separate live switches, the mode and
+   setpoint checks, precedence handling, and the owner's program with its
+   hand-back. After
    the scheduler's R2 dry run, #192 removes what protocol 1 still lists for
    them, coordinated with eman/dhw-sensor-apps#389.
 

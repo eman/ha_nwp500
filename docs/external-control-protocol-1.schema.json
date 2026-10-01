@@ -42,8 +42,8 @@
     },
     "mode_name": {
       "type": "string",
-      "enum": ["heat_pump", "energy_saver", "high_demand", "electric"],
-      "description": "vacation and power_off are never accepted. Entries are skipped during Vacation, so the next entry would never end it; an entry with the power-off mode is untested, and the mode command with that value switched the unit tested to Energy Saver (#160). Use setpoint \"min\" instead."
+      "enum": ["heat_pump", "energy_saver", "high_demand", "electric", "vacation", "power_off"],
+      "description": "Every mode the heater has; the adapter applies it as given. The heater skips entries during Vacation, so a later entry does not end it; an entry with the power-off mode is untested, and the mode command with that value switched the unit tested to Energy Saver (#160)."
     },
     "segment": {
       "type": "object",
@@ -187,7 +187,7 @@
       "properties": {
         "owner": {
           "type": "string",
-          "description": "owner (the owner's entry, switched off while live), foreign (another entry the feature does not own), or the owner label of one of the feature's own: plan, near_term or guard."
+          "description": "foreign (an entry the feature does not own, kept as read), or the owner label of one of the feature's own: plan, near_term or guard."
         }
       },
       "if": {
@@ -258,20 +258,20 @@
     },
     "override_report": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: a person's change on control_override (spec section 4.2). One report per key: field; for foreign_entry, field and the whole entry; for removed, field, segment and value's kind.",
+      "description": "Entity attributes, not part of a plan: a person's change on control_override (spec section 4.2). One report per key: field; for removed, field, segment and value's kind.",
       "required": ["field", "value", "detected_at", "segment"],
       "properties": {
         "field": {
           "type": "string",
-          "description": "setpoint, mode, removed, foreign_entry or reservations_switched_off. Treat a value you do not know as opaque."
+          "description": "setpoint, mode, removed or reservations_switched_off. Treat a value you do not know as opaque."
         },
         "value": {
-          "description": "setpoint: half-degrees Celsius; mode: a mode name (never vacation or power_off, whose changes are not reported); removed: an entry_item; foreign_entry: a device_entry; reservations_switched_off: false."
+          "description": "setpoint: half-degrees Celsius; mode: a mode name, vacation and power_off included; removed: an entry_item; reservations_switched_off: false."
         },
         "detected_at": { "type": "string", "format": "date-time" },
         "segment": {
           "type": ["string", "null"],
-          "description": "setpoint, mode: the segment in force, or null before the first; removed: the entry's serves; foreign_entry: its slot as text; reservations_switched_off: null."
+          "description": "setpoint, mode: the segment in force, or null before the first; removed: the entry's serves; reservations_switched_off: null."
         }
       },
       "allOf": [
@@ -288,15 +288,6 @@
           "then": {
             "properties": {
               "value": { "$ref": "#/$defs/entry_item" },
-              "segment": { "type": "string" }
-            }
-          }
-        },
-        {
-          "if": { "properties": { "field": { "const": "foreign_entry" } } },
-          "then": {
-            "properties": {
-              "value": { "$ref": "#/$defs/device_entry" },
               "segment": { "type": "string" }
             }
           }

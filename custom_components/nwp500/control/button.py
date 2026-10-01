@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.util import dt as dt_util
 
 from ..const import CONF_CONTROL_MODE, CONTROL_MODE_DISABLED
 from .entity import NWP500ControlEntity
@@ -15,22 +14,18 @@ if TYPE_CHECKING:
 
 
 class ControlDisableButton(NWP500ControlEntity, ButtonEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """Switches the feature to `disabled`.
+    """Switches the feature to `disabled`: it stops applying plans.
 
-    The only control on the dashboard. Enabling, going live and changing
-    bounds happen in the options flow.
+    The only control on the dashboard. Enabling and going live happen in
+    the options flow.
     """
 
     _attr_icon = "mdi:hand-back-left-off-outline"
 
     async def async_press(self) -> None:
-        """Set the mode option; the entry reloads through its listener.
-
-        Already `disabled`: retry a hand-back that has not completed.
-        """
+        """Set the mode option; the entry reloads through its listener."""
         entry = self.control.entry
         if entry.options.get(CONF_CONTROL_MODE) == CONTROL_MODE_DISABLED:
-            await self.control.async_retry_disable(dt_util.utcnow())
             return
         self.hass.config_entries.async_update_entry(
             entry,

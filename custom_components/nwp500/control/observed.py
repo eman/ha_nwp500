@@ -68,7 +68,6 @@ class Observed:
     # The setpoint, in half-degrees Celsius.
     setpoint_raw: int | None = None
     tou_on: bool | None = None
-    anti_legionella_busy: bool = False
     # The reservation list as the device last reported it; None until read.
     reservations_enabled: bool | None = None
     reservations: tuple[dict[str, int], ...] | None = None
@@ -77,15 +76,6 @@ class Observed:
     reservations_read_at: datetime | None = None
     # The TOU program's periods, each with its price; empty if unknown.
     tou_periods: tuple[dict[str, int], ...] = ()
-
-    @property
-    def suspended_by(self) -> str | None:
-        """Why the feature must not write the list (section 5.9), or None."""
-        if self.mode in ("vacation", "power_off"):
-            return self.mode
-        if self.anti_legionella_busy:
-            return "anti_legionella"
-        return None
 
     @property
     def schedule(self) -> dict[str, Any] | None:
@@ -109,16 +99,12 @@ def observe(
 ) -> Observed:
     """Build a snapshot from the coordinator's data."""
     mode = setpoint_raw = tou_on = None
-    anti_legionella = False
     if status is not None:
         mode = mode_name(getattr(status, "dhw_operation_setting", None))
         setpoint_raw = _int(
             getattr(status, "dhw_target_temperature_setting_raw", None)
         )
         tou_on = _bool(getattr(status, "tou_status", None))
-        anti_legionella = bool(
-            _bool(getattr(status, "anti_legionella_operation_busy", None))
-        )
 
     reservations_enabled: bool | None = None
     reservations: tuple[dict[str, int], ...] | None = None
@@ -140,7 +126,6 @@ def observe(
         mode=mode,
         setpoint_raw=setpoint_raw,
         tou_on=tou_on,
-        anti_legionella_busy=anti_legionella,
         reservations_enabled=reservations_enabled,
         reservations=reservations,
         reservations_read_at=schedule_read_at

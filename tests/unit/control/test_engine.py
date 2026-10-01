@@ -24,11 +24,8 @@ from custom_components.nwp500.control.engine import (
     REPORT_REMOVED,
     REPORT_SETPOINT,
     REPORT_SWITCHED_OFF,
-    WRITE_DISABLE,
     WRITE_NEAR_TERM,
     WRITE_PLAN,
-    WRITE_POWER_OFF,
-    WRITE_PRECEDENCE_EXIT,
     Planner,
     Report,
     State,
@@ -38,10 +35,8 @@ from custom_components.nwp500.control.entries import (
     KIND_GUARD,
     KIND_NEAR_TERM,
     KIND_PLAN,
-    KIND_PRECEDENCE_EXIT,
     OwnedEntry,
     near_term_minute,
-    schedule_hash,
 )
 from custom_components.nwp500.control.evaluate import (
     REASON_BEYOND_HORIZON,
@@ -53,7 +48,6 @@ from custom_components.nwp500.control.evaluate import (
 )
 from custom_components.nwp500.control.intent import parse_plan
 from custom_components.nwp500.control.observed import Observed
-from custom_components.nwp500.control.owner import OwnerProgram
 from custom_components.nwp500.control.sensor import ControlLastWriteSensor
 
 from .conftest import capabilities, grant, make_document, segment
@@ -64,11 +58,6 @@ NOW = datetime(2026, 10, 5, 10, 0, tzinfo=TZ)
 MONDAY = 64
 # 119 half-degrees is 59.5 degC / 139.1 degF.
 OWNER_SETPOINT = 119
-OWNER = OwnerProgram(
-    mode="energy_saver",
-    setpoint_raw=OWNER_SETPOINT,
-    reservations_enabled=False,
-)
 
 EXAMPLES = Path("docs/examples")
 SCHEMA = Path("docs/external-control-protocol-1.schema.json")
@@ -124,12 +113,10 @@ def planner_with(
     *,
     grants: list[dict] | None = None,
     observed: Observed | None = None,
-    owner: OwnerProgram | None = OWNER,
     shadow: bool = True,
     **options,
 ) -> Planner:
     planner = Planner(capabilities(**options), TZ, shadow=shadow)
-    planner.owner = owner
     run(planner, NOW, observed)
     if segments is not None:
         give(planner, segments, grants=grants, observed=observed)
@@ -156,7 +143,6 @@ class TestSpecExample:
     def _planner(self) -> Planner:
         base = self.SUNDAY.replace(second=0)
         planner = Planner(capabilities(), TZ)
-        planner.owner = OWNER
         plan = parse_plan(
             make_document(
                 self.SUNDAY,
@@ -266,7 +252,6 @@ def last_write_examples() -> dict[str, tuple[str, dict]]:
         TZ,
         shadow=False,
     )
-    planner.owner = OWNER
     check_plan(plan, planner.capabilities)
     planner.set_plan(plan, at, obs())
 
@@ -335,12 +320,21 @@ class TestTranslation:
         ]
         assert statuses(planner)["b"] == ("merged", None)
 
-    def test_min_resolves_to_the_floor_option(self):
+    def test_min_resolves_to_the_heaters_own_minimum(self):
         planner = planner_with(
             [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
-            control_setpoint_min_f=120,
         )
-        assert planner.owned[0].setpoint_raw == 98
+        assert (
+            planner.owned[0].setpoint_raw
+            == planner.capabilities.setpoint_min_raw
+        )
+
+    def test_a_setpoint_is_written_as_the_plan_gives_it(self):
+        """No bounds: the heater clamps what it is given."""
+        planner = planner_with(
+            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=170)],
+        )
+        assert planner.owned[0].setpoint_raw == 153
 
     def test_min_waits_for_the_bounds(self):
         from custom_components.nwp500.control.capabilities import (
@@ -356,7 +350,6 @@ class TestTranslation:
             ),
             TZ,
         )
-        planner.owner = OWNER
         give(
             planner,
             [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
@@ -434,35 +427,6 @@ class TestTranslation:
         ack = {a.id: a for a in planner.ack("i").segments}
         assert ack["a"].warnings == (WARNING_MOVED,)
 
-    @pytest.mark.parametrize("owner_entry", [True, False])
-    def test_a_switched_off_entry_shares_the_slot(self, owner_entry):
-        """Section 5.2.6: only enabled entries hold a slot.
-
-        The owner's entries are switched off while live, and a foreign
-        entry may be switched off by its own flag. The device stores both
-        and fires only the enabled one (section 8, test 10).
-        """
-        other = {
-            "enable": 2 if owner_entry else 1,
-            "week": MONDAY | 2,
-            "hour": 11,
-            "min": 0,
-            "mode": 3,
-            "param": 110,
-        }
-        observed = obs(reservations=(other,))
-        owner = (
-            OwnerProgram("energy_saver", OWNER_SETPOINT, False, (other,))
-            if owner_entry
-            else OWNER
-        )
-        planner = planner_with(
-            [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)],
-            observed=observed,
-            owner=owner,
-        )
-        assert kinds(planner) == [(KIND_PLAN, "a", "11:00")]
-
 
 class TestHorizonAndBudget:
     """Section 5.3."""
@@ -526,7 +490,7 @@ class TestHorizonAndBudget:
         assert [e.serves for e in write.removed] == ["s0"]
         assert [e.serves for e in write.added] == ["s5"]
 
-    def test_owner_entries_count_against_the_budget(self):
+    def test_other_entries_count_against_the_budget(self):
         owner_entries = tuple(
             {
                 "enable": 2,
@@ -539,13 +503,9 @@ class TestHorizonAndBudget:
             for h in (6, 7)
         )
         observed = obs(reservations=owner_entries)
-        owner = OwnerProgram(
-            "energy_saver", OWNER_SETPOINT, False, owner_entries
-        )
         planner = planner_with(
             self._alternating(7),
             observed=observed,
-            owner=owner,
             control_reservation_entry_limit=7,
         )
         assert len(planner.owned) == 3
@@ -616,50 +576,9 @@ class TestReplacingAPlan:
         self,
     ):
         planner = Planner(capabilities(), TZ)
-        planner.owner = OWNER
         run(planner, NOW)
         write = give(planner, self.SEGMENTS, restoring=True)
         assert [e.kind for e in write.added] == [KIND_PLAN]
-
-
-class TestPrecedence:
-    """Section 5.9."""
-
-    def test_a_plan_in_vacation_is_written_and_re_asserted_after(self):
-        """Section 5.9: a plan accepted in Vacation is written at once.
-
-        The heater skips entries in Vacation, and so holds the newest plan
-        even if Home Assistant is unavailable when Vacation ends.
-        """
-        planner = planner_with(
-            [segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1)]
-        )
-        assert planner.owned == []
-        assert run(planner, minutes(1), obs(mode="vacation")) is None
-        write = give(
-            planner,
-            [
-                segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1),
-                segment(NOW, "b", 60, setpoint_f=130),
-            ],
-            now=minutes(2),
-            observed=obs(mode="vacation"),
-            intent_id="i-2",
-        )
-        assert write is not None
-        assert [e.kind for e in write.added] == [KIND_PLAN]
-        write = run(planner, minutes(3))
-        assert write is not None
-        assert write.reason == WRITE_PRECEDENCE_EXIT
-        assert {e.kind for e in write.added} == {KIND_PRECEDENCE_EXIT}
-        assert planner.reports == {}
-
-    def test_anti_legionella_suspends_without_a_re_assert(self):
-        planner = planner_with(
-            [segment(NOW, "a", -5, mode="energy_saver", setpoint_f=139.1)]
-        )
-        assert run(planner, minutes(1), obs(anti_legionella_busy=True)) is None
-        assert run(planner, minutes(2)) is None
 
 
 class TestPeoplesChanges:
@@ -673,9 +592,6 @@ class TestPeoplesChanges:
         "mode": 3,
         "param": 110,
     }
-    OWNER_PROGRAM = OwnerProgram(
-        "energy_saver", OWNER_SETPOINT, True, (OWNER_ENTRY,)
-    )
 
     def test_an_unexplained_change_is_reported_not_undone(self):
         planner = planner_with(
@@ -692,7 +608,7 @@ class TestPeoplesChanges:
         observed = obs(
             reservations_enabled=True, reservations=(self.OWNER_ENTRY,)
         )
-        planner = planner_with(observed=observed, owner=self.OWNER_PROGRAM)
+        planner = planner_with(observed=observed)
         run(
             planner,
             minutes(31),
@@ -708,7 +624,7 @@ class TestPeoplesChanges:
         observed = obs(
             reservations_enabled=True, reservations=(self.OWNER_ENTRY,)
         )
-        planner = planner_with(observed=observed, owner=self.OWNER_PROGRAM)
+        planner = planner_with(observed=observed)
         run(
             planner,
             minutes(5),
@@ -737,28 +653,18 @@ class TestPeoplesChanges:
         run(planner, minutes(2), obs(reservations_enabled=True))
         assert REPORT_SWITCHED_OFF not in planner.reports
 
-    def test_an_added_entry_is_foreign(self):
+    def test_a_persons_vacation_is_reported(self):
+        """Told to the scheduler like any change; it decides (#192)."""
         planner = planner_with()
-        added = {
-            "enable": 2,
-            "week": 2,
-            "hour": 7,
-            "min": 0,
-            "mode": 1,
-            "param": 100,
-        }
-        run(planner, minutes(1), obs(reservations=(added,)))
-        (report,) = planner.reports.values()
-        assert report.field == REPORT_FOREIGN
-        assert report.value == added
-        run(planner, minutes(2), obs(reservations=()))
-        assert planner.reports == {}
+        run(planner, minutes(1), obs())
+        run(planner, minutes(2), obs(mode="vacation"))
+        assert planner.reports[REPORT_MODE].value == "vacation"
 
-    def test_vacation_is_not_a_change(self):
+    def test_a_persons_power_off_is_reported(self):
         planner = planner_with()
-        run(planner, minutes(1), obs(mode="vacation"))
-        run(planner, minutes(2), obs(mode="energy_saver", setpoint_raw=100))
-        assert planner.reports == {}
+        run(planner, minutes(1), obs())
+        run(planner, minutes(2), obs(mode="power_off"))
+        assert planner.reports[REPORT_MODE].value == "power_off"
 
     def test_live_a_deleted_entry_is_not_restored(self):
         planner = planner_with(
@@ -968,42 +874,10 @@ class TestPeoplesChanges:
         run(planner, minutes(24 * 60 + 31), obs(setpoint_raw=100, **on))
         assert REPORT_SETPOINT not in planner.reports
 
-    def test_two_added_entries_in_one_slot_are_both_reported(self):
-        """The heater can hold two in one slot (section 5.2)."""
-        planner = planner_with()
-        slot = {"week": 2, "hour": 7, "min": 0, "mode": 1}
-        first = {"enable": 2, "param": 100, **slot}
-        second = {"enable": 1, "param": 110, **slot}
-        both = obs(reservations=(first, second))
-        run(planner, minutes(1), both)
-        run(planner, minutes(2), both)
-        reports = sorted(
-            planner.reports.values(), key=lambda r: r.value["param"]
-        )
-        assert [r.value for r in reports] == [first, second]
-        # Stable: the same reports, not new ones every pass.
-        assert {r.detected_at for r in reports} == {minutes(1)}
-
-    def test_handing_back_is_not_a_persons_change(self):
-        """What the hand-back restores is the feature's doing (6.6)."""
-        live = obs(
-            mode="heat_pump",
-            setpoint_raw=120,
-            reservations_enabled=True,
-            reservations=(),
-        )
-        planner = planner_with(observed=live)
-        run(planner, minutes(1), live)
-        planner.disable(minutes(2))
-        owner = obs(reservations_enabled=False, reservations=())
-        run(planner, minutes(3), owner)
-        assert planner.reports == {}
-
     def test_stored_reports_load_in_the_current_shape(self):
         """Reports stored by earlier versions load as current ones.
 
-        Before #168 a removal held the six stored keys; before #169 an
-        added entry was keyed by its slot.
+        Before #168 a removal held the six stored keys.
         """
         entry = OwnedEntry(KIND_PLAN, "a", minutes(60), "energy_saver", 120)
         added = {"enable": 2, "week": 2, "hour": 7, "min": 0}
@@ -1023,10 +897,11 @@ class TestPeoplesChanges:
         )
         removed = planner.reports[f"{REPORT_REMOVED}:{KIND_PLAN}:a"]
         assert removed.value == entry.as_attributes()
-        (foreign,) = (
+        # An added entry was judged against the owner's program an earlier
+        # version kept, which there is no longer: its report goes (#193).
+        assert not [
             r for r in planner.reports.values() if r.field == REPORT_FOREIGN
-        )
-        assert foreign.value == added
+        ]
 
     def test_a_new_plan_is_the_answer_to_a_removal(self):
         """Section 5.6: a new plan is programmed as it stands.
@@ -1058,97 +933,6 @@ class TestPeoplesChanges:
             for e in (entry, guard)
         }
         assert len(keys) == 2
-
-    def test_a_changed_foreign_entry_is_reported_again(self):
-        planner = planner_with()
-        added = {
-            "enable": 2,
-            "week": 2,
-            "hour": 7,
-            "min": 0,
-            "mode": 1,
-            "param": 100,
-        }
-        run(planner, minutes(1), obs(reservations=(added,)))
-        changed = {**added, "param": 110}
-        run(planner, minutes(2), obs(reservations=(changed,)))
-        (report,) = planner.reports.values()
-        assert report.value == changed
-        assert report.detected_at == minutes(2)
-
-    def test_disabling_ends_every_report(self):
-        planner = planner_with()
-        run(planner, minutes(1), obs(mode="energy_saver", setpoint_raw=100))
-        assert planner.reports
-        planner.removed_segments = {"a"}
-        planner.disable(minutes(2))
-        assert planner.reports == {}
-        # The entries people removed were the feature's, now gone too.
-        assert planner.removed_segments == set()
-
-
-class TestDisable:
-    def test_removes_everything_and_restores_the_owner(self):
-        planner = planner_with(
-            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140)]
-        )
-        write = planner.disable(minutes(1))
-        assert write.reason == WRITE_DISABLE
-        assert [e.serves for e in write.removed] == ["a"]
-        assert write.owner_state == ("energy_saver", OWNER_SETPOINT)
-        assert planner.owned == []
-        assert planner.plan is None
-
-    def test_the_owner_state_follows_their_last_entry(self):
-        owner = OwnerProgram(
-            "energy_saver",
-            OWNER_SETPOINT,
-            True,
-            (
-                {
-                    "enable": 2,
-                    "week": MONDAY,
-                    "hour": 6,
-                    "min": 0,
-                    "mode": 1,
-                    "param": 110,
-                },
-            ),
-        )
-        assert owner.state_now(NOW, TZ) == ("heat_pump", 110)
-        switched_off = OwnerProgram(
-            "energy_saver", OWNER_SETPOINT, False, owner.entries
-        )
-        assert switched_off.state_now(NOW, TZ) == (
-            "energy_saver",
-            OWNER_SETPOINT,
-        )
-
-
-class TestProgram:
-    def test_owner_entries_are_switched_off_in_the_program(self):
-        owner_entry = {
-            "enable": 2,
-            "week": 2,
-            "hour": 7,
-            "min": 0,
-            "mode": 3,
-            "param": 110,
-        }
-        observed = obs(reservations=(owner_entry,))
-        owner = OwnerProgram(
-            "energy_saver", OWNER_SETPOINT, False, (owner_entry,)
-        )
-        planner = planner_with(
-            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140)],
-            observed=observed,
-            owner=owner,
-        )
-        program = planner.program(observed)
-        assert program["reservation_use"] == 2
-        assert program["reservation"][0] == {**owner_entry, "enable": 1}
-        assert program["reservation"][1]["hour"] == 11
-        assert planner.program_hash(observed) == schedule_hash(program)
 
 
 class TestAck:
@@ -1310,71 +1094,6 @@ class TestReviewFindings:
         assert kinds(planner) == [(KIND_PLAN, "next", "10:03")]
 
 
-class TestPowerOff:
-    """Section 5.9: the feature's own entries are off while powered off.
-
-    Entries fire while the heater is powered off and power it back on, so
-    they are switched off by their own flag until power returns.
-    """
-
-    SEGMENTS = [
-        segment(NOW, "now", -5, mode="energy_saver", setpoint_f=139.1),
-        segment(NOW, "a", 60, setpoint_f=140),
-        segment(NOW, "b", 120, setpoint_f=130),
-    ]
-
-    def test_entries_are_switched_off_once(self):
-        planner = planner_with(self.SEGMENTS)
-        assert [e.enabled for e in planner.owned] == [True, True]
-
-        write = run(planner, minutes(5), obs(mode="power_off"))
-
-        assert write is not None
-        assert write.reason == WRITE_POWER_OFF
-        assert [e.enabled for e in planner.owned] == [False, False]
-        assert [e.as_entry()["enable"] for e in planner.owned] == [1, 1]
-        # The same entries, only switched off.
-        assert [(e.serves, e.fires_at) for e in planner.owned] == [
-            ("a", minutes(60)),
-            ("b", minutes(120)),
-        ]
-        # Staying off writes nothing more.
-        assert run(planner, minutes(6), obs(mode="power_off")) is None
-
-    def test_power_returning_switches_them_on_and_re_asserts(self):
-        planner = planner_with(self.SEGMENTS)
-        run(planner, minutes(5), obs(mode="power_off"))
-
-        write = run(planner, minutes(10))
-
-        assert write is not None
-        assert write.reason == WRITE_PRECEDENCE_EXIT
-        assert all(e.enabled for e in planner.owned)
-        assert KIND_PRECEDENCE_EXIT in {e.kind for e in planner.owned}
-
-    def test_nothing_to_switch_off(self):
-        planner = planner_with()
-        assert run(planner, minutes(5), obs(mode="power_off")) is None
-
-    def test_vacation_writes_nothing(self):
-        planner = planner_with(self.SEGMENTS)
-        assert run(planner, minutes(5), obs(mode="vacation")) is None
-        assert all(e.enabled for e in planner.owned)
-
-    def test_the_program_shows_them_switched_off(self):
-        planner = planner_with(self.SEGMENTS)
-        run(planner, minutes(5), obs(mode="power_off"))
-        program = planner.program(obs(mode="power_off"))
-        assert [e["enable"] for e in program["reservation"]] == [1, 1]
-
-    def test_switched_off_entries_survive_a_restart(self):
-        planner = planner_with(self.SEGMENTS)
-        run(planner, minutes(5), obs(mode="power_off"))
-        again = Planner(planner.capabilities, TZ)
-        again.load_document(planner.as_document())
-        assert again.owned == planner.owned
-
-
 class TestEffectiveTimeline:
     """A person deleting any of the feature's entries (#171, section 5.10).
 
@@ -1438,52 +1157,6 @@ class TestEffectiveTimeline:
         assert planner.segment_in_force(minutes(121)) == "b"
         assert statuses(planner)["a"][0] == "removed"
 
-    def test_a_deleted_exit_leaves_a_segment_begun_in_vacation_out(self):
-        """Segment b begins during Vacation; its exit entry is deleted.
-
-        The heater comes back in a's state, so b is not in force.
-        """
-        planner = planner_with(
-            [
-                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            shadow=False,
-        )
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
-        write = run(planner, minutes(41), self._on_heater(planner, **on_a))
-        assert write is not None
-        assert {e.kind for e in write.added} == {KIND_PRECEDENCE_EXIT}
-        without_exit = obs(
-            reservations_enabled=True,
-            reservations=tuple(
-                e.as_entry()
-                for e in planner.owned
-                if e.kind != KIND_PRECEDENCE_EXIT
-            ),
-            **on_a,
-        )
-        assert run(planner, minutes(42), without_exit) is None
-        assert run(planner, minutes(50), without_exit) is None
-        ack = {s.id: s for s in planner.ack("i").segments}
-        assert ack["b"].detail["in_force"] is False
-        assert ack["b"].status == "removed"
-        # The state the heater came back in holds.
-        assert ack["a"].detail["in_force"] is True
-        assert planner.wanted_state(minutes(50)) == State("heat_pump", 120)
-        # Not failed against b's entry, which fired during Vacation and was
-        # skipped.
-        running = self._without(
-            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_a
-        )
-        run(planner, minutes(51), running)
-        (a,) = (s for s in planner.ack("i").segments if s.id == "a")
-        assert a.status != "failed"
-
     # The rest pin one rule across every kind of deletion: the state before
     # holds, and nothing is written for it.
 
@@ -1513,74 +1186,6 @@ class TestEffectiveTimeline:
         assert planner.wanted_state(minutes(119)) == State(
             "energy_saver", OWNER_SETPOINT
         )
-
-    def test_a_deleted_exit_for_a_segment_already_in_force_changes_nothing(
-        self,
-    ):
-        """Vacation began and ended within a: the heater came back in a."""
-        planner = planner_with(
-            [
-                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 120, mode="energy_saver", setpoint_f=130),
-            ],
-            shadow=False,
-        )
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        # The pass one minute after a's near-term entry's minute, which the
-        # planner schedules: the entry is found to have fired.
-        run(planner, minutes(3), self._on_heater(planner, **on_a))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        write = run(planner, minutes(41), self._on_heater(planner, **on_a))
-        assert write is not None
-        assert {e.kind for e in write.added} == {KIND_PRECEDENCE_EXIT}
-        without = self._without(
-            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_a
-        )
-        assert run(planner, minutes(42), without) is None
-        assert run(planner, minutes(50), without) is None
-        ack = {s.id: s for s in planner.ack("i").segments}
-        assert ack["a"].status == "in_force"
-        assert ack["a"].detail["in_force"] is True
-        assert "a" not in planner.removed_segments
-        # Reported all the same: a person deleted it.
-        assert f"{REPORT_REMOVED}:{KIND_PRECEDENCE_EXIT}:a" in planner.reports
-
-    @pytest.mark.parametrize("began_during", [True, False])
-    def test_a_deleted_power_off_exit(self, began_during):
-        """As with Vacation: only a segment begun while off is left out."""
-        planner = planner_with(
-            [
-                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            shadow=False,
-        )
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        # The pass one minute after a's near-term entry's minute, which the
-        # planner schedules: the entry is found to have fired.
-        run(planner, minutes(3), self._on_heater(planner, **on_a))
-        back = 41 if began_during else 20
-        run(planner, minutes(10), self._on_heater(planner, mode="power_off"))
-        run(planner, minutes(11), self._on_heater(planner, mode="power_off"))
-        write = run(planner, minutes(back), self._on_heater(planner, **on_a))
-        assert write is not None
-        assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
-        (exit_entry,) = (
-            e for e in planner.owned if e.kind == KIND_PRECEDENCE_EXIT
-        )
-        served = "b" if began_during else "a"
-        assert exit_entry.serves == served
-        without = self._without(
-            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_a
-        )
-        assert run(planner, minutes(back + 1), without) is None
-        assert run(planner, minutes(back + 5), without) is None
-        in_force = planner.segment_in_force(minutes(back + 5))
-        assert in_force == "a"
-        assert (served in planner.removed_segments) is began_during
 
     def test_deleting_a_merged_runs_entry_writes_nothing_through_the_run(
         self,
@@ -1724,7 +1329,6 @@ class TestEffectiveTimeline:
                 reservations=without.reservations,
             )
         restarted = Planner(planner.capabilities, TZ, shadow=False)
-        restarted.owner = planner.owner
         restarted.load_document(planner.as_document())
         assert planner.plan is not None
         restarted.set_plan(planner.plan, minutes(at), seen, restoring=True)
@@ -1815,195 +1419,7 @@ class TestEffectiveTimeline:
         }
         assert planner.removed_segments == set()
 
-    def test_an_exit_just_before_a_removed_segment_is_written(self):
-        """A removed segment puts nothing on the heater at its minute."""
-        on_s = {"mode": "heat_pump", "setpoint_raw": 120}
-        planner = planner_with(
-            [
-                segment(NOW, "s", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 42, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            observed=obs(**on_s),
-            shadow=False,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **on_s))
-        without_b = self._without(planner, lambda e: e.serves == "b", **on_s)
-        run(planner, minutes(2), without_b)
-        vacation = self._without(
-            planner, lambda e: e.serves == "b", mode="vacation"
-        )
-        run(planner, minutes(10), vacation)
-        write = run(planner, minutes(40), without_b)
-        assert write is not None
-        assert [(e.kind, e.serves) for e in write.added] == [
-            (KIND_PRECEDENCE_EXIT, "s")
-        ]
-
     # Found by the adversarial review of the effective timeline.
-
-    def test_an_exit_deleted_after_a_persons_change_keeps_the_segment(self):
-        planner = planner_with(
-            [
-                segment(NOW, "x", -5, mode="heat_pump", setpoint_f=130),
-                segment(NOW, "a", 30, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "c", 600, mode="energy_saver", setpoint_f=120),
-            ],
-            observed=obs(mode="heat_pump", setpoint_raw=109),
-            shadow=False,
-        )
-        run(
-            planner,
-            minutes(1),
-            self._on_heater(planner, mode="heat_pump", setpoint_raw=109),
-        )
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        run(planner, minutes(31), self._on_heater(planner, **on_a))
-        mine = {"mode": "heat_pump", "setpoint_raw": 124}
-        run(planner, minutes(40), self._on_heater(planner, **mine))
-        vacation = {"mode": "vacation", "setpoint_raw": 124}
-        run(planner, minutes(50), self._on_heater(planner, **vacation))
-        write = run(planner, minutes(70), self._on_heater(planner, **mine))
-        assert write is not None
-        assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
-        without = self._without(
-            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **mine
-        )
-        assert run(planner, minutes(71), without) is None
-        assert statuses(planner)["a"][0] == "in_force"
-        assert planner.segment_in_force(minutes(71)) == "a"
-
-    @pytest.mark.parametrize("precedence", ["vacation", "power_off"])
-    def test_a_segment_skipped_in_precedence_is_re_asserted(self, precedence):
-        """Segment b's entry was deleted; a's was skipped in the precedence.
-
-        a is in force, not a hold-over: its exit is written.
-        """
-        on_x = {"mode": "heat_pump", "setpoint_raw": 120}
-        planner = planner_with(
-            [
-                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "a", 30, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "b", 50, mode="electric", setpoint_f=120),
-                segment(NOW, "c", 240, mode="heat_pump", setpoint_f=120),
-            ],
-            observed=obs(**on_x),
-            shadow=False,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **on_x))
-
-        def no_b(e):
-            return e.serves == "b"
-
-        run(planner, minutes(2), self._without(planner, no_b, **on_x))
-        held = {"mode": precedence, "setpoint_raw": 120}
-        run(planner, minutes(20), self._without(planner, no_b, **held))
-        run(planner, minutes(40), self._without(planner, no_b, **held))
-        write = run(planner, minutes(60), self._without(planner, no_b, **on_x))
-        assert write is not None
-        assert (KIND_PRECEDENCE_EXIT, "a") in {
-            (e.kind, e.serves) for e in write.added
-        }
-
-    def test_a_plan_adopted_in_vacation_falls_back_to_what_took_effect(
-        self,
-    ):
-        """Segment b began in Vacation, skipped; a new plan comes then.
-
-        Its exit for b is deleted: the state a put in force holds, not b's.
-        """
-        segments = [
-            segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-            segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-            segment(NOW, "c", 240, setpoint_f=120),
-        ]
-        planner = planner_with(segments, shadow=False)
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        # The pass after a's near-term entry fires.
-        run(planner, minutes(3), self._on_heater(planner, **on_a))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        give(
-            planner,
-            segments,
-            now=minutes(35),
-            observed=self._on_heater(planner, mode="vacation"),
-            intent_id="i-2",
-        )
-        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
-        run(planner, minutes(41), self._on_heater(planner, **on_a))
-        without = self._without(
-            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_a
-        )
-        assert run(planner, minutes(42), without) is None
-        assert run(planner, minutes(50), without) is None
-        assert statuses(planner)["b"][0] == "removed"
-        assert planner.wanted_state(minutes(50)) == State("heat_pump", 120)
-
-    def test_a_plan_adopted_in_vacation_never_wants_vacation(self):
-        vacation = {"mode": "vacation", "setpoint_raw": OWNER_SETPOINT}
-        planner = planner_with(
-            [
-                segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 240, setpoint_f=130),
-            ],
-            observed=obs(**vacation),
-            shadow=False,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **vacation))
-        run(planner, minutes(20), self._on_heater(planner))
-        without = self._without(
-            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT
-        )
-        run(planner, minutes(21), without)
-        assert "a" in planner.removed_segments
-        wanted = planner.wanted_state(minutes(30))
-        assert wanted is None or wanted.mode != "vacation"
-
-    def test_a_declined_segments_pending_entries_are_withdrawn(self):
-        """Deleting a segment's entry also withdraws its pending near-term.
-
-        And an old plan's entry, stale, is not the new plan's: deleting it
-        declines nothing.
-        """
-        planner = planner_with(
-            [
-                segment(NOW, "x", -5, mode="energy_saver", setpoint_f=120),
-                segment(NOW, "s1", 300, mode="heat_pump", setpoint_f=140),
-            ],
-            shadow=False,
-        )
-        run(planner, minutes(1), self._on_heater(planner))
-        run(planner, minutes(10), self._on_heater(planner, mode="power_off"))
-        give(
-            planner,
-            [segment(NOW, "s1", 15, mode="heat_pump", setpoint_f=130)],
-            now=minutes(20),
-            observed=self._on_heater(planner, mode="power_off"),
-            intent_id="i-2",
-        )
-        assert (KIND_NEAR_TERM, "s1") in {
-            (e.kind, e.serves) for e in planner.extra
-        }
-
-        def old(e):
-            return e.kind == KIND_PLAN and e.serves == "s1"
-
-        run(planner, minutes(30), self._without(planner, old, mode="power_off"))
-        assert "s1" not in planner.removed_segments
-        write = run(planner, minutes(40), self._on_heater(planner))
-        assert write is not None
-        assert (KIND_PRECEDENCE_EXIT, "s1") in {
-            (e.kind, e.serves) for e in write.added
-        } or (KIND_NEAR_TERM, "s1") in {(e.kind, e.serves) for e in write.added}
-        # Now its pending entry is deleted: nothing more is written for it.
-        pending = self._without(
-            planner, lambda e: e.serves == "s1" and e.fires_at > minutes(41)
-        )
-        run(planner, minutes(41), pending)
-        assert "s1" in planner.removed_segments
-        assert not [e for e in planner.extra if e.serves == "s1"]
-        assert run(planner, minutes(50), pending) is None
 
     def test_a_plan_entry_deleted_after_it_fired_leaves_its_segment(self):
         """Seen on the heater at its minute, it fired: it took effect.
@@ -2068,176 +1484,6 @@ class TestEffectiveTimeline:
         planner.step(at_b, fresh)
         assert "b" in planner.removed_segments
         assert planner.segment_in_force(at_b) == "a"
-
-    def test_an_exit_for_a_segment_redefined_under_its_id_is_its_own(self):
-        """A plan in Vacation reuses s0 for another state; its exit goes.
-
-        The heater never took the new s0: it is left out.
-        """
-        on_s0 = {"mode": "heat_pump", "setpoint_raw": 120}
-        planner = planner_with(
-            [segment(NOW, "s0", -5, mode="heat_pump", setpoint_f=140)],
-            observed=obs(**on_s0),
-            shadow=False,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **on_s0))
-        vacation = {"mode": "vacation", "setpoint_raw": 120}
-        run(planner, minutes(10), self._on_heater(planner, **vacation))
-        give(
-            planner,
-            [segment(NOW, "s0", -5, mode="electric", setpoint_f=130)],
-            now=minutes(20),
-            observed=self._on_heater(planner, **vacation),
-            intent_id="i-2",
-        )
-        run(planner, minutes(21), self._on_heater(planner, **vacation))
-        write = run(planner, minutes(40), self._on_heater(planner, **on_s0))
-        assert write is not None
-        assert (KIND_PRECEDENCE_EXIT, "s0") in {
-            (e.kind, e.serves) for e in write.added
-        }
-        without = self._without(
-            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_s0
-        )
-        assert run(planner, minutes(41), without) is None
-        assert "s0" in planner.removed_segments
-        assert planner.wanted_state(minutes(41)) == State("heat_pump", 120)
-
-    def test_an_old_entry_for_a_segment_moved_earlier_is_not_its_own(self):
-        """While powered off, a new plan moves b earlier, same state.
-
-        The old plan's entry for b, still on the heater, is deleted: that
-        is not the new plan's entry, and b is not left out.
-        """
-        planner = planner_with(
-            [
-                segment(NOW, "x", -5, mode="energy_saver", setpoint_f=120),
-                segment(NOW, "b", 40, mode="heat_pump", setpoint_f=140),
-            ],
-            shadow=False,
-        )
-        run(planner, minutes(1), self._on_heater(planner))
-        run(planner, minutes(5), self._on_heater(planner, mode="power_off"))
-        give(
-            planner,
-            [
-                segment(NOW, "x", -5, mode="energy_saver", setpoint_f=120),
-                segment(NOW, "b", 20, mode="heat_pump", setpoint_f=140),
-            ],
-            now=minutes(6),
-            observed=self._on_heater(planner, mode="power_off"),
-            intent_id="i-2",
-        )
-
-        def old_b(e):
-            return e.kind == KIND_PLAN and e.serves == "b"
-
-        run(
-            planner, minutes(7), self._without(planner, old_b, mode="power_off")
-        )
-        assert "b" not in planner.removed_segments
-
-    def test_a_second_entry_for_a_segment_that_took_effect_is_a_re_assert(
-        self,
-    ):
-        """An exit fired and put b in force; its later near-term is deleted.
-
-        b stays in force: that entry could only re-assert it.
-        """
-        planner = planner_with(
-            [
-                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            shadow=False,
-        )
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        on_b = {"mode": "energy_saver", "setpoint_raw": 109}
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        run(planner, minutes(3), self._on_heater(planner, **on_a))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        run(planner, minutes(40), self._on_heater(planner, **on_a))
-        (exit_entry,) = (
-            e for e in planner.owned if e.kind == KIND_PRECEDENCE_EXIT
-        )
-        run(planner, minutes(43), self._on_heater(planner, **on_b))
-        assert planner.settled is not None
-        assert planner.settled[:2] == ("b", State("energy_saver", 109))
-        # A near-term for b, as a late confirmation issues (section 5.2).
-        again = OwnedEntry(
-            KIND_NEAR_TERM, "b", minutes(50), "energy_saver", 109
-        )
-        planner.owned.append(again)
-        assert exit_entry.fires_at < again.fires_at
-        run(
-            planner,
-            minutes(44),
-            self._without(planner, lambda e: e == again, **on_b),
-        )
-        assert "b" not in planner.removed_segments
-        assert planner.segment_in_force(minutes(44)) == "b"
-
-    def test_an_entry_due_while_the_state_cannot_be_read_is_skipped(self):
-        """Vacation, with the heater's mode unreadable around b's minute.
-
-        b's entry may have been skipped: its exit is what puts b in force.
-        """
-        planner = planner_with(
-            [
-                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            shadow=False,
-        )
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        run(planner, minutes(3), self._on_heater(planner, **on_a))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        unread = {"mode": None, "setpoint_raw": None}
-        run(planner, minutes(29), self._on_heater(planner, **unread))
-        run(planner, minutes(32), self._on_heater(planner, **unread))
-        assert planner.settled is not None
-        assert planner.settled[0] == "a"
-
-    def test_a_restart_keeps_the_exit_of_a_segment_holding_over(self):
-        """Segment b began in Vacation; c's entry is deleted then.
-
-        Vacation ends: the exit for b, holding over c, waits to fire when
-        Home Assistant restarts. It is kept, and b is put in force.
-        """
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        planner = planner_with(
-            [
-                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 45, mode="heat_pump", setpoint_f=125),
-                segment(NOW, "d", 240, mode="heat_pump", setpoint_f=140),
-            ],
-            shadow=False,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        run(
-            planner,
-            minutes(40),
-            self._without(planner, lambda e: e.serves == "c", mode="vacation"),
-        )
-        run(planner, minutes(50), self._on_heater(planner, **on_a))
-        (exit_entry,) = (
-            e for e in planner.owned if e.kind == KIND_PRECEDENCE_EXIT
-        )
-        assert exit_entry.serves == "b"
-        restarted = Planner(planner.capabilities, TZ, shadow=False)
-        restarted.owner = planner.owner
-        restarted.load_document(planner.as_document())
-        assert planner.plan is not None
-        seen = self._on_heater(planner, **on_a)
-        restarted.set_plan(planner.plan, minutes(51), seen, restoring=True)
-        run(restarted, minutes(51), seen)
-        assert exit_entry in restarted.owned
-        assert restarted.segment_in_force(minutes(51)) == "b"
 
     def test_a_blip_in_reading_the_state_outside_precedence_is_no_skip(self):
         """The mode is unreadable for a pass just before b's minute.
@@ -2325,68 +1571,6 @@ class TestEffectiveTimeline:
         assert "b" in planner.removed_segments
 
 
-class TestUnreadableState:
-    """Issue #173: a heater state that cannot be read is not precedence's end.
-
-    The last known Vacation or power-off holds until the mode reads again.
-    """
-
-    SEGMENTS = [
-        segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-        segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-        segment(NOW, "c", 240, mode="heat_pump", setpoint_f=130),
-    ]
-    ON_A = {"mode": "heat_pump", "setpoint_raw": 120}
-    UNREAD = {"mode": None, "setpoint_raw": None}
-
-    def _on_heater(self, planner: Planner, **overrides) -> Observed:
-        return obs(
-            reservations_enabled=True,
-            reservations=tuple(e.as_entry() for e in planner.owned),
-            **overrides,
-        )
-
-    def test_the_exit_waits_for_vacation_to_be_read_as_over(self):
-        planner = planner_with(self.SEGMENTS, shadow=False)
-        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
-        for m in range(45, 50):
-            write = run(
-                planner, minutes(m), self._on_heater(planner, **self.UNREAD)
-            )
-            assert write is None or not write.added
-        write = run(planner, minutes(50), self._on_heater(planner, **self.ON_A))
-        assert write is not None
-        assert [(e.kind, e.serves) for e in write.added] == [
-            (KIND_PRECEDENCE_EXIT, "b")
-        ]
-
-    def test_power_off_keeps_the_entries_off_through_a_blip(self):
-        planner = planner_with(self.SEGMENTS, shadow=False)
-        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(5), self._on_heater(planner, mode="power_off"))
-        assert all(not e.enabled for e in planner.owned)
-        for m in (6, 7, 8):
-            write = run(
-                planner, minutes(m), self._on_heater(planner, **self.UNREAD)
-            )
-            assert write is None
-        assert all(not e.enabled for e in planner.owned)
-        write = run(planner, minutes(10), self._on_heater(planner, **self.ON_A))
-        assert write is not None
-        assert all(e.enabled for e in planner.owned)
-        assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
-
-    def test_an_unread_state_before_any_is_read_is_no_precedence(self):
-        """At start-up, nothing is known yet: passes run as usual."""
-        planner = planner_with(
-            self.SEGMENTS, observed=obs(**self.UNREAD), shadow=False
-        )
-        assert planner.suspended_by is None
-        assert planner.owned
-
-
 class TestStaleNearTerm:
     """Issue #172: a near-term entry serves only while its segment is in force."""
 
@@ -2402,238 +1586,3 @@ class TestStaleNearTerm:
             reservations=tuple(e.as_entry() for e in planner.owned),
             **overrides,
         )
-
-    def _powered_off_through_b(self) -> Planner:
-        """A plan arrives while powered off; b begins before power returns."""
-        planner = Planner(capabilities(), TZ, shadow=False)
-        planner.owner = OWNER
-        run(planner, NOW, obs(mode="power_off", reservations_enabled=True))
-        plan = parse_plan(make_document(minutes(1), self.SEGMENTS))
-        check_plan(plan, planner.capabilities)
-        planner.set_plan(
-            plan, minutes(1), self._on_heater(planner, mode="power_off")
-        )
-        for m in (1, 5, 20, 40, 50):
-            run(planner, minutes(m), self._on_heater(planner, mode="power_off"))
-        return planner
-
-    def test_an_ended_segments_near_term_is_not_written(self):
-        planner = self._powered_off_through_b()
-        write = run(planner, minutes(60), self._on_heater(planner))
-        assert write is not None
-        assert "a" not in {e.serves for e in write.added}
-        assert not [e for e in planner.extra if e.serves == "a"]
-
-    def test_the_exit_is_the_one_entry_for_the_segment_in_force(self):
-        planner = self._powered_off_through_b()
-        write = run(planner, minutes(60), self._on_heater(planner))
-        assert write is not None
-        for_b = [
-            (e.kind, e.serves)
-            for e in write.added
-            if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
-        ]
-        assert for_b == [(KIND_PRECEDENCE_EXIT, "b")]
-
-    def test_power_returning_as_a_segment_begins_writes_one_entry(self):
-        """The exit asserts b; no near-term is added beside it.
-
-        b comes with a plan adopted while powered off, so no entry of its
-        own was written for it.
-        """
-        planner = planner_with(self.SEGMENTS, shadow=False)
-        run(planner, minutes(1), self._on_heater(planner))
-        run(planner, minutes(20), self._on_heater(planner, mode="power_off"))
-        give(
-            planner,
-            [
-                self.SEGMENTS[0],
-                segment(NOW, "b", 30, mode="electric", setpoint_f=130),
-                self.SEGMENTS[2],
-            ],
-            now=minutes(25),
-            observed=self._on_heater(planner, mode="power_off"),
-            intent_id="i-2",
-        )
-        write = run(planner, minutes(30), self._on_heater(planner))
-        assert write is not None
-        for_b = [
-            (e.kind, e.serves)
-            for e in write.added
-            if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
-        ]
-        assert for_b == [(KIND_PRECEDENCE_EXIT, "b")]
-
-    @pytest.mark.parametrize("late", [False, True])
-    def test_an_exit_whose_write_fails_into_the_next_segment_is_dropped(
-        self, late
-    ):
-        """PR #179 review: the exit half of the rule.
-
-        Vacation ends just before b begins, and the exit for a is written.
-        Its write is rejected, or confirmed only after its minute, with the
-        retry after b's start: it is dropped, not moved into b's time.
-        """
-        planner = planner_with(self.SEGMENTS, shadow=False)
-        run(planner, minutes(1), self._on_heater(planner))
-        run(planner, minutes(10), self._on_heater(planner, mode="vacation"))
-        write = planner.step(minutes(26), self._on_heater(planner))
-        assert write is not None
-        (exit_entry,) = (
-            e for e in write.added if e.kind == KIND_PRECEDENCE_EXIT
-        )
-        assert exit_entry.serves == "a"
-        assert exit_entry.fires_at < minutes(30)
-        if late:
-            planner.commit(write, confirmed_at=minutes(31))
-        else:
-            planner.reject(
-                write, minutes(26), retry_at=minutes(31), final=False
-            )
-        assert not [
-            e
-            for e in planner.extra
-            if e.kind == KIND_PRECEDENCE_EXIT and e.serves == "a"
-        ]
-
-
-class TestExitAfterAntiLegionella:
-    """Issue #174: an exit owed at Vacation's end waits out anti-legionella."""
-
-    SEGMENTS = [
-        segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-        segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-        segment(NOW, "c", 240, mode="heat_pump", setpoint_f=130),
-    ]
-    ON_A = {"mode": "heat_pump", "setpoint_raw": 120}
-
-    def _on_heater(self, planner: Planner, **overrides) -> Observed:
-        return obs(
-            reservations_enabled=True,
-            reservations=tuple(e.as_entry() for e in planner.owned),
-            **overrides,
-        )
-
-    def _vacation_into_anti_legionella(self) -> Planner:
-        planner = planner_with(self.SEGMENTS, shadow=False)
-        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        run(planner, minutes(40), self._on_heater(planner, mode="vacation"))
-        cycle = self._on_heater(planner, anti_legionella_busy=True, **self.ON_A)
-        # The feature does not write the list during the cycle (5.9).
-        assert run(planner, minutes(50), cycle) is None
-        return planner
-
-    def _exit_for_b(self, write) -> bool:
-        return write is not None and (KIND_PRECEDENCE_EXIT, "b") in {
-            (e.kind, e.serves) for e in write.added
-        }
-
-    def test_the_exit_is_written_when_the_cycle_ends(self):
-        planner = self._vacation_into_anti_legionella()
-        write = run(planner, minutes(70), self._on_heater(planner, **self.ON_A))
-        assert self._exit_for_b(write)
-        # Written once.
-        assert (
-            run(planner, minutes(71), self._on_heater(planner, **self.ON_A))
-            is None
-        )
-
-    def test_the_owed_exit_survives_a_restart(self):
-        planner = self._vacation_into_anti_legionella()
-        restarted = Planner(planner.capabilities, TZ, shadow=False)
-        restarted.owner = planner.owner
-        restarted.load_document(planner.as_document())
-        assert planner.plan is not None
-        cycle = self._on_heater(planner, anti_legionella_busy=True, **self.ON_A)
-        restarted.set_plan(planner.plan, minutes(55), cycle, restoring=True)
-        run(restarted, minutes(55), cycle)
-        write = run(
-            restarted, minutes(70), self._on_heater(restarted, **self.ON_A)
-        )
-        assert self._exit_for_b(write)
-
-    def test_an_unreadable_state_does_not_spend_the_owed_exit(self):
-        planner = self._vacation_into_anti_legionella()
-        unread = self._on_heater(planner, mode=None, setpoint_raw=None)
-        write = run(planner, minutes(60), unread)
-        assert not self._exit_for_b(write)
-        write = run(planner, minutes(70), self._on_heater(planner, **self.ON_A))
-        assert self._exit_for_b(write)
-
-    def test_a_known_cycle_is_kept_though_the_mode_is_unreadable(self):
-        """PR #180 review: restarted during the cycle, the mode unread.
-
-        The heater still reports the cycle: nothing is written during it,
-        and the owed exit follows once it ends.
-        """
-        planner = self._vacation_into_anti_legionella()
-        restarted = Planner(planner.capabilities, TZ, shadow=False)
-        restarted.owner = planner.owner
-        restarted.load_document(planner.as_document())
-        assert planner.plan is not None
-        unread_cycle = self._on_heater(
-            planner, anti_legionella_busy=True, mode=None, setpoint_raw=None
-        )
-        restarted.set_plan(
-            planner.plan, minutes(55), unread_cycle, restoring=True
-        )
-        assert run(restarted, minutes(55), unread_cycle) is None
-        assert restarted.suspended_by == "anti_legionella"
-        write = run(
-            restarted, minutes(70), self._on_heater(restarted, **self.ON_A)
-        )
-        assert self._exit_for_b(write)
-
-
-class TestReadBackOfSkippedEntries:
-    """Issue #182: an entry the heater skipped in Vacation is not read back."""
-
-    SEGMENTS = [
-        segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-        segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-        segment(NOW, "c", 240, mode="heat_pump", setpoint_f=130),
-    ]
-    ON_A = {"mode": "heat_pump", "setpoint_raw": 120}
-    ON_B = {"mode": "energy_saver", "setpoint_raw": 109}
-
-    def _on_heater(self, planner: Planner, **overrides) -> Observed:
-        return obs(
-            reservations_enabled=True,
-            reservations=tuple(e.as_entry() for e in planner.owned),
-            **overrides,
-        )
-
-    @pytest.mark.parametrize("precedence", ["vacation", "power_off"])
-    def test_a_segment_begun_in_precedence_is_read_back_by_its_exit(
-        self, precedence
-    ):
-        """Power-off switches the entries off and on again; Vacation not."""
-        planner = planner_with(self.SEGMENTS, shadow=False)
-        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(3), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(20), self._on_heater(planner, mode=precedence))
-        run(planner, minutes(40), self._on_heater(planner, mode=precedence))
-        # It ends: b's plan entry (10:30) was skipped; the heater is still
-        # in a's state, and the exit for b is written.
-        write = run(planner, minutes(41), self._on_heater(planner, **self.ON_A))
-        assert write is not None
-        assert KIND_PRECEDENCE_EXIT in {e.kind for e in write.added}
-        assert "b" not in planner.readback
-        assert statuses(planner)["b"][0] != "failed"
-        # The exit fires and the heater takes b's state: read back, applied.
-        run(planner, minutes(44), self._on_heater(planner, **self.ON_B))
-        run(planner, minutes(46), self._on_heater(planner, **self.ON_B))
-        assert "b" not in planner.readback
-        assert statuses(planner)["b"][0] == "in_force"
-
-    def test_an_exit_not_applied_is_still_flagged(self):
-        """The exit is read back as any entry: not applied, it fails."""
-        planner = planner_with(self.SEGMENTS, shadow=False)
-        run(planner, minutes(1), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(3), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(20), self._on_heater(planner, mode="vacation"))
-        run(planner, minutes(41), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(44), self._on_heater(planner, **self.ON_A))
-        run(planner, minutes(46), self._on_heater(planner, **self.ON_A))
-        assert statuses(planner)["b"] == ("failed", "not_applied_on_device")

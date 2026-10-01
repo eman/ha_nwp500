@@ -13,7 +13,6 @@ from custom_components.nwp500.control.evaluate import (
 )
 from custom_components.nwp500.control.intent import (
     REASON_MODE_NOT_ALLOWED,
-    REASON_OUT_OF_BOUNDS,
     IntentRejected,
 )
 
@@ -34,15 +33,14 @@ class TestCheckPlan:
     @pytest.mark.parametrize(
         "setpoint", [{"setpoint_f": 100}, {"setpoint_f": 155}]
     )
-    def test_out_of_bounds_rejects_the_plan(self, now, parse, setpoint):
+    def test_setpoints_are_not_checked(self, now, parse, setpoint):
+        """The heater clamps what it is given; limits are the library's."""
         plan = parse(
             make_document(
                 now, [segment(now, "s", 0, mode="heat_pump", **setpoint)]
             )
         )
-        with pytest.raises(IntentRejected) as exc_info:
-            check_plan(plan, capabilities())
-        assert exc_info.value.reason == REASON_OUT_OF_BOUNDS
+        check_plan(plan, capabilities())
 
     def test_min_is_always_in_bounds(self, now, parse):
         plan = parse(
@@ -69,9 +67,17 @@ class TestCheckPlan:
         )
 
     @pytest.mark.parametrize(
-        "mode", ["electric", "vacation", "power_off", "eco"]
+        "mode",
+        [
+            "heat_pump",
+            "energy_saver",
+            "high_demand",
+            "electric",
+            "vacation",
+            "power_off",
+        ],
     )
-    def test_mode_not_allowed_rejects_the_plan(self, now, parse, mode):
+    def test_any_mode_the_heater_has_is_accepted(self, now, parse, mode):
         plan = parse(
             make_document(
                 now,
@@ -81,10 +87,20 @@ class TestCheckPlan:
                 ],
             )
         )
-        with pytest.raises(IntentRejected) as exc_info:
-            check_plan(
-                plan, capabilities(control_allowed_modes=["energy_saver"])
+        check_plan(plan, capabilities())
+
+    def test_a_mode_the_heater_does_not_have_rejects_the_plan(self, now, parse):
+        plan = parse(
+            make_document(
+                now,
+                [
+                    segment(now, "a", 0, mode="energy_saver", setpoint_f=130),
+                    segment(now, "b", 60, mode="eco", setpoint_f=130),
+                ],
             )
+        )
+        with pytest.raises(IntentRejected) as exc_info:
+            check_plan(plan, capabilities())
         assert exc_info.value.reason == REASON_MODE_NOT_ALLOWED
 
 

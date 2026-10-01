@@ -27,7 +27,15 @@ class TestDeclaration:
         )
         assert attrs["mode"] == "shadow"
         assert attrs["live"] == {"segments": False, "grants": False}
-        assert attrs["allowed_modes"] == ["heat_pump", "energy_saver"]
+        # Every mode the heater has: the adapter applies any of them.
+        assert attrs["allowed_modes"] == [
+            "heat_pump",
+            "energy_saver",
+            "high_demand",
+            "electric",
+            "vacation",
+            "power_off",
+        ]
         assert attrs["assisted_mode"] == "energy_saver"
         assert attrs["horizon_h"] == 144
         assert attrs["near_term_lead_min"] == 2
@@ -71,13 +79,6 @@ class TestDeclaration:
         ).as_attributes()
         assert "setpoint_min_f" not in attrs
 
-    def test_options_tighten_the_bounds(self):
-        declaration = capabilities(
-            control_setpoint_min_f=120, control_setpoint_max_f=145
-        )
-        assert declaration.setpoint_min_raw == 98
-        assert declaration.as_attributes()["setpoint_min_f"] == 120.2
-
     def test_grants_are_never_supported(self):
         """The adapter reads nothing about the home's power (section 5.7).
 
@@ -100,16 +101,15 @@ class TestDeclaration:
         assert telemetry["delivery_temperature_dip_f"] == 3.4
         assert telemetry["delivery_temperature_dip_min"] == 3
 
-    def test_owner_program_is_declared(self):
-        owner = {"declared": False, "mode": "energy_saver", "entries": []}
+    def test_no_owner_program_is_kept(self):
+        """The adapter applies the plan; it keeps no copy of the owner's."""
         declaration = build_capabilities(
-            {},
+            {"control_owner_program": {"AA": {"mode": "heat_pump"}}},
             features=None,
             feature_version="v",
             telemetry={},
-            owner_program=owner,
         )
-        assert declaration.as_attributes()["owner_program"] == owner
+        assert declaration.as_attributes()["owner_program"] is None
 
 
 class TestVersion:
@@ -141,39 +141,6 @@ class TestVersion:
             declaration, telemetry={"delivery_temperature": "sensor.x"}
         )
         assert renamed.version == declaration.version
-
-
-class TestBoundsOnlyTighten:
-    """Options narrow the device's range; they never widen it (#162)."""
-
-    def test_a_wider_option_keeps_the_device_limit(self):
-        declaration = capabilities(
-            control_setpoint_min_f=90, control_setpoint_max_f=160
-        )
-        assert declaration.setpoint_min_raw == 81
-        assert declaration.setpoint_max_raw == 131
-
-    def test_a_narrower_option_applies(self):
-        declaration = capabilities(
-            control_setpoint_min_f=120, control_setpoint_max_f=140
-        )
-        assert declaration.setpoint_min_raw == 98
-        assert declaration.setpoint_max_raw == 120
-
-    def test_options_that_leave_no_range_are_ignored(self):
-        declaration = capabilities(control_setpoint_min_f=155)
-        assert declaration.setpoint_min_raw == 81
-        assert declaration.setpoint_max_raw == 131
-
-    def test_options_apply_before_the_device_range_is_known(self):
-        declaration = build_capabilities(
-            {"control_setpoint_min_f": 120},
-            features=None,
-            feature_version="v",
-            telemetry={},
-        )
-        assert declaration.setpoint_min_raw == 98
-        assert declaration.setpoint_max_raw is None
 
 
 @pytest.mark.parametrize(
