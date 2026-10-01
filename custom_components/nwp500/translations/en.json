@@ -63,23 +63,14 @@
         },
         "data_description": {
           "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor. Its state is the plan's ID and its attributes are the plan.",
-          "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule: after this page you confirm your own settings, and only then does it go live. Stopped gives the heater back your own settings once, then does nothing; its entities stay. To remove external control completely, turn it off on the first page.",
+          "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule, as your scheduler sends it. Stopped stops applying plans: nothing more is written, and what is on the heater stays there. To remove external control completely, turn it off on the first page.",
           "control_reservation_entry_limit": "The most entries the heater's schedule may hold in total, your own included. External control uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32.",
           "control_reservation_entry_reserve": "Entries kept free for changes that must happen right away, such as a plan step that has already begun. Must be less than the schedule size limit."
         }
-      },
-      "going_live": {
-        "title": "Confirm going live",
-        "description": "Going live replaces your heater's own schedule with the plan. These are your own settings, which come back when external control stops:\n\n{program}\n\nWhile live, the heater's schedule is on, and your own schedule entries are switched off but kept. Submit to go live now."
-      },
-      "stay_live": {
-        "title": "Check your own settings",
-        "description": "External control stays live. These are your own settings, which come back when external control stops:\n\n{program}\n\nChanges made on the heater while it is live don't count: to change these settings, choose Stopped and save first, change them on the heater, then go live again. Submit to save and keep external control live."
       }
     },
     "error": {
-      "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit.",
-      "owner_snapshot_unavailable": "Your heater's own settings can't be read yet. Wait until the heater reports its mode, temperature and schedule, and take it out of Vacation or power off, then submit again."
+      "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit."
     }
   },
   "entity": {
@@ -1101,15 +1092,11 @@
       "options": {
         "shadow": "Preview: show what the plan would do, write nothing",
         "live": "Live: follow the plan",
-        "disabled": "Stopped: give the heater back your own settings, then do nothing"
+        "disabled": "Stopped: stop applying plans, write nothing"
       }
     }
   },
   "issues": {
-    "control_hand_back_failed": {
-      "title": "External control couldn't give {device} back your own settings",
-      "description": "External control's schedule entries may still be on {device}, so it may keep following the last plan. If external control is on, press “Stop external control” on the device page to try again. If you have turned it off, turn it on again in the integration's options with Mode set to “Stopped”, and save. Check the heater's schedule afterwards."
-    },
     "control_start_failed": {
       "title": "External control couldn't start",
       "description": "The NWP500 integration is running without external control, so nothing follows your scheduler's plan. The Home Assistant log has the reason. Reload the integration to try again, or turn external control off in its options."

@@ -15,9 +15,7 @@ from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.util import dt as dt_util
 
 from custom_components.nwp500.const import (
-    CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MODE,
-    CONF_CONTROL_OWNER_PROGRAM,
 )
 from custom_components.nwp500.control.device import WRITE_PAUSE, WRITE_RETRY
 from custom_components.nwp500.control.engine import Planner
@@ -88,41 +86,6 @@ class TestGoingLive:
         assert len(heater.schedule["reservation"]) == 3
         assert statuses(live.ack)["later"] == ("programmed", None)
 
-    @pytest.mark.asyncio
-    async def test_live_shadow_live_takes_the_list_over_again(
-        self, hass, live_factory, now
-    ):
-        _publish(hass, _two_segments(now))
-        declared = {CONF_CONTROL_OWNER_PROGRAM: {MAC: OWNER_OFF_DOC}}
-        heater, control = await live_factory(
-            schedule=OWNER_OFF_LIST, **declared
-        )
-        assert heater.schedule["reservation_use"] == 2
-        await _leave_live(hass, control, **{CONF_CONTROL_MODE: "shadow"})
-        assert heater.schedule == OWNER_OFF_LIST
-        await control.async_stop()
-
-        _, shadow = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: "shadow"}, **declared
-        )
-        assert shadow.holds_device is False
-        await shadow.async_stop()
-        _, live = await live_factory(reuse=True, **declared)
-
-        assert heater.schedule["reservation_use"] == 2
-        assert _entries_off(heater.schedule)
-        assert statuses(live.ack)["later"] == ("programmed", None)
-
-    @pytest.mark.asyncio
-    async def test_segments_off_then_on(self, hass, live_factory, now):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await _leave_live(hass, control, **{CONF_CONTROL_LIVE_SEGMENTS: False})
-        assert heater.schedule == OWNER_LIST
-        await control.async_stop()
-        _, again = await live_factory(reuse=True)
-        assert statuses(again.ack)["later"] == ("programmed", None)
-
 
 def _entries_off(schedule) -> bool:
     return all(
@@ -130,48 +93,6 @@ def _entries_off(schedule) -> bool:
         for e in schedule["reservation"]
         if (e["hour"], e["min"]) == (OWNER_ENTRY["hour"], OWNER_ENTRY["min"])
     )
-
-
-class TestHandBack:
-    @pytest.mark.asyncio
-    async def test_leaving_live_is_saved(self, hass, live_factory, now):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await _leave_live(hass, control, **{CONF_CONTROL_MODE: "shadow"})
-        assert heater.schedule == OWNER_LIST
-        await control.async_stop()
-        states = list(heater.states)
-
-        _, shadow = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: "shadow"}
-        )
-
-        assert shadow.holds_device is False
-        assert shadow.store.stored_engine(MAC)["took_over"] is False
-        assert heater.states == states
-
-    @pytest.mark.asyncio
-    async def test_the_disable_button_retries_a_failed_hand_back(
-        self, hass, live_factory, now, freezer
-    ):
-        from custom_components.nwp500.control.button import ControlDisableButton
-
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await control.async_stop()
-        heater.lose = 2
-        _, disabled = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: "disabled"}
-        )
-        await _tick(hass, freezer, WRITE_RETRY + timedelta(seconds=1))
-        assert disabled.store.disabled_done(MAC) is False
-
-        button = ControlDisableButton(disabled, "disable")
-        button.hass = hass
-        await button.async_press()
-
-        assert heater.schedule == OWNER_LIST
-        assert disabled.store.disabled_done(MAC) is True
 
 
 class TestUnconfirmedWrites:
@@ -199,9 +120,6 @@ class TestUnconfirmedWrites:
         await _tick(hass, freezer, WRITE_RETRY + timedelta(seconds=1))
         assert len(control.planner.unconfirmed) == 1
         await _tick(hass, freezer, WRITE_PAUSE + timedelta(seconds=1))
-
-        assert await control.async_release(dt_util.utcnow()) is True
-        assert heater.schedule == OWNER_LIST
 
 
 class TestPeoplesChanges:
@@ -274,7 +192,6 @@ class TestPeoplesChanges:
         planner.commit(planner.step(NOW, seen))
         planner.step(minutes(1), device_obs(planner))
         restarted = Planner(planner.capabilities, TZ, shadow=False)
-        restarted.owner = planner.owner
         restarted.load_document(planner.as_document())
         # Home Assistant is down from minute 2 to 120; "b" fires at 60.
         restarted.set_plan(

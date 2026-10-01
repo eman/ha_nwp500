@@ -84,7 +84,6 @@ class Capabilities:
     entry_limit: int
     entry_reserve: int
     feature_version: str
-    owner_program: dict[str, Any] | None = None
     telemetry: dict[str, Any] = field(default_factory=dict)
     # Live, and so outside the version: it changes as entries fire.
     entries_available: int | None = None
@@ -122,7 +121,9 @@ class Capabilities:
             "grant_rule_ranges": {
                 rule: list(bounds) for rule, bounds in GRANT_RULE_RANGES.items()
             },
-            "owner_program": self.owner_program,
+            # The adapter keeps no copy of the owner's program: null until
+            # the key leaves the protocol (#192).
+            "owner_program": None,
             "lower_trigger_f": LOWER_TRIGGER_F,
             "setpoint_write_starts_recovery": True,
             "setpoint_write_stops_compressor": True,
@@ -182,7 +183,6 @@ def build_capabilities(
     features: Any,
     feature_version: str,
     telemetry: Mapping[str, str | None],
-    owner_program: Mapping[str, Any] | None = None,
     entries_available: int | None = None,
 ) -> Capabilities:
     """Build the declaration from options, feature data and entity ids.
@@ -212,7 +212,6 @@ def build_capabilities(
             )
         ),
         feature_version=feature_version,
-        owner_program=dict(owner_program) if owner_program else None,
         telemetry={
             **dict(telemetry),
             "delivery_temperature_dip_f": DELIVERY_TEMPERATURE_DIP_F,

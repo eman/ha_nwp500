@@ -65,7 +65,6 @@ from .evaluate import (
 )
 from .intent import Plan, Segment
 from .observed import Observed, raw_entry
-from .owner import OwnerProgram
 from .tou import in_tou_window
 
 _LOGGER = logging.getLogger(__name__)
@@ -100,7 +99,7 @@ WRITE_GRANT_LOWER = "grant_lower"
 WRITE_PRECEDENCE_EXIT = "precedence_exit"
 WRITE_POWER_OFF = "power_off"
 WRITE_DISABLE = "disable"
-# The first live write: owner entries switched off, reservations on (5.1).
+# The first live write: the reservation switch on (5.1).
 WRITE_TAKEOVER = "takeover"
 
 # People's changes, as the override entity reports them (section 5.10).
@@ -257,7 +256,6 @@ class Planner:
         # entry firing: the poll interval plus a minute.
         self.explain_window = explain_window
         self.plan: Plan | None = None
-        self.owner: OwnerProgram | None = None
         # What the feature believes is on the device, of its own.
         self.owned: list[OwnedEntry] = []
         # Near-term entries wanted until they fire.
@@ -801,50 +799,6 @@ class Planner:
         if not kept:
             self.settled = (None, self.settled[1], self.settled[2])
 
-    def disable(
-        self,
-        now: datetime,
-        *,
-        simulated: bool | None = None,
-        confirmed: bool | None = None,
-    ) -> Write:
-        """Section 6.6: remove every owned entry, restore the owner's state.
-
-        In live the device controller has already written the owner's list
-        and state; this records it.
-        """
-        owner_state = (
-            self.owner.state_now(now, self.tz)
-            if self.owner is not None
-            else None
-        )
-        write = Write(
-            reason=WRITE_DISABLE,
-            at=now,
-            added=(),
-            removed=tuple(self.owned),
-            result=(),
-            simulated=self.shadow if simulated is None else simulated,
-            confirmed=confirmed,
-            owner_state=owner_state,
-        )
-        self.failed = {}
-        self.readback = {}
-        self._checked = set()
-        self.unconfirmed = []
-        self.hold_until = None
-        self.plan = None
-        self.extra = []
-        self.asserted = set()
-        self.carry_state = None
-        self.adopted_from = None
-        self.grant_rejections = {}
-        self.forget_people()
-        self.commit(write)
-        # The owner's program is back: the feature holds nothing.
-        self.took_over = False
-        return write
-
     # -- a planning pass ---------------------------------------------------
 
     def step(self, now: datetime, observed: Observed) -> Write | None:
@@ -869,7 +823,7 @@ class Planner:
             and self.plan is not None
         ):
             # Going live with nothing of its own to add yet still takes the
-            # list over: the owner's entries must not fire against the plan.
+            # list over: the reservation switch must be on for its entries.
             write = Write(
                 reason=WRITE_TAKEOVER,
                 at=now,
@@ -1244,22 +1198,6 @@ class Planner:
         if observed.reservations is None:
             return
 
-        foreign_keys: set[str] = set()
-        if self.owner is not None:
-            for entry, is_owner in self.others(observed):
-                if is_owner:
-                    continue
-                report = Report(
-                    REPORT_FOREIGN, dict(entry), now, str(entry_slot(entry))
-                )
-                key = self._report_key(report)
-                foreign_keys.add(key)
-                # A changed entry is a new one, with a new report.
-                self.reports.setdefault(key, report)
-        for key in [k for k in self.reports if k.startswith(REPORT_FOREIGN)]:
-            if key not in foreign_keys:
-                del self.reports[key]
-
         if self.shadow:
             # In shadow nothing of the feature's is on the device.
             return
@@ -1540,17 +1478,16 @@ class Planner:
         self.asserted.add(segment.id)
         self._near_term(KIND_NEAR_TERM, segment.id, state, now)
 
-    def others(self, observed: Observed) -> list[tuple[dict[str, int], bool]]:
+    def others(self, observed: Observed) -> list[dict[str, int]]:
         """Entries on the device that the feature does not own."""
         owned = [e.as_entry() for e in self.owned]
-        result: list[tuple[dict[str, int], bool]] = []
+        result: list[dict[str, int]] = []
         for entry in observed.reservations or ():
             raw = dict(entry)
             if raw in owned:
                 owned.remove(raw)
                 continue
-            is_owner = self.owner is not None and self.owner.is_owner_entry(raw)
-            result.append((raw, is_owner))
+            result.append(raw)
         return result
 
     def _desired(self, now: datetime, observed: Observed) -> list[OwnedEntry]:
@@ -1671,18 +1608,15 @@ class Planner:
 
     @staticmethod
     def _occupied(
-        others: list[tuple[dict[str, int], bool]],
+        others: list[dict[str, int]],
     ) -> list[tuple[int, int, int]]:
         """Slots a plan entry must not share (section 5.2.6).
 
-        Only enabled entries count. The device stores two entries in one
-        minute and fires only the enabled one (section 8, test 10), and the
-        owner's entries are switched off by their own flag while live.
+        Only enabled entries count: the device stores two entries in one
+        minute and fires only the enabled one (section 8, test 10).
         """
         return [
-            entry_slot(entry)
-            for entry, is_owner in others
-            if not is_owner and entry.get("enable") == 2
+            entry_slot(entry) for entry in others if entry.get("enable") == 2
         ]
 
     @staticmethod

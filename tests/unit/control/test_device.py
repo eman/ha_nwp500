@@ -14,7 +14,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from jsonschema import Draft202012Validator
-from nwp500.models.schedule import ReservationEntry
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     async_fire_time_changed,
@@ -23,15 +22,12 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.nwp500.const import (
     CONF_CONTROL_ENABLED,
     CONF_CONTROL_INTENT_ENTITY,
-    CONF_CONTROL_MODE,
-    CONTROL_MODE_DISABLED,
     DOMAIN,
 )
 from custom_components.nwp500.control.device import (
     HEARTBEAT_INTERVAL,
     DeviceControl,
 )
-from custom_components.nwp500.control.engine import Report
 from custom_components.nwp500.control.entries import KIND_NEAR_TERM, KIND_PLAN
 from custom_components.nwp500.control.intent import (
     REASON_MODE_NOT_ALLOWED,
@@ -162,16 +158,6 @@ class TestStart:
         assert control.plan is None
         assert control.ack.state == "none"
         assert control.heartbeat is not None
-        assert control.planner.owner is not None
-        assert control.planner.owner.declared is False
-        assert control.store.stored_owner(MAC)["mode"] == "energy_saver"
-
-    @pytest.mark.asyncio
-    async def test_the_owner_waits_for_the_reservation_list(
-        self, control_factory
-    ):
-        control = await control_factory(schedule=None)
-        assert control.planner.owner is None
 
     @pytest.mark.asyncio
     async def test_adopts_the_entity_document(self, hass, control_factory, now):
@@ -222,70 +208,6 @@ class TestStart:
         assert second.plan.intent_id == "i-2"
 
     @pytest.mark.asyncio
-    async def test_disabled_cleans_up_once(self, hass, control_factory, now):
-        _publish(hass, _plan(now))
-        first = await control_factory()
-        await first.async_stop()
-
-        disabled = await control_factory(
-            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-
-        assert disabled.plan is None
-        assert disabled.planner.owned == []
-        assert disabled.last_write.reason == "disable"
-        assert disabled.last_write.owner_state == ("energy_saver", 119)
-        assert disabled.store.disabled_done(MAC) is True
-        write = disabled.last_write
-        await disabled.async_stop()
-
-        again = await control_factory(
-            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-        assert again.last_write == write
-
-    @pytest.mark.asyncio
-    async def test_disabled_forgets_what_an_earlier_version_kept(
-        self, hass, control_factory, now
-    ):
-        """Nothing an earlier version kept on hand-back survives.
-
-        It stored reports, and what the heater held before the hand-back.
-        """
-        disabled = await control_factory(
-            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-        disabled.planner.load_document(
-            {
-                "reports": [
-                    Report("setpoint", 100, now, None).as_document(),
-                ],
-                # Live, before the hand-back: Heat Pump at 120, switch on.
-                "device_state": ["heat_pump", 120],
-                "reservations_on": True,
-                "state_seen_at": now.isoformat(),
-            }
-        )
-        await disabled._async_persist()
-        await disabled.async_stop()
-
-        again = await control_factory(
-            **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-        assert again.planner.reports == {}
-        stored = again.store.stored_engine(MAC)
-        assert stored["reports"] == []
-        assert stored["device_state"] is None
-        assert stored["reservations_on"] is None
-        await again.async_stop()
-
-        # Enabled again, on the owner's state (Energy Saver at 119, switch
-        # off): the hand-back is not a person's change.
-        enabled = await control_factory()
-        await enabled._async_evaluate(dt_util.utcnow())
-        assert enabled.planner.reports == {}
-
-    @pytest.mark.asyncio
     async def test_state_from_an_earlier_version_is_discarded(
         self, hass, hass_storage, control_factory
     ):
@@ -301,14 +223,6 @@ class TestStart:
         )
         control = await control_factory()
         assert control.planner.owned == []
-
-    @pytest.mark.asyncio
-    async def test_live_is_run_as_shadow(self, control_factory):
-        control = await control_factory(**{CONF_CONTROL_MODE: "live"})
-        assert control.mode == "shadow"
-        # The declaration says what actually runs (#162).
-        assert control.capabilities.mode == "shadow"
-        assert control.planner.capabilities.mode == "shadow"
 
 
 class TestIntake:
@@ -571,55 +485,10 @@ class TestReading:
         assert details["device_hash"] != details["hash"]
 
     @pytest.mark.asyncio
-    async def test_an_owner_entry_is_a_device_entry(
-        self, hass, control_factory, now
-    ):
-        """An entry the feature does not own keeps only the device's keys.
-
-        The Reservation Schedule sensor's entries carry display keys too,
-        among them a `mode_name` label; a program item does not.
-        """
-        on_device = ReservationEntry(
-            enable=2, week=62, hour=6, min=0, mode=3, param=120
-        ).model_dump()
-        assert on_device["mode_name"] == "Energy Saver"
-        _publish(hass, _plan(now))
-        control = await control_factory(
-            schedule={"reservation_use": 2, "reservation": [on_device]}
-        )
-        owner = [
-            e
-            for e in control.program_details()["entries"]
-            if e["owner"] == "owner"
-        ]
-        # Switched off by its own flag in the list the feature wants.
-        assert owner == [
-            {
-                "enable": 1,
-                "week": 62,
-                "hour": 6,
-                "min": 0,
-                "mode": 3,
-                "param": 120,
-                "owner": "owner",
-            }
-        ]
-        _program_item_schema().validate(owner[0])
-        # An item of the feature's own must say what it serves.
-        owned = next(
-            e
-            for e in control.program_details()["entries"]
-            if e["owner"] != "owner"
-        )
-        assert not _program_item_schema().is_valid(
-            {k: v for k, v in owned.items() if k != "serves"}
-        )
-
-    @pytest.mark.asyncio
-    async def test_capabilities_carry_the_owner_and_room(self, control_factory):
+    async def test_capabilities_carry_the_room(self, control_factory):
         control = await control_factory()
         attrs = control.capabilities.as_attributes()
-        assert attrs["owner_program"]["mode"] == "energy_saver"
+        assert attrs["owner_program"] is None
         assert attrs["entries_available"] == 14
 
     @pytest.mark.asyncio

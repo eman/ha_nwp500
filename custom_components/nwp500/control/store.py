@@ -80,31 +80,6 @@ class ControlStore:
         self._device(mac_address)["engine"] = document
         await self._store.async_save(self._data)
 
-    def stored_owner(self, mac_address: str) -> dict[str, Any] | None:
-        """The owner's program kept across a restart, or None."""
-        record = self._device(mac_address).get("owner")
-        return dict(record) if record else None
-
-    async def async_set_owner(
-        self, mac_address: str, document: dict[str, Any]
-    ) -> None:
-        """Remember the owner's program."""
-        self._device(mac_address)["owner"] = document
-        await self._store.async_save(self._data)
-
-    def disabled_done(self, mac_address: str) -> bool:
-        """Whether the disabling clean-up has run since `disabled` began."""
-        return bool(self._device(mac_address).get("disabled_done", False))
-
-    async def async_set_disabled_done(
-        self, mac_address: str, done: bool
-    ) -> None:
-        """Record that the disabling clean-up has run, or reset it."""
-        if self.disabled_done(mac_address) == done:
-            return
-        self._device(mac_address)["disabled_done"] = done
-        await self._store.async_save(self._data)
-
     def took_over(self, mac_address: str) -> bool:
         """Whether the feature has taken over the heater's reservation list.
 

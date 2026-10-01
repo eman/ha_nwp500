@@ -24,7 +24,6 @@ from custom_components.nwp500.control.engine import (
     REPORT_REMOVED,
     REPORT_SETPOINT,
     REPORT_SWITCHED_OFF,
-    WRITE_DISABLE,
     WRITE_NEAR_TERM,
     WRITE_PLAN,
     Planner,
@@ -38,7 +37,6 @@ from custom_components.nwp500.control.entries import (
     KIND_PLAN,
     OwnedEntry,
     near_term_minute,
-    schedule_hash,
 )
 from custom_components.nwp500.control.evaluate import (
     REASON_BEYOND_HORIZON,
@@ -50,7 +48,6 @@ from custom_components.nwp500.control.evaluate import (
 )
 from custom_components.nwp500.control.intent import parse_plan
 from custom_components.nwp500.control.observed import Observed
-from custom_components.nwp500.control.owner import OwnerProgram
 from custom_components.nwp500.control.sensor import ControlLastWriteSensor
 
 from .conftest import capabilities, grant, make_document, segment
@@ -61,11 +58,6 @@ NOW = datetime(2026, 10, 5, 10, 0, tzinfo=TZ)
 MONDAY = 64
 # 119 half-degrees is 59.5 degC / 139.1 degF.
 OWNER_SETPOINT = 119
-OWNER = OwnerProgram(
-    mode="energy_saver",
-    setpoint_raw=OWNER_SETPOINT,
-    reservations_enabled=False,
-)
 
 EXAMPLES = Path("docs/examples")
 SCHEMA = Path("docs/external-control-protocol-1.schema.json")
@@ -121,12 +113,10 @@ def planner_with(
     *,
     grants: list[dict] | None = None,
     observed: Observed | None = None,
-    owner: OwnerProgram | None = OWNER,
     shadow: bool = True,
     **options,
 ) -> Planner:
     planner = Planner(capabilities(**options), TZ, shadow=shadow)
-    planner.owner = owner
     run(planner, NOW, observed)
     if segments is not None:
         give(planner, segments, grants=grants, observed=observed)
@@ -153,7 +143,6 @@ class TestSpecExample:
     def _planner(self) -> Planner:
         base = self.SUNDAY.replace(second=0)
         planner = Planner(capabilities(), TZ)
-        planner.owner = OWNER
         plan = parse_plan(
             make_document(
                 self.SUNDAY,
@@ -263,7 +252,6 @@ def last_write_examples() -> dict[str, tuple[str, dict]]:
         TZ,
         shadow=False,
     )
-    planner.owner = OWNER
     check_plan(plan, planner.capabilities)
     planner.set_plan(plan, at, obs())
 
@@ -362,7 +350,6 @@ class TestTranslation:
             ),
             TZ,
         )
-        planner.owner = OWNER
         give(
             planner,
             [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
@@ -440,35 +427,6 @@ class TestTranslation:
         ack = {a.id: a for a in planner.ack("i").segments}
         assert ack["a"].warnings == (WARNING_MOVED,)
 
-    @pytest.mark.parametrize("owner_entry", [True, False])
-    def test_a_switched_off_entry_shares_the_slot(self, owner_entry):
-        """Section 5.2.6: only enabled entries hold a slot.
-
-        The owner's entries are switched off while live, and a foreign
-        entry may be switched off by its own flag. The device stores both
-        and fires only the enabled one (section 8, test 10).
-        """
-        other = {
-            "enable": 2 if owner_entry else 1,
-            "week": MONDAY | 2,
-            "hour": 11,
-            "min": 0,
-            "mode": 3,
-            "param": 110,
-        }
-        observed = obs(reservations=(other,))
-        owner = (
-            OwnerProgram("energy_saver", OWNER_SETPOINT, False, (other,))
-            if owner_entry
-            else OWNER
-        )
-        planner = planner_with(
-            [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)],
-            observed=observed,
-            owner=owner,
-        )
-        assert kinds(planner) == [(KIND_PLAN, "a", "11:00")]
-
 
 class TestHorizonAndBudget:
     """Section 5.3."""
@@ -532,7 +490,7 @@ class TestHorizonAndBudget:
         assert [e.serves for e in write.removed] == ["s0"]
         assert [e.serves for e in write.added] == ["s5"]
 
-    def test_owner_entries_count_against_the_budget(self):
+    def test_other_entries_count_against_the_budget(self):
         owner_entries = tuple(
             {
                 "enable": 2,
@@ -545,13 +503,9 @@ class TestHorizonAndBudget:
             for h in (6, 7)
         )
         observed = obs(reservations=owner_entries)
-        owner = OwnerProgram(
-            "energy_saver", OWNER_SETPOINT, False, owner_entries
-        )
         planner = planner_with(
             self._alternating(7),
             observed=observed,
-            owner=owner,
             control_reservation_entry_limit=7,
         )
         assert len(planner.owned) == 3
@@ -622,7 +576,6 @@ class TestReplacingAPlan:
         self,
     ):
         planner = Planner(capabilities(), TZ)
-        planner.owner = OWNER
         run(planner, NOW)
         write = give(planner, self.SEGMENTS, restoring=True)
         assert [e.kind for e in write.added] == [KIND_PLAN]
@@ -639,9 +592,6 @@ class TestPeoplesChanges:
         "mode": 3,
         "param": 110,
     }
-    OWNER_PROGRAM = OwnerProgram(
-        "energy_saver", OWNER_SETPOINT, True, (OWNER_ENTRY,)
-    )
 
     def test_an_unexplained_change_is_reported_not_undone(self):
         planner = planner_with(
@@ -658,7 +608,7 @@ class TestPeoplesChanges:
         observed = obs(
             reservations_enabled=True, reservations=(self.OWNER_ENTRY,)
         )
-        planner = planner_with(observed=observed, owner=self.OWNER_PROGRAM)
+        planner = planner_with(observed=observed)
         run(
             planner,
             minutes(31),
@@ -674,7 +624,7 @@ class TestPeoplesChanges:
         observed = obs(
             reservations_enabled=True, reservations=(self.OWNER_ENTRY,)
         )
-        planner = planner_with(observed=observed, owner=self.OWNER_PROGRAM)
+        planner = planner_with(observed=observed)
         run(
             planner,
             minutes(5),
@@ -702,23 +652,6 @@ class TestPeoplesChanges:
         assert REPORT_SWITCHED_OFF in planner.reports
         run(planner, minutes(2), obs(reservations_enabled=True))
         assert REPORT_SWITCHED_OFF not in planner.reports
-
-    def test_an_added_entry_is_foreign(self):
-        planner = planner_with()
-        added = {
-            "enable": 2,
-            "week": 2,
-            "hour": 7,
-            "min": 0,
-            "mode": 1,
-            "param": 100,
-        }
-        run(planner, minutes(1), obs(reservations=(added,)))
-        (report,) = planner.reports.values()
-        assert report.field == REPORT_FOREIGN
-        assert report.value == added
-        run(planner, minutes(2), obs(reservations=()))
-        assert planner.reports == {}
 
     def test_a_persons_vacation_is_reported(self):
         """Told to the scheduler like any change; it decides (#192)."""
@@ -941,37 +874,6 @@ class TestPeoplesChanges:
         run(planner, minutes(24 * 60 + 31), obs(setpoint_raw=100, **on))
         assert REPORT_SETPOINT not in planner.reports
 
-    def test_two_added_entries_in_one_slot_are_both_reported(self):
-        """The heater can hold two in one slot (section 5.2)."""
-        planner = planner_with()
-        slot = {"week": 2, "hour": 7, "min": 0, "mode": 1}
-        first = {"enable": 2, "param": 100, **slot}
-        second = {"enable": 1, "param": 110, **slot}
-        both = obs(reservations=(first, second))
-        run(planner, minutes(1), both)
-        run(planner, minutes(2), both)
-        reports = sorted(
-            planner.reports.values(), key=lambda r: r.value["param"]
-        )
-        assert [r.value for r in reports] == [first, second]
-        # Stable: the same reports, not new ones every pass.
-        assert {r.detected_at for r in reports} == {minutes(1)}
-
-    def test_handing_back_is_not_a_persons_change(self):
-        """What the hand-back restores is the feature's doing (6.6)."""
-        live = obs(
-            mode="heat_pump",
-            setpoint_raw=120,
-            reservations_enabled=True,
-            reservations=(),
-        )
-        planner = planner_with(observed=live)
-        run(planner, minutes(1), live)
-        planner.disable(minutes(2))
-        owner = obs(reservations_enabled=False, reservations=())
-        run(planner, minutes(3), owner)
-        assert planner.reports == {}
-
     def test_stored_reports_load_in_the_current_shape(self):
         """Reports stored by earlier versions load as current ones.
 
@@ -1031,97 +933,6 @@ class TestPeoplesChanges:
             for e in (entry, guard)
         }
         assert len(keys) == 2
-
-    def test_a_changed_foreign_entry_is_reported_again(self):
-        planner = planner_with()
-        added = {
-            "enable": 2,
-            "week": 2,
-            "hour": 7,
-            "min": 0,
-            "mode": 1,
-            "param": 100,
-        }
-        run(planner, minutes(1), obs(reservations=(added,)))
-        changed = {**added, "param": 110}
-        run(planner, minutes(2), obs(reservations=(changed,)))
-        (report,) = planner.reports.values()
-        assert report.value == changed
-        assert report.detected_at == minutes(2)
-
-    def test_disabling_ends_every_report(self):
-        planner = planner_with()
-        run(planner, minutes(1), obs(mode="energy_saver", setpoint_raw=100))
-        assert planner.reports
-        planner.removed_segments = {"a"}
-        planner.disable(minutes(2))
-        assert planner.reports == {}
-        # The entries people removed were the feature's, now gone too.
-        assert planner.removed_segments == set()
-
-
-class TestDisable:
-    def test_removes_everything_and_restores_the_owner(self):
-        planner = planner_with(
-            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140)]
-        )
-        write = planner.disable(minutes(1))
-        assert write.reason == WRITE_DISABLE
-        assert [e.serves for e in write.removed] == ["a"]
-        assert write.owner_state == ("energy_saver", OWNER_SETPOINT)
-        assert planner.owned == []
-        assert planner.plan is None
-
-    def test_the_owner_state_follows_their_last_entry(self):
-        owner = OwnerProgram(
-            "energy_saver",
-            OWNER_SETPOINT,
-            True,
-            (
-                {
-                    "enable": 2,
-                    "week": MONDAY,
-                    "hour": 6,
-                    "min": 0,
-                    "mode": 1,
-                    "param": 110,
-                },
-            ),
-        )
-        assert owner.state_now(NOW, TZ) == ("heat_pump", 110)
-        switched_off = OwnerProgram(
-            "energy_saver", OWNER_SETPOINT, False, owner.entries
-        )
-        assert switched_off.state_now(NOW, TZ) == (
-            "energy_saver",
-            OWNER_SETPOINT,
-        )
-
-
-class TestProgram:
-    def test_owner_entries_are_switched_off_in_the_program(self):
-        owner_entry = {
-            "enable": 2,
-            "week": 2,
-            "hour": 7,
-            "min": 0,
-            "mode": 3,
-            "param": 110,
-        }
-        observed = obs(reservations=(owner_entry,))
-        owner = OwnerProgram(
-            "energy_saver", OWNER_SETPOINT, False, (owner_entry,)
-        )
-        planner = planner_with(
-            [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=140)],
-            observed=observed,
-            owner=owner,
-        )
-        program = planner.program(observed)
-        assert program["reservation_use"] == 2
-        assert program["reservation"][0] == {**owner_entry, "enable": 1}
-        assert program["reservation"][1]["hour"] == 11
-        assert planner.program_hash(observed) == schedule_hash(program)
 
 
 class TestAck:
@@ -1518,7 +1329,6 @@ class TestEffectiveTimeline:
                 reservations=without.reservations,
             )
         restarted = Planner(planner.capabilities, TZ, shadow=False)
-        restarted.owner = planner.owner
         restarted.load_document(planner.as_document())
         assert planner.plan is not None
         restarted.set_plan(planner.plan, minutes(at), seen, restoring=True)

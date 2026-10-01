@@ -1324,6 +1324,8 @@ CONTROL_OBSOLETE_OPTIONS: Final = (
     "control_setpoint_min_f",
     "control_setpoint_max_f",
     "control_allowed_modes",
+    # The adapter keeps no copy of the owner's program: it applies the plan.
+    "control_owner_program",
 )
 
 CONF_CONTROL_OWNER_PROGRAM: Final = "control_owner_program"

@@ -101,16 +101,15 @@ class TestDeclaration:
         assert telemetry["delivery_temperature_dip_f"] == 3.4
         assert telemetry["delivery_temperature_dip_min"] == 3
 
-    def test_owner_program_is_declared(self):
-        owner = {"declared": False, "mode": "energy_saver", "entries": []}
+    def test_no_owner_program_is_kept(self):
+        """The adapter applies the plan; it keeps no copy of the owner's."""
         declaration = build_capabilities(
-            {},
+            {"control_owner_program": {"AA": {"mode": "heat_pump"}}},
             features=None,
             feature_version="v",
             telemetry={},
-            owner_program=owner,
         )
-        assert declaration.as_attributes()["owner_program"] == owner
+        assert declaration.as_attributes()["owner_program"] is None
 
 
 class TestVersion:

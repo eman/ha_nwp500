@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import (
     EventStateChangedData,
     async_track_point_in_utc_time,
@@ -36,7 +35,6 @@ from homeassistant.util import dt as dt_util
 from ..const import (
     CONF_CONTROL_INTENT_ENTITY,
     CONF_CONTROL_MODE,
-    CONF_CONTROL_OWNER_PROGRAM,
     CONF_SCAN_INTERVAL,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_DISABLED,
@@ -48,7 +46,7 @@ from ..const import (
     control_follows_plan,
 )
 from .capabilities import Capabilities, build_capabilities
-from .engine import WRITE_DISABLE, Planner, Report, State, Write
+from .engine import Planner, Report, State, Write
 from .entries import schedule_hash
 from .evaluate import Ack, check_plan, rejected_ack
 from .intent import (
@@ -59,7 +57,6 @@ from .intent import (
     parse_plan,
 )
 from .observed import Observed, observe
-from .owner import OwnerProgram
 from .writer import CoordinatorWriter, ListWriter
 
 if TYPE_CHECKING:
@@ -81,41 +78,15 @@ HEARTBEAT_INTERVAL = timedelta(minutes=5)
 WRITE_RETRY = timedelta(seconds=60)
 # After the retry fails too, writing waits this long before trying again.
 WRITE_PAUSE = timedelta(minutes=15)
-# How long disabling waits for the heater to report the owner's state.
-STATE_CONFIRM_TIMEOUT = 60.0
-STATE_CONFIRM_POLL = 2.0
-
-# The Repairs issue raised while a heater may hold the feature's list that
-# could not be handed back (section 6.6). It persists across restarts, and
-# after the feature is switched off: that is when only it tells the owner.
-ISSUE_HAND_BACK_FAILED = "control_hand_back_failed"
 
 
 def live_writes(options: Mapping[str, Any], mac_address: str) -> bool:
     """Whether these options write the list to this heater.
 
-    Live, with the gate open, the owner's program declared, and segments
-    live. Anything else writes nothing.
+    Live, with the gate open. Anything else writes nothing.
     """
-    return (
-        CONTROL_LIVE_AVAILABLE
-        and control_follows_plan(options)
-        and declared_owner(options, mac_address) is not None
-    )
-
-
-def declared_owner(
-    options: Mapping[str, Any], mac_address: str
-) -> OwnerProgram | None:
-    """The owner's program declared in the options for going live (6.3)."""
-    declared = options.get(CONF_CONTROL_OWNER_PROGRAM)
-    if not isinstance(declared, Mapping):
-        return None
-    document = declared.get(mac_address)
-    if not isinstance(document, Mapping):
-        return None
-    program = OwnerProgram.from_document(document)
-    return replace(program, declared=True) if program is not None else None
+    del mac_address
+    return CONTROL_LIVE_AVAILABLE and control_follows_plan(options)
 
 
 # Existing entities a consumer reads for this heater, by the unique id
@@ -152,7 +123,6 @@ class DeviceControl:
         )
 
         options = entry.options
-        self.declared_owner = declared_owner(options, mac_address)
         mode = str(options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE))
         if mode == CONTROL_MODE_LIVE and not CONTROL_LIVE_AVAILABLE:
             # Nothing can select it yet; an options file edited by hand is
@@ -160,12 +130,6 @@ class DeviceControl:
             _LOGGER.warning(
                 "External control: live mode is switched off in this build "
                 "(CONTROL_LIVE_AVAILABLE); running in shadow"
-            )
-            mode = CONTROL_MODE_SHADOW
-        elif mode == CONTROL_MODE_LIVE and self.declared_owner is None:
-            _LOGGER.warning(
-                "External control: live mode needs the owner's program "
-                "declared in the options (going live); running in shadow"
             )
             mode = CONTROL_MODE_SHADOW
         self.mode = mode
@@ -209,11 +173,8 @@ class DeviceControl:
         self._failures = 0
         self._paused_until: datetime | None = None
         self._cancel_retry: CALLBACK_TYPE | None = None
-        self._release_attempts = 0
-        # Stopped: no pass runs and no timer is armed. Released: the heater
-        # was handed back ahead of a reload; nothing is written after it.
+        # Stopped: no pass runs and no timer is armed.
         self._stopped = False
-        self._released = False
         # Starting live on a heater that holds nothing of the feature's: the
         # stored plan is adopted as new, since nothing of it is in force.
         self._going_live = False
@@ -254,32 +215,11 @@ class DeviceControl:
             # whatever the stored state says it owns was simulated.
             self.planner.forget_simulated()
             self._going_live = True
-        if self.declared_owner is not None:
-            self.planner.owner = self.declared_owner
-            await self.store.async_set_owner(
-                self.mac_address, self.declared_owner.as_document()
-            )
-        elif owner_state := self.store.stored_owner(self.mac_address):
-            self.planner.owner = OwnerProgram.from_document(owner_state)
         observed = self.observe()
-        await self._async_ensure_owner(observed)
 
-        if self.mode == CONTROL_MODE_DISABLED:
-            await self._async_disable(now)
-        else:
-            if self.holds_device and not self.writes:
-                _LOGGER.warning(
-                    "%s still holds external control's schedule entries, but "
-                    "live writes are off. Press Stop external control to "
-                    "hand it back",
-                    self.device_name,
-                )
-                self._report_hand_back(failed=True)
-            elif not self.holds_device:
-                # Only a hand-back, or a heater holding nothing, clears it:
-                # going live again is not handing back.
-                self._report_hand_back(failed=False)
-            await self.store.async_set_disabled_done(self.mac_address, False)
+        # Stopped: no plan is adopted and nothing is written. What is on
+        # the heater stays there; the scheduler's next plan is its answer.
+        if self.mode != CONTROL_MODE_DISABLED:
             if self.intent_entity_id:
                 self._unsubscribe.append(
                     async_track_state_change_event(
@@ -349,202 +289,6 @@ class DeviceControl:
         """
         return self.planner.took_over or self.store.took_over(self.mac_address)
 
-    async def _async_disable(self, now: datetime) -> None:
-        """Section 6.6, once per entry into `disabled`."""
-        await self.store.async_clear_intent(self.mac_address)
-        if self.store.disabled_done(self.mac_address):
-            # A version that kept them on hand-back may have stored reports
-            # and what the heater was seen to hold before it.
-            self.planner.forget_people()
-            await self._async_persist()
-            return
-        async with self._lock:
-            holds = self.holds_device
-            released = await self._async_release(now) if holds else True
-        if holds:
-            if not released:
-                self._retry_release(now)
-                await self._async_persist()
-                return
-            await self.store.async_set_disabled_done(self.mac_address, True)
-            await self._async_persist()
-            return
-        self._report_hand_back(failed=False)
-        write = self.planner.disable(now)
-        _LOGGER.info(
-            "External control disabled for %s: %d entr%s removed%s",
-            self.mac_address,
-            len(write.removed),
-            "y" if len(write.removed) == 1 else "ies",
-            " (simulated)" if write.simulated else "",
-        )
-        await self.store.async_set_disabled_done(self.mac_address, True)
-        await self._async_persist()
-
-    async def async_retry_disable(self, now: datetime) -> None:
-        """The Disable button pressed while already `disabled`.
-
-        Retries a hand-back that failed; does nothing once it is done.
-        """
-        self._release_attempts = 0
-        await self._async_disable(now)
-        self._notify()
-
-    async def async_release(self, now: datetime) -> bool:
-        """Hand the heater back ahead of a reload or switch-off (6.6).
-
-        Nothing is written after it: plans that arrive meanwhile are not
-        adopted, and passes no longer plan.
-        """
-        async with self._lock:
-            self._released = True
-            if not self.holds_device:
-                return True
-            return await self._async_release(now)
-
-    async def _async_release(self, now: datetime) -> bool:
-        """Section 6.6 in live: the owner's list, then the owner's state.
-
-        True once the device confirmed the owner's list. The caller holds
-        the lock.
-        """
-        owner = self.planner.owner
-        if owner is None:
-            _LOGGER.error(
-                "Cannot give %s back its own settings: none are known",
-                self.device_name,
-            )
-            self._report_hand_back(failed=True)
-            return False
-        async with self.writer.locked():
-            if await self._async_fresh_read() is None:
-                self._record_failed_disable(now)
-                await self._async_persist()
-                return False
-            observed = self.observe()
-            # A write that landed unconfirmed left entries that are the
-            # feature's; they must be removed, not kept as someone else's.
-            self.planner.reconcile_unconfirmed(observed)
-            schedule = owner.restore(self.planner.others(observed))
-            if not await self._async_write_list(schedule, observed):
-                # The owner's list may have landed unconfirmed: what it
-                # changes is not a person's doing.
-                self.planner.forget_seen()
-                self._record_failed_disable(now)
-                await self._async_persist()
-                return False
-        mode, setpoint_raw = owner.state_now(now, self.planner.tz)
-        try:
-            sent = await self.writer.async_restore_state(mode, setpoint_raw)
-            confirmed = sent and await self._async_confirm_state(
-                mode, setpoint_raw
-            )
-        except Exception as err:  # noqa: BLE001 - reported, not raised
-            _LOGGER.warning(
-                "Restoring the owner's state on %s failed: %s",
-                self.mac_address,
-                err,
-            )
-            confirmed = False
-        write = self.planner.disable(now, simulated=False, confirmed=confirmed)
-        await self.store.async_set_took_over(self.mac_address, False)
-        self._report_hand_back(failed=False)
-        # Saved now: a reload follows, and the next controller must know the
-        # heater no longer holds the feature's list.
-        await self._async_persist()
-        _LOGGER.info(
-            "External control handed %s back to the owner's program: %d "
-            "entr%s removed%s",
-            self.mac_address,
-            len(write.removed),
-            "y" if len(write.removed) == 1 else "ies",
-            "" if confirmed else "; the owner's state was not confirmed",
-        )
-        return True
-
-    async def _async_confirm_state(self, mode: str, setpoint_raw: int) -> bool:
-        """Read back disabling's direct write (section 6.6, step 4).
-
-        Asks the heater for its status and waits for it to report the
-        owner's mode and setpoint.
-        """
-        deadline = asyncio.get_running_loop().time() + STATE_CONFIRM_TIMEOUT
-        await self.writer.async_request_status()
-        while True:
-            observed = self.observe()
-            if observed.mode == mode and observed.setpoint_raw == setpoint_raw:
-                return True
-            if asyncio.get_running_loop().time() >= deadline:
-                _LOGGER.warning(
-                    "The heater %s reports %s at %s half-degrees, not the "
-                    "owner's %s at %d",
-                    self.mac_address,
-                    observed.mode,
-                    observed.setpoint_raw,
-                    mode,
-                    setpoint_raw,
-                )
-                return False
-            await asyncio.sleep(STATE_CONFIRM_POLL)
-
-    def _record_failed_disable(self, now: datetime) -> None:
-        self.planner.last_write = Write(
-            reason=WRITE_DISABLE,
-            at=now,
-            added=(),
-            removed=tuple(self.planner.owned),
-            result=tuple(self.planner.owned),
-            simulated=False,
-            confirmed=False,
-        )
-        _LOGGER.error(
-            "Could not give %s back its own schedule; external control's "
-            "entries are still on the heater",
-            self.device_name,
-        )
-        self._report_hand_back(failed=True)
-
-    @property
-    def device_name(self) -> str:
-        """The heater's name, as its device shows it, else its MAC."""
-        name = getattr(self.device.device_info, "device_name", None)
-        return name if isinstance(name, str) and name else self.mac_address
-
-    def _report_hand_back(self, *, failed: bool) -> None:
-        """Raise or clear the Repairs issue for a failed hand-back."""
-        issue_id = f"{ISSUE_HAND_BACK_FAILED}_{self.mac_address}"
-        if not failed:
-            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
-            return
-        ir.async_create_issue(
-            self.hass,
-            DOMAIN,
-            issue_id,
-            is_fixable=False,
-            is_persistent=True,
-            severity=ir.IssueSeverity.ERROR,
-            translation_key=ISSUE_HAND_BACK_FAILED,
-            translation_placeholders={"device": self.device_name},
-        )
-
-    def _retry_release(self, now: datetime) -> None:
-        """Retry a failed disabling once; after that, on the next start."""
-        self._release_attempts += 1
-        if self._release_attempts > 1 or self._stopped:
-            return
-        self._cancel_retry_timer()
-
-        async def _retry(when: datetime) -> None:
-            self._cancel_retry = None
-            await self._async_disable(when)
-            self._notify()
-
-        self._cancel_retry = async_track_point_in_utc_time(
-            self.hass, _retry, now + WRITE_RETRY
-        )
-
-    # -- what the entities read -------------------------------------------
-
     @property
     def capabilities(self) -> Capabilities:
         """The current declaration."""
@@ -561,13 +305,11 @@ class DeviceControl:
         return {**self.entry.options, CONF_CONTROL_MODE: self.mode}
 
     def _build_capabilities(self) -> Capabilities:
-        owner = self.planner.owner
         capabilities = build_capabilities(
             self._effective_options(),
             features=self.coordinator.device_features.get(self.mac_address),
             feature_version=self._feature_version,
             telemetry=self._telemetry_entity_ids(),
-            owner_program=owner.as_attributes() if owner else None,
         )
         observed = self.observe()
         if observed.reservations is None:
@@ -627,16 +369,9 @@ class DeviceControl:
         observed = self.observe()
         program = self.planner.program(observed)
         entries: list[dict[str, Any]] = []
-        for entry, is_owner in self.planner.others(observed):
-            # While live the owner's entries are switched off by their own
-            # flag (section 5.1); anyone else's are kept as read.
-            entries.append(
-                {
-                    **entry,
-                    "enable": 1 if is_owner else entry["enable"],
-                    "owner": "owner" if is_owner else "foreign",
-                }
-            )
+        for entry in self.planner.others(observed):
+            # Every entry the feature does not own is kept as read.
+            entries.append({**entry, "owner": "foreign"})
         for owned in self.planner.owned:
             # The device's own keys win: `mode` is the device's mode id here,
             # as in every other entry of this list, with the name in
@@ -686,26 +421,6 @@ class DeviceControl:
             ).get(self.mac_address),
         )
 
-    async def _async_ensure_owner(self, observed: Observed) -> None:
-        """Take the provisional owner's program once the device is known."""
-        if self.planner.owner is not None:
-            return
-        owner = OwnerProgram.from_observed(observed)
-        if owner is None:
-            return
-        self.planner.owner = owner
-        await self.store.async_set_owner(self.mac_address, owner.as_document())
-        _LOGGER.info(
-            "Provisional owner's program for %s: %s at %d half-degrees, "
-            "%d entr%s, reservations %s",
-            self.mac_address,
-            owner.mode,
-            owner.setpoint_raw,
-            len(owner.entries),
-            "y" if len(owner.entries) == 1 else "ies",
-            "on" if owner.reservations_enabled else "off",
-        )
-
     def _track_device_hash(self, observed: Observed, now: datetime) -> None:
         schedule = observed.schedule
         device_hash = schedule_hash(schedule) if schedule is not None else None
@@ -737,9 +452,8 @@ class DeviceControl:
     async def _async_evaluate_once(self, now: datetime) -> None:
         observed = self.observe()
         self._track_device_hash(observed, now)
-        await self._async_ensure_owner(observed)
         self.planner.capabilities = self._build_capabilities()
-        if self.mode != CONTROL_MODE_DISABLED and not self._released:
+        if self.mode != CONTROL_MODE_DISABLED:
             write = self.planner.step(now, observed)
             if write is not None and write.simulated:
                 if self.holds_device:
@@ -1006,7 +720,7 @@ class DeviceControl:
         # Not while a pass is writing: that write was planned on the plan
         # before, and is committed or rejected against it.
         async with self._lock:
-            if self._stopped or self._released:
+            if self._stopped:
                 return False
             if (
                 self.plan is not None

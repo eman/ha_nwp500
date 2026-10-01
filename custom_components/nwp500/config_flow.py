@@ -5,7 +5,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
@@ -14,7 +14,6 @@ from .const import (
     CONF_CONTROL_ENABLED,
     CONF_CONTROL_INTENT_ENTITY,
     CONF_CONTROL_MODE,
-    CONF_CONTROL_OWNER_PROGRAM,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
     CONF_SCAN_INTERVAL,
@@ -296,7 +295,7 @@ def _control_suggested_values(
     suggested = {
         key: value
         for key, value in options.items()
-        if key.startswith("control_") and key != CONF_CONTROL_OWNER_PROGRAM
+        if key.startswith("control_")
     }
     for key in CONTROL_OBSOLETE_OPTIONS:
         suggested.pop(key, None)
@@ -332,13 +331,8 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for NWP500 integration."""
 
     def __init__(self) -> None:
-        """Hold the earlier pages' answers while the next is shown."""
+        """Hold the first page's answers while the next is shown."""
         self._init_input: dict[str, Any] = {}
-        self._control_data: dict[str, Any] = {}
-        # The owner's programs shown on the going-live page: what is saved
-        # is exactly what was confirmed.
-        self._owner_programs: dict[str, dict[str, Any]] | None = None
-        self._owner_summary = ""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -395,18 +389,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     **self._init_input,
                     **_normalise_control_input(self.hass, user_input),
                 }
-                if data.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE:
-                    # Every save in live confirms the owner's program: the
-                    # owner may have changed it since it was declared.
-                    self._control_data = data
-                    # As stored: `options` has lost an earlier version's
-                    # switches, which can make a stored live not live.
-                    if (
-                        _form_mode(dict(self.config_entry.options))
-                        == CONTROL_MODE_LIVE
-                    ):
-                        return await self.async_step_stay_live()
-                    return await self.async_step_going_live()
                 return self.async_create_entry(title="", data=data)
 
         suggested = _control_suggested_values(self.hass, options)
@@ -419,53 +401,6 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ),
             errors=errors,
             description_placeholders={"guide_url": CONTROL_GUIDE_URL},
-        )
-
-    async def async_step_going_live(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """Declare the owner's program before going live (spec 6.3).
-
-        The heater's mode, setpoint, reservation switch and entries are
-        shown for confirmation. Disabling restores exactly this.
-        """
-        return await self._async_confirm_owner("going_live", user_input)
-
-    async def async_step_stay_live(
-        self, user_input: dict[str, Any] | None = None
-    ) -> config_entries.ConfigFlowResult:
-        """The same confirmation, saving options while already live."""
-        return await self._async_confirm_owner("stay_live", user_input)
-
-    async def _async_confirm_owner(
-        self, step_id: str, user_input: dict[str, Any] | None
-    ) -> config_entries.ConfigFlowResult:
-        from .control.owner import async_declare_owner_programs
-
-        if user_input is not None and self._owner_programs is not None:
-            return self.async_create_entry(
-                title="",
-                data={
-                    **self._control_data,
-                    CONF_CONTROL_OWNER_PROGRAM: self._owner_programs,
-                },
-            )
-        celsius = (
-            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
-        )
-        programs, summary = await async_declare_owner_programs(
-            self.hass, self.config_entry, celsius=celsius
-        )
-        self._owner_programs = programs
-        self._owner_summary = summary
-        errors: dict[str, str] = {}
-        if programs is None:
-            errors["base"] = "owner_snapshot_unavailable"
-        return self.async_show_form(
-            step_id=step_id,
-            data_schema=vol.Schema({}),
-            description_placeholders={"program": summary},
-            errors=errors,
         )
 
 

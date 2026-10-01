@@ -10,10 +10,10 @@ unavailable.
 The feature is off by default, and needs a scheduler of your own: an
 automation, a Node-RED flow or a script. Enabling it starts in **Preview**
 (`shadow` in the protocol), which works out and reports the reservation list
-it would write and writes nothing to the heater. **Live** writes the list;
-choosing it first shows your own settings for confirmation, which
-**Stopped** (`disabled`) restores. Live mode was cut over in stages on a real
-heater before protocol `1` was declared.
+it would write and writes nothing to the heater. **Live** writes the list,
+as your scheduler sends it. **Stopped** (`disabled`) stops applying plans.
+Live mode was cut over in stages on a real heater before protocol `1` was
+declared.
 
 The options form and the entities use plain names; the protocol keeps its
 own. A **plan** is the specification's *intent* (its id is `intent_id`), a
@@ -69,23 +69,19 @@ the toggle on opens a second page:
 |---|---|---|
 | Plan entity | none | Required. The entity your scheduler puts its plan on; see below |
 | Mode | Preview | Stored as the `mode` option (spec section 6.1); see the table below |
-| Lowest / highest temperature | the heater's range | Optional tighter bounds. Empty uses the heater's own `dhw_temperature_min` / `max`. A plan's `"min"` setpoint means the lowest |
-| Allowed modes | Heat pump, Energy Saver (Eco) | Modes a plan may choose. Heat pump must be allowed for a plan to hold it. When first going live, one mode keeps the heater from switching modes |
 | Schedule size limit / entries kept free | 16 / 2 | The most entries the heater's schedule may hold in total, **your own included**, and how many are kept free for changes needed right away. The feature uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32, and larger lists are untested |
 
 | Mode | Stored as | What it does |
 |---|---|---|
 | Preview: show what the plan would do, write nothing | `shadow` | Works out the schedule and shows it on the entities; writes nothing |
-| Live: follow the plan | `live` | Writes the plan into the heater's schedule. The next page shows your own settings; it goes live only once you submit it |
-| Stopped: give the heater back your own settings, then do nothing | `disabled` | Hands the heater back once, then does nothing. Its entities stay; turning the toggle off removes them |
-
-Saving the form while already live shows your own settings again, on a page
-that says it stays live.
+| Live: follow the plan | `live` | Writes the plan into the heater's schedule, as your scheduler sends it |
+| Stopped: stop applying plans, write nothing | `disabled` | No plan is adopted and nothing is written. What is on the heater stays there. Its entities stay; turning the toggle off removes them |
 
 Changing any option updates the capability entity, and so its version.
 Options of earlier versions are removed the next time the form is saved: the
-live switches, the surplus sensor, threshold and minimum run, and the
-faster-recovery mode. An earlier version's `live` with its segments switch
+live switches, the surplus sensor, threshold and minimum run, the
+faster-recovery mode, the lowest/highest temperature, the allowed modes and
+the saved copy of your own settings. An earlier version's `live` with its segments switch
 off writes nothing, and shows as Preview, until then.
 
 While the feature is off, nothing of it loads: no imports, listeners,
@@ -151,15 +147,15 @@ to the minute.
 |---|---|---|
 | `id` | yes | Unique in the plan |
 | `start` | yes | ISO 8601 with offset |
-| `setpoint_f`, `setpoint_c` or `setpoint: "min"` | exactly one | The setpoint. Numbers are quantised to half a degree Celsius. `"min"` is the **Lowest temperature** option, else the device's minimum |
-| `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand` or `electric`. A later segment without one keeps the previous mode |
+| `setpoint_f`, `setpoint_c` or `setpoint: "min"` | exactly one | The setpoint, written as given and quantised to half a degree Celsius; the heater clamps it to its range. `"min"` is the heater's own minimum |
+| `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand`, `electric`, `vacation` or `power_off`. A later segment without one keeps the previous mode |
 | `reassert` | no | Protocol 1.1. `true` gives the segment its own entry even when it repeats the state before it, so a person's change is ended at its start |
 
-`vacation` and `power_off` are never accepted. Entries are skipped during
-Vacation, so the plan's next entry would never end it. Whether an entry with
-the power-off mode powers the heater off is untested, and the mode command
-with that value switched the unit tested to Energy Saver (#160). Use
-`setpoint: "min"` for effectively off.
+Every mode is applied as given; what it does is your scheduler's to know.
+The heater skips entries during Vacation, so a later entry of the plan does
+not end it. Whether an entry with the power-off mode powers the heater off
+is untested, and the mode command with that value switched the unit tested
+to Energy Saver (#160).
 
 ### Surplus grants
 
@@ -171,8 +167,8 @@ programmed as usual. Store surplus energy with ordinary segments instead.
 
 A plan is **rejected whole**, and the plan in force stays, for:
 `invalid_document`, `unsupported_protocol`, `duplicate_id`,
-`unordered_segments`, `out_of_bounds` (a segment's setpoint),
-`mode_not_allowed` or `superseded`. One bad segment rejects the plan, because
+`unordered_segments`, `mode_not_allowed` (a mode the heater does not have)
+or `superseded`. One bad segment rejects the plan, because
 skipping it would leave the segment before it in force over its time.
 
 Every **grant** is rejected on its own, `grants_unsupported`.
@@ -204,8 +200,7 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
   always sets both. A segment with the same state as the one before gets no
   entry (`merged`).
 - **Near-term entries.** A change needed now is an entry for the first minute
-  at least two minutes ahead: a segment already begun, and re-asserting the
-  segment after Vacation or power-off.
+  at least two minutes ahead: a segment already begun.
 - **Horizon.** Entries are programmed at most 144 hours ahead, because a
   weekly entry cannot say which week. Later segments are `scheduled` and
   programmed as time passes.
@@ -215,17 +210,15 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
 - **Fired entries** are removed in the next write, and within a day at most.
   While the feature is unavailable they stay, so after a week the device
   repeats the programmed run.
-- **Your own entries** stay on the device. While live, the feature switches
-  each one off by its own enable flag, so none fires against the plan, and
-  switches them back on when it is disabled. They count against the entry
-  limit.
+- **Entries that are not the feature's**, your own included, stay on the
+  device exactly as they are, and fire as they are set. They count against
+  the entry limit.
 - **One enabled entry per minute.** A plan entry that would share a weekday
   and minute with another enabled entry moves a minute later, with the
-  warning `moved_1_min`. It may share one with a switched-off entry, such as
-  your own while live: the device fires only the enabled one.
+  warning `moved_1_min`. It may share one with a switched-off entry: the
+  device fires only the enabled one.
 - **Replacing a plan.** Entries the new plan also wants are kept. A plan
-  republished unchanged writes nothing, so it does not undo a person's
-  setpoint or mode change. It does put back an entry a person deleted:
+  republished unchanged writes nothing. It does put back an entry a person deleted:
   a new plan is programmed as it stands (see People's changes below).
 
 ## Entities
@@ -251,13 +244,12 @@ reads.
 | External control last write (`last_write`), diagnostic | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
 | Manual change detected (`override`) | On while a person's change is reported | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
 | External control heartbeat (`heartbeat`), diagnostic | Updated at least every 15 minutes | none |
-| Stop external control (`disable`, button) | | Sets Mode to Stopped. Pressed again while Stopped, it retries a hand-back that failed |
+| Stop external control (`disable`, button) | | Sets Mode to Stopped: the feature stops applying plans |
 
 Segment statuses are `shadow`, `scheduled`, `merged` and `ended` in shadow;
 live adds `pending`, `programmed`, `in_force`, `failed` and `removed`.
 Every grant is `rejected`. The last write's `reason` is one of `plan`,
-`cleanup`, `near_term`, `precedence_exit`, `power_off`, `takeover` and
-`disable`.
+`cleanup`, `near_term` and `takeover`.
 
 ### The capability declaration
 
@@ -265,11 +257,11 @@ Every grant is `rejected`. The last write's `reason` is one of `plan`,
 |---|---|
 | `protocols`, `protocol_versions`, `feature_version`, `mode`, `live` | What runs. `protocol_versions` names the newest minor of each major, `["1.2", "0"]`; a scheduler checks it before relying on `reassert` (1.1). `live` is `{"segments": <the mode is live>, "grants": false}` (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
 | `setpoint_min_f` / `_c`, `setpoint_max_f` / `_c`, `setpoint_resolution_c` | The bounds, and the device's half-degree resolution. Absent until the device's feature data has arrived |
-| `allowed_modes` | The modes a segment may use |
+| `allowed_modes` | Every mode a segment may use: all six (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
 | `assisted_mode` | Always `energy_saver` (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192): the scheduler's choice, not the heater's) |
 | `horizon_h`, `near_term_lead_min`, `entry_limit`, `entry_reserve`, `entries_available` | How entries are budgeted. `entries_available` changes as entries fire, so it is left out of the version |
 | `grants_supported`, `grant_rules`, `grant_rule_ranges` | `false`, and fixed values nothing follows (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
-| `owner_program` | What disabling restores: `declared`, `mode`, `setpoint_f`, `setpoint_c`, `reservations_enabled`, `entries`. `declared: false` is the provisional snapshot shadow uses |
+| `owner_program` | Always `null`: the feature keeps no copy of your own settings (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
 | `entry_mode_in_tou_window`, `entries_fire_when_powered_off`, `entries_fire_in_vacation` | How the heater treats reservation entries, measured on the unit tested |
 | `lower_trigger_f`, `setpoint_write_starts_recovery`, `setpoint_write_stops_compressor`, `list_write_starts_recovery`, `unchanged_entry_starts_recovery` | Tank and recovery behaviour measured on the unit tested (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192): tank modelling belongs in time_to_heat) |
 | `telemetry` | Entity ids for this heater's delivery temperature, compressor and power draw; and the delivery-temperature dip (withdrawn, [#192](https://github.com/eman/ha_nwp500/issues/192)) |
@@ -278,13 +270,9 @@ Every grant is `rejected`. The last write's `reason` is one of `plan`,
 
 Live mode writes the plan into the heater's reservation list.
 
-- **Going live.** Choosing Live shows your own settings for confirmation:
-  the heater's mode, temperature, schedule switch and schedule entries. That
-  is the owner's program, which Stopped restores. Live does not run without
-  it.
 - **Taking the list over.** The first write, once a plan is in force, turns
-  the reservation switch on and switches each of the owner's entries off by
-  its own flag. The entries stay on the heater.
+  the reservation switch on. Every entry that is not the feature's stays as
+  it is.
 - **Every write** reads the list first, keeps entries the feature does not
   own, writes the list whole, and counts only once the heater reads back the
   new list. An unconfirmed write is retried once after a minute; after that
@@ -300,30 +288,21 @@ Live mode writes the plan into the heater's reservation list.
   `held_in_tou_window`. A person's change in the meantime explains any
   difference. Only what the heater reports counts: nothing is inferred from
   what its compressor or elements do. A mode held by a TOU window is checked
-  again when the heater reports it or the window ends. Disabling reads its
-  direct write back from the heater's status.
+  again when the heater reports it or the window ends.
 - **Statuses** become `pending`, `programmed`, `in_force`, `failed` and
   `removed`, and the acknowledgement's state `programmed`,
   `partly_programmed` or `pending`.
 - **People's changes.** An entry a person deletes is not written again
   while its plan is in force. If it would have put a segment in force (its
-  plan entry, or the near-term or precedence-exit entry of one already
-  begun), that segment is `removed` and never takes effect: the state
+  plan entry, or the near-term entry of one already begun), that segment is `removed` and never takes effect: the state
   before it holds, and is not written either (spec section 5.10). A new
   plan is the scheduler's answer and is programmed as it stands, so a
   scheduler that honours a deletion leaves that segment out of its next
   plan (spec section 5.6). A person turning the reservation switch off
   keeps it off.
-- **Leaving live** for Preview first hands the heater back as disabling does, so shadow starts from the owner's program.
-- **Disabling** removes the feature's entries, gives the owner's entries
-  their flags and the reservation switch back, then writes the owner's
-  state: the one set by the owner's latest enabled entry, else the declared
-  mode and setpoint. That direct write is skipped in Vacation or power-off.
-  A failed hand-back is retried once after a minute, then at the next start.
-  Until it succeeds, a Repairs issue says so and how to finish it, even
-  after the feature is turned off. Handing back works even with live mode
-  switched off in code, so a heater left holding the feature's entries can
-  always be returned.
+- **Leaving live, Stopped, or turning the feature off** writes nothing.
+  What the plans put on the heater stays there, and keeps firing every
+  week, until your scheduler's next plan or you change it.
 - **A feature that cannot start** leaves the rest of the integration
   running, and raises a Repairs issue until it starts or is turned off.
 
@@ -337,8 +316,8 @@ The acknowledgement shows each segment's status, when its entry fires, and
 any warning.
 
 The feature also reports people's changes in shadow: a setpoint or mode
-change that no entry on the device explains, an entry added to the list, or
-the reservation switch turned off. It never undoes them.
+change that no entry on the device explains, Vacation and power-off
+included, or the reservation switch turned off.
 
 ## Behaviour in brief
 
@@ -352,16 +331,12 @@ the reservation switch turned off. It never undoes them.
 - **The device fires an entry whatever the compressor is doing.** Cycle
   policy, such as a minimum run before stopping, is the scheduler's: it
   chooses segment times.
-- **During Vacation the device skips entries**, so the feature keeps the
-  newest plan written on the heater, and re-asserts the segment in force
-  when Vacation ends. **During an Anti-Legionella cycle** it writes nothing.
-  A plan accepted while the heater is powered off is written when power
-  returns.
-- **Power-off is different: entries still fire, and power the heater back
-  on.** So when the heater is switched off, the feature switches its own
-  entries off by their own flag, and back on when power returns, re-asserting
-  the segment in force. This needs Home Assistant running when the heater is
-  switched off; otherwise the next entry turns it back on.
+- **Vacation, power-off and Anti-Legionella get no special handling.** The
+  feature writes the plan whatever state the heater is in. The device skips
+  entries during Vacation and fires them while powered off, powering the
+  heater back on. A person putting the heater in Vacation or powering it off
+  is reported on the manual-change entity; what to do about it is your
+  scheduler's.
 - **Unload and restart write nothing.** The programmed entries keep running.
 
 Device behaviour these rules rest on is documented in `nwp500-python`:

@@ -175,25 +175,18 @@ def schedule_hash(schedule: Mapping[str, Any]) -> str:
 
 
 def compose_program(
-    others: Iterable[tuple[dict[str, int], bool]],
+    others: Iterable[dict[str, int]],
     owned: Iterable[OwnedEntry],
     *,
     reservations_on: bool = True,
 ) -> dict[str, Any]:
     """The list the feature wants on the device while live.
 
-    `others` are the entries the feature does not own, each with whether it
-    is one of the owner's: the owner's are switched off by their own enable
-    flag (section 5.1), anyone else's are kept as read. The reservation
-    switch is on, unless a person turned it off after the feature took the
-    list over (section 5.10): then it stays off.
+    `others` are the entries the feature does not own, kept as read. The
+    reservation switch is on, unless a person turned it off after the
+    feature took the list over (section 5.10): then it stays off.
     """
-    reservation: list[dict[str, int]] = []
-    for entry, is_owner in others:
-        kept = dict(entry)
-        if is_owner:
-            kept["enable"] = 1
-        reservation.append(kept)
+    reservation: list[dict[str, int]] = [dict(entry) for entry in others]
     reservation.extend(e.as_entry() for e in owned)
     return {
         "reservation_use": DEVICE_BOOL_ON
