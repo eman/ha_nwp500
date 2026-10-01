@@ -103,6 +103,13 @@ class TestParsing:
         del doc["commands"]
         assert parse_plan(doc).commands == ()
 
+    def test_a_whole_number_may_be_written_as_one(self):
+        """JSON has numbers: 5.0 is 5, as the schema has it."""
+        (command,) = _commands({"id": "v", "command": "vacation", "days": 5.0})
+        assert command.rejection is None
+        assert command.params == {"days": 5}
+        assert isinstance(command.params["days"], int)
+
     def test_opaque_keys_are_kept_apart(self):
         (command,) = _commands(
             {"id": "v", "command": "vacation", "days": 5, "why": "trip"}
@@ -116,7 +123,7 @@ class TestParsing:
             {"id": "x", "command": "vacation"},
             {"id": "x", "command": "vacation", "days": "5"},
             {"id": "x", "command": "vacation", "days": True},
-            {"id": "x", "command": "vacation", "days": 5.0},
+            {"id": "x", "command": "vacation", "days": 5.5},
             {"id": "x", "command": "power", "on": 1},
             {"id": "x", "command": "anti_legionella", "enabled": True},
             {
@@ -499,6 +506,8 @@ class TestLive:
         heater, control = await live_factory()
 
         assert [c for c, _ in heater.commands] == ["vacation", "power"]
+        # Both sent, then one status request reads them back.
+        assert heater.status_requests == 1
         for command in heater.unreported:
             heater.report(command)
         await control._async_evaluate(dt_util.utcnow())
@@ -625,6 +634,8 @@ def _schema():
         {"id": "d", "command": "demand_response", "enabled": True},
         {"id": "x", "command": "vacation"},
         {"id": "x", "command": "vacation", "days": "5"},
+        {"id": "w", "command": "vacation", "days": 5.0},
+        {"id": "x", "command": "vacation", "days": 5.5},
         {"id": "x", "command": "power", "on": 1},
         {"id": "x", "command": "anti_legionella", "enabled": True},
         {

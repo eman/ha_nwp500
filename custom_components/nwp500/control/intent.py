@@ -359,8 +359,15 @@ def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
 
 def _is_type(value: Any, kind: type) -> bool:
     if kind is int:
-        return isinstance(value, int) and not isinstance(value, bool)
+        # JSON has numbers, not integers: 5.0 is 5, as the schema has it.
+        return (
+            _is_number(value) and math.isfinite(value) and value == int(value)
+        )
     return isinstance(value, kind)
+
+
+def _as_type(value: Any, kind: type) -> Any:
+    return int(value) if kind is int and _is_type(value, int) else value
 
 
 def _command_problem(
@@ -409,7 +416,9 @@ def _parse_commands(raw_commands: Any) -> tuple[Command, ...]:
             Command(
                 id=command_id,
                 command=name if isinstance(name, str) else "",
-                params={k: raw[k] for k in keys if k in raw},
+                params={
+                    k: _as_type(raw[k], t) for k, t in keys.items() if k in raw
+                },
                 extra={k: v for k, v in raw.items() if k not in own},
                 rejection=problem[0] if problem else None,
                 detail=problem[1] if problem else None,

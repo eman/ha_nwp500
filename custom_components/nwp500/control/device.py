@@ -478,12 +478,14 @@ class DeviceControl:
     async def _async_apply_commands(self, now: datetime) -> None:
         """Read sent commands back, then send those not yet sent, in order.
 
-        Each is read back after it is sent; its status is what the heater
-        then reports. In shadow nothing is sent: each is reported `shadow`.
+        All are sent as fast as the library takes them, then one status
+        request reads them back; each status is what the heater then
+        reports. In shadow nothing is sent: each is reported `shadow`.
         """
         self.commands.check(now, self.observe())
         if not self.writes:
             return
+        sent = False
         for command in self.commands.to_send():
             # Recorded as sent first, so a restart does not send it again.
             self.commands.sending(command, dt_util.utcnow())
@@ -500,6 +502,8 @@ class DeviceControl:
                 )
                 self.commands.failed(command, str(err) or type(err).__name__)
                 continue
+            sent = True
+        if sent:
             await self.writer.async_request_status()
             self.commands.check(dt_util.utcnow(), self.observe())
 
