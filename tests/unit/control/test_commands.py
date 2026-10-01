@@ -11,6 +11,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
+from homeassistant.util import dt as dt_util
 
 from custom_components.nwp500.control.commands import (
     STATUS_APPLIED,
@@ -176,21 +177,23 @@ class TestCommands:
     def test_shadow_sends_nothing(self):
         runner = Commands(WINDOW)
         runner.set_plan(
+            "i-1",
             _commands({"id": "t", "command": "tou", "enabled": True}),
             writes=False,
         )
-        assert runner.next_to_send() is None
+        assert runner.to_send() == []
         assert _statuses(runner) == {"t": (STATUS_SHADOW, None)}
 
     def test_applied_once_the_heater_reports_it(self):
         runner = Commands(WINDOW)
         runner.set_plan(
+            "i-1",
             _commands({"id": "t", "command": "tou", "enabled": True}),
             writes=True,
         )
-        command = runner.next_to_send()
+        (command,) = runner.to_send()
         runner.sending(command, NOW)
-        assert runner.next_to_send() is None
+        assert runner.to_send() == []
         assert runner.check(NOW, Observed(tou_on=False)) is False
         assert _statuses(runner) == {"t": (STATUS_PENDING, None)}
         assert runner.check(NOW, Observed(tou_on=True)) is True
@@ -200,10 +203,11 @@ class TestCommands:
         """A person changing the setting later does not change it."""
         runner = Commands(WINDOW)
         runner.set_plan(
+            "i-1",
             _commands({"id": "t", "command": "tou", "enabled": True}),
             writes=True,
         )
-        runner.sending(runner.next_to_send(), NOW)
+        runner.sending(runner.to_send()[0], NOW)
         runner.check(NOW, Observed(tou_on=True))
         runner.check(NOW + WINDOW * 2, Observed(tou_on=False))
         assert _statuses(runner) == {"t": (STATUS_APPLIED, None)}
@@ -211,10 +215,11 @@ class TestCommands:
     def test_failed_when_the_heater_does_not_report_it(self):
         runner = Commands(WINDOW)
         runner.set_plan(
+            "i-1",
             _commands({"id": "v", "command": "vacation", "days": 5}),
             writes=True,
         )
-        runner.sending(runner.next_to_send(), NOW)
+        runner.sending(runner.to_send()[0], NOW)
         assert runner.next_deadline == NOW + WINDOW
         runner.check(NOW + WINDOW, Observed(mode="heat_pump"))
         assert _statuses(runner) == {"v": (STATUS_FAILED, REASON_NOT_APPLIED)}
@@ -223,12 +228,13 @@ class TestCommands:
         """The heater reports utility events, not whether it takes part."""
         runner = Commands(WINDOW)
         runner.set_plan(
+            "i-1",
             _commands(
                 {"id": "d", "command": "demand_response", "enabled": True}
             ),
             writes=True,
         )
-        runner.sending(runner.next_to_send(), NOW)
+        runner.sending(runner.to_send()[0], NOW)
         runner.check(NOW, Observed())
         assert _statuses(runner) == {"d": (STATUS_APPLIED, None)}
 
@@ -288,111 +294,63 @@ class TestCommands:
     )
     def test_read_back(self, raw, observed, applied):
         runner = Commands(WINDOW)
-        runner.set_plan(_commands({"id": "c", **raw}), writes=True)
-        runner.sending(runner.next_to_send(), NOW)
+        runner.set_plan("i-1", _commands({"id": "c", **raw}), writes=True)
+        runner.sending(runner.to_send()[0], NOW)
         runner.check(NOW, observed)
         assert _statuses(runner)["c"][0] == (
             STATUS_APPLIED if applied else STATUS_PENDING
         )
 
-    def test_the_same_command_is_not_applied_again(self):
+    def test_a_new_plan_applies_its_commands(self):
+        """Whether to send a command is the scheduler's: it is in the plan."""
         runner = Commands(WINDOW)
         tou = {"id": "t", "command": "tou", "enabled": True}
-        runner.set_plan(_commands(tou), writes=True)
-        runner.sending(runner.next_to_send(), NOW)
+        runner.set_plan("i-1", _commands(tou), writes=True)
+        runner.sending(runner.to_send()[0], NOW)
         runner.check(NOW, Observed(tou_on=True))
 
-        runner.set_plan(_commands({**tou, "note": "new plan"}), writes=True)
-        assert runner.next_to_send() is None
-        assert _statuses(runner) == {"t": (STATUS_APPLIED, None)}
+        runner.set_plan("i-2", _commands(tou), writes=True)
+        assert [c.id for c in runner.to_send()] == ["t"]
+        assert _statuses(runner) == {"t": (STATUS_PENDING, None)}
 
-    def test_changed_content_is_applied_again(self):
+    def test_nothing_is_kept_of_an_earlier_plan(self):
         runner = Commands(WINDOW)
         runner.set_plan(
+            "i-1",
             _commands({"id": "t", "command": "tou", "enabled": True}),
             writes=True,
         )
-        runner.sending(runner.next_to_send(), NOW)
-        runner.set_plan(
-            _commands({"id": "t", "command": "tou", "enabled": False}),
-            writes=True,
-        )
-        assert runner.next_to_send().id == "t"
-
-    def test_going_live_applies_what_shadow_evaluated(self):
-        runner = Commands(WINDOW)
-        commands = _commands({"id": "t", "command": "tou", "enabled": True})
-        runner.set_plan(commands, writes=False)
-        runner.set_plan(commands, writes=True)
-        assert runner.next_to_send().id == "t"
-
-    def test_an_id_omitted_in_between_is_not_sent_again(self):
-        runner = Commands(WINDOW)
-        tou = _commands({"id": "t", "command": "tou", "enabled": True})
-        runner.set_plan(tou, writes=True)
-        runner.sending(runner.next_to_send(), NOW)
-        runner.check(NOW, Observed(tou_on=True))
-
-        runner.set_plan((), writes=True)
+        runner.set_plan("i-2", (), writes=True)
         assert runner.ack() == ()
-        runner.set_plan(tou, writes=True)
-        assert runner.next_to_send() is None
-        assert _statuses(runner) == {"t": (STATUS_APPLIED, None)}
+        assert runner.as_document() == {"intent_id": "i-2", "commands": {}}
 
-    def test_one_at_a_time_in_list_order(self):
-        """Vacation then power: power waits for Vacation's read-back."""
+    def test_in_list_order_in_one_pass(self):
         runner = Commands(WINDOW)
         runner.set_plan(
+            "i-1",
             _commands(
                 {"id": "v", "command": "vacation", "days": 5},
                 {"id": "p", "command": "power", "on": False},
             ),
             writes=True,
         )
-        assert runner.next_to_send().id == "v"
-        runner.sending(runner.next_to_send(), NOW)
-        assert runner.next_to_send() is None
-        runner.check(NOW, Observed(mode="vacation", vacation_days=5))
-        assert runner.next_to_send().id == "p"
-        runner.sending(runner.next_to_send(), NOW)
-        runner.check(NOW, Observed(mode="power_off"))
-        assert _statuses(runner) == {
-            "v": (STATUS_APPLIED, None),
-            "p": (STATUS_APPLIED, None),
-        }
+        assert [c.id for c in runner.to_send()] == ["v", "p"]
 
-    def test_the_next_goes_once_the_one_before_failed(self):
+    def test_going_live_applies_what_shadow_evaluated(self):
         runner = Commands(WINDOW)
-        runner.set_plan(
-            _commands(
-                {"id": "v", "command": "vacation", "days": 5},
-                {"id": "t", "command": "tou", "enabled": True},
-            ),
-            writes=True,
-        )
-        runner.sending(runner.next_to_send(), NOW)
-        runner.check(NOW + WINDOW, Observed(mode="heat_pump"))
-        assert runner.next_to_send().id == "t"
-
-    def test_history_is_bounded(self):
-        from custom_components.nwp500.control.commands import HISTORY_LIMIT
-
-        runner = Commands(WINDOW)
-        for index in range(HISTORY_LIMIT + 5):
-            runner.set_plan(
-                _commands(
-                    {"id": f"t{index}", "command": "tou", "enabled": True}
-                ),
-                writes=False,
-            )
-        assert len(runner.as_document()) == HISTORY_LIMIT + 1
+        commands = _commands({"id": "t", "command": "tou", "enabled": True})
+        runner.set_plan("i-1", commands, writes=False)
+        runner.set_plan("i-1", commands, writes=True, restoring=True)
+        assert [c.id for c in runner.to_send()] == ["t"]
 
     def test_a_rejected_command_is_reported_and_never_sent(self):
         runner = Commands(WINDOW)
         runner.set_plan(
-            _commands({"id": "r", "command": "recirculation"}), writes=True
+            "i-1",
+            _commands({"id": "r", "command": "recirculation"}),
+            writes=True,
         )
-        assert runner.next_to_send() is None
+        assert runner.to_send() == []
         (item,) = runner.ack()
         assert (item.status, item.reason) == (
             STATUS_REJECTED,
@@ -404,14 +362,18 @@ class TestCommands:
     def test_kept_across_a_restart(self):
         runner = Commands(WINDOW)
         commands = _commands({"id": "t", "command": "tou", "enabled": True})
-        runner.set_plan(commands, writes=True)
-        runner.sending(runner.next_to_send(), NOW)
+        runner.set_plan("i-1", commands, writes=True)
+        runner.sending(runner.to_send()[0], NOW)
 
         restored = Commands(WINDOW)
         restored.load_document(runner.as_document())
-        restored.set_plan(commands, writes=True)
-        assert restored.next_to_send() is None
+        restored.set_plan("i-1", commands, writes=True, restoring=True)
+        assert restored.to_send() == []
         assert restored.next_deadline == NOW + WINDOW
+
+        # Another plan, even with the same commands, applies them.
+        restored.set_plan("i-2", commands, writes=True, restoring=True)
+        assert [c.id for c in restored.to_send()] == ["t"]
 
 
 # -- live, against a simulated heater ------------------------------------
@@ -493,10 +455,24 @@ class TestLive:
             "0",
         ]
 
-        # A new plan with the same command does not send it again.
+        # The same plan received again is not adopted again.
         _publish(
             hass,
-            _doc(
+            {
+                **_live_doc(
+                    now, {"id": "t", "command": "tou", "enabled": True}
+                ),
+                "note": "x",
+            },
+        )
+        await hass.async_block_till_done()
+        assert heater.commands == [("tou", {"enabled": True})]
+
+        # A new plan carrying the command applies it.
+        _publish(
+            hass,
+            _live_doc(
+                now,
                 {"id": "t", "command": "tou", "enabled": True},
                 intent_id="i-2",
                 issued_at=now + timedelta(minutes=1),
@@ -504,14 +480,13 @@ class TestLive:
         )
         await hass.async_block_till_done()
         assert control.plan.intent_id == "i-2"
-        assert heater.commands == [("tou", {"enabled": True})]
+        assert heater.commands == [("tou", {"enabled": True})] * 2
 
     @pytest.mark.asyncio
-    async def test_each_waits_for_the_one_before(
+    async def test_in_list_order_without_waiting(
         self, hass, command_heater, live_factory, monkeypatch, now
     ):
-        from homeassistant.util import dt as dt_util
-
+        """Each is sent as the library takes it; none waits for another."""
         monkeypatch.setattr(CommandHeater, "holds_reports", True)
         _publish(
             hass,
@@ -522,17 +497,14 @@ class TestLive:
             ),
         )
         heater, control = await live_factory()
-        assert heater.commands == [("vacation", {"days": 5})]
 
-        # The heater reports Vacation; the next pass sends power.
-        heater.report(heater.unreported.pop())
-        await control._async_evaluate(dt_util.utcnow())
         assert [c for c, _ in heater.commands] == ["vacation", "power"]
-        heater.report(heater.unreported.pop())
+        for command in heater.unreported:
+            heater.report(command)
         await control._async_evaluate(dt_util.utcnow())
-
+        # What the heater reports: power off hides Vacation's mode.
         assert [(i["id"], i["status"]) for i in _ack_commands(control)] == [
-            ("v", "applied"),
+            ("v", "pending"),
             ("p", "applied"),
         ]
 

@@ -1,9 +1,9 @@
 """Device commands: applied once, as sent, and reported (spec section 3.7).
 
-A plan's commands are settings a reservation entry cannot set. Each is
-applied once, when its plan is adopted, after the list is written, one at a
-time in list order; an id sent with some content is not sent again with it,
-by a later plan or a restart.
+A plan's commands are settings a reservation entry cannot set. Adopting a
+plan applies its commands, once each, in list order, after the list is
+written; nothing is kept of a plan's commands once another is adopted.
+Whether to send a command is the scheduler's: it puts it in a plan or not.
 A status reports the application only: a person changing the setting later
 does not change it, and nothing here undoes their change.
 """
@@ -25,10 +25,6 @@ STATUS_PENDING = "pending"
 STATUS_APPLIED = "applied"
 STATUS_FAILED = "failed"
 STATUS_REJECTED = "rejected"
-
-# Commands of earlier plans kept so their ids are not sent again; the
-# oldest are forgotten beyond this.
-HISTORY_LIMIT = 100
 
 
 def reads_back(command: Command, observed: Observed) -> bool | None:
@@ -91,23 +87,35 @@ class _Record:
 
 
 class Commands:
-    """The plan's commands and what became of each."""
+    """The plan in force's commands and what became of each."""
 
     def __init__(self, window: timedelta) -> None:
         """`window`: how long the heater has to report a sent command."""
         self.window = window
+        self.intent_id: str | None = None
         self.commands: tuple[Command, ...] = ()
         self._records: dict[str, _Record] = {}
 
-    def set_plan(self, commands: tuple[Command, ...], *, writes: bool) -> None:
-        """Take a plan's commands, keeping what became of ones seen before.
+    def set_plan(
+        self,
+        intent_id: str,
+        commands: tuple[Command, ...],
+        *,
+        writes: bool,
+        restoring: bool = False,
+    ) -> None:
+        """Take an adopted plan's commands: each is to be applied once.
 
-        A command evaluated in shadow was not applied, so going live
-        applies it.
+        Restoring the plan in force after a restart keeps what became of
+        each, so none is sent again; a command evaluated in shadow was not
+        applied, so going live applies it.
         """
+        kept = (
+            self._records if restoring and intent_id == self.intent_id else {}
+        )
         records: dict[str, _Record] = {}
         for command in commands:
-            old = self._records.get(command.id)
+            old = kept.get(command.id)
             if command.rejection is not None:
                 records[command.id] = _Record(
                     command.content,
@@ -126,31 +134,18 @@ class Commands:
                     command.content,
                     STATUS_PENDING if writes else STATUS_SHADOW,
                 )
-        # Earlier plans' commands stay on record, so an id that a plan in
-        # between omitted is not sent again; they are no longer reported.
-        history = [(k, r) for k, r in self._records.items() if k not in records]
+        self.intent_id = intent_id
         self.commands = commands
-        self._records = dict(history[-HISTORY_LIMIT:]) | records
+        self._records = records
 
-    def _active(self) -> list[tuple[Command, _Record]]:
-        return [(c, self._records[c.id]) for c in self.commands]
-
-    def next_to_send(self) -> Command | None:
-        """The next command to send, once none sent is still unreported.
-
-        One at a time, so a later command that changes the same setting
-        cannot hide an earlier one's read-back.
-        """
-        active = self._active()
-        if any(
-            r.status == STATUS_PENDING and r.sent_at is not None
-            for _, r in active
-        ):
-            return None
-        for command, record in active:
-            if record.status == STATUS_PENDING and record.sent_at is None:
-                return command
-        return None
+    def to_send(self) -> list[Command]:
+        """The commands not yet sent, in list order."""
+        return [
+            c
+            for c in self.commands
+            if (r := self._records[c.id]).status == STATUS_PENDING
+            and r.sent_at is None
+        ]
 
     def sending(self, command: Command, now: datetime) -> None:
         """Mark a command sent before sending it, so it is sent once."""
@@ -166,7 +161,8 @@ class Commands:
     def check(self, now: datetime, observed: Observed) -> bool:
         """Read sent commands back; True if a status changed."""
         changed = False
-        for command, record in self._active():
+        for command in self.commands:
+            record = self._records[command.id]
             if record.status != STATUS_PENDING or record.sent_at is None:
                 continue
             applied = reads_back(command, observed)
@@ -184,7 +180,7 @@ class Commands:
         """When the next sent command must have been reported by."""
         deadlines = [
             r.sent_at + self.window
-            for _, r in self._active()
+            for r in self._records.values()
             if r.status == STATUS_PENDING and r.sent_at is not None
         ]
         return min(deadlines, default=None)
@@ -192,7 +188,8 @@ class Commands:
     def ack(self) -> tuple[ItemAck, ...]:
         """Each command's entry on the acknowledgement."""
         items: list[ItemAck] = []
-        for command, record in self._active():
+        for command in self.commands:
+            record = self._records[command.id]
             detail: dict[str, Any] = {"command": command.command}
             if record.detail is not None:
                 detail["detail"] = record.detail
@@ -208,11 +205,17 @@ class Commands:
         return tuple(items)
 
     def as_document(self) -> dict[str, Any]:
-        """What must survive a restart: what became of each command."""
-        return {k: r.as_document() for k, r in self._records.items()}
+        """What must survive a restart: the plan in force's commands."""
+        return {
+            "intent_id": self.intent_id,
+            "commands": {k: r.as_document() for k, r in self._records.items()},
+        }
 
     def load_document(self, document: dict[str, Any]) -> None:
         """Restore what `as_document` kept; the plan follows on adoption."""
+        if not document:
+            return
+        self.intent_id = document["intent_id"]
         self._records = {
-            k: _Record.from_document(v) for k, v in document.items()
+            k: _Record.from_document(v) for k, v in document["commands"].items()
         }

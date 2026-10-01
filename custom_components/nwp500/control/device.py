@@ -476,16 +476,15 @@ class DeviceControl:
         self._notify()
 
     async def _async_apply_commands(self, now: datetime) -> None:
-        """Read sent commands back, then send the next, one at a time.
+        """Read sent commands back, then send those not yet sent, in order.
 
-        A command waits until the one before it is reported or failed; the
-        status update that reports it starts the pass that sends the next.
-        In shadow nothing is sent: each command is reported `shadow`.
+        Each is read back after it is sent; its status is what the heater
+        then reports. In shadow nothing is sent: each is reported `shadow`.
         """
         self.commands.check(now, self.observe())
         if not self.writes:
             return
-        while (command := self.commands.next_to_send()) is not None:
+        for command in self.commands.to_send():
             # Recorded as sent first, so a restart does not send it again.
             self.commands.sending(command, dt_util.utcnow())
             await self._async_persist()
@@ -818,7 +817,12 @@ class DeviceControl:
         self.received_at = received_at
         self.planner.capabilities = self._build_capabilities()
         self.planner.set_plan(plan, now, observed, restoring=restoring)
-        self.commands.set_plan(plan.commands, writes=self.writes)
+        self.commands.set_plan(
+            plan.intent_id,
+            plan.commands,
+            writes=self.writes,
+            restoring=restoring,
+        )
         _LOGGER.debug(
             "Plan %s for %s adopted: %d segment(s)",
             plan.intent_id,

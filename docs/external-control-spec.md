@@ -35,6 +35,10 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
 
 ## 1. Constraints on the integration
 
+The feature applies the scheduler's plan and reports what the heater does:
+anything that would decide, remember across plans, wait, or time something
+on its own judgement is the scheduler's, not the feature's.
+
 ### 1.1 Purely additive
 
 1. **Off by default.** An options-flow toggle, *External control*, enables
@@ -306,19 +310,21 @@ nothing: when to send a command is the scheduler's.
 | `tou` | `enabled`, boolean | `set_tou_enabled` | `tou_status` |
 | `demand_response` | `enabled`, boolean | `enable_demand_response` / `disable_demand_response` | nothing: the heater reports a utility's events, not whether it takes part, so the command is `applied` once the library has sent it |
 
-**When a command is applied.** Once, when the plan that carries it is adopted
-(section 5.6), in the pass that writes the plan's list and after that write,
-whether or not the write was confirmed: a command does not wait for the
-entries. Commands go one at a time, in list order: each is sent once the one
-before it is `applied` or `failed`, so a later command that changes the same
-setting (Vacation, then power) cannot hide an earlier one's read-back. An
-`id` sent with some content (`command` and its own keys; opaque keys do not
-count) is not sent again with that content, by a later plan, a plan in
-between that omits it, or a restart; its status carries over. The same `id`
-with other content is sent again. In shadow a command is evaluated, not
-written (status `shadow`), and going live applies it; while `disabled`
-nothing is applied. A plan step can already put the heater in `vacation` or
-`power_off` at a time (section 3.4); a command is for now.
+**When a command is applied.** Adopting a plan (section 5.6) applies its
+commands: each is written once, in list order, as fast as the library takes
+them, in the pass that writes the plan's list and after that write, whether
+or not the write was confirmed. Then each is reported as the heater reports
+it. Nothing is kept of a plan's commands once another plan is adopted:
+whether to send a command is the scheduler's, by putting it in a plan or
+leaving it out. The plan in force received again, or restored after a
+restart, is not adopted again, so its commands are not written again. A
+later command that changes what an earlier one set (Vacation, then power
+off) can leave the earlier one unreported; a scheduler that needs one
+command to have taken before the next sends the next in a later plan. In
+shadow a command is evaluated, not written (status `shadow`), and going
+live applies it; while `disabled` nothing is applied. A plan step can
+already put the heater in `vacation` or `power_off` at a time (section
+3.4); a command is for now.
 
 **Validation.** A command is checked on its own, and the plan proceeds
 whatever happens to it: a bad command never costs the heater its plan. One
@@ -335,7 +341,7 @@ valid `id`, rejects the document (`invalid_document`).
 heater has reported what a command set, the command is `applied`, and stays
 so. If a person later changes that setting, the change is theirs: it is not
 undone, and the command is not marked otherwise. A scheduler that wants the
-setting back sends the command again, with a new `id` or changed content.
+setting back sends the command in a new plan.
 
 **Decided** (the owner, 2026-10-01):
 1. A command is applied when its plan is adopted, and has no time of its
