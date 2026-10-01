@@ -1246,6 +1246,17 @@ class TestExternalControlOptions:
         )
 
         assert result["step_id"] == "stay_live"
+        # A heater that holds the feature's list keeps its earlier
+        # declaration (spec 6.3), so the page must not invite edits.
+        import json
+        from pathlib import Path as _Path
+
+        root = _Path("custom_components/nwp500")
+        for name in ("strings.json", "translations/en.json"):
+            text = json.loads((root / name).read_text())["options"]["step"][
+                "stay_live"
+            ]["description"]
+            assert "choose Stopped and save first" in text
         result = await handler.async_step_stay_live({})
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["data"]["control_live_grants"] is True

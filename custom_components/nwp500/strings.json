@@ -88,7 +88,7 @@
       },
       "stay_live": {
         "title": "Check your own settings",
-        "description": "External control stays live. These are your own settings, which come back when external control stops:\n\n{program}\n\nIf they are not what you want back, change them and save again. Submit to save and keep external control live."
+        "description": "External control stays live. These are your own settings, which come back when external control stops:\n\n{program}\n\nChanges made on the heater while it is live don't count: to change these settings, choose Stopped and save first, change them on the heater, then go live again. Submit to save and keep external control live."
       }
     },
     "error": {
