@@ -2,8 +2,9 @@
 
 Per device: the last accepted plan, so a restart with the intent source
 unavailable does not lose it (spec section 2.1); the planner's state, which
-includes the entries the feature owns; the owner's program; and whether the
-disabling clean-up has run.
+includes the entries the feature owns; what became of each device command,
+so a restart does not apply one again; and whether the feature has written
+the heater's list.
 """
 
 from __future__ import annotations
@@ -78,6 +79,19 @@ class ControlStore:
         if self._device(mac_address).get("engine") == document:
             return
         self._device(mac_address)["engine"] = document
+        await self._store.async_save(self._data)
+
+    def stored_commands(self, mac_address: str) -> dict[str, Any]:
+        """What became of each device command, kept across a restart."""
+        return dict(self._device(mac_address).get("commands") or {})
+
+    async def async_set_commands(
+        self, mac_address: str, document: dict[str, Any]
+    ) -> None:
+        """Remember what became of each device command, if it changed."""
+        if self._device(mac_address).get("commands", {}) == document:
+            return
+        self._device(mac_address)["commands"] = document
         await self._store.async_save(self._data)
 
     def took_over(self, mac_address: str) -> bool:

@@ -31,7 +31,7 @@ class TestDeclaration:
         }
         assert attrs["protocols"] == ["1", "0"]
         # The newest minor of each major: 1.1 adds `reassert`.
-        assert attrs["protocol_versions"] == ["1.2", "0"]
+        assert attrs["protocol_versions"] == ["1.3", "0"]
         assert attrs["mode"] == "shadow"
         assert attrs["horizon_h"] == 144
         assert attrs["near_term_lead_min"] == 2

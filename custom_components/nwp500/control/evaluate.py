@@ -83,6 +83,8 @@ class Ack:
     reason: str | None = None
     detail: str | None = None
     segments: tuple[ItemAck, ...] = ()
+    # Device commands (section 3.7), in the plan's order.
+    commands: tuple[ItemAck, ...] = ()
     # The latest document rejected while this plan stayed in force.
     rejection: Ack | None = None
 
@@ -94,6 +96,7 @@ class Ack:
             "reason": self.reason,
             "detail": self.detail,
             "segments": [s.as_attribute() for s in self.segments],
+            "commands": [c.as_attribute() for c in self.commands],
             "rejected": {
                 "intent_id": rejection.intent_id,
                 "reason": rejection.reason,

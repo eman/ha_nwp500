@@ -120,3 +120,100 @@ async def test_a_refused_direct_write_is_reported():
     coordinator.async_control_device.return_value = False
     writer = CoordinatorWriter(coordinator, MAC)
     assert await writer.async_restore_state("heat_pump", 120) is False
+
+
+# -- device commands (section 3.7) -----------------------------------------
+
+
+def _command(raw):
+    from custom_components.nwp500.control.intent import Command
+
+    raw = dict(raw)
+    name = raw.pop("command")
+    return Command(id="c", command=name, params=raw)
+
+
+@pytest.mark.parametrize(
+    ("raw", "method", "args"),
+    [
+        ({"command": "vacation", "days": 5}, "set_vacation_days", (5,)),
+        ({"command": "power", "on": False}, "set_power", (False,)),
+        ({"command": "power", "on": True}, "set_power", (True,)),
+        (
+            {"command": "anti_legionella", "enabled": True, "period_days": 7},
+            "enable_anti_legionella",
+            (7,),
+        ),
+        (
+            {"command": "anti_legionella", "enabled": False},
+            "disable_anti_legionella",
+            (),
+        ),
+        ({"command": "tou", "enabled": True}, "set_tou_enabled", (True,)),
+        ({"command": "tou", "enabled": False}, "set_tou_enabled", (False,)),
+        (
+            {"command": "demand_response", "enabled": True},
+            "enable_demand_response",
+            (),
+        ),
+        (
+            {"command": "demand_response", "enabled": False},
+            "disable_demand_response",
+            (),
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_each_command_makes_its_one_library_call(raw, method, args):
+    coordinator = _coordinator()
+    client = MagicMock(name="client")
+    for name in (
+        "set_vacation_days",
+        "set_power",
+        "enable_anti_legionella",
+        "disable_anti_legionella",
+        "set_tou_enabled",
+        "enable_demand_response",
+        "disable_demand_response",
+    ):
+        setattr(client, name, AsyncMock(name=name))
+    coordinator.mqtt_manager.mqtt_client = client
+    writer = CoordinatorWriter(coordinator, MAC)
+
+    await writer.async_send_command(_command(raw))
+
+    device = coordinator._devices_by_mac[MAC]
+    getattr(client, method).assert_awaited_once_with(device, *args)
+    called = [
+        name
+        for name in vars(client)
+        if isinstance(getattr(client, name), AsyncMock)
+        and getattr(client, name).await_count
+    ]
+    assert called == [method]
+
+
+@pytest.mark.asyncio
+async def test_the_library_error_is_raised():
+    coordinator = _coordinator()
+    client = MagicMock(name="client")
+    client.set_vacation_days = AsyncMock(side_effect=ValueError("1-30"))
+    coordinator.mqtt_manager.mqtt_client = client
+    writer = CoordinatorWriter(coordinator, MAC)
+
+    with pytest.raises(ValueError, match="1-30"):
+        await writer.async_send_command(
+            _command({"command": "vacation", "days": 45})
+        )
+
+
+@pytest.mark.asyncio
+async def test_without_a_session_a_command_is_not_sent():
+    coordinator = _coordinator()
+    coordinator.mqtt_manager = None
+    writer = CoordinatorWriter(coordinator, MAC)
+
+    with pytest.raises(ConnectionError):
+        await writer.async_send_command(
+            _command({"command": "tou", "enabled": True})
+        )

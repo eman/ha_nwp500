@@ -45,6 +45,7 @@ from ..const import (
     control_follows_plan,
 )
 from .capabilities import Capabilities, build_capabilities
+from .commands import Commands
 from .engine import Planner, Report, State, Write
 from .entries import schedule_hash
 from .evaluate import Ack, check_plan, rejected_ack
@@ -154,6 +155,8 @@ class DeviceControl:
             shadow=not self.writes,
             explain_window=timedelta(seconds=poll + 60),
         )
+        # The heater has a poll and a minute to report a command's setting.
+        self.commands = Commands(timedelta(seconds=poll + 60))
 
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsubscribe: list[CALLBACK_TYPE] = []
@@ -202,6 +205,16 @@ class DeviceControl:
                     shadow=not self.writes,
                     explain_window=self.planner.explain_window,
                 )
+        try:
+            self.commands.load_document(
+                self.store.stored_commands(self.mac_address)
+            )
+        except KeyError, TypeError, ValueError:
+            # From an earlier version; a command is then applied again.
+            _LOGGER.info(
+                "Discarding unreadable stored commands for %s",
+                self.mac_address,
+            )
         if self.writes and not self.holds_device:
             # Going live on a heater that holds nothing of the feature's:
             # whatever the stored state says it owns was simulated.
@@ -325,7 +338,10 @@ class DeviceControl:
             if self._rejected is None:
                 return self.planner.ack(None)
             return replace(self._rejected, rejection=self._rejected)
-        ack = self.planner.ack(self.plan.intent_id)
+        ack = replace(
+            self.planner.ack(self.plan.intent_id),
+            commands=self.commands.ack(),
+        )
         if self._rejected is None:
             return ack
         return replace(ack, rejection=self._rejected)
@@ -450,12 +466,46 @@ class DeviceControl:
             elif write is not None:
                 await self._async_write_live(now)
                 self._track_device_hash(self.observe(), now)
+            # After the list: a plan's commands follow its entries (3.7).
+            await self._async_apply_commands(now)
         if self.planner.took_over:
             await self.store.async_set_took_over(self.mac_address, True)
         if not self._stopped:
             self._schedule_next_event()
         await self._async_persist()
         self._notify()
+
+    async def _async_apply_commands(self, now: datetime) -> None:
+        """Read sent commands back, then send those not yet sent, in order.
+
+        All are sent as fast as the library takes them, then one status
+        request reads them back; each status is what the heater then
+        reports. In shadow nothing is sent: each is reported `shadow`.
+        """
+        self.commands.check(now, self.observe())
+        if not self.writes:
+            return
+        sent = False
+        for command in self.commands.to_send():
+            # Recorded as sent first, so a restart does not send it again.
+            self.commands.sending(command, dt_util.utcnow())
+            await self._async_persist()
+            try:
+                await self.writer.async_send_command(command)
+            except Exception as err:  # noqa: BLE001 - reported on the ack
+                _LOGGER.warning(
+                    "The %s command %s to %s failed: %s",
+                    command.command,
+                    command.id,
+                    self.mac_address,
+                    err,
+                )
+                self.commands.failed(command, str(err) or type(err).__name__)
+                continue
+            sent = True
+        if sent:
+            await self.writer.async_request_status()
+            self.commands.check(dt_util.utcnow(), self.observe())
 
     async def _async_fresh_read(self) -> dict[str, Any] | None:
         try:
@@ -578,6 +628,9 @@ class DeviceControl:
         await self.store.async_set_engine(
             self.mac_address, self.planner.as_document()
         )
+        await self.store.async_set_commands(
+            self.mac_address, self.commands.as_document()
+        )
 
     @callback
     def _on_coordinator_update(self) -> None:
@@ -588,7 +641,12 @@ class DeviceControl:
         if self._cancel_event is not None:
             self._cancel_event()
             self._cancel_event = None
-        when = self.planner.next_event_at
+        times = [
+            t
+            for t in (self.planner.next_event_at, self.commands.next_deadline)
+            if t is not None
+        ]
+        when = min(times, default=None)
         if when is None or self.mode == CONTROL_MODE_DISABLED:
             return
         self._cancel_event = async_track_point_in_utc_time(
@@ -763,6 +821,12 @@ class DeviceControl:
         self.received_at = received_at
         self.planner.capabilities = self._build_capabilities()
         self.planner.set_plan(plan, now, observed, restoring=restoring)
+        self.commands.set_plan(
+            plan.intent_id,
+            plan.commands,
+            writes=self.writes,
+            restoring=restoring,
+        )
         _LOGGER.debug(
             "Plan %s for %s adopted: %d segment(s)",
             plan.intent_id,

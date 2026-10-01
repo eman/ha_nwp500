@@ -1,4 +1,4 @@
-"""The intent document: a plan of segments.
+"""The intent document: a plan of segments and device commands.
 
 Spec section 3 of issue #158. Parsing checks what the document says on its
 own terms: types, required keys, ids and the order of segments. Checks that
@@ -9,6 +9,7 @@ the device controller.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Mapping
@@ -28,7 +29,7 @@ SUPPORTED_PROTOCOLS: tuple[str, ...] = ("1", "0")
 # (spec section 4.1), so a consumer can check that a minor version's keys
 # are honoured before relying on them. A feature that knew only 1.0 would
 # keep 1.1's keys as opaque.
-PROTOCOL_VERSIONS: tuple[str, ...] = ("1.2", "0")
+PROTOCOL_VERSIONS: tuple[str, ...] = ("1.3", "0")
 # A major version, and optionally a minor one: "1" or "1.1". The schema
 # carries the same pattern.
 _PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
@@ -45,8 +46,23 @@ REASON_UNORDERED_SEGMENTS = "unordered_segments"
 REASON_OUT_OF_BOUNDS = "out_of_bounds"
 REASON_MODE_NOT_ALLOWED = "mode_not_allowed"
 REASON_SUPERSEDED = "superseded"
+# A command rejected on its own; the plan proceeds (section 3.7).
+REASON_INVALID_COMMAND = "invalid_command"
+REASON_UNSUPPORTED_COMMAND = "unsupported_command"
 
-_TOP_LEVEL_KEYS = frozenset({"protocol", "intent_id", "issued_at", "segments"})
+# Device commands (protocol 1.3, section 3.7): each one's own keys, all
+# required. Anti-Legionella's period is given only when switching it on.
+COMMAND_KEYS: dict[str, dict[str, type]] = {
+    "vacation": {"days": int},
+    "power": {"on": bool},
+    "anti_legionella": {"enabled": bool, "period_days": int},
+    "tou": {"enabled": bool},
+    "demand_response": {"enabled": bool},
+}
+
+_TOP_LEVEL_KEYS = frozenset(
+    {"protocol", "intent_id", "issued_at", "segments", "commands"}
+)
 _SEGMENT_KEYS = frozenset(
     {"id", "start", "setpoint_f", "setpoint_c", "mode", "reassert"}
 )
@@ -122,6 +138,36 @@ class Segment:
 
 
 @dataclass(frozen=True)
+class Command:
+    """One device command, applied once as sent (section 3.7).
+
+    A command that is malformed or unknown is kept, with why, so the
+    acknowledgement can report it; it is never applied.
+    """
+
+    id: str
+    command: str
+    params: dict[str, Any]
+    extra: dict[str, Any] = field(default_factory=dict)
+    # `invalid_command` or `unsupported_command`; None if it can be applied.
+    rejection: str | None = None
+    detail: str | None = None
+    # The item as it was given, for storage.
+    raw: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def content(self) -> str:
+        """What the command does: the same id with other content is new."""
+        return json.dumps(
+            {"command": self.command, **self.params}, sort_keys=True
+        )
+
+    def as_document(self) -> dict[str, Any]:
+        """The command as it was given."""
+        return dict(self.raw)
+
+
+@dataclass(frozen=True)
 class Plan:
     """An accepted intent document."""
 
@@ -129,6 +175,7 @@ class Plan:
     issued_at: datetime
     segments: tuple[Segment, ...]
     extra: dict[str, Any] = field(default_factory=dict)
+    commands: tuple[Command, ...] = ()
 
     def segment_at(self, when: datetime) -> Segment | None:
         """The segment in force at `when`, or None before the first."""
@@ -156,6 +203,8 @@ class Plan:
             "issued_at": self.issued_at.isoformat(),
             "segments": [s.as_document() for s in self.segments],
         }
+        if self.commands:
+            doc["commands"] = [c.as_document() for c in self.commands]
         return doc
 
 
@@ -308,6 +357,77 @@ def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
     return tuple(segments)
 
 
+def _is_type(value: Any, kind: type) -> bool:
+    if kind is int:
+        # JSON has numbers, not integers: 5.0 is 5, as the schema has it.
+        return (
+            _is_number(value) and math.isfinite(value) and value == int(value)
+        )
+    return isinstance(value, kind)
+
+
+def _as_type(value: Any, kind: type) -> Any:
+    return int(value) if kind is int and _is_type(value, int) else value
+
+
+def _command_problem(
+    name: Any, raw: Mapping[str, Any]
+) -> tuple[str, str] | None:
+    """Why a command cannot be applied, or None if it can."""
+    if not isinstance(name, str):
+        return REASON_INVALID_COMMAND, "command must be a string"
+    keys = COMMAND_KEYS.get(name)
+    if keys is None:
+        return REASON_UNSUPPORTED_COMMAND, f"command {name!r} is not supported"
+    required = dict(keys)
+    if name == "anti_legionella" and raw.get("enabled") is not True:
+        del required["period_days"]
+        if "period_days" in raw:
+            return (
+                REASON_INVALID_COMMAND,
+                "period_days is given only with enabled true",
+            )
+    for key, kind in required.items():
+        if key not in raw:
+            return REASON_INVALID_COMMAND, f"{name} lacks {key}"
+        if not _is_type(raw[key], kind):
+            return (
+                REASON_INVALID_COMMAND,
+                f"{name} {key} must be {'a whole number' if kind is int else 'true or false'}",
+            )
+    return None
+
+
+def _parse_commands(raw_commands: Any) -> tuple[Command, ...]:
+    """The plan's commands. Only the list's shape and the ids are fatal."""
+    if not isinstance(raw_commands, list | tuple):
+        raise _reject(REASON_INVALID_DOCUMENT, "commands must be a list")
+    commands: list[Command] = []
+    for index, raw in enumerate(raw_commands):
+        where = f"commands[{index}]"
+        if not isinstance(raw, Mapping):
+            raise _reject(REASON_INVALID_DOCUMENT, f"{where} must be an object")
+        command_id = _parse_id(raw, where)
+        name = raw.get("command")
+        keys = COMMAND_KEYS.get(name, {}) if isinstance(name, str) else {}
+        problem = _command_problem(name, raw)
+        own = {"id", "command", *keys}
+        commands.append(
+            Command(
+                id=command_id,
+                command=name if isinstance(name, str) else "",
+                params={
+                    k: _as_type(raw[k], t) for k, t in keys.items() if k in raw
+                },
+                extra={k: v for k, v in raw.items() if k not in own},
+                rejection=problem[0] if problem else None,
+                detail=problem[1] if problem else None,
+                raw=dict(raw),
+            )
+        )
+    return tuple(commands)
+
+
 def parse_plan(document: Mapping[str, Any]) -> Plan:
     """Parse a document. Raises `IntentRejected` on failure."""
     for key in ("protocol", "intent_id", "issued_at", "segments"):
@@ -343,9 +463,10 @@ def parse_plan(document: Mapping[str, Any]) -> Plan:
 
     issued_at = _parse_timestamp(document["issued_at"], "issued_at")
     segments = _parse_segments(document["segments"])
+    commands = _parse_commands(document.get("commands", []))
 
     seen: set[str] = set()
-    for item_id in [s.id for s in segments]:
+    for item_id in [s.id for s in segments] + [c.id for c in commands]:
         if item_id in seen:
             raise _reject(
                 REASON_DUPLICATE_ID, f"id {item_id!r} appears more than once"
@@ -357,6 +478,7 @@ def parse_plan(document: Mapping[str, Any]) -> Plan:
         issued_at=issued_at,
         segments=segments,
         extra={k: v for k, v in document.items() if k not in _TOP_LEVEL_KEYS},
+        commands=commands,
     )
 
 
