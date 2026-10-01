@@ -10,10 +10,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from ..const import CONTROL_MODE_NAMES
 from .capabilities import Capabilities
 from .intent import (
     REASON_MODE_NOT_ALLOWED,
-    REASON_OUT_OF_BOUNDS,
     IntentRejected,
     Plan,
     mode_is_valid,
@@ -127,29 +127,19 @@ def rejected_ack(
 
 
 def check_plan(plan: Plan, capabilities: Capabilities) -> None:
-    """Reject the plan if a segment does not fit the declaration.
+    """Reject the plan if a segment names a mode the heater does not have.
 
-    Bounds not yet known (the device's feature data has not arrived and no
-    option sets them) are not checked; `"min"` then waits to be resolved.
+    Every mode it has is accepted, Vacation and power-off included: what a
+    mode does is the scheduler's to know. Setpoints are not checked: the
+    heater clamps what it is given, and limits belong in the library.
     """
-    low = capabilities.setpoint_min_raw
-    high = capabilities.setpoint_max_raw
+    del capabilities
     for segment in plan.segments:
-        if not mode_is_valid(segment.mode) or (
-            segment.mode not in capabilities.allowed_modes
-        ):
+        if not mode_is_valid(segment.mode):
             raise IntentRejected(
                 REASON_MODE_NOT_ALLOWED,
                 f"segment {segment.id!r} mode {segment.mode!r} is not one of "
-                f"{', '.join(capabilities.allowed_modes)}",
-            )
-        raw = segment.setpoint_raw
-        if raw is not None and (
-            (low is not None and raw < low) or (high is not None and raw > high)
-        ):
-            raise IntentRejected(
-                REASON_OUT_OF_BOUNDS,
-                f"segment {segment.id!r} setpoint is outside the bounds",
+                f"{', '.join(CONTROL_MODE_NAMES)}",
             )
 
 

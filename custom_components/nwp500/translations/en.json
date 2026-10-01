@@ -58,18 +58,12 @@
         "data": {
           "control_intent_entity": "Plan entity",
           "control_mode": "Mode",
-          "control_setpoint_min": "Lowest temperature",
-          "control_setpoint_max": "Highest temperature",
-          "control_allowed_modes": "Allowed modes",
           "control_reservation_entry_limit": "Schedule size limit",
           "control_reservation_entry_reserve": "Schedule entries kept free"
         },
         "data_description": {
           "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor. Its state is the plan's ID and its attributes are the plan.",
           "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule: after this page you confirm your own settings, and only then does it go live. Stopped gives the heater back your own settings once, then does nothing; its entities stay. To remove external control completely, turn it off on the first page.",
-          "control_setpoint_min": "The lowest temperature a plan may set. Leave empty to use the heater's own minimum.",
-          "control_setpoint_max": "The highest temperature a plan may set. Leave empty to use the heater's own maximum.",
-          "control_allowed_modes": "The modes a plan may choose. Vacation and power off are never allowed. When first going live, allowing only one mode keeps the heater from switching modes.",
           "control_reservation_entry_limit": "The most entries the heater's schedule may hold in total, your own included. External control uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32.",
           "control_reservation_entry_reserve": "Entries kept free for changes that must happen right away, such as a plan step that has already begun. Must be less than the schedule size limit."
         }
@@ -84,9 +78,7 @@
       }
     },
     "error": {
-      "setpoint_range": "The lowest temperature must be below the highest.",
       "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit.",
-      "allowed_modes_empty": "Allow at least one mode.",
       "owner_snapshot_unavailable": "Your heater's own settings can't be read yet. Wait until the heater reports its mode, temperature and schedule, and take it out of Vacation or power off, then submit again."
     }
   },
@@ -513,7 +505,9 @@
           "heat_pump": "Heat pump",
           "energy_saver": "Energy Saver (Eco)",
           "high_demand": "High demand",
-          "electric": "Electric"
+          "electric": "Electric",
+          "vacation": "Vacation",
+          "power_off": "Power off"
         }
       },
       "control_wanted_setpoint": {
@@ -558,7 +552,9 @@
               "heat_pump": "Heat pump",
               "energy_saver": "Energy Saver (Eco)",
               "high_demand": "High demand",
-              "electric": "Electric"
+              "electric": "Electric",
+              "vacation": "Vacation",
+              "power_off": "Power off"
             }
           },
           "setpoint_f": {
@@ -1106,14 +1102,6 @@
         "shadow": "Preview: show what the plan would do, write nothing",
         "live": "Live: follow the plan",
         "disabled": "Stopped: give the heater back your own settings, then do nothing"
-      }
-    },
-    "control_mode_name": {
-      "options": {
-        "heat_pump": "Heat pump",
-        "energy_saver": "Energy Saver (Eco)",
-        "high_demand": "High demand",
-        "electric": "Electric"
       }
     }
   },

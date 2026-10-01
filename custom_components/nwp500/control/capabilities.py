@@ -17,13 +17,10 @@ from typing import Any
 from nwp500.temperature import HalfCelsius
 
 from ..const import (
-    CONF_CONTROL_ALLOWED_MODES,
     CONF_CONTROL_MODE,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
-    CONF_CONTROL_SETPOINT_MAX_F,
-    CONF_CONTROL_SETPOINT_MIN_F,
-    DEFAULT_CONTROL_ALLOWED_MODES,
+    CONTROL_MODE_NAMES,
     DEFAULT_CONTROL_ASSISTED_MODE,
     DEFAULT_CONTROL_MODE,
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
@@ -84,7 +81,6 @@ class Capabilities:
     live_segments: bool
     setpoint_min_raw: int | None
     setpoint_max_raw: int | None
-    allowed_modes: tuple[str, ...]
     entry_limit: int
     entry_reserve: int
     feature_version: str
@@ -113,7 +109,8 @@ class Capabilities:
                 "grants": False,
             },
             "setpoint_resolution_c": SETPOINT_RESOLUTION_C,
-            "allowed_modes": list(self.allowed_modes),
+            # Every mode a segment may name: the heater applies any of them.
+            "allowed_modes": list(CONTROL_MODE_NAMES),
             # Not the heater's choice: fixed until it leaves the protocol.
             "assisted_mode": DEFAULT_CONTROL_ASSISTED_MODE,
             "horizon_h": int(HORIZON.total_seconds() // 3600),
@@ -160,12 +157,6 @@ class Capabilities:
         return hashlib.sha256(payload.encode()).hexdigest()[:8]
 
 
-def _raw_from_option_f(value: Any) -> int | None:
-    if value is None:
-        return None
-    return int(HalfCelsius.from_fahrenheit(float(value)).raw_value)
-
-
 def _raw_from_feature(features: Any, name: str) -> int | None:
     raw = getattr(features, name, None) if features is not None else None
     if isinstance(raw, bool) or not isinstance(raw, int):
@@ -173,38 +164,16 @@ def _raw_from_feature(features: Any, name: str) -> int | None:
     return raw
 
 
-def _bounds(
-    options: Mapping[str, Any], features: Any
-) -> tuple[int | None, int | None]:
-    """The setpoint bounds: the device's range, tightened by the options.
+def _bounds(features: Any) -> tuple[int | None, int | None]:
+    """The heater's own setpoint range, as it reports it; None until then.
 
-    An option can only narrow the range. A minimum below the device's, or a
-    maximum above it, would let a plan carry setpoints the heater cannot
-    apply, so the device's own limit wins. If the options leave no range at
-    all within the device's, they are ignored.
+    Declared, and the floor `"min"` resolves to. The adapter checks no
+    setpoint against it: the heater clamps what it is given.
     """
-    device_min = _raw_from_feature(features, "dhw_temperature_min_raw")
-    device_max = _raw_from_feature(features, "dhw_temperature_max_raw")
-    option_min = _raw_from_option_f(options.get(CONF_CONTROL_SETPOINT_MIN_F))
-    option_max = _raw_from_option_f(options.get(CONF_CONTROL_SETPOINT_MAX_F))
-
-    low = (
-        option_min
-        if device_min is None
-        else max(
-            device_min, option_min if option_min is not None else device_min
-        )
+    return (
+        _raw_from_feature(features, "dhw_temperature_min_raw"),
+        _raw_from_feature(features, "dhw_temperature_max_raw"),
     )
-    high = (
-        option_max
-        if device_max is None
-        else min(
-            device_max, option_max if option_max is not None else device_max
-        )
-    )
-    if low is not None and high is not None and low > high:
-        return device_min, device_max
-    return low, high
 
 
 def build_capabilities(
@@ -223,18 +192,13 @@ def build_capabilities(
     `power` to their entity ids, or None where the entity is not
     registered.
     """
-    setpoint_min_raw, setpoint_max_raw = _bounds(options, features)
+    setpoint_min_raw, setpoint_max_raw = _bounds(features)
 
     return Capabilities(
         mode=str(options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)),
         live_segments=control_follows_plan(options),
         setpoint_min_raw=setpoint_min_raw,
         setpoint_max_raw=setpoint_max_raw,
-        allowed_modes=tuple(
-            options.get(
-                CONF_CONTROL_ALLOWED_MODES, DEFAULT_CONTROL_ALLOWED_MODES
-            )
-        ),
         entry_limit=int(
             options.get(
                 CONF_CONTROL_RESERVATION_ENTRY_LIMIT,

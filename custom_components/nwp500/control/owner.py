@@ -190,7 +190,7 @@ _DAYS = (
     (4, "Fri"),
     (2, "Sat"),
 )
-# As the options form names them (the `control_mode_name` selector).
+# As the entities' state labels name them.
 _MODE_LABELS = {
     "heat_pump": "Heat pump",
     "electric": "Electric",

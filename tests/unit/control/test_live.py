@@ -36,7 +36,6 @@ from custom_components.nwp500.control.device import (
 )
 from custom_components.nwp500.control.engine import (
     REPORT_SWITCHED_OFF,
-    WRITE_POWER_OFF,
     WRITE_TAKEOVER,
     Planner,
     Report,
@@ -786,21 +785,6 @@ class TestLiveWrites:
         assert statuses(control.ack)["later"] == ("removed", None)
         assert len(heater.writes) == writes
 
-    @pytest.mark.asyncio
-    async def test_power_off_switches_the_feature_entries_off(
-        self, hass, live_factory, now
-    ):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        control.coordinator.data[MAC]["status"].dhw_operation_setting = 6
-        await control._async_evaluate(dt_util.utcnow())
-
-        assert control.last_write.reason == WRITE_POWER_OFF
-        assert control.last_write.confirmed is True
-        written = heater.writes[-1]
-        assert all(e["enable"] == 1 for e in written["reservation"])
-        assert len(written["reservation"]) == 3
-
 
 class TestLiveDisable:
     @pytest.mark.asyncio
@@ -972,21 +956,6 @@ class TestLiveDisable:
             r for r in again.planner.reports.values() if r.field == "removed"
         ]
         assert "removed" not in {s.status for s in again.ack.segments}
-
-    @pytest.mark.asyncio
-    async def test_no_direct_write_in_vacation(self, hass, live_factory, now):
-        _publish(hass, _two_segments(now))
-        heater, control = await live_factory()
-        await control.async_stop()
-        control.coordinator.data[MAC]["status"].dhw_operation_setting = 5
-
-        _, disabled = await live_factory(
-            reuse=True, **{CONF_CONTROL_MODE: CONTROL_MODE_DISABLED}
-        )
-        assert heater.schedule == OWNER_LIST
-        assert heater.states == []
-        assert disabled.last_write.owner_state is None
-        assert disabled.store.disabled_done(MAC) is True
 
     @pytest.mark.asyncio
     async def test_release_before_switching_off(self, hass, live_factory, now):

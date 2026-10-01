@@ -21,7 +21,6 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.nwp500.const import (
-    CONF_CONTROL_ALLOWED_MODES,
     CONF_CONTROL_ENABLED,
     CONF_CONTROL_INTENT_ENTITY,
     CONF_CONTROL_MODE,
@@ -45,7 +44,6 @@ from .conftest import FakeFeatures, make_document, segment
 
 MAC = "AA:BB:CC:DD:EE:FF"
 INTENT_ENTITY = "sensor.water_heater_intent"
-ALL_MODES = ["heat_pump", "energy_saver", "high_demand", "electric"]
 
 
 def _status(**overrides) -> MagicMock:
@@ -69,7 +67,6 @@ def _entry(hass: HomeAssistant, **options) -> MockConfigEntry:
         options={
             CONF_CONTROL_ENABLED: True,
             CONF_CONTROL_INTENT_ENTITY: INTENT_ENTITY,
-            CONF_CONTROL_ALLOWED_MODES: ALL_MODES,
             **options,
         },
     )
@@ -223,22 +220,6 @@ class TestStart:
         second = await control_factory()
 
         assert second.plan.intent_id == "i-2"
-
-    @pytest.mark.asyncio
-    async def test_drops_a_stored_plan_that_no_longer_fits(
-        self, hass, control_factory, now
-    ):
-        _publish(hass, _plan(now))
-        first = await control_factory()
-        await first.async_stop()
-        hass.states.async_set(INTENT_ENTITY, STATE_UNAVAILABLE)
-
-        second = await control_factory(
-            **{CONF_CONTROL_ALLOWED_MODES: ["energy_saver"]}
-        )
-
-        assert second.plan is None
-        assert second.store.stored_intent(MAC) is None
 
     @pytest.mark.asyncio
     async def test_disabled_cleans_up_once(self, hass, control_factory, now):
@@ -462,16 +443,38 @@ class TestIntake:
         assert control.plan.intent_id == "i-1"
 
     @pytest.mark.asyncio
-    async def test_a_mode_not_allowed_rejects_the_plan(
+    async def test_any_mode_the_heater_has_is_applied(
         self, hass, control_factory, now
     ):
-        control = await control_factory(
-            **{CONF_CONTROL_ALLOWED_MODES: ["energy_saver"]}
+        """Vacation included: what a mode does is the scheduler's to know."""
+        control = await control_factory()
+        _publish(
+            hass,
+            make_document(
+                now, [segment(now, "away", 60, mode="vacation", setpoint_f=120)]
+            ),
         )
-        _publish(hass, _plan(now))
+        await hass.async_block_till_done()
+        assert control.plan is not None
+        assert control.ack.reason is None
+
+    @pytest.mark.asyncio
+    async def test_a_mode_the_heater_does_not_have_rejects_the_plan(
+        self, hass, control_factory, now
+    ):
+        control = await control_factory()
+        _publish(
+            hass,
+            make_document(
+                now, [segment(now, "x", 60, mode="turbo", setpoint_f=120)]
+            ),
+        )
         await hass.async_block_till_done()
         assert control.plan is None
-        assert control.ack.reason == REASON_MODE_NOT_ALLOWED
+        assert control.ack.reason in (
+            REASON_MODE_NOT_ALLOWED,
+            "invalid_document",
+        )
 
     @pytest.mark.asyncio
     async def test_an_accepted_plan_clears_a_rejection(

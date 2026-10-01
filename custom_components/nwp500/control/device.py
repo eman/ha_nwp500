@@ -76,7 +76,6 @@ _LOGGER = logging.getLogger(__name__)
 # 5.12). Ticking at a third of that leaves room for a missed tick.
 HEARTBEAT_INTERVAL = timedelta(minutes=5)
 
-_PRECEDENCE_MODES = ("vacation", "power_off")
 
 # An unconfirmed live write is retried once after this (section 5.4).
 WRITE_RETRY = timedelta(seconds=60)
@@ -435,38 +434,19 @@ class DeviceControl:
                 await self._async_persist()
                 return False
         mode, setpoint_raw = owner.state_now(now, self.planner.tz)
-        # Vacation and power-off take precedence (section 6.6), whether the
-        # heater is in one now or the owner's own entry set it. An
-        # Anti-Legionella cycle does not: the owner's state is written.
-        state_written = observed.mode not in _PRECEDENCE_MODES and (
-            mode not in _PRECEDENCE_MODES
-        )
-        confirmed = True
-        if state_written:
-            try:
-                sent = await self.writer.async_restore_state(mode, setpoint_raw)
-                confirmed = sent and await self._async_confirm_state(
-                    mode, setpoint_raw
-                )
-            except Exception as err:  # noqa: BLE001 - reported, not raised
-                _LOGGER.warning(
-                    "Restoring the owner's state on %s failed: %s",
-                    self.mac_address,
-                    err,
-                )
-                confirmed = False
-        else:
-            _LOGGER.info(
-                "The heater %s is in, or its owner's program sets, vacation "
-                "or power-off; the owner's state is not written",
-                self.mac_address,
+        try:
+            sent = await self.writer.async_restore_state(mode, setpoint_raw)
+            confirmed = sent and await self._async_confirm_state(
+                mode, setpoint_raw
             )
-        write = self.planner.disable(
-            now,
-            simulated=False,
-            confirmed=confirmed,
-            state_written=state_written,
-        )
+        except Exception as err:  # noqa: BLE001 - reported, not raised
+            _LOGGER.warning(
+                "Restoring the owner's state on %s failed: %s",
+                self.mac_address,
+                err,
+            )
+            confirmed = False
+        write = self.planner.disable(now, simulated=False, confirmed=confirmed)
         await self.store.async_set_took_over(self.mac_address, False)
         self._report_hand_back(failed=False)
         # Saved now: a reload follows, and the next controller must know the

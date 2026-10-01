@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
+from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 from nwp500.exceptions import AuthenticationError, InvalidCredentialsError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -632,7 +632,6 @@ class TestExternalControlOptions:
         return {
             "control_intent_entity": "sensor.intent",
             "control_mode": "shadow",
-            "control_allowed_modes": ["energy_saver", "heat_pump"],
             "control_reservation_entry_limit": 7.0,
             "control_reservation_entry_reserve": 2.0,
             **overrides,
@@ -725,17 +724,12 @@ class TestExternalControlOptions:
 
     @pytest.mark.asyncio
     async def test_control_form_is_stored_normalised(self, hass: HomeAssistant):
-        hass.config.units = US_CUSTOMARY_SYSTEM
         handler, _ = self._handler(hass)
         await handler.async_step_init(
             {"scan_interval": 30, "control_enabled": True}
         )
         form = await handler.async_step_external_control()
-        user_input = form["data_schema"](
-            self._control_input(
-                control_setpoint_min=120.0, control_setpoint_max=145.0
-            )
-        )
+        user_input = form["data_schema"](self._control_input())
 
         result = await handler.async_step_external_control(user_input)
 
@@ -745,12 +739,12 @@ class TestExternalControlOptions:
         assert data["control_enabled"] is True
         assert data["control_intent_entity"] == "sensor.intent"
         assert data["control_mode"] == "shadow"
-        assert data["control_setpoint_min_f"] == 120.0
-        assert data["control_setpoint_max_f"] == 145.0
         assert isinstance(data["control_reservation_entry_limit"], int)
-        assert "control_setpoint_min" not in data
-        # Nothing but the water heater's own settings (#191).
+        # The adapter applies the plan; it keeps no limits of its own.
         assert not {
+            "control_setpoint_min_f",
+            "control_setpoint_max_f",
+            "control_allowed_modes",
             "control_live_segments",
             "control_live_grants",
             "control_surplus_entity",
@@ -760,38 +754,10 @@ class TestExternalControlOptions:
         } & set(data)
 
     @pytest.mark.asyncio
-    async def test_setpoints_are_taken_in_celsius_and_stored_in_fahrenheit(
+    async def test_options_of_earlier_versions_are_dropped(
         self, hass: HomeAssistant
     ):
-        hass.config.units = METRIC_SYSTEM
-        handler, _ = self._handler(hass, {"control_setpoint_min_f": 122.0})
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
-
-        form = await handler.async_step_external_control()
-        suggested = {
-            str(key): key.description.get("suggested_value")
-            for key in form["data_schema"].schema
-            if key.description
-        }
-        assert suggested["control_setpoint_min"] == 50.0
-
-        user_input = form["data_schema"](
-            self._control_input(
-                control_setpoint_min=48.9, control_setpoint_max=65.0
-            )
-        )
-        result = await handler.async_step_external_control(user_input)
-
-        assert result["data"]["control_setpoint_min_f"] == 120.0
-        assert result["data"]["control_setpoint_max_f"] == 149.0
-
-    @pytest.mark.asyncio
-    async def test_an_empty_optional_field_clears_the_stored_value(
-        self, hass: HomeAssistant
-    ):
-        """And options of earlier versions go, the surplus ones too."""
+        """The bounds and the surplus ones too."""
         handler, _ = self._handler(
             hass,
             {
@@ -817,6 +783,7 @@ class TestExternalControlOptions:
             {
                 "control_intent_entity": "sensor.i",
                 "control_allowed_modes": ["electric"],
+                "control_reservation_entry_limit": 12,
                 "control_daily_revert_time": "04:30",
             },
         )
@@ -832,28 +799,19 @@ class TestExternalControlOptions:
             if key.description
         }
         assert suggested["control_intent_entity"] == "sensor.i"
-        assert suggested["control_allowed_modes"] == ["electric"]
-        # A first-draft option has no field any more.
+        assert suggested["control_reservation_entry_limit"] == 12
+        # Options of earlier versions have no field any more.
         assert "control_daily_revert_time" not in suggested
+        assert "control_allowed_modes" not in suggested
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("overrides", "field", "error"),
         [
             (
-                {"control_setpoint_min": 140.0, "control_setpoint_max": 130.0},
-                "control_setpoint_min",
-                "setpoint_range",
-            ),
-            (
                 {"control_reservation_entry_reserve": 7.0},
                 "control_reservation_entry_reserve",
                 "reserve_exceeds_limit",
-            ),
-            (
-                {"control_allowed_modes": []},
-                "control_allowed_modes",
-                "allowed_modes_empty",
             ),
         ],
     )

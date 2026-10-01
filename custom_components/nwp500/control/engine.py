@@ -95,6 +95,8 @@ WRITE_NEAR_TERM = "near_term"
 # write from an earlier version may carry them.
 WRITE_GRANT_RAISE = "grant_raise"
 WRITE_GRANT_LOWER = "grant_lower"
+# Writes the feature no longer makes; a stored last write from an earlier
+# version may carry them.
 WRITE_PRECEDENCE_EXIT = "precedence_exit"
 WRITE_POWER_OFF = "power_off"
 WRITE_DISABLE = "disable"
@@ -108,7 +110,6 @@ REPORT_SWITCHED_OFF = "reservations_switched_off"
 REPORT_FOREIGN = "foreign_entry"
 REPORT_REMOVED = "removed"
 
-_PRECEDENCE_WITH_EXIT = ("vacation", "power_off")
 
 # The entries that put a segment in force, and their verdicts once their
 # minute has come (`Planner._track_settled`).
@@ -119,7 +120,6 @@ _SKIPPED = "skipped"
 
 # The reason a write reports, by the most telling kind of entry it adds.
 _WRITE_REASONS = (
-    (KIND_PRECEDENCE_EXIT, WRITE_PRECEDENCE_EXIT),
     (KIND_NEAR_TERM, WRITE_NEAR_TERM),
     (KIND_PLAN, WRITE_PLAN),
 )
@@ -260,7 +260,7 @@ class Planner:
         self.owner: OwnerProgram | None = None
         # What the feature believes is on the device, of its own.
         self.owned: list[OwnedEntry] = []
-        # Near-term and precedence-exit entries wanted until they fire.
+        # Near-term entries wanted until they fire.
         self.extra: list[OwnedEntry] = []
         # Segments whose state an entry has put, or will put, in force.
         self.asserted: set[str] = set()
@@ -278,7 +278,6 @@ class Planner:
         # starts with none: it is the scheduler's answer (section 5.6).
         self.removed_segments: set[str] = set()
         self.last_write: Write | None = None
-        self.suspended_by: str | None = None
         # Live: whether the feature holds the list (section 5.1), segments
         # whose write failed after its retry (section 5.4), and the
         # read-back of each served item's latest entry (section 5.11).
@@ -312,16 +311,9 @@ class Planner:
         self.settled: tuple[str | None, State, datetime] | None = None
         # Each owned entry's verdict once its minute has come, by check key:
         # `due` until a list read at or after its minute still holds it (or
-        # FIRED_GRACE passes), then `fired`; `skipped` if Vacation or
-        # power-off, or an unreadable state, surrounds its minute.
+        # FIRED_GRACE passes), then `fired`; `skipped` if an earlier version
+        # switched it off.
         self._judged: dict[str, str] = {}
-        # Whether the last pass found the heater in Vacation or power-off,
-        # or could not read its mode.
-        self._was_unsettled = False
-        # Vacation or power-off has ended, and its exit entry is still to be
-        # written once nothing takes precedence (an anti-legionella cycle
-        # can follow straight on).
-        self._exit_owed = False
         # The owned plan entries that are the plan in force's, by check key:
         # written for it, or found at its adoption to be what it wants. An
         # entry is recognised by this, not by where it would be placed now:
@@ -353,8 +345,6 @@ class Planner:
             else None,
             "judged": dict(self._judged),
             "plan_entries": sorted(self._plan_entries),
-            "was_unsettled": self._was_unsettled,
-            "exit_owed": self._exit_owed,
             "reports": [r.as_document() for r in self.reports.values()],
             "removed_segments": sorted(self.removed_segments),
             "last_write": self.last_write.as_document()
@@ -410,8 +400,6 @@ class Planner:
         self._judged = {
             str(k): str(v) for k, v in document.get("judged", {}).items()
         }
-        self._was_unsettled = bool(document.get("was_unsettled", False))
-        self._exit_owed = bool(document.get("exit_owed", False))
         # Stored before this was kept: every owned plan entry is taken for
         # the plan in force's, as it was then.
         self._plan_entries = set(
@@ -500,7 +488,6 @@ class Planner:
         """
         self.owned = []
         self._plan_entries = set()
-        self._exit_owed = False
         self.extra = []
         self.asserted = set()
         self.removed_segments = set()
@@ -521,7 +508,6 @@ class Planner:
         """
         self.settled = None
         self._judged = {}
-        self._was_unsettled = False
 
     # -- the timeline ------------------------------------------------------
 
@@ -669,19 +655,15 @@ class Planner:
             for s in (previous.segments if previous else ())
         }
         # Whether the old plan's segment in force may not have taken effect
-        # yet: an entry for it still to fire, or Vacation or power-off, in
-        # which it may have begun with its entry skipped. What the feature's
-        # entries last put in force (`settled`) holds then.
-        unsettled = self._in_precedence(observed) or (
-            old_anchor is not None
-            and any(
-                e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
-                and e.serves == old_anchor[0].id
-                # Not fired yet: its minute is to come, or it was never
-                # written, so it cannot have fired.
-                and (e.fires_at > now or not self._written(e))
-                for e in self.extra
-            )
+        # yet: an entry for it still to fire. What the feature's entries
+        # last put in force (`settled`) holds then.
+        unsettled = old_anchor is not None and any(
+            e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
+            and e.serves == old_anchor[0].id
+            # Not fired yet: its minute is to come, or it was never
+            # written, so it cannot have fired.
+            and (e.fires_at > now or not self._written(e))
+            for e in self.extra
         )
         self.plan = plan
         self.grant_rejections = check_grants(plan, self.capabilities, now=now)
@@ -762,11 +744,8 @@ class Planner:
             and e.serves == segment_id
             for e in self.extra
         )
-        if kept or self._in_precedence(observed):
-            # An entry kept for it will put it in force, or the exit entry
-            # after Vacation or power-off will (section 5.9).
-            if reference != state and not kept:
-                self._near_term(KIND_NEAR_TERM, segment_id, state, now)
+        if kept:
+            # An entry kept for it will put it in force.
             return
         if reference != state or (
             unsettled
@@ -778,14 +757,6 @@ class Planner:
             self._near_term(KIND_NEAR_TERM, segment_id, state, now)
         else:
             self.settled = (segment_id, state, now)
-
-    def _in_precedence(self, observed: Observed) -> bool:
-        """Vacation or power-off now, or at the last pass, or its exit owed."""
-        return (
-            observed.suspended_by in _PRECEDENCE_WITH_EXIT
-            or self.suspended_by in _PRECEDENCE_WITH_EXIT
-            or self._exit_owed
-        )
 
     def _state_before(
         self,
@@ -799,18 +770,13 @@ class Planner:
 
         The old plan's state in force; while that may not have taken effect
         yet, what the feature's entries last put in force. For a first
-        plan, the heater's own state. Never Vacation or power-off, which
-        are precedence, not a state to hold.
+        plan, the heater's own state.
         """
         if previous is not None:
             if unsettled and self.settled is not None:
                 return self.settled[1]
             return old_state
-        if (
-            observed.mode
-            and observed.setpoint_raw
-            and observed.mode not in _PRECEDENCE_WITH_EXIT
-        ):
+        if observed.mode and observed.setpoint_raw:
             return State(observed.mode, observed.setpoint_raw)
         return None
 
@@ -841,18 +807,15 @@ class Planner:
         *,
         simulated: bool | None = None,
         confirmed: bool | None = None,
-        state_written: bool = True,
     ) -> Write:
         """Section 6.6: remove every owned entry, restore the owner's state.
 
         In live the device controller has already written the owner's list
-        and state; this records it. `state_written` is False when the
-        owner's state was not written (the heater was in vacation or
-        powered off, which take precedence).
+        and state; this records it.
         """
         owner_state = (
             self.owner.state_now(now, self.tz)
-            if self.owner is not None and state_written
+            if self.owner is not None
             else None
         )
         write = Write(
@@ -875,7 +838,6 @@ class Planner:
         self.asserted = set()
         self.carry_state = None
         self.adopted_from = None
-        self._exit_owed = False
         self.grant_rejections = {}
         self.forget_people()
         self.commit(write)
@@ -889,7 +851,6 @@ class Planner:
         """Update from what the device reports; return the write it needs."""
         self.last_step = now
         self.reconcile_unconfirmed(observed)
-        self._track_precedence(now, observed)
         self._track_people(now, observed)
         self._track_settled(now, observed)
         self._track_readback(now, observed)
@@ -900,14 +861,6 @@ class Planner:
 
         desired = self._desired(now, observed)
         self.next_event_at = self._next_event(now)
-        if self.suspended_by == "power_off":
-            return self._switch_off_owned(now)
-        if self.suspended_by == "anti_legionella":
-            return None
-        # In Vacation the heater skips entries, so writing the list is
-        # harmless, and it keeps the newest plan on the heater should Home
-        # Assistant be unavailable when Vacation ends (section 5.9). The
-        # segment in force is re-asserted when it ends.
         write = self._diff(desired, now)
         if (
             write is None
@@ -926,28 +879,6 @@ class Planner:
                 simulated=False,
             )
         return write
-
-    def _switch_off_owned(self, now: datetime) -> Write | None:
-        """Section 5.9: switch the feature's entries off while powered off.
-
-        The device fires entries while the heater is powered off, and an
-        entry powers it back on. So the feature's own unfired entries are
-        switched off by their enable flag, unchanged otherwise. This is the
-        one list write made under precedence. When power returns, the next
-        pass writes them enabled again and re-asserts the segment in force.
-        """
-        unfired = [e for e in self.owned if e.fires_at + FIRED_GRACE > now]
-        desired = [replace(e, enabled=False) for e in unfired]
-        if all(not e.enabled for e in unfired):
-            return None
-        return Write(
-            reason=WRITE_POWER_OFF,
-            at=now,
-            added=tuple(e for e in desired if e not in self.owned),
-            removed=tuple(e for e in self.owned if e not in desired),
-            result=tuple(desired),
-            simulated=self.shadow,
-        )
 
     def commit(
         self, write: Write, *, confirmed_at: datetime | None = None
@@ -1128,62 +1059,15 @@ class Planner:
 
     # Precedence and people's changes
 
-    def _track_precedence(self, now: datetime, observed: Observed) -> None:
-        suspended = observed.suspended_by
-        if (
-            observed.mode is None
-            and suspended is None
-            and (self.suspended_by in _PRECEDENCE_WITH_EXIT or self._exit_owed)
-        ):
-            # A state that cannot be read is neither Vacation nor power-off
-            # ending: the last known one holds until the mode reads again
-            # (#173). Ending it here would spend the exit entry while the
-            # heater still skips entries, or switch entries back on while
-            # it is powered off. A cycle the heater still reports is known,
-            # and taken as it is.
-            return
-        if (
-            self.suspended_by in _PRECEDENCE_WITH_EXIT
-            and suspended not in _PRECEDENCE_WITH_EXIT
-        ):
-            # Vacation or power-off is over: its exit is owed, and written
-            # once nothing takes precedence. An anti-legionella cycle it
-            # ends into holds it until the cycle is over (#174).
-            self._exit_owed = True
-        if self._exit_owed and suspended is None:
-            self._exit_owed = False
-            anchor = self._anchor(now)
-            if anchor is not None:
-                segment, state = anchor
-                if state is not None:
-                    # Entries were skipped while it lasted; re-assert the
-                    # segment in force. The exit is its asserting entry: no
-                    # near-term entry is added beside it (#172).
-                    self._near_term(
-                        KIND_PRECEDENCE_EXIT, segment.id, state, now
-                    )
-                    self.asserted.add(segment.id)
-        self.suspended_by = suspended
-
     def _track_settled(self, now: datetime, observed: Observed) -> None:
         """Judge the feature's segment entries whose minute has come.
 
-        One fired if it was still on the heater at its minute, outside
-        Vacation and power-off: a list read at or after its minute holds
-        it, or FIRED_GRACE passes without its deletion being found, as
-        section 5.10 counts it. One whose minute a precedence, or a state
-        that could not be read, surrounds is taken as skipped: its segment
-        is put in force by the exit entry after. The latest that fired is
-        what the feature has in force (`settled`).
+        One fired if it was still on the heater at its minute: a list read
+        at or after its minute holds it, or FIRED_GRACE passes without its
+        deletion being found, as section 5.10 counts it. One an earlier
+        version switched off is skipped. The latest that fired is what the
+        feature has in force (`settled`).
         """
-        # Only Vacation and power-off skip entries, and have an exit entry
-        # after. A state that cannot be read keeps the last verdict: a blip
-        # in Vacation is still Vacation, and one outside it is not.
-        unsettled = (
-            observed.suspended_by in _PRECEDENCE_WITH_EXIT
-            if observed.mode is not None
-            else self._was_unsettled
-        )
         # The list read, and what it holds: an entry fired on its evidence
         # only if the read holds it, whether or not its deletion has been
         # taken in yet (a plan can arrive between reads).
@@ -1203,11 +1087,7 @@ class Planner:
             key = self._check_key(entry)
             verdict = self._judged.get(key)
             if verdict is None:
-                verdict = (
-                    _SKIPPED
-                    if not entry.enabled or unsettled or self._was_unsettled
-                    else _DUE
-                )
+                verdict = _SKIPPED if not entry.enabled else _DUE
             if verdict == _DUE and (
                 (
                     read_at is not None
@@ -1224,7 +1104,6 @@ class Planner:
                         entry.fires_at,
                     )
             self._judged[key] = verdict
-        self._was_unsettled = unsettled
 
     def _serves_segment(self, entry: OwnedEntry) -> str | None:
         """The plan's segment an entry puts in force, if it has it."""
@@ -1296,8 +1175,6 @@ class Planner:
         if (
             previous is None
             or previous == current
-            or previous[0] in _PRECEDENCE_WITH_EXIT
-            or current[0] in _PRECEDENCE_WITH_EXIT
             or self._explained(now, observed, current, seen_before)
         ):
             return
@@ -1488,14 +1365,8 @@ class Planner:
             return
         keys = {self._check_key(e) for e in self.owned}
         self._checked &= keys
-        if (
-            observed.mode is None
-            or observed.setpoint_raw is None
-            or observed.suspended_by is not None
-        ):
+        if observed.mode is None or observed.setpoint_raw is None:
             return
-        # An entry the heater skipped, its minute in Vacation or power-off,
-        # set nothing to read back: the exit entry after it is (#182).
         due = [
             e
             for e in self.owned
@@ -1553,11 +1424,7 @@ class Planner:
         window ends first. Only what the heater reports counts: nothing is
         inferred from what its compressor or elements do.
         """
-        if (
-            self.shadow
-            or observed.mode is None
-            or observed.suspended_by is not None
-        ):
+        if self.shadow or observed.mode is None:
             return
         fired = [
             e
