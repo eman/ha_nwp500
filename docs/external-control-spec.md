@@ -27,7 +27,8 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
 - **Protocol version:** `1`, with the compatibility promises of section 1.3.
   Its document format is that of the revised protocol `0`, which replaced a
   first draft that never shipped (section 10). Documents that say `"0"` are
-  still accepted and mean the same.
+  still accepted and mean the same: they follow protocol 1's schema, as
+  amended in section 1.3.
 - **Keywords:** MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
 ---
@@ -552,8 +553,7 @@ is the scheduler's to plan around.
 ### 5.4 Writing the list
 
 - **Read first.** Before every write, the feature reads the device's list.
-  Entries it does not own are kept as read, apart from the owner entries'
-  enable flags while live (section 5.1). The list is held from that read
+  Entries it does not own are kept as read (section 5.1). The list is held from that read
   through the write, against the integration's own reservation services.
 - **Whole-list, confirmed.** The list is written whole with the library's
   confirmed write (`update_reservations_confirmed`), never slot by slot. A
@@ -573,12 +573,10 @@ is the scheduler's to plan around.
 - **An unconfirmed write may have landed.** Its confirmation can be lost
   while the device took the list. The next read settles it: if the device
   holds the list sent, the write is committed; otherwise any of its entries
-  found on the device are the feature's, not a person's. From the first
-  live write sent, disabling hands the heater back, whether or not a write
-  was confirmed.
+  found on the device are the feature's, not a person's.
 - **Taking the list over.** The first live write, once a plan is in force,
-  switches the owner's entries off and the reservation switch on, even if
-  the plan has nothing of its own to add yet (reason `takeover`).
+  turns the reservation switch on, even if the plan has nothing of its own
+  to add yet (reason `takeover`).
 - **A missing entry is not restored.** A plan entry missing from the device
   was removed by a person. The feature does not write it again, and its
   segment is `removed`, for as long as that plan is in force, across
@@ -935,7 +933,7 @@ was removed afterwards, which its status shows instead.
 | Precedence deleted pending entries | In Vacation, entries stay and the segment in force is re-asserted afterwards. At power-off, the feature switches its own entries off, and back on when power returns | The device skips entries in Vacation, but fires them while powered off and turns the heater back on |
 | `applied` meant a write read back | `programmed`, `in_force` and `ended`, with read-back after each entry | An entry's effect is only observable when it fires |
 | The TOU lever | Removed | Nothing on the device could undo it |
-| Surplus grants (kept by the revision), the assisted mode, mode confirmation from the compressor and elements, the separate live switches (2026-09-30, #191) | Removed. What protocol 1 lists for them is fixed or empty until #192 removes it, with the tank-modelling facts of section 4.1 | The feature operates and reports the water heater, and nothing else. The home's power and the scheduler's preferences are not the heater's |
+| Surplus grants (kept by the revision), the assisted mode, mode confirmation from the compressor and elements, the separate live switches (2026-09-30, #191) | Removed, and with #192 removed from protocol 1 too, with the declaration's other keys beyond what runs and the entry budget (section 1.3) | The feature operates and reports the water heater, and nothing else. The home's power and the scheduler's preferences are not the heater's |
 
 ---
 
@@ -968,9 +966,9 @@ was removed afterwards, which its status shows instead.
    Removed: surplus grants, the assisted mode, mode confirmation from the
    compressor and elements, the separate live switches, the mode and
    setpoint checks, precedence handling, and the owner's program with its
-   hand-back. After
-   the scheduler's R2 dry run, #192 removes what protocol 1 still lists for
-   them, coordinated with eman/dhw-sensor-apps#389.
+   hand-back. #192 removed them from protocol 1, with the declaration's
+   other keys beyond what runs and the entry budget, coordinated with
+   eman/dhw-sensor-apps#389 (section 1.3).
 
 Related: #157 (`water_heater` service reports success in two failure cases);
 #160 (turning the water heater off switched it to Energy Saver).

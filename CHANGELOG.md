@@ -4,27 +4,26 @@
 
 ### Added
 - **External control (protocol 1).** An optional, off-by-default feature
-  that lets an external scheduler control the heater through an intent
-  entity. The scheduler publishes a plan, a timeline of setpoints and modes,
-  and the feature programs it into the heater's own reservation list, so the
-  heater keeps following it if Home Assistant or the scheduler becomes
-  unavailable. Enabling starts in `shadow`, which plans and reports the list
-  it would write without writing it. `live` writes it: going live shows the
-  heater's own program for confirmation; every write reads the list first,
-  is written whole and counts only once the heater holds it, with a retry
-  and then `failed`; each entry is read back after it fires, with its mode
-  confirmed by what the heater does; and disabling, leaving live or
-  switching the feature off hands the heater back to its own program.
-  Surplus grants raise the setpoint within a scheduler's ceiling, bounded on
-  the device by a guard entry. Entities show the capability declaration, the
-  plan, its acknowledgement, the program and whether the device matches it,
-  how far the programmed plan reaches, the next entry, the wanted state, any
-  surplus raise, the last write, people's changes and a heartbeat, with a
-  Disable button. Protocol 1 comes with compatibility promises; protocol 0
-  documents are still accepted. The specification, JSON Schema and examples
-  are in `docs/`, with the device tests and the staged live cut-over run on
-  a real heater. With the feature off nothing of it loads, and a regression
-  test holds set-up to what it was before. (#158)
+  that applies a plan from a scheduler of your own: a timeline of setpoints
+  and modes, published on a Home Assistant entity. The feature writes it
+  into the heater's own reservation list, so the heater keeps following it
+  if Home Assistant or the scheduler becomes unavailable, and reports what
+  the heater does. It reads nothing but the heater and makes no decision of
+  its own. Enabling starts in Preview (`shadow`), which works out and reports
+  the list it would write without writing it; Live writes it, and Stopped
+  stops applying plans. Every write reads the list first, is written whole
+  and counts only once the heater holds it, with a retry and then `failed`;
+  each entry is read back after it fires. Entries that are not the feature's
+  are kept as read. Entities show what runs, the plan, its acknowledgement,
+  the program and whether the device matches it, how far the programmed plan
+  reaches, the next entry, the wanted state, the last write, people's changes
+  and a heartbeat, with a Stop button; a Repairs issue reports a feature
+  that cannot start. Protocol 1 comes with compatibility promises; protocol
+  0 documents are still accepted. The specification, JSON Schema and
+  examples are in `docs/`, with the device tests and the staged live
+  cut-over run on a real heater. With the feature off nothing of it loads,
+  and a regression test holds set-up to what it was before. (#158, #191,
+  #193, #194, #192)
 
 ## [0.21.1] - 2026-09-25
 

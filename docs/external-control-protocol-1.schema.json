@@ -64,8 +64,8 @@
         }
       },
       "oneOf": [
-        { "required": ["setpoint_f"], "not": { "required": ["setpoint_c"] } },
-        { "required": ["setpoint_c"], "not": { "required": ["setpoint_f"] } }
+        { "required": ["setpoint_f"], "not": { "anyOf": [{ "required": ["setpoint_c"] }, { "required": ["setpoint"] }] } },
+        { "required": ["setpoint_c"], "not": { "anyOf": [{ "required": ["setpoint_f"] }, { "required": ["setpoint"] }] } }
       ],
       "additionalProperties": true
     },
