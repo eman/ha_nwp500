@@ -276,7 +276,9 @@ class DeviceControl:
                     self.device_name,
                 )
                 self._report_hand_back(failed=True)
-            else:
+            elif not self.holds_device:
+                # Only a hand-back, or a heater holding nothing, clears it:
+                # going live again is not handing back.
                 self._report_hand_back(failed=False)
             await self.store.async_set_disabled_done(self.mac_address, False)
             if self.intent_entity_id:

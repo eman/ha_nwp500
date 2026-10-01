@@ -887,6 +887,23 @@ class TestLiveDisable:
         )
 
     @pytest.mark.asyncio
+    async def test_going_live_again_does_not_clear_a_failed_hand_back(
+        self, hass, live_factory, now
+    ):
+        """Only a hand-back clears it (#191 review)."""
+        _publish(hass, _two_segments(now))
+        heater, control = await live_factory()
+        await control.async_stop()
+        heater.lose = 2
+        assert await control.async_release(dt_util.utcnow()) is False
+        heater.lose = 0
+
+        _, live = await live_factory(reuse=True)
+
+        assert live.holds_device is True
+        assert ir.async_get(hass).async_get_issue(DOMAIN, HAND_BACK_ISSUE)
+
+    @pytest.mark.asyncio
     async def test_a_heater_left_holding_the_list_is_reported(
         self, hass, live_factory, now
     ):

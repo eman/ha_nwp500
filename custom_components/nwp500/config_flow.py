@@ -500,7 +500,12 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     # Every save in live confirms the owner's program: the
                     # owner may have changed it since it was declared.
                     self._control_data = data
-                    if _form_mode(options) == CONTROL_MODE_LIVE:
+                    # As stored: `options` has lost an earlier version's
+                    # switches, which can make a stored live not live.
+                    if (
+                        _form_mode(dict(self.config_entry.options))
+                        == CONTROL_MODE_LIVE
+                    ):
                         return await self.async_step_stay_live()
                     return await self.async_step_going_live()
                 return self.async_create_entry(title="", data=data)

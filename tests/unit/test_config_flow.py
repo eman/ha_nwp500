@@ -1205,6 +1205,33 @@ class TestExternalControlOptions:
         assert "control_live_segments" not in suggested
 
     @pytest.mark.asyncio
+    async def test_an_earlier_live_without_segments_goes_live_afresh(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        """It wrote nothing: choosing Live is going live (#191 review)."""
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
+        )
+        handler, entry = self._handler(
+            hass,
+            {
+                "control_enabled": True,
+                "control_mode": "live",
+                "control_live_segments": False,
+            },
+        )
+        self._with_heater(entry, {"reservation_use": 1, "reservation": []})
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input(control_mode="live")
+        )
+
+        assert result["step_id"] == "going_live"
+
+    @pytest.mark.asyncio
     async def test_saving_while_live_says_it_stays_live(
         self, hass: HomeAssistant, monkeypatch
     ):
