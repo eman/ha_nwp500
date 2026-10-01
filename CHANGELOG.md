@@ -36,6 +36,14 @@
   #193, #194, #192)
 
 ### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 9.4.3. The library
+  now checks every reservation entry before a list write, against the
+  setpoint range the heater reports, instead of sending it for the heater
+  to clamp. An Update all reservations call with an out-of-range entry now
+  fails ("Failed to update reservations", the reason in the log). With
+  external control, a plan setpoint outside the heater's range makes the
+  list write fail, reported as `failed`, `write_not_confirmed`; the
+  feature itself still checks no setpoints. (eman/nwp500-python#148)
 - **Names in sentence case.** Entity, attribute and service names follow
   Home Assistant's style ("Tank upper temperature", "Set reservation");
   acronyms such as DHW, MQTT and TOU are kept. Only the displayed names

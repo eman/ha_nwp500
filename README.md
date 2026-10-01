@@ -295,7 +295,7 @@ action:
 
 ## Library Version
 
-Uses **[nwp500-python v9.4.2](https://github.com/eman/nwp500-python/releases/tag/v9.4.2)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
+Uses **[nwp500-python v9.4.3](https://github.com/eman/nwp500-python/releases/tag/v9.4.3)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
 
 ## License
 
