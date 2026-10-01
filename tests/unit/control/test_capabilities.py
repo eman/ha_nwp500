@@ -15,7 +15,7 @@ class TestDeclaration:
     def test_what_runs_and_the_entry_budget_only(self):
         """The adapter applies the plan; it declares nothing else (#192)."""
         attrs = build_capabilities(
-            {}, features=FakeFeatures(), feature_version="v", telemetry={}
+            {}, features=FakeFeatures(), feature_version="v"
         ).as_attributes()
 
         assert set(attrs) == {
@@ -29,7 +29,6 @@ class TestDeclaration:
             "entry_limit",
             "entry_reserve",
             "entries_available",
-            "telemetry",
             "version",
         }
         assert attrs["protocols"] == ["1", "0"]
@@ -47,11 +46,6 @@ class TestDeclaration:
         """Not declared, but what `"min"` means (section 3.2)."""
         assert capabilities().setpoint_min_raw == 81
 
-    def test_telemetry_names_the_heaters_own_entities(self):
-        telemetry = capabilities().as_attributes()["telemetry"]
-        assert telemetry["delivery_temperature"] == "sensor.tank_upper"
-        assert "delivery_temperature_dip_f" not in telemetry
-
 
 class TestVersion:
     def test_is_short_and_stable(self):
@@ -63,16 +57,12 @@ class TestVersion:
         after = capabilities(control_reservation_entry_limit=9).version
         assert before != after
 
-    def test_ignores_renames_and_the_live_entry_count(self):
+    def test_ignores_the_live_entry_count(self):
         declaration = capabilities()
         assert (
             replace(declaration, entries_available=3).version
             == declaration.version
         )
-        renamed = replace(
-            declaration, telemetry={"delivery_temperature": "sensor.x"}
-        )
-        assert renamed.version == declaration.version
 
 
 @pytest.mark.parametrize(

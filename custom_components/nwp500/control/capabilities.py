@@ -1,7 +1,7 @@
 """The capability declaration (spec section 4.1, issue #158).
 
-Built from the options, the device's feature data and the entity registry:
-what runs, and how entries are budgeted.
+Built from the options and the device's feature data: what runs, and how
+entries are budgeted.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
@@ -50,14 +50,12 @@ class Capabilities:
     entry_limit: int
     entry_reserve: int
     feature_version: str
-    telemetry: dict[str, Any] = field(default_factory=dict)
     # Live, and so outside the version: it changes as entries fire.
     entries_available: int | None = None
 
     def as_attributes(self) -> dict[str, Any]:
         """The declaration as the capability entity's attributes."""
         attributes = self._declared()
-        attributes["telemetry"] = dict(self.telemetry)
         attributes["entries_available"] = self.entries_available
         attributes["version"] = self.version
         return attributes
@@ -80,8 +78,7 @@ class Capabilities:
     def version(self) -> str:
         """A short hash of the declaration; changes whenever it does.
 
-        Entity ids and the live entry count are left out: a rename is not a
-        change of declaration, and the count moves with every entry that
+        The live entry count is left out: it moves with every entry that
         fires.
         """
         payload = json.dumps(self._declared(), sort_keys=True, default=str)
@@ -112,15 +109,11 @@ def build_capabilities(
     *,
     features: Any,
     feature_version: str,
-    telemetry: Mapping[str, str | None],
     entries_available: int | None = None,
 ) -> Capabilities:
-    """Build the declaration from options, feature data and entity ids.
+    """Build the declaration from the options and the feature data.
 
     `features` is the device's `DeviceFeature`, or None before it arrives.
-    `telemetry` maps `delivery_temperature`, `compressor_running` and
-    `power` to their entity ids, or None where the entity is not
-    registered.
     """
     setpoint_min_raw, setpoint_max_raw = _bounds(features)
 
@@ -141,6 +134,5 @@ def build_capabilities(
             )
         ),
         feature_version=feature_version,
-        telemetry=dict(telemetry),
         entries_available=entries_available,
     )

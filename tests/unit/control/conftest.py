@@ -99,9 +99,4 @@ def capabilities(**options: Any) -> Capabilities:
         options,
         features=FakeFeatures(),
         feature_version="0.0-test",
-        telemetry={
-            "delivery_temperature": "sensor.tank_upper",
-            "compressor_running": "binary_sensor.comp",
-            "power": "sensor.power",
-        },
     )

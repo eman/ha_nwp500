@@ -11,7 +11,6 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from jsonschema import Draft202012Validator
 from pytest_homeassistant_custom_component.common import (
@@ -489,18 +488,6 @@ class TestReading:
         control = await control_factory()
         attrs = control.capabilities.as_attributes()
         assert attrs["entries_available"] == 14
-
-    @pytest.mark.asyncio
-    async def test_telemetry_resolves_registered_entities(
-        self, control_factory, entity_registry: er.EntityRegistry
-    ):
-        upper = entity_registry.async_get_or_create(
-            "sensor", DOMAIN, f"{MAC}_tank_upper_temperature"
-        )
-        control = await control_factory()
-        telemetry = control.capabilities.as_attributes()["telemetry"]
-        assert telemetry["delivery_temperature"] == upper.entity_id
-        assert telemetry["power"] is None
 
     @pytest.mark.asyncio
     async def test_listeners(self, control_factory):

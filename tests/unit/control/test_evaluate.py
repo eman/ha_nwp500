@@ -62,7 +62,6 @@ class TestCheckPlan:
                 {"control_allowed_modes": ["heat_pump"]},
                 features=None,
                 feature_version="v",
-                telemetry={},
             ),
         )
 

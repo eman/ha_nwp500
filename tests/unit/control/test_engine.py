@@ -341,7 +341,6 @@ class TestTranslation:
                 {"control_allowed_modes": ["energy_saver"]},
                 features=None,
                 feature_version="v",
-                telemetry={},
             ),
             TZ,
         )

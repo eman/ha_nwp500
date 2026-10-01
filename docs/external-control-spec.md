@@ -97,8 +97,9 @@ protocol 1, and with its one consumer changing in step
 (eman/dhw-sensor-apps#389), protocol 1 dropped what was not the feature's
 job of applying the plan: surplus grants, the assisted mode, the owner's
 program, the live switches, the setpoint bounds and allowed modes, the
-measured tank and recovery facts, and the ack's `mode_confirmed`. A
-document's `grants` key is now opaque, as any key the feature does not know.
+measured tank and recovery facts, the telemetry entity ids, and the ack's
+`mode_confirmed`. A document's `grants` key is now opaque, as any key the
+feature does not know.
 
 Minor versions so far: **1.1** adds the segment key `reassert` (section
 3.2). **1.2** added a grant's own timing rules; with grants gone it adds
@@ -307,7 +308,6 @@ keys and values, which are as documented here.
 | `entry_limit` | The most entries the feature will use on the device. Option, default **16**. The unit tested accepted and read back a list of 32 (section 8); larger lists are untested |
 | `entry_reserve` | Entries kept free for near-term entries. Option, default 2 |
 | `entries_available` | `entry_limit` minus every entry on the device and the reserve |
-| `telemetry` | Entity ids a consumer can read for this heater: `delivery_temperature` (the upper tank temperature), `compressor_running`, `power` (the heater's own); `null` where the entity is not registered |
 
 ### 4.2 State entities
 
