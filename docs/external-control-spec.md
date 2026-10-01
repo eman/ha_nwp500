@@ -285,7 +285,7 @@ new plan is programmed.
 
 ### 3.7 Device commands (proposed, protocol 1.3)
 
-**Status: a proposal for review (#196), not implemented.** A plan may carry
+**Status: agreed (#196), not yet implemented.** A plan may carry
 device commands besides its segments: settings the heater has that a
 reservation entry cannot set. The feature applies each as the scheduler sends
 it, with a direct write, and reports what the heater then reports. It decides
@@ -331,16 +331,12 @@ so. If a person later changes that setting, the change is theirs: it is not
 undone, and the command is not marked otherwise. A scheduler that wants the
 setting back sends the command again, with a new `id` or changed content.
 
-**Open for the owner's decision** (the scheduler side's recommendation in
-brackets, eman/dhw-sensor-apps#402):
-1. Commands apply only when the plan is adopted, or also take an `at` time?
-   [Adoption only: when to send a command is the scheduler's, and timing
-   direct writes would give the feature a real-time duty.]
-2. Mode and setpoint in segments only, or also as direct commands? [Segments
-   only: one channel; a direct write would contend with the segment in
-   force.]
-3. Recirculation and the air filter now, or when a scheduler needs them?
-   [Later; an unknown command is rejected on its own meanwhile.]
+**Decided** (the owner, 2026-10-01):
+1. A command is applied when its plan is adopted, and has no time of its
+   own. When to send one is the scheduler's: it publishes a new plan.
+2. Mode and setpoint stay in segments only: one channel.
+3. Recirculation and the air filter are added when a scheduler needs them.
+   Until then such a command is `rejected`, `unsupported_command`.
 
 ---
 
