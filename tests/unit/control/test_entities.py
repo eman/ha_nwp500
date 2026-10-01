@@ -349,20 +349,16 @@ class TestBinarySensors:
         added |= {"mode": 1, "param": 100}
         reports = [
             Report("setpoint", 100, WHEN, "s1"),
-            Report("mode", "high_demand", WHEN, None),
+            Report("mode", "vacation", WHEN, None),
             Report("removed", entry.as_attributes(), WHEN, "g1"),
-            Report("foreign_entry", added, WHEN, "(2, 7, 0)"),
             Report("reservations_switched_off", False, WHEN, None),
         ]
         control.reports = {str(i): r for i, r in enumerate(reports)}
         sensor = ControlOverrideBinarySensor(control, "override")
         attrs = sensor.extra_state_attributes
         _override_schema().validate(attrs)
-        # A mode that is not one, or an entry out of range, is not a report.
-        broken = [
-            {**attrs["reports"][1], "value": "not_a_mode"},
-            {**attrs["reports"][3], "value": {**added, "hour": 99}},
-        ]
+        # A mode that is not one is not a report.
+        broken = [{**attrs["reports"][1], "value": "not_a_mode"}]
         for report in broken:
             assert not _override_schema().is_valid(
                 {**attrs, "reports": [report]}

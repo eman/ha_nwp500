@@ -381,9 +381,8 @@ list or took off it:
 **Program items.** Each item of `control_program_hash`'s `entries` is an
 entry of the list the feature wants on the device, with the device's keys:
 `enable` (2 on, 1 off), `week`, `hour`, `min`, `mode` (the device's mode id)
-and `param`. It adds `owner`: `owner` for an owner entry (shown switched
-off, as the feature writes it while live, section 5.1), `foreign` for any
-other entry the feature does not own, or the label of one of its own. An
+and `param`. It adds `owner`: `foreign` for an entry the feature does not
+own, kept as read (section 5.1), or the label of one of its own. An
 item of the feature's own also carries every key of an entry item, except
 that `mode` keeps the device's id, and adds `mode_name`, the mode as a name
 (section 3.4). The Reservation Schedule sensor's entries carry display keys
@@ -429,19 +428,15 @@ and `segment`:
 
 The list holds the changes in force, not a history:
 
-- **One report per key.** The key is `field`; for `foreign_entry`, `field`
-  and the whole entry; for `removed`, `field`, `segment` and `value`'s
-  `kind`. A newer report with the same key replaces the older one, with a
-  new `detected_at`, as a second setpoint change before the next entry
-  fires does. Two reports can share `field` and `detected_at`, for example
-  two added entries found in one read, or `field` and `segment`, for
-  example two added entries in one slot, but never a key.
+- **One report per key.** The key is `field`; for `removed`, `field`,
+  `segment` and `value`'s `kind`. A newer report with the same key replaces
+  the older one, with a new `detected_at`, as a second setpoint change
+  before the next entry fires does.
 - **Lifetime.** Each report ends by its own rule, above. Nothing else empties
   the list: a new plan ends only the `removed` reports above, and reports
   are kept across a reload or a restart of Home Assistant.
 - **Bound.** At most one `setpoint`, one `mode` and one
-  `reservations_switched_off`; one `foreign_entry` per entry on the
-  heater's list that the feature does not own; and one `removed` per kind
+  `reservations_switched_off`, and one `removed` per kind
   of entry for each segment or grant of the plan in force whose time is not
   over. `report_count` gives the number. If the attributes would come
   within 1 KiB of the recorder's 16 KiB limit, the oldest reports are left

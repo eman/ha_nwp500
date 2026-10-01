@@ -877,8 +877,7 @@ class TestPeoplesChanges:
     def test_stored_reports_load_in_the_current_shape(self):
         """Reports stored by earlier versions load as current ones.
 
-        Before #168 a removal held the six stored keys; before #169 an
-        added entry was keyed by its slot.
+        Before #168 a removal held the six stored keys.
         """
         entry = OwnedEntry(KIND_PLAN, "a", minutes(60), "energy_saver", 120)
         added = {"enable": 2, "week": 2, "hour": 7, "min": 0}
@@ -898,10 +897,11 @@ class TestPeoplesChanges:
         )
         removed = planner.reports[f"{REPORT_REMOVED}:{KIND_PLAN}:a"]
         assert removed.value == entry.as_attributes()
-        (foreign,) = (
+        # An added entry was judged against the owner's program an earlier
+        # version kept, which there is no longer: its report goes (#193).
+        assert not [
             r for r in planner.reports.values() if r.field == REPORT_FOREIGN
-        )
-        assert foreign.value == added
+        ]
 
     def test_a_new_plan_is_the_answer_to_a_removal(self):
         """Section 5.6: a new plan is programmed as it stands.

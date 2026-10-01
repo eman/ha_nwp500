@@ -64,7 +64,7 @@ from .evaluate import (
     check_grants,
 )
 from .intent import Plan, Segment
-from .observed import Observed, raw_entry
+from .observed import Observed
 from .tou import in_tou_window
 
 _LOGGER = logging.getLogger(__name__)
@@ -106,6 +106,7 @@ WRITE_TAKEOVER = "takeover"
 REPORT_SETPOINT = "setpoint"
 REPORT_MODE = "mode"
 REPORT_SWITCHED_OFF = "reservations_switched_off"
+# Reported by an earlier version only; dropped when its state loads.
 REPORT_FOREIGN = "foreign_entry"
 REPORT_REMOVED = "removed"
 
@@ -409,6 +410,9 @@ class Planner:
         self.reports = {}
         for raw in document.get("reports", []):
             report = _current_shape(Report.from_document(raw))
+            if report.field == REPORT_FOREIGN:
+                # Judged against the owner's program an earlier version kept.
+                continue
             self.reports[self._report_key(report)] = report
         self.removed_segments = set(document.get("removed_segments", []))
         if raw_write := document.get("last_write"):
@@ -444,11 +448,7 @@ class Planner:
             # the kind tells them apart.
             kind = report.value.get("kind")
             return f"{report.field}:{kind}:{report.segment}"
-        if report.field == REPORT_FOREIGN and isinstance(report.value, Mapping):
-            # By the whole entry: the heater can hold two in one slot.
-            fields = raw_entry(report.value)
-            return f"{report.field}:{tuple(fields.values())}"
-        if report.field in (REPORT_FOREIGN, REPORT_REMOVED):
+        if report.field == REPORT_REMOVED:
             return f"{report.field}:{report.segment or report.value}"
         return report.field
 
