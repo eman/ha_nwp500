@@ -179,7 +179,7 @@ class TestCommands:
             _commands({"id": "t", "command": "tou", "enabled": True}),
             writes=False,
         )
-        assert runner.to_send() == []
+        assert runner.next_to_send() is None
         assert _statuses(runner) == {"t": (STATUS_SHADOW, None)}
 
     def test_applied_once_the_heater_reports_it(self):
@@ -188,9 +188,9 @@ class TestCommands:
             _commands({"id": "t", "command": "tou", "enabled": True}),
             writes=True,
         )
-        (command,) = runner.to_send()
+        command = runner.next_to_send()
         runner.sending(command, NOW)
-        assert runner.to_send() == []
+        assert runner.next_to_send() is None
         assert runner.check(NOW, Observed(tou_on=False)) is False
         assert _statuses(runner) == {"t": (STATUS_PENDING, None)}
         assert runner.check(NOW, Observed(tou_on=True)) is True
@@ -203,7 +203,7 @@ class TestCommands:
             _commands({"id": "t", "command": "tou", "enabled": True}),
             writes=True,
         )
-        runner.sending(runner.to_send()[0], NOW)
+        runner.sending(runner.next_to_send(), NOW)
         runner.check(NOW, Observed(tou_on=True))
         runner.check(NOW + WINDOW * 2, Observed(tou_on=False))
         assert _statuses(runner) == {"t": (STATUS_APPLIED, None)}
@@ -214,7 +214,7 @@ class TestCommands:
             _commands({"id": "v", "command": "vacation", "days": 5}),
             writes=True,
         )
-        runner.sending(runner.to_send()[0], NOW)
+        runner.sending(runner.next_to_send(), NOW)
         assert runner.next_deadline == NOW + WINDOW
         runner.check(NOW + WINDOW, Observed(mode="heat_pump"))
         assert _statuses(runner) == {"v": (STATUS_FAILED, REASON_NOT_APPLIED)}
@@ -228,7 +228,7 @@ class TestCommands:
             ),
             writes=True,
         )
-        runner.sending(runner.to_send()[0], NOW)
+        runner.sending(runner.next_to_send(), NOW)
         runner.check(NOW, Observed())
         assert _statuses(runner) == {"d": (STATUS_APPLIED, None)}
 
@@ -289,7 +289,7 @@ class TestCommands:
     def test_read_back(self, raw, observed, applied):
         runner = Commands(WINDOW)
         runner.set_plan(_commands({"id": "c", **raw}), writes=True)
-        runner.sending(runner.to_send()[0], NOW)
+        runner.sending(runner.next_to_send(), NOW)
         runner.check(NOW, observed)
         assert _statuses(runner)["c"][0] == (
             STATUS_APPLIED if applied else STATUS_PENDING
@@ -299,11 +299,11 @@ class TestCommands:
         runner = Commands(WINDOW)
         tou = {"id": "t", "command": "tou", "enabled": True}
         runner.set_plan(_commands(tou), writes=True)
-        runner.sending(runner.to_send()[0], NOW)
+        runner.sending(runner.next_to_send(), NOW)
         runner.check(NOW, Observed(tou_on=True))
 
         runner.set_plan(_commands({**tou, "note": "new plan"}), writes=True)
-        assert runner.to_send() == []
+        assert runner.next_to_send() is None
         assert _statuses(runner) == {"t": (STATUS_APPLIED, None)}
 
     def test_changed_content_is_applied_again(self):
@@ -312,26 +312,87 @@ class TestCommands:
             _commands({"id": "t", "command": "tou", "enabled": True}),
             writes=True,
         )
-        runner.sending(runner.to_send()[0], NOW)
+        runner.sending(runner.next_to_send(), NOW)
         runner.set_plan(
             _commands({"id": "t", "command": "tou", "enabled": False}),
             writes=True,
         )
-        assert [c.id for c in runner.to_send()] == ["t"]
+        assert runner.next_to_send().id == "t"
 
     def test_going_live_applies_what_shadow_evaluated(self):
         runner = Commands(WINDOW)
         commands = _commands({"id": "t", "command": "tou", "enabled": True})
         runner.set_plan(commands, writes=False)
         runner.set_plan(commands, writes=True)
-        assert [c.id for c in runner.to_send()] == ["t"]
+        assert runner.next_to_send().id == "t"
+
+    def test_an_id_omitted_in_between_is_not_sent_again(self):
+        runner = Commands(WINDOW)
+        tou = _commands({"id": "t", "command": "tou", "enabled": True})
+        runner.set_plan(tou, writes=True)
+        runner.sending(runner.next_to_send(), NOW)
+        runner.check(NOW, Observed(tou_on=True))
+
+        runner.set_plan((), writes=True)
+        assert runner.ack() == ()
+        runner.set_plan(tou, writes=True)
+        assert runner.next_to_send() is None
+        assert _statuses(runner) == {"t": (STATUS_APPLIED, None)}
+
+    def test_one_at_a_time_in_list_order(self):
+        """Vacation then power: power waits for Vacation's read-back."""
+        runner = Commands(WINDOW)
+        runner.set_plan(
+            _commands(
+                {"id": "v", "command": "vacation", "days": 5},
+                {"id": "p", "command": "power", "on": False},
+            ),
+            writes=True,
+        )
+        assert runner.next_to_send().id == "v"
+        runner.sending(runner.next_to_send(), NOW)
+        assert runner.next_to_send() is None
+        runner.check(NOW, Observed(mode="vacation", vacation_days=5))
+        assert runner.next_to_send().id == "p"
+        runner.sending(runner.next_to_send(), NOW)
+        runner.check(NOW, Observed(mode="power_off"))
+        assert _statuses(runner) == {
+            "v": (STATUS_APPLIED, None),
+            "p": (STATUS_APPLIED, None),
+        }
+
+    def test_the_next_goes_once_the_one_before_failed(self):
+        runner = Commands(WINDOW)
+        runner.set_plan(
+            _commands(
+                {"id": "v", "command": "vacation", "days": 5},
+                {"id": "t", "command": "tou", "enabled": True},
+            ),
+            writes=True,
+        )
+        runner.sending(runner.next_to_send(), NOW)
+        runner.check(NOW + WINDOW, Observed(mode="heat_pump"))
+        assert runner.next_to_send().id == "t"
+
+    def test_history_is_bounded(self):
+        from custom_components.nwp500.control.commands import HISTORY_LIMIT
+
+        runner = Commands(WINDOW)
+        for index in range(HISTORY_LIMIT + 5):
+            runner.set_plan(
+                _commands(
+                    {"id": f"t{index}", "command": "tou", "enabled": True}
+                ),
+                writes=False,
+            )
+        assert len(runner.as_document()) == HISTORY_LIMIT + 1
 
     def test_a_rejected_command_is_reported_and_never_sent(self):
         runner = Commands(WINDOW)
         runner.set_plan(
             _commands({"id": "r", "command": "recirculation"}), writes=True
         )
-        assert runner.to_send() == []
+        assert runner.next_to_send() is None
         (item,) = runner.ack()
         assert (item.status, item.reason) == (
             STATUS_REJECTED,
@@ -344,12 +405,12 @@ class TestCommands:
         runner = Commands(WINDOW)
         commands = _commands({"id": "t", "command": "tou", "enabled": True})
         runner.set_plan(commands, writes=True)
-        runner.sending(runner.to_send()[0], NOW)
+        runner.sending(runner.next_to_send(), NOW)
 
         restored = Commands(WINDOW)
         restored.load_document(runner.as_document())
         restored.set_plan(commands, writes=True)
-        assert restored.to_send() == []
+        assert restored.next_to_send() is None
         assert restored.next_deadline == NOW + WINDOW
 
 
@@ -361,18 +422,34 @@ class CommandHeater(FakeHeater):
 
     # The library's error for every command, if set.
     refuse: str | None = None
+    # Commands are taken but not yet in the status the heater reports.
+    holds_reports = False
 
     def __init__(self, coordinator, schedule) -> None:
         super().__init__(coordinator, schedule)
         self.commands: list[tuple[str, dict[str, Any]]] = []
+        self.unreported: list[Any] = []
 
     async def async_send_command(self, command) -> None:
         self.commands.append((command.command, dict(command.params)))
         if self.refuse is not None:
             raise ValueError(self.refuse)
+        if self.holds_reports:
+            self.unreported.append(command)
+        else:
+            self.report(command)
+
+    def report(self, command) -> None:
+        """The heater's status shows what the command set."""
         status = self.coordinator.data[MAC]["status"]
-        if command.command == "tou":
-            status.tou_status = command.params["enabled"]
+        match command.command:
+            case "tou":
+                status.tou_status = command.params["enabled"]
+            case "vacation":
+                status.dhw_operation_setting = 5
+                status.vacation_day_setting = command.params["days"]
+            case "power":
+                status.dhw_operation_setting = 3 if command.params["on"] else 6
 
 
 @pytest.fixture
@@ -430,6 +507,36 @@ class TestLive:
         assert heater.commands == [("tou", {"enabled": True})]
 
     @pytest.mark.asyncio
+    async def test_each_waits_for_the_one_before(
+        self, hass, command_heater, live_factory, monkeypatch, now
+    ):
+        from homeassistant.util import dt as dt_util
+
+        monkeypatch.setattr(CommandHeater, "holds_reports", True)
+        _publish(
+            hass,
+            _live_doc(
+                now,
+                {"id": "v", "command": "vacation", "days": 5},
+                {"id": "p", "command": "power", "on": False},
+            ),
+        )
+        heater, control = await live_factory()
+        assert heater.commands == [("vacation", {"days": 5})]
+
+        # The heater reports Vacation; the next pass sends power.
+        heater.report(heater.unreported.pop())
+        await control._async_evaluate(dt_util.utcnow())
+        assert [c for c, _ in heater.commands] == ["vacation", "power"]
+        heater.report(heater.unreported.pop())
+        await control._async_evaluate(dt_util.utcnow())
+
+        assert [(i["id"], i["status"]) for i in _ack_commands(control)] == [
+            ("v", "applied"),
+            ("p", "applied"),
+        ]
+
+    @pytest.mark.asyncio
     async def test_a_library_refusal_is_reported_with_its_reason(
         self, hass, command_heater, live_factory, monkeypatch, now
     ):
@@ -450,13 +557,13 @@ class TestLive:
 
     @pytest.mark.asyncio
     async def test_failed_when_the_heater_does_not_report_it(
-        self, hass, command_heater, live_factory, freezer, now
+        self, hass, command_heater, live_factory, freezer, now, monkeypatch
     ):
+        monkeypatch.setattr(CommandHeater, "holds_reports", True)
         _publish(
             hass, _live_doc(now, {"id": "v", "command": "vacation", "days": 5})
         )
         heater, control = await live_factory()
-        heater.coordinator.data[MAC]["status"].vacation_day_setting = 0
         assert _ack_commands(control)[0]["status"] == "pending"
 
         # The controller wakes a second after the deadline.

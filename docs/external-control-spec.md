@@ -307,11 +307,15 @@ nothing: when to send a command is the scheduler's.
 | `demand_response` | `enabled`, boolean | `enable_demand_response` / `disable_demand_response` | nothing: the heater reports a utility's events, not whether it takes part, so the command is `applied` once the library has sent it |
 
 **When a command is applied.** Once, when the plan that carries it is adopted
-(section 5.6), in list order, after the plan's list is written. A later plan
-carrying the same `id` with the same content (`command` and its own keys;
-opaque keys do not count) does not apply it again, and its status carries
-over; the same `id` with other content is applied again. A restart does not
-send again a command already sent. In shadow a command is evaluated, not
+(section 5.6), in the pass that writes the plan's list and after that write,
+whether or not the write was confirmed: a command does not wait for the
+entries. Commands go one at a time, in list order: each is sent once the one
+before it is `applied` or `failed`, so a later command that changes the same
+setting (Vacation, then power) cannot hide an earlier one's read-back. An
+`id` sent with some content (`command` and its own keys; opaque keys do not
+count) is not sent again with that content, by a later plan, a plan in
+between that omits it, or a restart; its status carries over. The same `id`
+with other content is sent again. In shadow a command is evaluated, not
 written (status `shadow`), and going live applies it; while `disabled`
 nothing is applied. A plan step can already put the heater in `vacation` or
 `power_off` at a time (section 3.4); a command is for now.
@@ -662,9 +666,10 @@ is the scheduler's to plan around.
 
 ### 5.5 Direct writes
 
-None. Every change is an entry, including changes that must happen now
-(section 5.2). Device commands (section 3.7) are the plan's
-direct writes: each applied once, as sent.
+A segment is never a direct write: every change of mode or setpoint is an
+entry, including changes that must happen now (section 5.2). The plan's
+device commands (section 3.7) are the only direct writes, each applied once,
+as sent.
 
 ### 5.6 Replacing a plan
 

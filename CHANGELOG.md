@@ -7,8 +7,10 @@
   `commands` for settings a reservation entry cannot set: Vacation for a
   number of days, power, Anti-Legionella, TOU and demand response. Each is
   sent once, as given, when its plan is adopted, and its status on the
-  acknowledgement comes from what the heater then reports; a person's later
-  change is not undone. A malformed or unknown command is rejected on its
+  acknowledgement comes from what the heater then reports. Demand response
+  is the exception: the heater does not report whether it takes part, so
+  that command is `applied` once sent. A person's later change is not
+  undone. A malformed or unknown command is rejected on its
   own, and the plan goes ahead. `protocol_versions` is now `["1.3", "0"]`.
   (#196)
 - **External control (protocol 1).** An optional, off-by-default feature

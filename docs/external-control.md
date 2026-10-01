@@ -155,7 +155,8 @@ to Energy Saver (#160).
 ### Commands
 
 Protocol 1.3. Settings a reservation entry cannot set, each sent once when
-the plan is adopted, in order, after its entries are written. Each has an
+the plan is adopted, after its entries are written, one at a time in order:
+each waits until the one before it is applied or failed. Each has an
 `id` (unique in the plan, segments included), a `command`, the command's
 keys, and any opaque keys.
 
@@ -167,9 +168,8 @@ keys, and any opaque keys.
 | `tou` | `enabled` | the TOU switch |
 | `demand_response` | `enabled` | nothing the heater reports; `applied` once sent |
 
-A later plan with the same `id` and the same command and keys does not send
-it again, nor does a restart; change the content or the `id` to send it
-again. The acknowledgement's `commands` give each one's status: `shadow`,
+An `id` sent with a command and keys is not sent again with them, by a
+later plan or a restart; change the content or the `id` to send it again. The acknowledgement's `commands` give each one's status: `shadow`,
 `pending`, `applied`, `failed` or `rejected`. The status reports the
 application only: a person changing the setting afterwards is not undone,
 and the command stays `applied`. A malformed or unknown command is

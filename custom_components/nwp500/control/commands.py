@@ -1,8 +1,9 @@
 """Device commands: applied once, as sent, and reported (spec section 3.7).
 
 A plan's commands are settings a reservation entry cannot set. Each is
-applied once, when its plan is adopted, after the list is written; the same
-id with the same content is not applied again, by a new plan or a restart.
+applied once, when its plan is adopted, after the list is written, one at a
+time in list order; an id sent with some content is not sent again with it,
+by a later plan or a restart.
 A status reports the application only: a person changing the setting later
 does not change it, and nothing here undoes their change.
 """
@@ -24,6 +25,10 @@ STATUS_PENDING = "pending"
 STATUS_APPLIED = "applied"
 STATUS_FAILED = "failed"
 STATUS_REJECTED = "rejected"
+
+# Commands of earlier plans kept so their ids are not sent again; the
+# oldest are forgotten beyond this.
+HISTORY_LIMIT = 100
 
 
 def reads_back(command: Command, observed: Observed) -> bool | None:
@@ -121,17 +126,31 @@ class Commands:
                     command.content,
                     STATUS_PENDING if writes else STATUS_SHADOW,
                 )
+        # Earlier plans' commands stay on record, so an id that a plan in
+        # between omitted is not sent again; they are no longer reported.
+        history = [(k, r) for k, r in self._records.items() if k not in records]
         self.commands = commands
-        self._records = records
+        self._records = dict(history[-HISTORY_LIMIT:]) | records
 
-    def to_send(self) -> list[Command]:
-        """The commands still to send, in list order."""
-        return [
-            c
-            for c in self.commands
-            if (r := self._records[c.id]).status == STATUS_PENDING
-            and r.sent_at is None
-        ]
+    def _active(self) -> list[tuple[Command, _Record]]:
+        return [(c, self._records[c.id]) for c in self.commands]
+
+    def next_to_send(self) -> Command | None:
+        """The next command to send, once none sent is still unreported.
+
+        One at a time, so a later command that changes the same setting
+        cannot hide an earlier one's read-back.
+        """
+        active = self._active()
+        if any(
+            r.status == STATUS_PENDING and r.sent_at is not None
+            for _, r in active
+        ):
+            return None
+        for command, record in active:
+            if record.status == STATUS_PENDING and record.sent_at is None:
+                return command
+        return None
 
     def sending(self, command: Command, now: datetime) -> None:
         """Mark a command sent before sending it, so it is sent once."""
@@ -147,8 +166,7 @@ class Commands:
     def check(self, now: datetime, observed: Observed) -> bool:
         """Read sent commands back; True if a status changed."""
         changed = False
-        for command in self.commands:
-            record = self._records[command.id]
+        for command, record in self._active():
             if record.status != STATUS_PENDING or record.sent_at is None:
                 continue
             applied = reads_back(command, observed)
@@ -166,7 +184,7 @@ class Commands:
         """When the next sent command must have been reported by."""
         deadlines = [
             r.sent_at + self.window
-            for r in self._records.values()
+            for _, r in self._active()
             if r.status == STATUS_PENDING and r.sent_at is not None
         ]
         return min(deadlines, default=None)
@@ -174,8 +192,7 @@ class Commands:
     def ack(self) -> tuple[ItemAck, ...]:
         """Each command's entry on the acknowledgement."""
         items: list[ItemAck] = []
-        for command in self.commands:
-            record = self._records[command.id]
+        for command, record in self._active():
             detail: dict[str, Any] = {"command": command.command}
             if record.detail is not None:
                 detail["detail"] = record.detail

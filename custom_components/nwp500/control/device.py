@@ -476,17 +476,18 @@ class DeviceControl:
         self._notify()
 
     async def _async_apply_commands(self, now: datetime) -> None:
-        """Read sent commands back, then send the ones still to send.
+        """Read sent commands back, then send the next, one at a time.
 
+        A command waits until the one before it is reported or failed; the
+        status update that reports it starts the pass that sends the next.
         In shadow nothing is sent: each command is reported `shadow`.
         """
         self.commands.check(now, self.observe())
         if not self.writes:
             return
-        to_send = self.commands.to_send()
-        for command in to_send:
+        while (command := self.commands.next_to_send()) is not None:
             # Recorded as sent first, so a restart does not send it again.
-            self.commands.sending(command, now)
+            self.commands.sending(command, dt_util.utcnow())
             await self._async_persist()
             try:
                 await self.writer.async_send_command(command)
@@ -499,9 +500,9 @@ class DeviceControl:
                     err,
                 )
                 self.commands.failed(command, str(err) or type(err).__name__)
-        if to_send:
+                continue
             await self.writer.async_request_status()
-            self.commands.check(now, self.observe())
+            self.commands.check(dt_util.utcnow(), self.observe())
 
     async def _async_fresh_read(self) -> dict[str, Any] | None:
         try:
