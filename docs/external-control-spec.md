@@ -169,6 +169,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 | `intent_id` | string, at most 64 characters | yes | Unique per plan |
 | `issued_at` | ISO 8601 with offset | yes | When the scheduler made it. An older document never replaces a newer one |
 | `segments` | list | yes | The timeline (section 3.2). **An empty list stops the plan**: every programmed entry is withdrawn, and the heater keeps the state it is in |
+| `commands` | list | no | **Proposed, protocol 1.3.** Device commands, each applied once (section 3.7) |
 | any other key | any | no | Opaque. Echoed unchanged on the feature's plan entity, `sensor.<device>_control_intent` (section 4.2), for example `plan_id`, unless it has the name of one of that entity's own attributes (section 4.2), which win |
 
 There is no validity period. A plan's last segment holds until a new plan
@@ -281,6 +282,54 @@ Fired entries are removed with the next write (section 5.3).
 If Home Assistant stops at 06:00, the heater still charges at 10:30, moves to
 Energy Saver at 14:30 and goes to the minimum at 22:00, holding there until a
 new plan is programmed.
+
+### 3.7 Device commands (proposed, protocol 1.3)
+
+**Status: a proposal for review (#196), not implemented.** A plan may carry
+device commands besides its segments: settings the heater has that a
+reservation entry cannot set. The feature applies each as the scheduler sends
+it, with a direct write, and reports what the heater then reports. It decides
+nothing: when to send a command is the scheduler's.
+
+| Key | Type | Required | Meaning |
+|---|---|---|---|
+| `id` | string, at most 64 characters, unique in the document (with the segments' ids) | yes | Named in the acknowledgement |
+| `command` | string | yes | One of the table below |
+| the command's own keys | | as below | |
+| any other key | any | no | Opaque, echoed on the command's acknowledgement |
+
+| `command` | Keys | Library call | Read back from |
+|---|---|---|---|
+| `vacation` | `days` | `set_vacation_days` | the mode reported as `vacation`, and `vacation_day_setting` |
+| `power` | `on`, boolean | `set_power` | the mode: `power_off` or not |
+| `anti_legionella` | `enabled`, boolean; `period_days`, with `enabled: true` | `enable_anti_legionella` / `disable_anti_legionella` | `anti_legionella_use` (and its period) |
+| `tou` | `enabled`, boolean | `set_tou_enabled` | `tou_status` |
+| `demand_response` | `enabled`, boolean | `enable_demand_response` / `disable_demand_response` | `dr_event_status` |
+
+**When a command is applied.** Once, when the plan that carries it is adopted
+(section 5.6), in list order, after the plan's list is written. A plan
+received again with the same command, same `id` and same content, does not
+apply it again; a command whose content changed under the same `id` is
+applied again. A restart does not re-apply what was applied. In shadow a
+command is evaluated, not written (status `shadow`); while `disabled` nothing
+is applied. A plan step can already put the heater in `vacation` or
+`power_off` at a time (section 3.4); a command is for now.
+
+**Validation.** A command whose keys are missing or of the wrong type
+rejects the document (`invalid_document`). Ranges, such as how many days of
+Vacation the heater takes, are the library's to check: a value it refuses
+makes the command `failed` with the library's reason. An unknown `command` is rejected on its own,
+`unsupported_command`, and the plan proceeds, so a scheduler can send a
+command a later version adds.
+
+**Open for review:**
+1. Commands apply only when the plan is adopted. Should a command also take
+   an `at` time? The feature would then need to time direct writes; a plan
+   step already times Vacation and power-off.
+2. Mode and setpoint stay in segments only, a single channel, rather than
+   also being direct commands.
+3. Which further library calls to admit (recirculation, the air filter),
+   once a scheduler needs them.
 
 ---
 
@@ -440,6 +489,13 @@ the rejection is also the acknowledgement. So a scheduler knows its
 document was rejected when `rejected.intent_id` is that document's, and
 accepted when the acknowledgement's `intent_id` is and it was not rejected.
 
+**Commands** (proposed, protocol 1.3) on the ack entity each have `id`,
+`command`, `status` and `reason`, and their opaque keys. The status is `shadow`
+(evaluated, not written), `pending` (being written), `applied` (the heater
+reports it), `failed` (`write_not_confirmed`, or `not_applied_on_device`
+when the heater does not report it within the poll interval plus a minute)
+or `rejected` (`unsupported_command`).
+
 **Segments** on the ack entity each have `id`, `status`, `reason`,
 `warnings` (a list), `fires_at` (the minute its entry fires, or will fire
 once it is programmed; for a segment already begun, its near-term entry's;
@@ -594,9 +650,8 @@ is the scheduler's to plan around.
 ### 5.5 Direct writes
 
 None. Every change is an entry, including changes that must happen now
-(section 5.2). Device commands besides the plan's segments (Vacation, power,
-Anti-Legionella, TOU) are a planned protocol addition
-(eman/dhw-sensor-apps#389).
+(section 5.2). Device commands (section 3.7, proposed) are the plan's
+direct writes: each applied once, as sent.
 
 ### 5.6 Replacing a plan
 
