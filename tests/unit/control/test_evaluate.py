@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 import pytest
 
 from custom_components.nwp500.control.capabilities import build_capabilities
 from custom_components.nwp500.control.evaluate import (
     NO_ACK,
-    REASON_GRANTS_UNSUPPORTED,
-    REASON_IN_PAST,
-    REASON_INVALID_WINDOW,
-    REASON_OVERLAPPING_GRANT,
     ItemAck,
-    check_grants,
     check_plan,
-    grants_live,
     rejected_ack,
 )
 from custom_components.nwp500.control.intent import (
@@ -25,7 +17,7 @@ from custom_components.nwp500.control.intent import (
     IntentRejected,
 )
 
-from .conftest import capabilities, grant, make_document, segment
+from .conftest import capabilities, make_document, segment
 
 SURPLUS = {"control_surplus_entity": "binary_sensor.surplus"}
 
@@ -96,86 +88,6 @@ class TestCheckPlan:
         assert exc_info.value.reason == REASON_MODE_NOT_ALLOWED
 
 
-class TestCheckGrants:
-    def test_unsupported_without_a_surplus_entity(self, now, parse):
-        plan = parse(
-            make_document(now, grants=[grant(now, "g", 0, 60, max_f=146)])
-        )
-        assert check_grants(plan, capabilities(), now=now) == {
-            "g": REASON_GRANTS_UNSUPPORTED
-        }
-
-    def test_each_grant_on_its_own(self, now, parse):
-        plan = parse(
-            make_document(
-                now,
-                grants=[
-                    grant(now, "ok", 0, 60, max_f=146),
-                    grant(now, "overlap", 30, 90, max_f=146),
-                    grant(now, "backwards", 200, 100, max_f=146),
-                    grant(now, "hot", 300, 400, max_f=160),
-                    grant(now, "past", -120, -60, max_f=146),
-                ],
-            )
-        )
-        assert check_grants(plan, capabilities(**SURPLUS), now=now) == {
-            "overlap": REASON_OVERLAPPING_GRANT,
-            "backwards": REASON_INVALID_WINDOW,
-            "hot": REASON_OUT_OF_BOUNDS,
-            "past": REASON_IN_PAST,
-        }
-
-    @pytest.mark.parametrize(
-        ("rule", "value", "accepted"),
-        [
-            ("surplus_on_before_raise_min", 0, True),
-            ("surplus_on_before_raise_min", 60, True),
-            ("surplus_on_before_raise_min", 61, False),
-            ("surplus_off_before_lower_min", -1, False),
-            ("min_run_before_lower_min", 600, True),
-            ("min_run_before_lower_min", 601, False),
-        ],
-    )
-    def test_a_grants_rules_within_the_declared_ranges(
-        self, now, parse, rule, value, accepted
-    ):
-        """Issue #183: a rule outside its range rejects that grant alone."""
-        plan = parse(
-            make_document(
-                now,
-                grants=[grant(now, "g", 0, 60, max_f=146, **{rule: value})],
-            )
-        )
-        expected = {} if accepted else {"g": REASON_OUT_OF_BOUNDS}
-        assert check_grants(plan, capabilities(**SURPLUS), now=now) == expected
-
-    def test_adjacent_grants_do_not_overlap(self, now, parse):
-        plan = parse(
-            make_document(
-                now,
-                grants=[
-                    grant(now, "a", 0, 60, max_f=146),
-                    grant(now, "b", 60, 90, max_f=146),
-                ],
-            )
-        )
-        assert check_grants(plan, capabilities(**SURPLUS), now=now) == {}
-
-    def test_grants_live(self):
-        assert grants_live(capabilities()) is False
-        assert grants_live(
-            capabilities(
-                control_mode="live",
-                control_live_segments=True,
-                control_live_grants=True,
-            )
-        )
-        # Grants are live only with segments (spec section 6.1).
-        assert not grants_live(
-            capabilities(control_mode="live", control_live_grants=True)
-        )
-
-
 class TestAcks:
     def test_rejected_ack(self):
         ack = rejected_ack("i-9", "superseded", "older")
@@ -208,10 +120,3 @@ class TestAcks:
 
     def test_no_ack(self):
         assert NO_ACK.state == "none"
-
-
-def test_grant_contains(now, parse):
-    plan = parse(make_document(now, grants=[grant(now, "g", 0, 60, max_f=146)]))
-    g = plan.grants[0]
-    assert g.contains(now)
-    assert not g.contains(now + timedelta(minutes=60))

@@ -10,12 +10,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from ..const import CONTROL_MODE_LIVE
-from .capabilities import GRANT_RULE_RANGES, Capabilities
+from .capabilities import Capabilities
 from .intent import (
     REASON_MODE_NOT_ALLOWED,
     REASON_OUT_OF_BOUNDS,
-    Grant,
     IntentRejected,
     Plan,
     mode_is_valid,
@@ -40,25 +38,17 @@ STATUS_ENDED = "ended"
 STATUS_FAILED = "failed"
 STATUS_REMOVED = "removed"
 
-# Grant statuses.
-GRANT_WAITING = "waiting"
-GRANT_RAISED = "raised"
-GRANT_ENDED = "ended"
+# A grant's status: surplus grants are not supported, so every one is
+# rejected (section 5.7).
 GRANT_REJECTED = "rejected"
-GRANT_SHADOW = "shadow"
-GRANT_FAILED = "failed"
 
 # Reasons a segment is scheduled rather than programmed.
 REASON_BEYOND_HORIZON = "beyond_horizon"
 REASON_ENTRY_BUDGET = "entry_budget"
 REASON_BOUNDS_UNKNOWN = "bounds_unknown"
 
-# Grant rejection reasons.
+# Why a grant is rejected.
 REASON_GRANTS_UNSUPPORTED = "grants_unsupported"
-REASON_INVALID_WINDOW = "invalid_window"
-REASON_OVERLAPPING_GRANT = "overlapping_grant"
-REASON_IN_PAST = "in_past"
-REASON_NOT_LIVE = "not_live"
 # Live only (sections 5.4 and 5.11).
 REASON_WRITE_NOT_CONFIRMED = "write_not_confirmed"
 REASON_NOT_APPLIED = "not_applied_on_device"
@@ -166,43 +156,10 @@ def check_plan(plan: Plan, capabilities: Capabilities) -> None:
 def check_grants(
     plan: Plan, capabilities: Capabilities, *, now: datetime
 ) -> dict[str, str]:
-    """The reason each rejected grant was rejected, by grant id."""
-    rejected: dict[str, str] = {}
-    accepted: list[Grant] = []
-    high = capabilities.setpoint_max_raw
-    low = capabilities.setpoint_min_raw
-    for grant in plan.grants:
-        reason: str | None = None
-        if not capabilities.grants_supported:
-            reason = REASON_GRANTS_UNSUPPORTED
-        elif grant.end <= grant.start:
-            reason = REASON_INVALID_WINDOW
-        elif any(
-            grant.start < other.end and other.start < grant.end
-            for other in accepted
-        ):
-            reason = REASON_OVERLAPPING_GRANT
-        elif (
-            (high is not None and grant.max_raw > high)
-            or (low is not None and grant.max_raw < low)
-            or any(
-                value is not None
-                and not GRANT_RULE_RANGES[rule][0]
-                <= value
-                <= GRANT_RULE_RANGES[rule][1]
-                for rule, value in grant.rules.items()
-            )
-        ):
-            reason = REASON_OUT_OF_BOUNDS
-        elif grant.end <= now:
-            reason = REASON_IN_PAST
-        if reason is None:
-            accepted.append(grant)
-        else:
-            rejected[grant.id] = reason
-    return rejected
+    """The reason each grant is rejected, by grant id: all of them.
 
-
-def grants_live(capabilities: Capabilities) -> bool:
-    """Whether grants would be written, rather than evaluated as in shadow."""
-    return capabilities.mode == CONTROL_MODE_LIVE and capabilities.live_grants
+    Surplus grants are not supported (section 5.7). A grant is rejected on
+    its own, and the plan's segments are unaffected.
+    """
+    del capabilities, now
+    return {grant.id: REASON_GRANTS_UNSUPPORTED for grant in plan.grants}

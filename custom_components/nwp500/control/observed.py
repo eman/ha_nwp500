@@ -1,8 +1,8 @@
 """What the feature reads from the device (spec section 4.3).
 
 One immutable snapshot per evaluation, built from the coordinator's status,
-the stored reservation and TOU schedules and the surplus entity, so the
-planner never touches Home Assistant objects.
+the stored reservation and TOU schedules, so the planner never touches Home
+Assistant objects.
 """
 
 from __future__ import annotations
@@ -19,9 +19,6 @@ _DHW_ID_TO_MODE = {v: k for k, v in MODE_TO_DHW_ID.items()}
 # Device booleans are 2 = on, 1 = off in the reservation payloads.
 DEVICE_BOOL_ON = 2
 DEVICE_BOOL_OFF = 1
-
-# The heat sources that use an element (the library's HeatSource).
-_ELEMENT_SOURCES = (2, 3)
 
 ENTRY_FIELDS = ("enable", "week", "hour", "min", "mode", "param")
 _TOU_FIELDS = (
@@ -71,12 +68,6 @@ class Observed:
     # The setpoint, in half-degrees Celsius.
     setpoint_raw: int | None = None
     tou_on: bool | None = None
-    compressor_on: bool | None = None
-    # Either electric element running, or the reported heat source using
-    # one; None if the device reports neither.
-    elements_on: bool | None = None
-    # The upper tank temperature, in half-degrees Celsius.
-    upper_tank_raw: int | None = None
     anti_legionella_busy: bool = False
     # The reservation list as the device last reported it; None until read.
     reservations_enabled: bool | None = None
@@ -86,7 +77,6 @@ class Observed:
     reservations_read_at: datetime | None = None
     # The TOU program's periods, each with its price; empty if unknown.
     tou_periods: tuple[dict[str, int], ...] = ()
-    surplus_on: bool | None = None
 
     @property
     def suspended_by(self) -> str | None:
@@ -115,12 +105,10 @@ def observe(
     schedule: Mapping[str, Any] | None,
     tou_schedule: Mapping[str, Any] | None = None,
     *,
-    surplus_on: bool | None = None,
     schedule_read_at: datetime | None = None,
 ) -> Observed:
     """Build a snapshot from the coordinator's data."""
-    mode = setpoint_raw = tou_on = compressor_on = upper_tank_raw = None
-    elements_on: bool | None = None
+    mode = setpoint_raw = tou_on = None
     anti_legionella = False
     if status is not None:
         mode = mode_name(getattr(status, "dhw_operation_setting", None))
@@ -128,16 +116,6 @@ def observe(
             getattr(status, "dhw_target_temperature_setting_raw", None)
         )
         tou_on = _bool(getattr(status, "tou_status", None))
-        compressor_on = _bool(getattr(status, "comp_use", None))
-        upper = _bool(getattr(status, "heat_upper_use", None))
-        lower = _bool(getattr(status, "heat_lower_use", None))
-        source = _int(get_enum_value(getattr(status, "current_heat_use", None)))
-        known = [v for v in (upper, lower) if v is not None]
-        if known or source in _ELEMENT_SOURCES:
-            elements_on = any(known) or source in _ELEMENT_SOURCES
-        # The tank probes report in tenths of a degree; setpoints in halves.
-        deci = _int(getattr(status, "tank_upper_temperature_raw", None))
-        upper_tank_raw = round(deci / 5) if deci is not None else None
         anti_legionella = bool(
             _bool(getattr(status, "anti_legionella_operation_busy", None))
         )
@@ -162,9 +140,6 @@ def observe(
         mode=mode,
         setpoint_raw=setpoint_raw,
         tou_on=tou_on,
-        compressor_on=compressor_on,
-        elements_on=elements_on,
-        upper_tank_raw=upper_tank_raw,
         anti_legionella_busy=anti_legionella,
         reservations_enabled=reservations_enabled,
         reservations=reservations,
@@ -172,5 +147,4 @@ def observe(
         if reservations is not None
         else None,
         tou_periods=tou_periods,
-        surplus_on=surplus_on,
     )

@@ -543,32 +543,6 @@ class TestTiming:
 
 class TestReading:
     @pytest.mark.asyncio
-    async def test_surplus_entity(self, hass, control_factory):
-        hass.states.async_set("sensor.export", "0.6")
-        control = await control_factory(
-            control_surplus_entity="sensor.export",
-            control_surplus_threshold_kw=0.45,
-        )
-        assert control.observe().surplus_on is True
-        hass.states.async_set("sensor.export", "0.1")
-        await hass.async_block_till_done()
-        assert control.observe().surplus_on is False
-        hass.states.async_set("sensor.export", "unavailable")
-        await hass.async_block_till_done()
-        assert control.observe().surplus_on is None
-        hass.states.async_set("sensor.export", "junk")
-        assert control.observe().surplus_on is None
-
-    @pytest.mark.asyncio
-    async def test_binary_surplus_entity(self, hass, control_factory):
-        hass.states.async_set("binary_sensor.surplus", "on")
-        control = await control_factory(
-            control_surplus_entity="binary_sensor.surplus"
-        )
-        assert control.observe().surplus_on is True
-        assert control.capabilities.grants_supported
-
-    @pytest.mark.asyncio
     async def test_program_details_and_sync(self, hass, control_factory, now):
         _publish(hass, _plan(now))
         control = await control_factory()

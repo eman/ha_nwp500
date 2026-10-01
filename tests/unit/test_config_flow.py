@@ -632,10 +632,7 @@ class TestExternalControlOptions:
         return {
             "control_intent_entity": "sensor.intent",
             "control_mode": "shadow",
-            "control_surplus_threshold_kw": 0.45,
             "control_allowed_modes": ["energy_saver", "heat_pump"],
-            "control_assisted_mode": "energy_saver",
-            "control_min_run_before_lower_min": 120.0,
             "control_reservation_entry_limit": 7.0,
             "control_reservation_entry_reserve": 2.0,
             **overrides,
@@ -750,10 +747,17 @@ class TestExternalControlOptions:
         assert data["control_mode"] == "shadow"
         assert data["control_setpoint_min_f"] == 120.0
         assert data["control_setpoint_max_f"] == 145.0
-        assert data["control_min_run_before_lower_min"] == 120
         assert isinstance(data["control_reservation_entry_limit"], int)
         assert "control_setpoint_min" not in data
-        assert "control_surplus_entity" not in data
+        # Nothing but the water heater's own settings (#191).
+        assert not {
+            "control_live_segments",
+            "control_live_grants",
+            "control_surplus_entity",
+            "control_surplus_threshold_kw",
+            "control_min_run_before_lower_min",
+            "control_assisted_mode",
+        } & set(data)
 
     @pytest.mark.asyncio
     async def test_setpoints_are_taken_in_celsius_and_stored_in_fahrenheit(
@@ -787,6 +791,7 @@ class TestExternalControlOptions:
     async def test_an_empty_optional_field_clears_the_stored_value(
         self, hass: HomeAssistant
     ):
+        """And options of earlier versions go, the surplus ones too."""
         handler, _ = self._handler(
             hass,
             {
@@ -849,11 +854,6 @@ class TestExternalControlOptions:
                 {"control_allowed_modes": []},
                 "control_allowed_modes",
                 "allowed_modes_empty",
-            ),
-            (
-                {"control_assisted_mode": "electric"},
-                "control_assisted_mode",
-                "assisted_mode_not_allowed",
             ),
         ],
     )
@@ -920,8 +920,10 @@ class TestExternalControlOptions:
         )
         form = await handler.async_step_external_control()
         keys = {str(key) for key in form["data_schema"].schema}
-        assert {"control_live_segments", "control_live_grants"} <= keys
-        form["data_schema"](self._control_input(control_mode="live"))
+        # One Mode choice stands for the mode and its two live switches.
+        assert not {"control_live_segments", "control_live_grants"} & keys
+        for mode in ("shadow", "live", "disabled"):
+            form["data_schema"](self._control_input(control_mode=mode))
 
     @pytest.mark.asyncio
     async def test_going_live_declares_the_owner_program(
@@ -948,26 +950,26 @@ class TestExternalControlOptions:
         )
 
         result = await handler.async_step_external_control(
-            self._control_input(
-                control_mode="live",
-                control_live_segments=True,
-                control_live_grants=False,
-            )
+            self._control_input(control_mode="live")
         )
 
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "going_live"
         summary = result["description_placeholders"]["program"]
-        assert "Mode: Energy Saver" in summary
-        assert "Setpoint: 139.1 °F" in summary
-        assert "Mon Tue Wed Thu Fri 06:00" in summary
-        assert "switched off while live" in summary
+        assert summary.startswith("**AA:BB**\n")
+        assert "- Mode: Energy Saver (Eco)\n" in summary
+        assert "- Temperature: 139.1 °F\n" in summary
+        assert "- Schedule: on\n" in summary
+        assert (
+            "- Mon, Tue, Wed, Thu, Fri 06:00: Energy Saver (Eco), 140 °F "
+            "(on now, switched off while live)"
+        ) in summary
 
         result = await handler.async_step_going_live({})
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["data"]["control_mode"] == "live"
-        assert result["data"]["control_live_segments"] is True
+        assert "control_live_segments" not in result["data"]
         assert result["data"]["control_owner_program"] == {
             "AA:BB": {
                 "mode": "energy_saver",
@@ -1034,8 +1036,8 @@ class TestExternalControlOptions:
             self._control_input(control_mode="live")
         )
 
-        assert result["step_id"] == "going_live"
-        result = await handler.async_step_going_live({})
+        assert result["step_id"] == "stay_live"
+        result = await handler.async_step_stay_live({})
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["data"]["control_owner_program"]["AA:BB"]["entries"] == [
             entry_
@@ -1064,7 +1066,7 @@ class TestExternalControlOptions:
             self._control_input(control_mode="live")
         )
 
-        assert result["step_id"] == "going_live"
+        assert result["step_id"] == "stay_live"
 
     @pytest.mark.asyncio
     async def test_going_live_before_the_entry_has_loaded(
@@ -1125,27 +1127,150 @@ class TestExternalControlOptions:
         assert result["data"]["control_owner_program"] == {"AA:BB": declared}
 
     @pytest.mark.asyncio
-    async def test_grants_need_live_segments(
-        self, hass: HomeAssistant, monkeypatch
-    ):
-        monkeypatch.setattr(
-            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
-        )
+    async def test_the_control_form_links_the_guide(self, hass: HomeAssistant):
         handler, _ = self._handler(hass)
         await handler.async_step_init(
             {"scan_interval": 30, "control_enabled": True}
         )
-        result = await handler.async_step_external_control(
-            self._control_input(
-                control_mode="live",
-                control_live_segments=False,
-                control_live_grants=True,
-            )
+
+        form = await handler.async_step_external_control()
+
+        url = form["description_placeholders"]["guide_url"]
+        assert url.startswith("https://github.com/eman/ha_nwp500/")
+        assert url.endswith("docs/external-control.md")
+
+    @pytest.mark.parametrize("choice", ["shadow", "live", "disabled"])
+    @pytest.mark.asyncio
+    async def test_the_mode_choice_is_the_stored_mode(
+        self, hass: HomeAssistant, monkeypatch, choice
+    ):
+        """And the switches of earlier versions are dropped."""
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
         )
-        assert result["type"] == FlowResultType.FORM
-        assert result["errors"] == {
-            "control_live_grants": "grants_need_segments"
+        handler, entry = self._handler(
+            hass,
+            {"control_live_segments": True, "control_live_grants": True},
+        )
+        self._with_heater(entry, {"reservation_use": 1, "reservation": []})
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input(control_mode=choice)
+        )
+        if result["type"] == FlowResultType.FORM:
+            assert result["step_id"] == "going_live"
+            result = await handler.async_step_going_live({})
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"]["control_mode"] == choice
+        assert "control_live_segments" not in result["data"]
+        assert "control_live_grants" not in result["data"]
+
+    @pytest.mark.parametrize(
+        ("stored", "choice"),
+        [
+            ({}, "shadow"),
+            ({"control_mode": "shadow"}, "shadow"),
+            ({"control_mode": "live"}, "live"),
+            ({"control_mode": "live", "control_live_segments": True}, "live"),
+            # An earlier version's live with its segments switch off wrote
+            # nothing: it is Preview.
+            (
+                {"control_mode": "live", "control_live_segments": False},
+                "shadow",
+            ),
+            ({"control_mode": "disabled"}, "disabled"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_stored_options_show_as_one_mode_choice(
+        self, hass: HomeAssistant, stored, choice
+    ):
+        handler, _ = self._handler(hass, {"control_enabled": True, **stored})
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        form = await handler.async_step_external_control()
+
+        suggested = {
+            str(key): key.description["suggested_value"]
+            for key in form["data_schema"].schema
+            if key.description and "suggested_value" in key.description
         }
+        assert suggested["control_mode"] == choice
+        assert "control_live_segments" not in suggested
+
+    @pytest.mark.asyncio
+    async def test_an_earlier_live_without_segments_goes_live_afresh(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        """It wrote nothing: choosing Live is going live (#191 review)."""
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
+        )
+        handler, entry = self._handler(
+            hass,
+            {
+                "control_enabled": True,
+                "control_mode": "live",
+                "control_live_segments": False,
+            },
+        )
+        self._with_heater(entry, {"reservation_use": 1, "reservation": []})
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input(control_mode="live")
+        )
+
+        assert result["step_id"] == "going_live"
+
+    @pytest.mark.asyncio
+    async def test_saving_while_live_says_it_stays_live(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        """Changing a setting while live is not going live again."""
+        monkeypatch.setattr(
+            "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
+        )
+        handler, entry = self._handler(
+            hass,
+            {
+                "control_enabled": True,
+                "control_mode": "live",
+                "control_live_segments": True,
+            },
+        )
+        self._with_heater(entry, {"reservation_use": 1, "reservation": []})
+        await handler.async_step_init(
+            {"scan_interval": 30, "control_enabled": True}
+        )
+
+        result = await handler.async_step_external_control(
+            self._control_input(control_mode="live")
+        )
+
+        assert result["step_id"] == "stay_live"
+        # A heater that holds the feature's list keeps its earlier
+        # declaration (spec 6.3), so the page must not invite edits.
+        import json
+        from pathlib import Path as _Path
+
+        root = _Path("custom_components/nwp500")
+        for name in ("strings.json", "translations/en.json"):
+            text = json.loads((root / name).read_text())["options"]["step"][
+                "stay_live"
+            ]["description"]
+            assert "choose Stopped and save first" in text
+        result = await handler.async_step_stay_live({})
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert "AA:BB" in result["data"]["control_owner_program"]
 
     @pytest.mark.asyncio
     async def test_saving_drops_first_draft_options(self, hass: HomeAssistant):

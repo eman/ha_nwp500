@@ -20,9 +20,10 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, callback
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import (
     EventStateChangedData,
     async_track_point_in_utc_time,
@@ -34,23 +35,20 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_CONTROL_INTENT_ENTITY,
-    CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MODE,
     CONF_CONTROL_OWNER_PROGRAM,
-    CONF_CONTROL_SURPLUS_ENTITY,
-    CONF_CONTROL_SURPLUS_THRESHOLD_KW,
     CONF_SCAN_INTERVAL,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
     DEFAULT_CONTROL_MODE,
-    DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    control_follows_plan,
 )
 from .capabilities import Capabilities, build_capabilities
-from .engine import WRITE_DISABLE, Planner, RaiseState, Report, State, Write
+from .engine import WRITE_DISABLE, Planner, Report, State, Write
 from .entries import schedule_hash
 from .evaluate import Ack, check_plan, rejected_ack
 from .intent import (
@@ -88,17 +86,21 @@ WRITE_PAUSE = timedelta(minutes=15)
 STATE_CONFIRM_TIMEOUT = 60.0
 STATE_CONFIRM_POLL = 2.0
 
+# The Repairs issue raised while a heater may hold the feature's list that
+# could not be handed back (section 6.6). It persists across restarts, and
+# after the feature is switched off: that is when only it tells the owner.
+ISSUE_HAND_BACK_FAILED = "control_hand_back_failed"
+
 
 def live_writes(options: Mapping[str, Any], mac_address: str) -> bool:
     """Whether these options write the list to this heater.
 
     Live, with the gate open, the owner's program declared, and segments
-    live. Anything else writes nothing (grants follow segments).
+    live. Anything else writes nothing.
     """
     return (
         CONTROL_LIVE_AVAILABLE
-        and options.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE
-        and options.get(CONF_CONTROL_LIVE_SEGMENTS, False) is True
+        and control_follows_plan(options)
         and declared_owner(options, mac_address) is not None
     )
 
@@ -168,19 +170,9 @@ class DeviceControl:
             )
             mode = CONTROL_MODE_SHADOW
         self.mode = mode
-        # Live for segments; grants follow their own switch in the planner.
         self.writes = live_writes(options, mac_address)
         self.intent_entity_id: str | None = options.get(
             CONF_CONTROL_INTENT_ENTITY
-        )
-        self.surplus_entity_id: str | None = options.get(
-            CONF_CONTROL_SURPLUS_ENTITY
-        )
-        self.surplus_threshold_kw = float(
-            options.get(
-                CONF_CONTROL_SURPLUS_THRESHOLD_KW,
-                DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW,
-            )
         )
         poll = int(options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
 
@@ -278,11 +270,16 @@ class DeviceControl:
         else:
             if self.holds_device and not self.writes:
                 _LOGGER.warning(
-                    "The heater %s still holds the feature's reservation "
-                    "list, but live writes are off. Press Disable to hand it "
-                    "back to the owner's program",
-                    self.mac_address,
+                    "%s still holds external control's schedule entries, but "
+                    "live writes are off. Press Stop external control to "
+                    "hand it back",
+                    self.device_name,
                 )
+                self._report_hand_back(failed=True)
+            elif not self.holds_device:
+                # Only a hand-back, or a heater holding nothing, clears it:
+                # going live again is not handing back.
+                self._report_hand_back(failed=False)
             await self.store.async_set_disabled_done(self.mac_address, False)
             if self.intent_entity_id:
                 self._unsubscribe.append(
@@ -290,14 +287,6 @@ class DeviceControl:
                         self.hass,
                         [self.intent_entity_id],
                         self._on_intent_event,
-                    )
-                )
-            if self.surplus_entity_id:
-                self._unsubscribe.append(
-                    async_track_state_change_event(
-                        self.hass,
-                        [self.surplus_entity_id],
-                        self._on_surplus_event,
                     )
                 )
             await self._async_adopt_initial(now, observed)
@@ -381,6 +370,7 @@ class DeviceControl:
             await self.store.async_set_disabled_done(self.mac_address, True)
             await self._async_persist()
             return
+        self._report_hand_back(failed=False)
         write = self.planner.disable(now)
         _LOGGER.info(
             "External control disabled for %s: %d entr%s removed%s",
@@ -422,9 +412,10 @@ class DeviceControl:
         owner = self.planner.owner
         if owner is None:
             _LOGGER.error(
-                "Cannot restore the owner's program on %s: none is known",
-                self.mac_address,
+                "Cannot give %s back its own settings: none are known",
+                self.device_name,
             )
+            self._report_hand_back(failed=True)
             return False
         async with self.writer.locked():
             if await self._async_fresh_read() is None:
@@ -477,6 +468,7 @@ class DeviceControl:
             state_written=state_written,
         )
         await self.store.async_set_took_over(self.mac_address, False)
+        self._report_hand_back(failed=False)
         # Saved now: a reload follows, and the next controller must know the
         # heater no longer holds the feature's list.
         await self._async_persist()
@@ -526,9 +518,33 @@ class DeviceControl:
             confirmed=False,
         )
         _LOGGER.error(
-            "Could not restore the owner's reservation list on %s; the "
-            "feature's entries are still on the heater",
-            self.mac_address,
+            "Could not give %s back its own schedule; external control's "
+            "entries are still on the heater",
+            self.device_name,
+        )
+        self._report_hand_back(failed=True)
+
+    @property
+    def device_name(self) -> str:
+        """The heater's name, as its device shows it, else its MAC."""
+        name = getattr(self.device.device_info, "device_name", None)
+        return name if isinstance(name, str) and name else self.mac_address
+
+    def _report_hand_back(self, *, failed: bool) -> None:
+        """Raise or clear the Repairs issue for a failed hand-back."""
+        issue_id = f"{ISSUE_HAND_BACK_FAILED}_{self.mac_address}"
+        if not failed:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+            return
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            is_persistent=True,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key=ISSUE_HAND_BACK_FAILED,
+            translation_placeholders={"device": self.device_name},
         )
 
     def _retry_release(self, now: datetime) -> None:
@@ -617,11 +633,6 @@ class DeviceControl:
         return self.planner.wanted_state(dt_util.utcnow())
 
     @property
-    def raise_state(self) -> RaiseState | None:
-        """The surplus raise in force, if any."""
-        return self.planner.raise_state
-
-    @property
     def last_write(self) -> Write | None:
         """The last list write, sent or simulated."""
         return self.planner.last_write
@@ -690,25 +701,10 @@ class DeviceControl:
             device_data.get("status"),
             self.coordinator.reservation_schedules.get(self.mac_address),
             self.coordinator.tou_schedules.get(self.mac_address),
-            surplus_on=self._surplus_on(),
             schedule_read_at=getattr(
                 self.coordinator, "reservation_schedules_read_at", {}
             ).get(self.mac_address),
         )
-
-    def _surplus_on(self) -> bool | None:
-        """Whether the surplus entity says there is surplus (section 5.7)."""
-        if not self.surplus_entity_id:
-            return None
-        state = self.hass.states.get(self.surplus_entity_id)
-        if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            return None
-        if self.surplus_entity_id.startswith("binary_sensor."):
-            return state.state == STATE_ON
-        try:
-            return float(state.state) >= self.surplus_threshold_kw
-        except ValueError:
-            return None
 
     async def _async_ensure_owner(self, observed: Observed) -> None:
         """Take the provisional owner's program once the device is known."""
@@ -910,10 +906,6 @@ class DeviceControl:
 
     @callback
     def _on_coordinator_update(self) -> None:
-        self.hass.async_create_task(self._async_evaluate(dt_util.utcnow()))
-
-    @callback
-    def _on_surplus_event(self, event: Event[EventStateChangedData]) -> None:
         self.hass.async_create_task(self._async_evaluate(dt_util.utcnow()))
 
     def _schedule_next_event(self) -> None:

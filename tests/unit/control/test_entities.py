@@ -26,7 +26,6 @@ from custom_components.nwp500.const import (
 from custom_components.nwp500.control import ENTITY_KEYS
 from custom_components.nwp500.control.binary_sensor import (
     BINARY_SENSOR_KEYS,
-    ControlGrantRaisedBinarySensor,
     ControlInSyncBinarySensor,
     ControlOverrideBinarySensor,
 )
@@ -35,7 +34,6 @@ from custom_components.nwp500.control.button import (
     create_control_buttons,
 )
 from custom_components.nwp500.control.engine import (
-    RaiseState,
     Report,
     State,
     Write,
@@ -318,14 +316,6 @@ class TestBinarySensors:
         control.program_details.return_value["device_hash"] = None
         assert sensor.is_on is None
 
-    def test_grant_raised(self, control, entry_):
-        sensor = ControlGrantRaisedBinarySensor(control, "grant_raised")
-        assert sensor.is_on is False
-        assert sensor.extra_state_attributes["grant"] is None
-        control.raise_state = RaiseState("g1", WHEN, entry_, None)
-        assert sensor.is_on is True
-        assert sensor.extra_state_attributes["setpoint_f"] == 140.0
-
     def test_override(self, control):
         sensor = ControlOverrideBinarySensor(control, "override")
         assert sensor.is_on is False
@@ -544,3 +534,96 @@ class TestPlatformHooks:
             e.unique_id for e in entities if "_control_" in (e.unique_id or "")
         ]
         assert control_ids == [f"{MAC}_control_{key}" for key, _ in keys]
+
+
+class TestDisplayLabels:
+    """Labels translate the protocol's raw values; they never replace them.
+
+    A scheduler reads the raw states and attribute values (spec section 4),
+    so every label must name a value the feature really produces.
+    """
+
+    @staticmethod
+    def _strings(name: str) -> dict:
+        path = Path(__file__).parents[3] / "custom_components" / "nwp500" / name
+        return json.loads(path.read_text())
+
+    @pytest.mark.parametrize("name", ["strings.json", "translations/en.json"])
+    def test_states_labelled_are_the_raw_ones(self, name):
+        from custom_components.nwp500.const import CONTROL_MODE_NAMES
+        from custom_components.nwp500.control import engine, entries, evaluate
+
+        entity = self._strings(name)["entity"]
+        ack_states = {
+            getattr(evaluate, n)
+            for n in dir(evaluate)
+            if n.startswith("STATE_")
+        }
+        kinds = {
+            getattr(entries, n) for n in dir(entries) if n.startswith("KIND_")
+        }
+        reasons = {
+            getattr(engine, n)
+            for n in dir(engine)
+            if n.startswith("WRITE_") and isinstance(getattr(engine, n), str)
+        }
+        sensor = entity["sensor"]
+        assert set(sensor["control_ack"]["state"]) == ack_states
+        assert set(sensor["control_intent"]["state"]) == {evaluate.STATE_NONE}
+        assert set(sensor["control_wanted_mode"]["state"]) == set(
+            CONTROL_MODE_NAMES
+        )
+        next_entry = sensor["control_next_entry"]["state_attributes"]
+        assert set(next_entry["kind"]["state"]) == kinds
+        assert set(next_entry["mode"]["state"]) == set(CONTROL_MODE_NAMES)
+        last_write = sensor["control_last_write"]["state_attributes"]
+        assert set(last_write["reason"]["state"]) == reasons
+
+    @pytest.mark.parametrize("name", ["strings.json", "translations/en.json"])
+    def test_every_control_entity_is_named(self, name):
+        from custom_components.nwp500.control import ENTITY_KEYS
+
+        entity = self._strings(name)["entity"]
+        named = {
+            key.removeprefix("control_")
+            for domain in ("sensor", "binary_sensor", "button")
+            for key, value in entity[domain].items()
+            if key.startswith("control_") and value.get("name")
+        }
+        assert named == ENTITY_KEYS
+
+    def test_the_mode_choices_are_labelled(self):
+        from custom_components.nwp500.const import (
+            CONTROL_MODE_DISABLED,
+            CONTROL_MODE_LIVE,
+            CONTROL_MODE_SHADOW,
+        )
+
+        labels = self._strings("strings.json")["selector"]["control_mode"]
+        assert set(labels["options"]) == {
+            CONTROL_MODE_SHADOW,
+            CONTROL_MODE_LIVE,
+            CONTROL_MODE_DISABLED,
+        }
+
+    def test_technical_entities_are_diagnostic(self, control):
+        """Kept enabled, so a scheduler can still read them."""
+        from homeassistant.const import EntityCategory
+
+        feature = MagicMock()
+        feature.devices = {MAC: control}
+        diagnostic = {
+            e.unique_id.split("_control_", 1)[1]
+            for e in create_control_sensors(feature)
+            if e.entity_category == EntityCategory.DIAGNOSTIC
+        }
+        assert diagnostic == {
+            "capabilities",
+            "program_hash",
+            "last_write",
+            "heartbeat",
+        }
+        assert all(
+            e.entity_registry_enabled_default
+            for e in create_control_sensors(feature)
+        )

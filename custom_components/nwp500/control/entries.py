@@ -23,12 +23,13 @@ from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
 KIND_PLAN = "plan"
 KIND_NEAR_TERM = "near_term"
 KIND_PRECEDENCE_EXIT = "precedence_exit"
+# Surplus grant entries, which the feature no longer writes. An earlier
+# version may have stored some as on the heater: they load, are reported, and
+# the next write removes them.
 KIND_GRANT_RAISE = "grant_raise"
 KIND_GRANT_LOWER = "grant_lower"
 KIND_GUARD = "guard"
-NEAR_TERM_KINDS = frozenset(
-    {KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT, KIND_GRANT_RAISE, KIND_GRANT_LOWER}
-)
+NEAR_TERM_KINDS = frozenset({KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT})
 
 # The owner label the program entity reports for each kind (section 4.2).
 OWNER_LABELS = {

@@ -26,6 +26,7 @@ from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
@@ -36,6 +37,7 @@ from .const import (
     DEFAULT_TEMPERATURE_C,
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
+    ISSUE_CONTROL_START_FAILED,
     MAX_TEMPERATURE_C,
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
@@ -1088,6 +1090,7 @@ async def async_setup_entry(
     # an options change reloads the entry after the options have already
     # changed, so unload cannot recompute them.
     platforms = list(PLATFORMS)
+    start_failed_issue = f"{ISSUE_CONTROL_START_FAILED}_{entry.entry_id}"
     if control_enabled(entry):
         from .control import async_setup_control
 
@@ -1102,6 +1105,19 @@ async def async_setup_entry(
                 "External control could not start; the integration runs "
                 "without it"
             )
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                start_failed_issue,
+                is_fixable=False,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key=ISSUE_CONTROL_START_FAILED,
+            )
+        else:
+            ir.async_delete_issue(hass, DOMAIN, start_failed_issue)
+    elif ir.async_get(hass).async_get_issue(DOMAIN, start_failed_issue):
+        # Switched off after it failed to start: nothing is left to fix.
+        ir.async_delete_issue(hass, DOMAIN, start_failed_issue)
     hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})[
         DATA_PLATFORMS
     ] = platforms

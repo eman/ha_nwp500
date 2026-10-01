@@ -18,22 +18,17 @@ from nwp500.temperature import HalfCelsius
 
 from ..const import (
     CONF_CONTROL_ALLOWED_MODES,
-    CONF_CONTROL_ASSISTED_MODE,
-    CONF_CONTROL_LIVE_GRANTS,
-    CONF_CONTROL_LIVE_SEGMENTS,
-    CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
     CONF_CONTROL_MODE,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
     CONF_CONTROL_SETPOINT_MAX_F,
     CONF_CONTROL_SETPOINT_MIN_F,
-    CONF_CONTROL_SURPLUS_ENTITY,
     DEFAULT_CONTROL_ALLOWED_MODES,
     DEFAULT_CONTROL_ASSISTED_MODE,
-    DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
     DEFAULT_CONTROL_MODE,
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
+    control_follows_plan,
 )
 from .intent import (
     GRANT_RULE_MIN_RUN,
@@ -55,14 +50,17 @@ HORIZON = timedelta(hours=144)
 # How far ahead a change needed now is written as an entry (section 5.2).
 NEAR_TERM_LEAD = timedelta(minutes=2)
 
-# Surplus grant timing (section 5.7): the declared rules, which a grant
-# may set itself within these ranges, in whole minutes (protocol 1.2).
-SURPLUS_ON_BEFORE_RAISE = timedelta(minutes=10)
-SURPLUS_OFF_BEFORE_LOWER = timedelta(minutes=15)
+# Surplus grants are not supported: the adapter operates the water heater,
+# and reads nothing about the home's power. Protocol 1 keeps the keys, with
+# these fixed values, until grants leave the protocol (section 5.7).
+_GRANT_RULES_DECLARED: dict[str, int] = {
+    GRANT_RULE_SURPLUS_ON: 10,
+    GRANT_RULE_SURPLUS_OFF: 15,
+    GRANT_RULE_MIN_RUN: 120,
+}
 GRANT_RULE_RANGES: dict[str, tuple[int, int]] = {
     GRANT_RULE_SURPLUS_ON: (0, 60),
     GRANT_RULE_SURPLUS_OFF: (0, 60),
-    # As the option's own range.
     GRANT_RULE_MIN_RUN: (0, 600),
 }
 
@@ -84,15 +82,11 @@ class Capabilities:
 
     mode: str
     live_segments: bool
-    live_grants: bool
     setpoint_min_raw: int | None
     setpoint_max_raw: int | None
     allowed_modes: tuple[str, ...]
-    assisted_mode: str
     entry_limit: int
     entry_reserve: int
-    grants_supported: bool
-    min_run_before_lower_min: int
     feature_version: str
     owner_program: dict[str, Any] | None = None
     telemetry: dict[str, Any] = field(default_factory=dict)
@@ -116,25 +110,18 @@ class Capabilities:
             "mode": self.mode,
             "live": {
                 "segments": self.live_segments,
-                "grants": self.live_grants,
+                "grants": False,
             },
             "setpoint_resolution_c": SETPOINT_RESOLUTION_C,
             "allowed_modes": list(self.allowed_modes),
-            "assisted_mode": self.assisted_mode,
+            # Not the heater's choice: fixed until it leaves the protocol.
+            "assisted_mode": DEFAULT_CONTROL_ASSISTED_MODE,
             "horizon_h": int(HORIZON.total_seconds() // 3600),
             "near_term_lead_min": int(NEAR_TERM_LEAD.total_seconds() // 60),
             "entry_limit": self.entry_limit,
             "entry_reserve": self.entry_reserve,
-            "grants_supported": self.grants_supported,
-            "grant_rules": {
-                "surplus_on_before_raise_min": int(
-                    SURPLUS_ON_BEFORE_RAISE.total_seconds() // 60
-                ),
-                "surplus_off_before_lower_min": int(
-                    SURPLUS_OFF_BEFORE_LOWER.total_seconds() // 60
-                ),
-                "min_run_before_lower_min": self.min_run_before_lower_min,
-            },
+            "grants_supported": False,
+            "grant_rules": dict(_GRANT_RULES_DECLARED),
             "grant_rule_ranges": {
                 rule: list(bounds) for rule, bounds in GRANT_RULE_RANGES.items()
             },
@@ -240,21 +227,12 @@ def build_capabilities(
 
     return Capabilities(
         mode=str(options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)),
-        live_segments=options.get(CONF_CONTROL_LIVE_SEGMENTS, False) is True,
-        # Grants are written only with segments, whatever an options file
-        # edited by hand says (spec section 6.1).
-        live_grants=options.get(CONF_CONTROL_LIVE_GRANTS, False) is True
-        and options.get(CONF_CONTROL_LIVE_SEGMENTS, False) is True,
+        live_segments=control_follows_plan(options),
         setpoint_min_raw=setpoint_min_raw,
         setpoint_max_raw=setpoint_max_raw,
         allowed_modes=tuple(
             options.get(
                 CONF_CONTROL_ALLOWED_MODES, DEFAULT_CONTROL_ALLOWED_MODES
-            )
-        ),
-        assisted_mode=str(
-            options.get(
-                CONF_CONTROL_ASSISTED_MODE, DEFAULT_CONTROL_ASSISTED_MODE
             )
         ),
         entry_limit=int(
@@ -267,13 +245,6 @@ def build_capabilities(
             options.get(
                 CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
                 DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
-            )
-        ),
-        grants_supported=bool(options.get(CONF_CONTROL_SURPLUS_ENTITY)),
-        min_run_before_lower_min=int(
-            options.get(
-                CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
-                DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
             )
         ),
         feature_version=feature_version,

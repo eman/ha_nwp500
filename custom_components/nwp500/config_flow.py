@@ -13,38 +13,31 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import (
     CONF_CONTROL_ALLOWED_MODES,
-    CONF_CONTROL_ASSISTED_MODE,
     CONF_CONTROL_ENABLED,
     CONF_CONTROL_INTENT_ENTITY,
-    CONF_CONTROL_LIVE_GRANTS,
-    CONF_CONTROL_LIVE_SEGMENTS,
-    CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
     CONF_CONTROL_MODE,
     CONF_CONTROL_OWNER_PROGRAM,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
     CONF_CONTROL_SETPOINT_MAX_F,
     CONF_CONTROL_SETPOINT_MIN_F,
-    CONF_CONTROL_SURPLUS_ENTITY,
-    CONF_CONTROL_SURPLUS_THRESHOLD_KW,
     CONF_SCAN_INTERVAL,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_NAMES,
+    CONTROL_MODE_SHADOW,
     CONTROL_MODES_SELECTABLE,
     CONTROL_OBSOLETE_OPTIONS,
     DEFAULT_CONTROL_ALLOWED_MODES,
-    DEFAULT_CONTROL_ASSISTED_MODE,
-    DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
     DEFAULT_CONTROL_MODE,
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
-    DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
+    control_follows_plan,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -248,10 +241,27 @@ _SETPOINT_FORM_KEYS: dict[str, str] = {
 # Options the form may leave empty. An empty field clears the stored value
 # rather than keeping it, so "follow the device" can be chosen again.
 _OPTIONAL_CONTROL_KEYS = (
-    CONF_CONTROL_SURPLUS_ENTITY,
     CONF_CONTROL_SETPOINT_MIN_F,
     CONF_CONTROL_SETPOINT_MAX_F,
 )
+
+
+# The user guide, linked from the form: translations may not hold URLs.
+CONTROL_GUIDE_URL = (
+    "https://github.com/eman/ha_nwp500/blob/main/docs/external-control.md"
+)
+
+
+def _form_mode(options: dict[str, Any]) -> str:
+    """The Mode choice that shows these stored options.
+
+    A `live` an earlier version stored with its segments switch off writes
+    nothing and behaves as shadow, so it shows as Preview.
+    """
+    mode = options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)
+    if mode == CONTROL_MODE_LIVE and not control_follows_plan(options):
+        return CONTROL_MODE_SHADOW
+    return str(mode)
 
 
 def _control_schema(hass: HomeAssistant) -> vol.Schema:
@@ -271,19 +281,10 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
     )
     mode_name_options = list(CONTROL_MODE_NAMES)
     modes: list[str] = list(CONTROL_MODES_SELECTABLE)
-    live: dict[Any, Any] = {}
     if CONTROL_LIVE_AVAILABLE:
         # Live writes the heater's reservation list; it is offered only
-        # once the gate in the constants is on (issue #158, step 5).
+        # while the gate in the constants is on (issue #158, step 5).
         modes.insert(1, CONTROL_MODE_LIVE)
-        live = {
-            vol.Required(
-                CONF_CONTROL_LIVE_SEGMENTS, default=False
-            ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_CONTROL_LIVE_GRANTS, default=False
-            ): selector.BooleanSelector(),
-        }
     return vol.Schema(
         {
             vol.Required(CONF_CONTROL_INTENT_ENTITY): selector.EntitySelector(),
@@ -293,24 +294,6 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
                 selector.SelectSelectorConfig(
                     options=modes,
                     translation_key="control_mode",
-                )
-            ),
-            **live,
-            vol.Optional(CONF_CONTROL_SURPLUS_ENTITY): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain=["binary_sensor", "sensor"]
-                )
-            ),
-            vol.Required(
-                CONF_CONTROL_SURPLUS_THRESHOLD_KW,
-                default=DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=50,
-                    step=0.01,
-                    unit_of_measurement="kW",
-                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
             vol.Optional("control_setpoint_min"): setpoint_selector,
@@ -323,27 +306,6 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
                     options=mode_name_options,
                     multiple=True,
                     translation_key="control_mode_name",
-                )
-            ),
-            vol.Required(
-                CONF_CONTROL_ASSISTED_MODE,
-                default=DEFAULT_CONTROL_ASSISTED_MODE,
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=mode_name_options,
-                    translation_key="control_mode_name",
-                )
-            ),
-            vol.Required(
-                CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
-                default=DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=600,
-                    step=1,
-                    unit_of_measurement="min",
-                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
             vol.Required(
@@ -424,17 +386,13 @@ def _control_suggested_values(
             suggested[form_key] = value
     for key in CONTROL_OBSOLETE_OPTIONS:
         suggested.pop(key, None)
+    suggested[CONF_CONTROL_MODE] = _form_mode(options)
     return suggested
 
 
 def _validate_control_input(user_input: dict[str, Any]) -> dict[str, str]:
     """Cross-field checks the schema cannot express."""
     errors: dict[str, str] = {}
-    if user_input.get(CONF_CONTROL_LIVE_GRANTS) and not user_input.get(
-        CONF_CONTROL_LIVE_SEGMENTS
-    ):
-        # Grants are written only with segments (spec section 6.1).
-        errors[CONF_CONTROL_LIVE_GRANTS] = "grants_need_segments"
     minimum = user_input.get("control_setpoint_min")
     maximum = user_input.get("control_setpoint_max")
     if minimum is not None and maximum is not None and minimum >= maximum:
@@ -447,8 +405,6 @@ def _validate_control_input(user_input: dict[str, Any]) -> dict[str, str]:
     allowed = user_input.get(CONF_CONTROL_ALLOWED_MODES) or []
     if not allowed:
         errors[CONF_CONTROL_ALLOWED_MODES] = "allowed_modes_empty"
-    elif user_input[CONF_CONTROL_ASSISTED_MODE] not in allowed:
-        errors[CONF_CONTROL_ASSISTED_MODE] = "assisted_mode_not_allowed"
     return errors
 
 
@@ -466,7 +422,6 @@ def _normalise_control_input(
         if value is not None:
             stored[option_key] = value
     for key in (
-        CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN,
         CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
         CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
     ):
@@ -545,6 +500,13 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     # Every save in live confirms the owner's program: the
                     # owner may have changed it since it was declared.
                     self._control_data = data
+                    # As stored: `options` has lost an earlier version's
+                    # switches, which can make a stored live not live.
+                    if (
+                        _form_mode(dict(self.config_entry.options))
+                        == CONTROL_MODE_LIVE
+                    ):
+                        return await self.async_step_stay_live()
                     return await self.async_step_going_live()
                 return self.async_create_entry(title="", data=data)
 
@@ -557,6 +519,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 _control_schema(self.hass), suggested
             ),
             errors=errors,
+            description_placeholders={"guide_url": CONTROL_GUIDE_URL},
         )
 
     async def async_step_going_live(
@@ -567,6 +530,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         The heater's mode, setpoint, reservation switch and entries are
         shown for confirmation. Disabling restores exactly this.
         """
+        return await self._async_confirm_owner("going_live", user_input)
+
+    async def async_step_stay_live(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """The same confirmation, saving options while already live."""
+        return await self._async_confirm_owner("stay_live", user_input)
+
+    async def _async_confirm_owner(
+        self, step_id: str, user_input: dict[str, Any] | None
+    ) -> config_entries.ConfigFlowResult:
         from .control.owner import async_declare_owner_programs
 
         if user_input is not None and self._owner_programs is not None:
@@ -589,7 +563,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
         if programs is None:
             errors["base"] = "owner_snapshot_unavailable"
         return self.async_show_form(
-            step_id="going_live",
+            step_id=step_id,
             data_schema=vol.Schema({}),
             description_placeholders={"program": summary},
             errors=errors,

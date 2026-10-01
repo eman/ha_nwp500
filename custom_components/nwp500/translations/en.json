@@ -54,50 +54,40 @@
       },
       "external_control": {
         "title": "External control",
-        "description": "Your scheduler publishes a plan: when to change the heater's temperature and mode. This feature turns the plan into entries in the heater's own schedule, so the heater keeps following it even when Home Assistant is down. In shadow mode it only shows what it would write; in live mode it writes to the heater. The plan's format is in docs/external-control.md.",
+        "description": "External control needs a scheduler of your own, such as an automation, a Node-RED flow or a script, and does nothing without one. Your scheduler publishes a plan: a list of times, each with the temperature and mode to use from then on. External control writes the plan into the heater's own schedule, so the heater keeps following it even while Home Assistant is down. How to publish a plan: {guide_url}",
         "data": {
           "control_intent_entity": "Plan entity",
           "control_mode": "Mode",
-          "control_live_segments": "Live: follow the plan",
-          "control_live_grants": "Live: surplus raises",
-          "control_surplus_entity": "Surplus sensor",
-          "control_surplus_threshold_kw": "Surplus threshold",
           "control_setpoint_min": "Lowest temperature",
           "control_setpoint_max": "Highest temperature",
           "control_allowed_modes": "Allowed modes",
-          "control_assisted_mode": "Faster-recovery mode",
-          "control_min_run_before_lower_min": "Minimum run before taking a raise back",
-          "control_reservation_entry_limit": "Schedule entries to use",
+          "control_reservation_entry_limit": "Schedule size limit",
           "control_reservation_entry_reserve": "Schedule entries kept free"
         },
         "data_description": {
-          "control_intent_entity": "The entity your scheduler publishes plans to, such as an MQTT sensor. Its state is the plan's id and its attributes are the plan.",
-          "control_mode": "Shadow works out the schedule and shows it, but writes nothing to the heater. Live writes it to the heater: after this page you confirm your heater's current program, and only then does it go live. Disabled puts your heater's own program back once, then stops.",
-          "control_live_segments": "In live mode, write the plan's temperature and mode changes to the heater. When off, they are only shown, as in shadow.",
-          "control_live_grants": "In live mode, also raise the temperature when there is spare power, as far as the plan allows. Needs \"Live: follow the plan\".",
-          "control_surplus_entity": "Tells the feature when there is spare power: a binary sensor that is on during surplus, or a power sensor in kW. Needed for surplus raises.",
-          "control_surplus_threshold_kw": "For a power sensor: there is surplus when it reads at or above this. The default is about what the heat pump draws while running.",
-          "control_setpoint_min": "The lowest temperature a plan may set. Leave empty to use the heater's own minimum. A plan asking for \"min\" gets this temperature.",
-          "control_setpoint_max": "The highest temperature a plan or a surplus raise may set. Leave empty to use the heater's own maximum.",
+          "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor. Its state is the plan's ID and its attributes are the plan.",
+          "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule: after this page you confirm your own settings, and only then does it go live. Stopped gives the heater back your own settings once, then does nothing; its entities stay. To remove external control completely, turn it off on the first page.",
+          "control_setpoint_min": "The lowest temperature a plan may set. Leave empty to use the heater's own minimum.",
+          "control_setpoint_max": "The highest temperature a plan may set. Leave empty to use the heater's own maximum.",
           "control_allowed_modes": "The modes a plan may choose. Vacation and power off are never allowed. When first going live, allowing only one mode keeps the heater from switching modes.",
-          "control_assisted_mode": "The mode a scheduler should use when it needs hot water back quickly. It must be one of the allowed modes.",
-          "control_min_run_before_lower_min": "When the spare power goes, a surplus raise is taken back after 15 minutes, but not before the compressor has run this long. A plan can set its own times. A raise is always taken back when the compressor stops.",
-          "control_reservation_entry_limit": "The most entries the feature puts in the heater's schedule. The heater tested held 32, so 16 leaves room for your own.",
-          "control_reservation_entry_reserve": "Entries held back for changes that must happen right away, such as a surplus raise. Must be fewer than the entries to use."
+          "control_reservation_entry_limit": "The most entries the heater's schedule may hold in total, your own included. External control uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32.",
+          "control_reservation_entry_reserve": "Entries kept free for changes that must happen right away, such as a plan step that has already begun. Must be less than the schedule size limit."
         }
       },
       "going_live": {
         "title": "Confirm going live",
-        "description": "Going live replaces your heater's own schedule with the plan. This is your heater's current program, which comes back when you disable external control:\n\n{program}\n\nWhile live, the heater's schedule switch is on, and your own entries are switched off but kept. Submit to go live now."
+        "description": "Going live replaces your heater's own schedule with the plan. These are your own settings, which come back when external control stops:\n\n{program}\n\nWhile live, the heater's schedule is on, and your own schedule entries are switched off but kept. Submit to go live now."
+      },
+      "stay_live": {
+        "title": "Check your own settings",
+        "description": "External control stays live. These are your own settings, which come back when external control stops:\n\n{program}\n\nChanges made on the heater while it is live don't count: to change these settings, choose Stopped and save first, change them on the heater, then go live again. Submit to save and keep external control live."
       }
     },
     "error": {
       "setpoint_range": "The lowest temperature must be below the highest.",
-      "reserve_exceeds_limit": "Keep fewer entries free than the entries to use.",
+      "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit.",
       "allowed_modes_empty": "Allow at least one mode.",
-      "assisted_mode_not_allowed": "The faster-recovery mode must be one of the allowed modes.",
-      "owner_snapshot_unavailable": "Your heater's program can't be read yet. Wait until the heater reports its mode, temperature and schedule, and take it out of vacation or power off, then submit again.",
-      "grants_need_segments": "Surplus raises can be live only when \"Live: follow the plan\" is on."
+      "owner_snapshot_unavailable": "Your heater's own settings can't be read yet. Wait until the heater reports its mode, temperature and schedule, and take it out of Vacation or power off, then submit again."
     }
   },
   "entity": {
@@ -461,34 +451,180 @@
         "name": "Abnormal Suction Temperature Count"
       },
       "control_capabilities": {
-        "name": "Control Capabilities"
+        "name": "External control interface"
       },
       "control_intent": {
-        "name": "Control Plan"
+        "name": "Plan",
+        "state": {
+          "none": "No plan"
+        },
+        "state_attributes": {
+          "issued_at": {
+            "name": "Issued"
+          },
+          "received_at": {
+            "name": "Received"
+          },
+          "segment_count": {
+            "name": "Plan steps"
+          },
+          "grant_count": {
+            "name": "Surplus windows"
+          }
+        }
       },
       "control_ack": {
-        "name": "Control Acknowledgement"
+        "name": "Plan status",
+        "state": {
+          "none": "No plan",
+          "shadow": "Preview only",
+          "pending": "Waiting to write",
+          "programmed": "Written to heater",
+          "partly_programmed": "Partly written (rest later)",
+          "rejected": "Plan rejected"
+        },
+        "state_attributes": {
+          "intent_id": {
+            "name": "Plan ID"
+          },
+          "segments": {
+            "name": "Plan steps"
+          },
+          "grants": {
+            "name": "Surplus windows"
+          },
+          "reason": {
+            "name": "Reason"
+          },
+          "detail": {
+            "name": "Detail"
+          },
+          "rejected": {
+            "name": "Rejected plan"
+          }
+        }
       },
       "control_heartbeat": {
-        "name": "Control Heartbeat"
+        "name": "External control heartbeat"
       },
       "control_wanted_mode": {
-        "name": "Control Wanted Mode"
+        "name": "Plan mode now",
+        "state": {
+          "heat_pump": "Heat pump",
+          "energy_saver": "Energy Saver (Eco)",
+          "high_demand": "High demand",
+          "electric": "Electric"
+        }
       },
       "control_wanted_setpoint": {
-        "name": "Control Wanted Setpoint"
+        "name": "Plan temperature now",
+        "state_attributes": {
+          "segment": {
+            "name": "Plan step"
+          },
+          "grant": {
+            "name": "Surplus window"
+          }
+        }
       },
       "control_program_hash": {
-        "name": "Control Program Hash"
+        "name": "External control schedule fingerprint",
+        "state_attributes": {
+          "entries": {
+            "name": "Schedule entries"
+          },
+          "entry_count": {
+            "name": "Schedule entry count"
+          }
+        }
       },
       "control_programmed_until": {
-        "name": "Control Programmed Until"
+        "name": "Plan written up to",
+        "state_attributes": {
+          "complete": {
+            "name": "Whole plan written"
+          },
+          "scheduled": {
+            "name": "Plan steps waiting"
+          }
+        }
       },
       "control_next_entry": {
-        "name": "Control Next Entry"
+        "name": "Plan next change",
+        "state_attributes": {
+          "mode": {
+            "name": "Mode",
+            "state": {
+              "heat_pump": "Heat pump",
+              "energy_saver": "Energy Saver (Eco)",
+              "high_demand": "High demand",
+              "electric": "Electric"
+            }
+          },
+          "setpoint_f": {
+            "name": "Temperature (°F)"
+          },
+          "setpoint_c": {
+            "name": "Temperature (°C)"
+          },
+          "kind": {
+            "name": "Kind",
+            "state": {
+              "plan": "Plan step",
+              "near_term": "Plan step, written now",
+              "precedence_exit": "Back to the plan",
+              "grant_raise": "Surplus raise",
+              "grant_lower": "End of surplus raise",
+              "guard": "Surplus raise end, as a safeguard"
+            }
+          },
+          "serves": {
+            "name": "For"
+          }
+        }
       },
       "control_last_write": {
-        "name": "Control Last Write"
+        "name": "External control last write",
+        "state_attributes": {
+          "reason": {
+            "name": "Reason",
+            "state": {
+              "plan": "Plan",
+              "cleanup": "Cleanup",
+              "near_term": "Plan step, written now",
+              "grant_raise": "Surplus raise",
+              "grant_lower": "End of surplus raise",
+              "precedence_exit": "Back to the plan",
+              "power_off": "Power off",
+              "disable": "Stopped",
+              "takeover": "Going live"
+            }
+          },
+          "added": {
+            "name": "Entries added"
+          },
+          "removed": {
+            "name": "Entries removed"
+          },
+          "added_count": {
+            "name": "Entries added (count)"
+          },
+          "removed_count": {
+            "name": "Entries removed (count)"
+          },
+          "truncated": {
+            "name": "Lists shortened"
+          },
+          "confirmed": {
+            "name": "Confirmed by the heater"
+          },
+          "simulated": {
+            "name": "Preview only"
+          },
+          "owner_state": {
+            "name": "Your own settings restored"
+          }
+        }
       }
     },
     "binary_sensor": {
@@ -571,13 +707,73 @@
         "name": "TOU Status"
       },
       "control_override": {
-        "name": "Control Override"
+        "name": "Manual change detected",
+        "state": {
+          "on": "Detected",
+          "off": "None"
+        },
+        "state_attributes": {
+          "field": {
+            "name": "Changed"
+          },
+          "value": {
+            "name": "New value"
+          },
+          "detected_at": {
+            "name": "Detected at"
+          },
+          "segment": {
+            "name": "Plan step"
+          },
+          "reports": {
+            "name": "Changes"
+          },
+          "report_count": {
+            "name": "Change count"
+          },
+          "truncated": {
+            "name": "List shortened"
+          }
+        }
       },
       "control_in_sync": {
-        "name": "Control In Sync"
+        "name": "Plan written to heater",
+        "state": {
+          "on": "Yes",
+          "off": "No"
+        },
+        "state_attributes": {
+          "device_hash": {
+            "name": "Heater's schedule fingerprint"
+          },
+          "read_at": {
+            "name": "Read at"
+          }
+        }
       },
       "control_grant_raised": {
-        "name": "Control Surplus Raise"
+        "name": "Surplus raise active",
+        "state": {
+          "on": "Yes",
+          "off": "No"
+        },
+        "state_attributes": {
+          "grant": {
+            "name": "Surplus window"
+          },
+          "raised_at": {
+            "name": "Raised at"
+          },
+          "fires_at": {
+            "name": "Takes effect"
+          },
+          "setpoint_f": {
+            "name": "Temperature (°F)"
+          },
+          "setpoint_c": {
+            "name": "Temperature (°C)"
+          }
+        }
       }
     },
     "switch": {
@@ -598,7 +794,7 @@
     },
     "button": {
       "control_disable": {
-        "name": "Disable External Control"
+        "name": "Stop external control"
       }
     }
   },
@@ -907,18 +1103,28 @@
   "selector": {
     "control_mode": {
       "options": {
-        "shadow": "Shadow: show what it would do, write nothing",
-        "live": "Live: write to the heater",
-        "disabled": "Disabled: give the heater its own program back, then stop"
+        "shadow": "Preview: show what the plan would do, write nothing",
+        "live": "Live: follow the plan",
+        "disabled": "Stopped: give the heater back your own settings, then do nothing"
       }
     },
     "control_mode_name": {
       "options": {
-        "heat_pump": "Heat Pump",
-        "energy_saver": "Energy Saver",
-        "high_demand": "High Demand",
+        "heat_pump": "Heat pump",
+        "energy_saver": "Energy Saver (Eco)",
+        "high_demand": "High demand",
         "electric": "Electric"
       }
+    }
+  },
+  "issues": {
+    "control_hand_back_failed": {
+      "title": "External control couldn't give {device} back your own settings",
+      "description": "External control's schedule entries may still be on {device}, so it may keep following the last plan. If external control is on, press “Stop external control” on the device page to try again. If you have turned it off, turn it on again in the integration's options with Mode set to “Stopped”, and save. Check the heater's schedule afterwards."
+    },
+    "control_start_failed": {
+      "title": "External control couldn't start",
+      "description": "The NWP500 integration is running without external control, so nothing follows your scheduler's plan. The Home Assistant log has the reason. Reload the integration to try again, or turn external control off in its options."
     }
   }
 }

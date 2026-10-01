@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
-from homeassistant.const import UnitOfTemperature
+from homeassistant.const import EntityCategory, UnitOfTemperature
 from homeassistant.helpers.json import json_bytes
 from homeassistant.util import dt as dt_util
 
@@ -30,6 +30,7 @@ def _temperatures(raw: int) -> dict[str, float]:
 class ControlCapabilitiesSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """State: the declaration's version. Attributes: the declaration."""
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:file-certificate-outline"
 
     @property
@@ -89,6 +90,7 @@ class ControlAckSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[repor
 class ControlProgramHashSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """The hash of the list the feature wants on the device."""
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:calendar-check"
 
     @property
@@ -168,7 +170,7 @@ class ControlWantedModeSensor(NWP500ControlEntity, SensorEntity):  # type: ignor
 
 
 class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """The setpoint the plan puts the heater in now, with any surplus raise."""
+    """The setpoint the plan puts the heater in now."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_icon = "mdi:thermometer-auto"
@@ -189,16 +191,15 @@ class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: i
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The segment it comes from, and the grant raising it, if any.
+        """The segment it comes from.
 
         The segment in force on the heater: one a person's deletion kept
-        out is not (section 5.10).
+        out is not (section 5.10). `grant` is always None: surplus grants
+        are not supported (section 5.7).
         """
-        planner = self.control.planner
-        raised = planner.raise_state
         return {
-            "segment": planner.segment_in_force(dt_util.utcnow()),
-            "grant": raised.grant_id if raised else None,
+            "segment": self.control.planner.segment_in_force(dt_util.utcnow()),
+            "grant": None,
         }
 
 
@@ -206,6 +207,7 @@ class ControlLastWriteSensor(NWP500ControlEntity, SensorEntity):  # type: ignore
     """When the reservation list was last written, sent or simulated."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:content-save-edit-outline"
 
     @property
@@ -245,6 +247,7 @@ class ControlLastWriteSensor(NWP500ControlEntity, SensorEntity):  # type: ignore
 class ControlHeartbeatSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Updated at least every 15 minutes while the feature is loaded."""
 
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
     @property

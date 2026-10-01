@@ -161,9 +161,9 @@ class ControlFeature:
             await self.store.async_remove()
             return
         _LOGGER.error(
-            "External control was switched off, but the owner's reservation "
-            "list could not be restored on every heater. Its state is kept: "
-            "switch the feature on and press Disable to finish"
+            "External control was switched off, but not every heater could be "
+            "given back its own schedule. Its state is kept: turn external "
+            "control on again with Mode set to Stopped to finish"
         )
 
     async def async_options_changed(self) -> None:
@@ -183,9 +183,9 @@ class ControlFeature:
                 continue
             if not await control.async_release(dt_util.utcnow()):
                 _LOGGER.error(
-                    "Leaving live on %s: the owner's reservation list could "
-                    "not be restored. Press Disable to hand the heater back",
-                    mac_address,
+                    "Leaving live on %s: its own schedule could not be given "
+                    "back. Press Stop external control to try again",
+                    control.device_name,
                 )
 
     def _move_to_documented_ids(self) -> None:

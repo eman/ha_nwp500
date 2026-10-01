@@ -7,8 +7,6 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.helpers.json import json_bytes
 
-from nwp500.temperature import HalfCelsius
-
 from .entity import ATTRIBUTE_BUDGET, NWP500ControlEntity
 
 if TYPE_CHECKING:
@@ -48,29 +46,22 @@ class ControlInSyncBinarySensor(  # type: ignore[reportIncompatibleVariableOverr
 class ControlGrantRaisedBinarySensor(  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     NWP500ControlEntity, BinarySensorEntity
 ):
-    """On while a surplus raise is in force (spec section 5.7)."""
+    """Always off: surplus grants are not supported (spec section 5.7).
+
+    Kept, with its attributes, while protocol 1 lists it (section 1.3).
+    """
 
     _attr_icon = "mdi:solar-power-variant"
 
     @property
     def is_on(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Whether a raise is in force."""
-        return self.control.raise_state is not None
+        """Never on."""
+        return False
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The grant, when it was raised, and to what."""
-        raised = self.control.raise_state
-        if raised is None:
-            return {"grant": None, "raised_at": None, "setpoint_f": None}
-        value = HalfCelsius(raised.entry.setpoint_raw)
-        return {
-            "grant": raised.grant_id,
-            "raised_at": raised.raised_at.isoformat(),
-            "fires_at": raised.entry.fires_at.isoformat(),
-            "setpoint_f": round(value.to_fahrenheit(), 1),
-            "setpoint_c": round(value.to_celsius(), 1),
-        }
+        """The keys protocol 1 lists, all empty."""
+        return {"grant": None, "raised_at": None, "setpoint_f": None}
 
 
 class ControlOverrideBinarySensor(  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
