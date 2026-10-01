@@ -396,7 +396,7 @@ Each is a **state**, so history and statestream carry it:
 | `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, as for the mode, in Home Assistant's unit | `segment` (the segment in force, as the ack's `in_force`) |
 | `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `takeover`; a write stored by an earlier version may say `grant_raise`, `grant_lower`, `precedence_exit`, `power_off` or `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated` (below) |
 | `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
-| `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
+| `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | `started_at` |
 
 **Entry items.** Each item of `control_last_write`'s `added` and `removed`
 is one of the feature's own entries, which that write put on the device's
@@ -803,7 +803,11 @@ The feature reports people's changes. The scheduler decides.
 ### 5.12 Heartbeat
 
 `sensor.<device>_control_heartbeat` updates at least every 15 min, including
-in shadow. That is how a consumer knows the feature is alive.
+in shadow. That is how a consumer knows the feature is alive. Its
+`started_at` attribute is when the feature last started (section 6.5): set
+once each time the entry is set up or reloaded, a Home Assistant restart
+included, so a consumer can tell a start, which the heartbeat alone does not
+show.
 
 ---
 
@@ -838,6 +842,9 @@ reservation switch on (section 5.1).
 programmed entries keep running on the device.
 
 ### 6.5 Start-up
+
+A start sets the heartbeat entity's `started_at` (section 5.12) before the
+steps below.
 
 1. Read the device's list.
 2. Compare the stored plan with the entity's document by `issued_at`, and take

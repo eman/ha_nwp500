@@ -251,6 +251,16 @@ class ControlHeartbeatSensor(NWP500ControlEntity, SensorEntity):  # type: ignore
         """When the feature last reported itself alive."""
         return self.control.heartbeat
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """When the feature last started, so a consumer can tell a reload."""
+        started_at = self.control.started_at
+        return {
+            "started_at": started_at.isoformat()
+            if started_at is not None
+            else None
+        }
+
 
 SENSOR_KEYS: tuple[tuple[str, type[NWP500ControlEntity]], ...] = (
     ("capabilities", ControlCapabilitiesSensor),
