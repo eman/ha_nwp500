@@ -226,7 +226,7 @@ reads.
 | Plan written up to (`programmed_until`) | How far the device's copy of the plan reaches | `complete`, `scheduled` |
 | Plan next change (`next_entry`) | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | Plan mode now, Plan temperature now (`wanted_mode`, `wanted_setpoint`) | The state the plan puts the heater in now; a segment a person's deletion kept out does not count (spec section 5.10) | `segment` (the segment in force) |
-| External control last write (`last_write`), diagnostic | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`, `owner_state`. Examples: `docs/examples/last-write-*.json` |
+| External control last write (`last_write`), diagnostic | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`. Examples: `docs/examples/last-write-*.json` |
 | Manual change detected (`override`) | On while a person's change is reported | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
 | External control heartbeat (`heartbeat`), diagnostic | Updated at least every 15 minutes | none |
 | Stop external control (`disable`, button) | | Sets Mode to Stopped: the feature stops applying plans |

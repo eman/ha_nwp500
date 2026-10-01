@@ -90,7 +90,7 @@
         },
         "serves": {
           "type": "string",
-          "description": "The id of the segment it serves. The same string as control_next_entry's serves."
+          "description": "The id of the segment it serves; for an earlier version's grant_raise, grant_lower or guard entry, still being removed, the old grant's id. The same string as control_next_entry's serves."
         },
         "fires_at": {
           "$ref": "#/$defs/timestamp",

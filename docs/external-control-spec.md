@@ -336,7 +336,7 @@ list or took off it:
 |---|---|---|
 | `kind` | string | What the entry is for: `plan` or `near_term`. An entry an earlier version wrote may be `precedence_exit`, `grant_raise`, `grant_lower` or `guard`, until a write removes it |
 | `owner` | string | The program's label for the kind: `plan`, `guard`, or `near_term` for the others |
-| `serves` | string | The `id` of the segment it serves. It is the same string as `control_next_entry`'s `serves` |
+| `serves` | string | The `id` of the segment it serves; for an earlier version's `grant_raise`, `grant_lower` or `guard` entry, still being removed, the old grant's id. It is the same string as `control_next_entry`'s `serves` |
 | `fires_at` | string, ISO 8601 with the local offset | The minute the entry is written for: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). A near-term entry confirmed only after its minute never fired; it is issued again, for a later minute, in a later write. An entry left on the device fires again a week later |
 | `mode` | string | The mode it sets, as a name (section 3.4) |
 | `setpoint_f`, `setpoint_c` | number | The setpoint it sets, to one decimal |
