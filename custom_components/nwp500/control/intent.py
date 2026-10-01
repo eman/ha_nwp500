@@ -37,9 +37,6 @@ INTENT_ID_MAX_LENGTH = 64
 # within the recorder's attribute limit (spec section 4.2).
 ITEM_ID_MAX_LENGTH = 64
 
-# The one setpoint keyword: the lowest setpoint the feature will write.
-SETPOINT_MIN = "min"
-
 # Document-level rejection reasons (spec section 3.5).
 REASON_INVALID_DOCUMENT = "invalid_document"
 REASON_UNSUPPORTED_PROTOCOL = "unsupported_protocol"
@@ -51,7 +48,7 @@ REASON_SUPERSEDED = "superseded"
 
 _TOP_LEVEL_KEYS = frozenset({"protocol", "intent_id", "issued_at", "segments"})
 _SEGMENT_KEYS = frozenset(
-    {"id", "start", "setpoint", "setpoint_f", "setpoint_c", "mode", "reassert"}
+    {"id", "start", "setpoint_f", "setpoint_c", "mode", "reassert"}
 )
 # Attributes Home Assistant adds to a state for presentation. They are not
 # part of the document and are not echoed as opaque keys.
@@ -86,16 +83,14 @@ class Segment:
     """One segment: a state from its start until the next segment's start.
 
     The setpoint is held in the device's own resolution, half-degrees
-    Celsius, so a value converts exactly once, on parsing. `setpoint_raw` is
-    None for the `"min"` keyword, which resolves against the declaration at
-    planning time, because the bounds can change after the plan arrives.
+    Celsius, so a value converts exactly once, on parsing.
     """
 
     id: str
     start: datetime
     mode: str
-    setpoint_raw: int | None
-    # How the setpoint was given: `f`, `c` or `min`, so that it is echoed
+    setpoint_raw: int
+    # How the setpoint was given: `f` or `c`, so that it is echoed
     # and stored the way it arrived.
     setpoint_form: str
     # Whether `mode` was given, or kept from the previous segment.
@@ -112,16 +107,13 @@ class Segment:
             "id": self.id,
             "start": self.start.isoformat(),
         }
-        if self.setpoint_form == SETPOINT_MIN:
-            doc["setpoint"] = SETPOINT_MIN
-        elif self.setpoint_raw is not None:
-            value = HalfCelsius(self.setpoint_raw)
-            doc[f"setpoint_{self.setpoint_form}"] = round(
-                value.to_celsius()
-                if self.setpoint_form == "c"
-                else value.to_fahrenheit(),
-                1,
-            )
+        value = HalfCelsius(self.setpoint_raw)
+        doc[f"setpoint_{self.setpoint_form}"] = round(
+            value.to_celsius()
+            if self.setpoint_form == "c"
+            else value.to_fahrenheit(),
+            1,
+        )
         if self.mode_given:
             doc["mode"] = self.mode
         if self.reassert:
@@ -221,25 +213,16 @@ def _to_raw(value: float, unit: str) -> int:
 
 def _parse_segment_setpoint(
     raw: Mapping[str, Any], where: str
-) -> tuple[int | None, str]:
-    """Exactly one of `setpoint_f`, `setpoint_c` or `setpoint: "min"`."""
-    given = [k for k in ("setpoint", "setpoint_f", "setpoint_c") if k in raw]
-    if len(given) != 1:
+) -> tuple[int, str]:
+    """Exactly one of `setpoint_f` or `setpoint_c`, a number."""
+    given = [k for k in ("setpoint_f", "setpoint_c") if k in raw]
+    if len(given) != 1 or "setpoint" in raw:
         raise _reject(
             REASON_INVALID_DOCUMENT,
-            f"{where} needs exactly one of setpoint_f, setpoint_c or "
-            'setpoint: "min"',
+            f"{where} needs exactly one of setpoint_f or setpoint_c",
         )
     key = given[0]
     value = raw[key]
-    if key == "setpoint":
-        if value != SETPOINT_MIN:
-            raise _reject(
-                REASON_INVALID_DOCUMENT,
-                f'{where} setpoint must be "min"; give a number as '
-                "setpoint_f or setpoint_c",
-            )
-        return None, SETPOINT_MIN
     if not _is_number(value):
         raise _reject(
             REASON_INVALID_DOCUMENT, f"{where} {key} must be a number"

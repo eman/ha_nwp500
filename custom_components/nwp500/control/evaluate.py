@@ -40,7 +40,6 @@ STATUS_REMOVED = "removed"
 # Reasons a segment is scheduled rather than programmed.
 REASON_BEYOND_HORIZON = "beyond_horizon"
 REASON_ENTRY_BUDGET = "entry_budget"
-REASON_BOUNDS_UNKNOWN = "bounds_unknown"
 
 # Live only (sections 5.4 and 5.11).
 REASON_WRITE_NOT_CONFIRMED = "write_not_confirmed"

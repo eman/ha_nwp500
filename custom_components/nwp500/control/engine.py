@@ -38,7 +38,6 @@ from .entries import (
 )
 from .evaluate import (
     REASON_BEYOND_HORIZON,
-    REASON_BOUNDS_UNKNOWN,
     REASON_ENTRY_BUDGET,
     REASON_HELD_IN_TOU_WINDOW,
     REASON_NOT_APPLIED,
@@ -500,13 +499,8 @@ class Planner:
     # -- the timeline ------------------------------------------------------
 
     def resolve(self, segment: Segment) -> State | None:
-        """A segment's state, with `"min"` resolved; None if unknown yet."""
-        raw = segment.setpoint_raw
-        if raw is None:
-            raw = self.capabilities.setpoint_min_raw
-        if raw is None:
-            return None
-        return State(segment.mode, raw)
+        """A segment's state."""
+        return State(segment.mode, segment.setpoint_raw)
 
     def _timeline(self) -> list[tuple[Segment, State | None, bool]]:
         """Each segment, its state, and whether it merges into the last."""
@@ -1512,7 +1506,6 @@ class Planner:
                 info[segment.id] = _SegmentInfo(False, warnings=tuple(warnings))
                 continue
             if state is None:
-                info[segment.id] = _SegmentInfo(False, REASON_BOUNDS_UNKNOWN)
                 continue
             entry = OwnedEntry(
                 KIND_PLAN,

@@ -42,14 +42,6 @@ class TestCheckPlan:
         )
         check_plan(plan, capabilities())
 
-    def test_min_is_always_in_bounds(self, now, parse):
-        plan = parse(
-            make_document(
-                now, [segment(now, "s", 0, mode="heat_pump", setpoint="min")]
-            )
-        )
-        check_plan(plan, capabilities(control_setpoint_min_f=120))
-
     def test_bounds_unknown_are_not_checked(self, now, parse):
         plan = parse(
             make_document(
@@ -60,7 +52,6 @@ class TestCheckPlan:
             plan,
             build_capabilities(
                 {"control_allowed_modes": ["heat_pump"]},
-                features=None,
                 feature_version="v",
             ),
         )

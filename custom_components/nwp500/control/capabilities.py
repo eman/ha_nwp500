@@ -44,9 +44,6 @@ class Capabilities:
     """The declaration, with the bounds in device resolution for checks."""
 
     mode: str
-    # The heater's own range: what `"min"` resolves to. Not declared.
-    setpoint_min_raw: int | None
-    setpoint_max_raw: int | None
     entry_limit: int
     entry_reserve: int
     feature_version: str
@@ -85,42 +82,15 @@ class Capabilities:
         return hashlib.sha256(payload.encode()).hexdigest()[:8]
 
 
-def _raw_from_feature(features: Any, name: str) -> int | None:
-    raw = getattr(features, name, None) if features is not None else None
-    if isinstance(raw, bool) or not isinstance(raw, int):
-        return None
-    return raw
-
-
-def _bounds(features: Any) -> tuple[int | None, int | None]:
-    """The heater's own setpoint range, as it reports it; None until then.
-
-    `"min"` resolves to its floor. The adapter checks no setpoint against
-    it: the heater clamps what it is given.
-    """
-    return (
-        _raw_from_feature(features, "dhw_temperature_min_raw"),
-        _raw_from_feature(features, "dhw_temperature_max_raw"),
-    )
-
-
 def build_capabilities(
     options: Mapping[str, Any],
     *,
-    features: Any,
     feature_version: str,
     entries_available: int | None = None,
 ) -> Capabilities:
-    """Build the declaration from the options and the feature data.
-
-    `features` is the device's `DeviceFeature`, or None before it arrives.
-    """
-    setpoint_min_raw, setpoint_max_raw = _bounds(features)
-
+    """Build the declaration from the options."""
     return Capabilities(
         mode=str(options.get(CONF_CONTROL_MODE, DEFAULT_CONTROL_MODE)),
-        setpoint_min_raw=setpoint_min_raw,
-        setpoint_max_raw=setpoint_max_raw,
         entry_limit=int(
             options.get(
                 CONF_CONTROL_RESERVATION_ENTRY_LIMIT,

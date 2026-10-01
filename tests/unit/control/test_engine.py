@@ -40,7 +40,6 @@ from custom_components.nwp500.control.entries import (
 )
 from custom_components.nwp500.control.evaluate import (
     REASON_BEYOND_HORIZON,
-    REASON_BOUNDS_UNKNOWN,
     REASON_ENTRY_BUDGET,
     WARNING_MODE_IN_TOU_WINDOW,
     WARNING_MOVED,
@@ -148,14 +147,14 @@ class TestSpecExample:
                         "s1",
                         0,
                         mode="heat_pump",
-                        setpoint="min",
+                        setpoint_f=104.9,
                         purpose="hold_off",
                     ),
                     segment(base, "s2", 330, setpoint_f=140, purpose="charge"),
                     segment(
                         base, "s3", 570, mode="energy_saver", setpoint_f=135
                     ),
-                    segment(base, "s4", 1020, setpoint="min"),
+                    segment(base, "s4", 1020, setpoint_f=104.9),
                 ],
             )
         )
@@ -315,41 +314,12 @@ class TestTranslation:
         ]
         assert statuses(planner)["b"] == ("merged", None)
 
-    def test_min_resolves_to_the_heaters_own_minimum(self):
-        planner = planner_with(
-            [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
-        )
-        assert (
-            planner.owned[0].setpoint_raw
-            == planner.capabilities.setpoint_min_raw
-        )
-
     def test_a_setpoint_is_written_as_the_plan_gives_it(self):
         """No bounds: the heater clamps what it is given."""
         planner = planner_with(
             [segment(NOW, "a", 60, mode="heat_pump", setpoint_f=170)],
         )
         assert planner.owned[0].setpoint_raw == 153
-
-    def test_min_waits_for_the_bounds(self):
-        from custom_components.nwp500.control.capabilities import (
-            build_capabilities,
-        )
-
-        planner = Planner(
-            build_capabilities(
-                {"control_allowed_modes": ["energy_saver"]},
-                features=None,
-                feature_version="v",
-            ),
-            TZ,
-        )
-        give(
-            planner,
-            [segment(NOW, "a", 60, mode="energy_saver", setpoint="min")],
-        )
-        assert planner.owned == []
-        assert statuses(planner)["a"] == ("scheduled", REASON_BOUNDS_UNKNOWN)
 
     def test_a_segment_too_close_is_asserted_when_it_begins(self):
         planner = planner_with(

@@ -53,10 +53,6 @@
         "start": { "$ref": "#/$defs/timestamp" },
         "setpoint_f": { "type": "number" },
         "setpoint_c": { "type": "number" },
-        "setpoint": {
-          "const": "min",
-          "description": "The lowest setpoint the feature will write (setpoint_min). Effectively off: it applies inside TOU windows, and the next segment's entry restores normal operation."
-        },
         "mode": {
           "$ref": "#/$defs/mode_name",
           "description": "Required on the first segment. A later segment that omits it keeps the previous segment's mode."
@@ -68,9 +64,8 @@
         }
       },
       "oneOf": [
-        { "required": ["setpoint_f"], "not": { "anyOf": [{ "required": ["setpoint_c"] }, { "required": ["setpoint"] }] } },
-        { "required": ["setpoint_c"], "not": { "anyOf": [{ "required": ["setpoint_f"] }, { "required": ["setpoint"] }] } },
-        { "required": ["setpoint"], "not": { "anyOf": [{ "required": ["setpoint_f"] }, { "required": ["setpoint_c"] }] } }
+        { "required": ["setpoint_f"], "not": { "required": ["setpoint_c"] } },
+        { "required": ["setpoint_c"], "not": { "required": ["setpoint_f"] } }
       ],
       "additionalProperties": true
     },

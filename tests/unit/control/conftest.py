@@ -34,8 +34,8 @@ def segment(
 ) -> dict[str, Any]:
     """A segment starting `start` minutes after `base`.
 
-    Pass the setpoint as `setpoint_f=...`, `setpoint_c=...` or
-    `setpoint="min"`, and any opaque keys.
+    Pass the setpoint as `setpoint_f=...` or `setpoint_c=...`, and any
+    opaque keys.
     """
     doc: dict[str, Any] = {
         "id": segment_id,
@@ -97,6 +97,5 @@ def capabilities(**options: Any) -> Capabilities:
     )
     return build_capabilities(
         options,
-        features=FakeFeatures(),
         feature_version="0.0-test",
     )

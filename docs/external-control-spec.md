@@ -97,9 +97,10 @@ protocol 1, and with its one consumer changing in step
 (eman/dhw-sensor-apps#389), protocol 1 dropped what was not the feature's
 job of applying the plan: surplus grants, the assisted mode, the owner's
 program, the live switches, the setpoint bounds and allowed modes, the
-measured tank and recovery facts, the telemetry entity ids, and the ack's
-`mode_confirmed`. A document's `grants` key is now opaque, as any key the
-feature does not know.
+`"min"` setpoint, the measured tank and recovery facts, the telemetry
+entity ids, and the ack's `mode_confirmed`. A document's `grants` key is now
+opaque, as any key the feature does not know; a segment's setpoint is a
+number.
 
 Minor versions so far: **1.1** adds the segment key `reassert` (section
 3.2). **1.2** added a grant's own timing rules; with grants gone it adds
@@ -183,7 +184,7 @@ increasing order of `start`.
 |---|---|---|---|
 | `id` | string, at most 64 characters, unique in the document | yes | Named in acknowledgements |
 | `start` | ISO 8601 with offset | yes | Truncated to the minute |
-| `setpoint_f`, `setpoint_c` or `setpoint` | number, number, or `"min"` | exactly one | The setpoint. A number is converted and quantised to the device's half-degree-Celsius resolution. `"min"` is the lowest setpoint the feature will write, `setpoint_min` (section 4.1) |
+| `setpoint_f` or `setpoint_c` | number | exactly one | The setpoint, converted and quantised to the device's half-degree-Celsius resolution. The heater clamps it to its own range |
 | `mode` | string (section 3.4) | on the first segment | The operation mode. A later segment that omits it keeps the previous segment's mode |
 | `reassert` | boolean | no | Protocol 1.1. `true` programs the segment's entry even when its state repeats the segment before it (section 5.2), so a person's change (section 5.10) is ended at its start, for example by a nightly segment. An entry that repeats the heater's state starts no recovery (section 8, test 5) |
 | any other key | any | no | Opaque, echoed back on the segment's acknowledgement, for example `purpose`, unless it has the name of one of the acknowledgement's own keys (`id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`), which win |
@@ -197,10 +198,11 @@ example:
 - **A charge** is a segment with a high setpoint, followed by a segment with a
   lower one. The heater heats as it would at that setpoint. After the tank
   reaches it, a draw can start the heater again until the next segment.
-- **Effectively off** is `setpoint: "min"`. The setpoint applies even inside a
-  TOU window, and the next segment's entry restores normal operation. The
-  heater can still start after a large draw, because the lower-tank trigger
-  does not move with the setpoint; it then heats only to the minimum.
+- **Effectively off** is a setpoint at or below the heater's minimum. The
+  setpoint applies even inside a TOU window, and the next segment's entry
+  restores normal operation. The heater can still start after a large draw,
+  because the lower-tank trigger does not move with the setpoint; it then
+  heats only to the setpoint.
 
 Every mode the heater has may be a segment's, `vacation` and `power_off`
 included: the feature applies it. What it does is the scheduler's to know.
@@ -253,10 +255,10 @@ off. On Sunday at 05:00:12 the scheduler publishes:
   "issued_at": "2026-10-04T05:00:12-07:00",
   "plan_id": "opaque-to-the-feature",
   "segments": [
-    {"id": "s1", "start": "2026-10-04T05:00:00-07:00", "setpoint": "min", "mode": "heat_pump", "purpose": "hold_off"},
+    {"id": "s1", "start": "2026-10-04T05:00:00-07:00", "setpoint_f": 104.9, "mode": "heat_pump", "purpose": "hold_off"},
     {"id": "s2", "start": "2026-10-04T10:30:00-07:00", "setpoint_f": 140, "purpose": "charge"},
     {"id": "s3", "start": "2026-10-04T14:30:00-07:00", "setpoint_f": 135, "mode": "energy_saver"},
-    {"id": "s4", "start": "2026-10-04T22:00:00-07:00", "setpoint": "min"}
+    {"id": "s4", "start": "2026-10-04T22:00:00-07:00", "setpoint_f": 104.9}
   ]
 }
 ```
@@ -463,7 +465,6 @@ A segment's `reason`, when it has one:
 |---|---|
 | `beyond_horizon` | `scheduled`: it starts `horizon_h` or more ahead (section 5.3) |
 | `entry_budget` | `scheduled`: no room within `entry_limit` (section 5.3) |
-| `bounds_unknown` | `scheduled`: the setpoint bounds are not known yet, since the device has not reported them and no option sets them, so its setpoint cannot be checked or `"min"` resolved |
 | `write_not_confirmed` | `failed`: a write and its retry were not confirmed (section 5.4) |
 | `not_applied_on_device` | `failed`: read-back found the device's state differs (section 5.11) |
 | `held_in_tou_window` | `in_force`: its mode is held by a TOU window (section 5.8) |
@@ -639,7 +640,7 @@ Documented in `nwp500-python` `docs/how-to/schedule-operation.rst`,
 - **The feature never writes the TOU switch or the TOU schedule.**
 - **An entry's mode does not take effect inside a TOU window.** Its setpoint
   does. The mode is held, and applied when the window ends (section 8, test
-  6). A low setpoint, including `"min"`, works in a window. A mode read back
+  6). A low setpoint works in a window. A mode read back
   as `held_in_tou_window` is checked again: applied when the heater reports
   it, which is not a person's change, and `not_applied_on_device` if the
   window ends without it.

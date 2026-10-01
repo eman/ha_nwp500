@@ -8,15 +8,13 @@ import pytest
 
 from custom_components.nwp500.control.capabilities import build_capabilities
 
-from .conftest import FakeFeatures, capabilities
+from .conftest import capabilities
 
 
 class TestDeclaration:
     def test_what_runs_and_the_entry_budget_only(self):
         """The adapter applies the plan; it declares nothing else (#192)."""
-        attrs = build_capabilities(
-            {}, features=FakeFeatures(), feature_version="v"
-        ).as_attributes()
+        attrs = build_capabilities({}, feature_version="v").as_attributes()
 
         assert set(attrs) == {
             "protocols",
@@ -41,10 +39,6 @@ class TestDeclaration:
         assert attrs["entry_reserve"] == 2
         assert attrs["setpoint_resolution_c"] == 0.5
         assert attrs["entries_available"] is None
-
-    def test_min_resolves_to_the_heaters_floor(self):
-        """Not declared, but what `"min"` means (section 3.2)."""
-        assert capabilities().setpoint_min_raw == 81
 
 
 class TestVersion:

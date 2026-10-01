@@ -10,7 +10,6 @@ from custom_components.nwp500.control.intent import (
     REASON_INVALID_DOCUMENT,
     REASON_UNORDERED_SEGMENTS,
     REASON_UNSUPPORTED_PROTOCOL,
-    SETPOINT_MIN,
     IntentRejected,
     document_from_attributes,
     parse_plan,
@@ -32,14 +31,14 @@ class TestAcceptedPlans:
                         "s1",
                         0,
                         mode="heat_pump",
-                        setpoint="min",
+                        setpoint_f=104.9,
                         purpose="hold_off",
                     ),
                     segment(now, "s2", 330, setpoint_f=140, purpose="charge"),
                     segment(
                         now, "s3", 570, mode="energy_saver", setpoint_f=135
                     ),
-                    segment(now, "s4", 1020, setpoint="min"),
+                    segment(now, "s4", 1020, setpoint_f=104.9),
                 ],
                 plan_id="opaque",
             )
@@ -49,8 +48,8 @@ class TestAcceptedPlans:
         assert plan.extra == {"plan_id": "opaque"}
         assert [s.id for s in plan.segments] == ["s1", "s2", "s3", "s4"]
         s1, s2, s3, s4 = plan.segments
-        assert s1.setpoint_raw is None
-        assert s1.setpoint_form == SETPOINT_MIN
+        assert s1.setpoint_raw == 81
+        assert s1.setpoint_form == "f"
         assert s1.extra == {"purpose": "hold_off"}
         # 140 degF is 60 degC, 120 half-degrees; 135 degF rounds to 114.
         assert s2.setpoint_raw == 120
@@ -114,7 +113,7 @@ class TestAcceptedPlans:
             now,
             [
                 segment(
-                    now, "a", 0, mode="heat_pump", setpoint="min", note="x"
+                    now, "a", 0, mode="heat_pump", setpoint_f=104.9, note="x"
                 ),
                 segment(now, "b", 60, setpoint_c=52.5),
                 segment(now, "c", 120, mode="electric", setpoint_f=140),
@@ -127,7 +126,7 @@ class TestAcceptedPlans:
 
         assert again == plan
         stored = plan.as_document()
-        assert stored["segments"][0]["setpoint"] == "min"
+        assert stored["segments"][0]["setpoint_f"] == 104.9
         assert stored["segments"][1]["setpoint_c"] == 52.5
         assert "mode" not in stored["segments"][1]
 
@@ -144,6 +143,17 @@ class TestGrantsAreNotPartOfThePlan:
         )
         assert [s.id for s in plan.segments] == ["s"]
         assert plan.extra == {"grants": [{"id": "g", "start": "x"}]}
+
+
+class TestSetpointsAreNumbers:
+    def test_min_is_not_a_setpoint(self, now, parse):
+        """The heater's floor is the heater's (#192): give a number."""
+        document = make_document(
+            now, [segment(now, "s", 0, mode="heat_pump", setpoint="min")]
+        )
+        with pytest.raises(IntentRejected) as exc_info:
+            parse(document)
+        assert exc_info.value.reason == REASON_INVALID_DOCUMENT
 
 
 class TestRejectedDocuments:

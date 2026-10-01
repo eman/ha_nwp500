@@ -141,7 +141,7 @@ to the minute.
 |---|---|---|
 | `id` | yes | Unique in the plan |
 | `start` | yes | ISO 8601 with offset |
-| `setpoint_f`, `setpoint_c` or `setpoint: "min"` | exactly one | The setpoint, written as given and quantised to half a degree Celsius; the heater clamps it to its range. `"min"` is the heater's own minimum |
+| `setpoint_f` or `setpoint_c` | exactly one | The setpoint, written as given and quantised to half a degree Celsius; the heater clamps it to its range |
 | `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand`, `electric`, `vacation` or `power_off`. A later segment without one keeps the previous mode |
 | `reassert` | no | Protocol 1.1. `true` gives the segment its own entry even when it repeats the state before it, so a person's change is ended at its start |
 
@@ -167,10 +167,10 @@ skipping it would leave the segment before it in force over its time.
   "intent_id": "i-20261004T0500-7",
   "issued_at": "2026-10-04T05:00:12-07:00",
   "segments": [
-    {"id": "s1", "start": "2026-10-04T05:00:00-07:00", "setpoint": "min", "mode": "heat_pump", "purpose": "hold_off"},
+    {"id": "s1", "start": "2026-10-04T05:00:00-07:00", "setpoint_f": 104.9, "mode": "heat_pump", "purpose": "hold_off"},
     {"id": "s2", "start": "2026-10-04T10:30:00-07:00", "setpoint_f": 140, "purpose": "charge"},
     {"id": "s3", "start": "2026-10-04T14:30:00-07:00", "setpoint_f": 135, "mode": "energy_saver"},
-    {"id": "s4", "start": "2026-10-04T22:00:00-07:00", "setpoint": "min"}
+    {"id": "s4", "start": "2026-10-04T22:00:00-07:00", "setpoint_f": 104.9}
   ]
 }
 ```

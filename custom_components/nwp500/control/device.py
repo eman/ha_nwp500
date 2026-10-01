@@ -148,7 +148,6 @@ class DeviceControl:
         self.planner = Planner(
             build_capabilities(
                 self._effective_options(),
-                features=coordinator.device_features.get(mac_address),
                 feature_version=self._feature_version,
             ),
             dt_util.get_default_time_zone(),
@@ -300,7 +299,6 @@ class DeviceControl:
     def _build_capabilities(self) -> Capabilities:
         capabilities = build_capabilities(
             self._effective_options(),
-            features=self.coordinator.device_features.get(self.mac_address),
             feature_version=self._feature_version,
         )
         observed = self.observe()
