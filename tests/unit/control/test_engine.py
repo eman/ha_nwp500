@@ -25,8 +25,6 @@ from custom_components.nwp500.control.engine import (
     REPORT_SETPOINT,
     REPORT_SWITCHED_OFF,
     WRITE_DISABLE,
-    WRITE_GRANT_LOWER,
-    WRITE_GRANT_RAISE,
     WRITE_NEAR_TERM,
     WRITE_PLAN,
     WRITE_POWER_OFF,
@@ -36,7 +34,6 @@ from custom_components.nwp500.control.engine import (
     State,
 )
 from custom_components.nwp500.control.entries import (
-    KIND_GRANT_LOWER,
     KIND_GRANT_RAISE,
     KIND_GUARD,
     KIND_NEAR_TERM,
@@ -72,11 +69,10 @@ OWNER = OwnerProgram(
     setpoint_raw=OWNER_SETPOINT,
     reservations_enabled=False,
 )
-SURPLUS = {"control_surplus_entity": "binary_sensor.surplus"}
 
 EXAMPLES = Path("docs/examples")
 SCHEMA = Path("docs/external-control-protocol-1.schema.json")
-EXAMPLE_WRITES = ("last-write-plan", "last-write-grant-raise")
+EXAMPLE_WRITES = ("last-write-plan",)
 
 
 def obs(**overrides) -> Observed:
@@ -85,11 +81,8 @@ def obs(**overrides) -> Observed:
         "mode": "energy_saver",
         "setpoint_raw": OWNER_SETPOINT,
         "tou_on": False,
-        "compressor_on": False,
-        "upper_tank_raw": 115,
         "reservations_enabled": False,
         "reservations": (),
-        "surplus_on": None,
     }
     values.update(overrides)
     return Observed(**values)
@@ -162,7 +155,7 @@ class TestSpecExample:
 
     def _planner(self) -> Planner:
         base = self.SUNDAY.replace(second=0)
-        planner = Planner(capabilities(**SURPLUS), TZ)
+        planner = Planner(capabilities(), TZ)
         planner.owner = OWNER
         plan = parse_plan(
             make_document(
@@ -242,51 +235,6 @@ class TestSpecExample:
         assert planner.programmed_complete is True
         assert planner.wanted_state(self.SUNDAY) == State("heat_pump", 81)
 
-    def test_the_surplus_raise(self):
-        planner = self._planner()
-        run(planner, self.SUNDAY)
-        base = self.SUNDAY.replace(second=0)
-        running = obs(
-            mode="heat_pump",
-            setpoint_raw=120,
-            compressor_on=True,
-            surplus_on=True,
-        )
-
-        run(planner, minutes(380, base), running)  # 11:20: surplus appears
-        write = run(planner, minutes(390, base), running)  # 11:30
-
-        assert write is not None
-        assert write.reason == WRITE_GRANT_RAISE
-        added = {
-            (e.kind, e.fires_at.strftime("%H:%M"), e.mode, e.setpoint_raw)
-            for e in write.added
-        }
-        assert added == {
-            (KIND_GRANT_RAISE, "11:32", "heat_pump", 127),
-            (KIND_GUARD, "14:00", "heat_pump", 120),
-        }
-
-        stopped = obs(
-            mode="heat_pump",
-            setpoint_raw=127,
-            compressor_on=False,
-            surplus_on=True,
-        )
-        write = run(planner, minutes(460, base), stopped)  # 12:40
-
-        assert write is not None
-        assert write.reason == WRITE_GRANT_LOWER
-        assert {
-            (e.kind, e.fires_at.strftime("%H:%M")) for e in write.added
-        } == {(KIND_GRANT_LOWER, "12:42")}
-        # The fired raise goes with the guard. Entries that fired earlier
-        # were removed with the 11:30 write.
-        removed = {
-            (e.kind, e.fires_at.strftime("%H:%M")) for e in write.removed
-        }
-        assert removed == {(KIND_GUARD, "14:00"), (KIND_GRANT_RAISE, "11:32")}
-
     @pytest.mark.parametrize("name", EXAMPLE_WRITES)
     def test_the_last_write_examples(self, name):
         """docs/examples/last-write-*.json are what the entity reports.
@@ -307,20 +255,14 @@ class TestSpecExample:
 def last_write_examples() -> dict[str, tuple[str, dict]]:
     """The last write entity's state and attributes for plan-day.json.
 
-    The plan arrives at 05:00:12, after its first segment began; surplus
-    appears at 11:20 with the compressor running. Each write is confirmed,
-    and the device then holds the list written. The state is in UTC, as
+    The plan arrives at 05:00:12, after its first segment began. The write
+    is confirmed, and the device then holds the list written. The state is in UTC, as
     Home Assistant shows a timestamp sensor's.
     """
     plan = parse_plan(json.loads((EXAMPLES / "plan-day.json").read_text()))
     at = plan.issued_at
     planner = Planner(
-        capabilities(
-            **SURPLUS,
-            control_mode="live",
-            control_live_segments=True,
-            control_live_grants=True,
-        ),
+        capabilities(control_mode="live", control_live_segments=True),
         TZ,
         shadow=False,
     )
@@ -347,17 +289,7 @@ def last_write_examples() -> dict[str, tuple[str, dict]]:
             sensor.extra_state_attributes
         )
 
-    first = confirmed(at, obs())
-    base = at.replace(second=0)
-    running = {
-        "mode": "heat_pump",
-        "setpoint_raw": 120,
-        "compressor_on": True,
-        "surplus_on": True,
-    }
-    assert planner.step(minutes(380, base), on_device(**running)) is None
-    raise_ = confirmed(minutes(390, base), on_device(**running))
-    return {"last-write-plan": first, "last-write-grant-raise": raise_}
+    return {"last-write-plan": confirmed(at, obs())}
 
 
 class TestTranslation:
@@ -1018,20 +950,6 @@ class TestPeoplesChanges:
         give(planner, self.SEGMENTS[:1], now=minutes(3 * 24 * 60 + 1))
         assert key not in planner.reports
 
-    def test_a_grant_entrys_removal_lasts_until_the_grant_ends(self):
-        planner = planner_with(
-            self.SEGMENTS,
-            grants=[grant(NOW, "g1", 70, 110, max_f=146)],
-            **SURPLUS,
-        )
-        guard = OwnedEntry(KIND_GUARD, "g1", minutes(110), "energy_saver", 120)
-        report = Report(REPORT_REMOVED, guard.as_attributes(), minutes(1), "g1")
-        planner.reports[Planner._report_key(report)] = report
-        run(planner, minutes(100))
-        assert planner.reports
-        run(planner, minutes(111))
-        assert planner.reports == {}
-
     def test_a_change_ends_only_by_an_entry_fired_while_switched_on(self):
         """An entry whose minute passes with the switch off did not fire."""
         daily = {"enable": 2, "week": 254, "hour": 10, "min": 30}
@@ -1169,176 +1087,6 @@ class TestPeoplesChanges:
         assert planner.removed_segments == set()
 
 
-class TestSurplusGrants:
-    """Section 5.7."""
-
-    RUNNING = obs(
-        mode="heat_pump", setpoint_raw=120, compressor_on=True, surplus_on=True
-    )
-
-    def _planner(self, segments=None, grant_max=146, **options) -> Planner:
-        planner = planner_with(
-            segments
-            or [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
-            grants=[grant(NOW, "g", -5, 180, max_f=grant_max)],
-            observed=self.RUNNING,
-            **{**SURPLUS, **options},
-        )
-        return planner
-
-    def test_raises_after_ten_minutes_with_a_guard(self):
-        planner = self._planner()
-        assert run(planner, minutes(9), self.RUNNING) is None
-        write = run(planner, minutes(10), self.RUNNING)
-        assert write is not None
-        assert write.reason == WRITE_GRANT_RAISE
-        assert {
-            (e.kind, e.fires_at.strftime("%H:%M"), e.setpoint_raw)
-            for e in write.added
-        } == {
-            (KIND_GRANT_RAISE, "10:12", 127),
-            (KIND_GUARD, "13:00", 120),
-        }
-        assert planner.wanted_state(minutes(11)) == State("heat_pump", 120)
-        assert planner.wanted_state(minutes(13)) == State("heat_pump", 127)
-        grants = {g.id: g.status for g in planner.ack("i").grants}
-        assert grants == {"g": "raised"}
-
-    def test_a_segment_entry_ends_the_raise_and_withdraws_the_guard(self):
-        planner = self._planner(
-            [
-                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "next", 60, setpoint_f=135),
-            ]
-        )
-        write = run(planner, minutes(10), self.RUNNING)
-        # A guard even so: the segment's entry may not stay on the heater.
-        assert {e.kind for e in write.added} == {KIND_GRANT_RAISE, KIND_GUARD}
-        run(planner, minutes(61), self.RUNNING)
-        assert planner.raise_state is None
-        assert not [e for e in planner.owned if e.kind == KIND_GUARD]
-
-    def test_capped_at_the_setpoint_maximum(self):
-        """The cap still applies if the bounds tighten after acceptance.
-
-        A grant is checked against the bounds when accepted.
-        """
-        planner = self._planner()
-        planner.capabilities = capabilities(
-            control_setpoint_max_f=142, **SURPLUS
-        )
-        run(planner, minutes(10), self.RUNNING)
-        assert planner.raise_state is not None
-        assert planner.raise_state.entry.setpoint_raw == 122
-
-    def test_no_raise_below_the_segment(self):
-        planner = self._planner(grant_max=130)
-        assert run(planner, minutes(10), self.RUNNING) is None
-
-    def test_never_to_start_a_cycle(self):
-        planner = self._planner()
-        idle = obs(
-            mode="heat_pump",
-            setpoint_raw=120,
-            compressor_on=False,
-            surplus_on=True,
-        )
-        assert run(planner, minutes(10), idle) is None
-
-    def test_only_in_heat_pump(self):
-        planner = planner_with(
-            [segment(NOW, "s", -5, mode="energy_saver", setpoint_f=140)],
-            grants=[grant(NOW, "g", -5, 180, max_f=146)],
-            observed=self.RUNNING,
-            **SURPLUS,
-        )
-        assert run(planner, minutes(10), self.RUNNING) is None
-
-    def test_lowered_when_the_compressor_stops(self):
-        planner = self._planner()
-        run(planner, minutes(10), self.RUNNING)
-        stopped = obs(
-            mode="heat_pump",
-            setpoint_raw=127,
-            compressor_on=False,
-            surplus_on=True,
-        )
-        write = run(planner, minutes(30), stopped)
-        assert write.reason == WRITE_GRANT_LOWER
-        assert {(e.kind, e.setpoint_raw) for e in write.added} == {
-            (KIND_GRANT_LOWER, 120)
-        }
-        assert KIND_GUARD in {e.kind for e in write.removed}
-        assert planner.raise_state is None
-
-    def test_an_unfired_raise_is_withdrawn_instead(self):
-        planner = self._planner()
-        run(planner, minutes(10), self.RUNNING)
-        stopped = obs(
-            mode="heat_pump",
-            setpoint_raw=120,
-            compressor_on=False,
-            surplus_on=True,
-        )
-        write = run(planner, minutes(11), stopped)
-        assert write.added == ()
-        assert {e.kind for e in write.removed} == {KIND_GRANT_RAISE, KIND_GUARD}
-
-    def test_lowered_after_min_run_and_surplus_gone(self):
-        planner = self._planner(control_min_run_before_lower_min=30)
-        run(planner, minutes(10), self.RUNNING)
-        gone = obs(
-            mode="heat_pump",
-            setpoint_raw=127,
-            compressor_on=True,
-            surplus_on=False,
-        )
-        assert run(planner, minutes(20), gone) is None
-        assert run(planner, minutes(34), gone) is None
-        write = run(planner, minutes(35), gone)
-        assert write.reason == WRITE_GRANT_LOWER
-
-    def test_one_raise_per_cycle(self):
-        planner = self._planner(control_min_run_before_lower_min=0)
-        run(planner, minutes(10), self.RUNNING)
-        gone = obs(
-            mode="heat_pump",
-            setpoint_raw=127,
-            compressor_on=True,
-            surplus_on=False,
-        )
-        run(planner, minutes(20), gone)
-        run(planner, minutes(35), gone)
-        assert planner.raise_state is None
-        run(planner, minutes(36), self.RUNNING)
-        assert run(planner, minutes(50), self.RUNNING) is None
-        assert planner.raise_state is None
-
-    def test_the_guard_ends_it_on_the_device(self):
-        planner = self._planner()
-        run(planner, minutes(10), self.RUNNING)
-        run(planner, minutes(181), self.RUNNING)
-        assert planner.raise_state is None
-        assert {g.id: g.status for g in planner.ack("i").grants} == {
-            "g": "ended"
-        }
-
-    def test_a_new_plan_without_the_grant_lowers(self):
-        planner = self._planner()
-        run(planner, minutes(13), self.RUNNING)
-        run(planner, minutes(23), self.RUNNING)
-        assert planner.raise_state is not None
-        write = give(
-            planner,
-            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
-            now=minutes(24),
-            observed=self.RUNNING,
-            intent_id="i-2",
-        )
-        assert planner.raise_state is None
-        assert KIND_GRANT_LOWER in {e.kind for e in write.added}
-
-
 class TestDisable:
     def test_removes_everything_and_restores_the_owner(self):
         planner = planner_with(
@@ -1433,16 +1181,6 @@ class TestAck:
         assert planner.ack("i").state == "programmed"
         assert statuses(planner)["a"] == ("programmed", None)
 
-    def test_live_grants_not_switched_on(self):
-        planner = planner_with(
-            [segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140)],
-            grants=[grant(NOW, "g", 0, 60, max_f=146)],
-            shadow=False,
-            **SURPLUS,
-        )
-        (item,) = planner.ack("i").grants
-        assert (item.status, item.reason) == ("shadow", "not_live")
-
     def test_no_plan(self):
         assert planner_with().ack(None).state == "none"
 
@@ -1450,12 +1188,11 @@ class TestAck:
 class TestPersistence:
     def test_round_trip(self):
         planner = planner_with(
-            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
-            grants=[grant(NOW, "g", -5, 180, max_f=146)],
-            observed=TestSurplusGrants.RUNNING,
-            **SURPLUS,
+            [
+                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "t", 60, setpoint_f=130),
+            ]
         )
-        run(planner, minutes(10), TestSurplusGrants.RUNNING)
         run(planner, minutes(11), obs(setpoint_raw=100))
         document = planner.as_document()
 
@@ -1466,9 +1203,41 @@ class TestPersistence:
         assert again.extra == planner.extra
         assert again.asserted == planner.asserted
         assert again.reports == planner.reports
-        assert again.raise_state == planner.raise_state
         assert again.last_write == planner.last_write
         assert again.as_document() == document
+
+    def test_a_surplus_raise_stored_by_an_earlier_version_is_dropped(self):
+        """Grants are not supported: its entries are no longer wanted."""
+        planner = planner_with(
+            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)]
+        )
+        document = planner.as_document()
+        raise_entry = OwnedEntry(
+            "grant_raise", "g", minutes(2), "heat_pump", 126
+        ).as_document()
+        guard = OwnedEntry("guard", "g", minutes(60), "heat_pump", 120)
+        document = {
+            **document,
+            "extra": [*document["extra"], raise_entry],
+            "owned": [*document["owned"], guard.as_document()],
+            "raise": {
+                "grant_id": "g",
+                "raised_at": NOW.isoformat(),
+                "entry": raise_entry,
+                "guard": guard.as_document(),
+            },
+            "raised_in_cycle": True,
+        }
+
+        again = Planner(planner.capabilities, TZ, shadow=True)
+        again.load_document(document)
+
+        assert all(e.kind != "grant_raise" for e in again.extra)
+        assert "raise" not in again.as_document()
+        # The guard on the heater is the feature's: the next write removes it.
+        write = again.step(minutes(1), obs())
+        assert write is not None
+        assert guard in write.removed
 
     def test_tolerates_an_empty_document(self):
         planner = Planner(capabilities(), TZ)
@@ -1539,24 +1308,6 @@ class TestReviewFindings:
             observed=observed,
         )
         assert kinds(planner) == [(KIND_PLAN, "next", "10:03")]
-
-    def test_no_raise_in_the_last_two_minutes_of_a_grant(self):
-        running = obs(
-            mode="heat_pump",
-            setpoint_raw=120,
-            compressor_on=True,
-            surplus_on=True,
-        )
-        planner = planner_with(
-            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
-            grants=[grant(NOW, "g", -5, 11, max_f=146)],
-            observed=running,
-            **SURPLUS,
-        )
-        # Surplus has lasted ten minutes, but the raise could only fire at
-        # 10:12, after the grant ends at 10:11.
-        assert run(planner, minutes(10), running) is None
-        assert planner.raise_state is None
 
 
 class TestPowerOff:
@@ -1724,53 +1475,14 @@ class TestEffectiveTimeline:
         # The state the heater came back in holds.
         assert ack["a"].detail["in_force"] is True
         assert planner.wanted_state(minutes(50)) == State("heat_pump", 120)
-        # Its mode is read from the heater's behaviour, not against b's
-        # entry, which fired during Vacation and was skipped.
+        # Not failed against b's entry, which fired during Vacation and was
+        # skipped.
         running = self._without(
-            planner,
-            lambda e: e.kind == KIND_PRECEDENCE_EXIT,
-            elements_on=False,
-            **on_a,
+            planner, lambda e: e.kind == KIND_PRECEDENCE_EXIT, **on_a
         )
         run(planner, minutes(51), running)
         (a,) = (s for s in planner.ack("i").segments if s.id == "a")
-        assert a.detail["mode_confirmed"] is True
-
-    def test_a_removed_segment_does_not_stop_a_raise_before_it(self):
-        """Segment b's entry is gone: it cannot undo a raise at its minute."""
-        running = {
-            "mode": "heat_pump",
-            "setpoint_raw": 120,
-            "compressor_on": True,
-            "surplus_on": True,
-        }
-        planner = planner_with(
-            [
-                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 12, setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            grants=[grant(NOW, "g", -5, 180, max_f=146)],
-            observed=obs(**running),
-            shadow=False,
-            control_mode="live",
-            control_live_segments=True,
-            control_live_grants=True,
-            **SURPLUS,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **running))
-        without_b = obs(
-            reservations_enabled=True,
-            reservations=tuple(
-                e.as_entry() for e in planner.owned if e.serves != "b"
-            ),
-            **running,
-        )
-        run(planner, minutes(2), without_b)
-        assert "b" in planner.removed_segments
-        write = run(planner, minutes(10), without_b)
-        assert write is not None
-        assert KIND_GRANT_RAISE in {e.kind for e in write.added}
+        assert a.status != "failed"
 
     # The rest pin one rule across every kind of deletion: the state before
     # holds, and nothing is written for it.
@@ -2128,123 +1840,7 @@ class TestEffectiveTimeline:
             (KIND_PRECEDENCE_EXIT, "s")
         ]
 
-    def _raised(self, segments) -> tuple[Planner, dict]:
-        running = {
-            "mode": "heat_pump",
-            "setpoint_raw": 120,
-            "compressor_on": True,
-            "surplus_on": True,
-        }
-        planner = planner_with(
-            segments,
-            grants=[grant(NOW, "g", -5, 180, max_f=146)],
-            observed=obs(**running),
-            shadow=False,
-            control_mode="live",
-            control_live_segments=True,
-            control_live_grants=True,
-            **SURPLUS,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **running))
-        run(planner, minutes(10), self._on_heater(planner, **running))
-        assert planner.raise_state is not None
-        return planner, running
-
-    def test_the_guard_follows_a_deletion_inside_the_grant(self):
-        """Segment b's entry is deleted: the guard restores s, not b."""
-        planner, running = self._raised(
-            [
-                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 60, setpoint_f=135),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ]
-        )
-        guard = planner.raise_state.guard
-        assert guard is not None and guard.setpoint_raw == 114
-        run(planner, minutes(11), self._on_heater(planner, **running))
-        without_b = self._without(planner, lambda e: e.serves == "b", **running)
-        write = run(planner, minutes(20), without_b)
-        assert write is not None
-        (new_guard,) = (e for e in write.added if e.kind == KIND_GUARD)
-        assert (new_guard.mode, new_guard.setpoint_raw) == ("heat_pump", 120)
-        assert new_guard.fires_at == guard.fires_at
-
-    def test_lowering_after_a_removed_segment_restores_the_state_before(self):
-        planner, running = self._raised(
-            [
-                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 60, setpoint_f=135),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ]
-        )
-        run(planner, minutes(11), self._on_heater(planner, **running))
-        without_b = self._without(planner, lambda e: e.serves == "b", **running)
-        run(planner, minutes(20), without_b)
-        stopped = {**running, "compressor_on": False, "setpoint_raw": 127}
-        write = run(
-            planner,
-            minutes(70),
-            self._without(planner, lambda e: e.serves == "b", **stopped),
-        )
-        assert write is not None
-        (lower,) = (e for e in write.added if e.kind == KIND_GRANT_LOWER)
-        assert (lower.mode, lower.setpoint_raw) == ("heat_pump", 120)
-
     # Found by the adversarial review of the effective timeline.
-
-    def test_an_exit_deleted_while_raised_keeps_the_segment_in_force(self):
-        """Power-off within a, with a raise: the heater is not in a's state.
-
-        Whether the exit only re-asserted a comes from the timeline, not
-        the heater's state: the guard and a lowering keep restoring a.
-        """
-        planner = planner_with(
-            [
-                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=130),
-                segment(NOW, "a", 3, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "c", 600, mode="energy_saver", setpoint_f=120),
-            ],
-            grants=[grant(NOW, "g", -5, 300, max_f=146)],
-            observed=obs(mode="heat_pump", setpoint_raw=109),
-            shadow=False,
-            control_mode="live",
-            control_live_segments=True,
-            control_live_grants=True,
-            **SURPLUS,
-        )
-        on_a = {
-            "mode": "heat_pump",
-            "setpoint_raw": 120,
-            "compressor_on": True,
-            "surplus_on": True,
-        }
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        for m in (4, 20, 21):
-            run(planner, minutes(m), self._on_heater(planner, **on_a))
-        assert planner.raise_state is not None
-        raised = {**on_a, "setpoint_raw": 127}
-        run(planner, minutes(25), self._on_heater(planner, **raised))
-        off = {**raised, "mode": "power_off", "compressor_on": None}
-        run(planner, minutes(30), self._on_heater(planner, **off))
-        run(planner, minutes(31), self._on_heater(planner, **off))
-        run(planner, minutes(40), self._on_heater(planner, **raised))
-
-        def no_exit(e):
-            return e.kind == KIND_PRECEDENCE_EXIT
-
-        assert (
-            run(planner, minutes(41), self._without(planner, no_exit, **raised))
-            is None
-        )
-        assert "a" not in planner.removed_segments
-        assert planner.segment_in_force(minutes(41)) == "a"
-        stopped = {**raised, "compressor_on": False}
-        write = run(
-            planner, minutes(60), self._without(planner, no_exit, **stopped)
-        )
-        assert write is not None
-        (lower,) = (e for e in write.added if e.kind == KIND_GRANT_LOWER)
-        assert (lower.mode, lower.setpoint_raw) == ("heat_pump", 120)
 
     def test_an_exit_deleted_after_a_persons_change_keeps_the_segment(self):
         planner = planner_with(
@@ -2308,68 +1904,6 @@ class TestEffectiveTimeline:
         assert (KIND_PRECEDENCE_EXIT, "a") in {
             (e.kind, e.serves) for e in write.added
         }
-
-    @pytest.mark.parametrize("keep_x", [False, True])
-    def test_with_nothing_in_force_the_guard_restores_the_state_before(
-        self, keep_x
-    ):
-        """A new plan wants w now; a person deletes w's near-term entry."""
-        running = {
-            "mode": "heat_pump",
-            "setpoint_raw": 120,
-            "compressor_on": True,
-            "surplus_on": True,
-        }
-        grants = [grant(NOW, "g", -5, 180, max_f=146)]
-        segments = [
-            segment(NOW, "x", -5, mode="heat_pump", setpoint_f=140),
-            segment(NOW, "c", 400, mode="energy_saver", setpoint_f=120),
-        ]
-        planner = planner_with(
-            segments,
-            grants=grants,
-            observed=obs(**running),
-            shadow=False,
-            control_mode="live",
-            control_live_segments=True,
-            control_live_grants=True,
-            **SURPLUS,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **running))
-        run(planner, minutes(10), self._on_heater(planner, **running))
-        raised = {**running, "setpoint_raw": 127}
-        run(planner, minutes(13), self._on_heater(planner, **raised))
-        new = [
-            *(segments[:1] if keep_x else []),
-            segment(NOW, "w", 14, mode="heat_pump", setpoint_f=135),
-            segments[1],
-        ]
-        give(
-            planner,
-            new,
-            grants=grants,
-            now=minutes(15),
-            observed=self._on_heater(planner, **raised),
-            intent_id="i-2",
-        )
-
-        def no_w(e):
-            return e.kind == KIND_NEAR_TERM and e.serves == "w"
-
-        run(planner, minutes(16), self._without(planner, no_w, **raised))
-        assert "w" in planner.removed_segments
-        rs = planner.raise_state
-        assert rs is not None and rs.guard is not None
-        assert (rs.guard.mode, rs.guard.setpoint_raw) == ("heat_pump", 120)
-        # The raise is still on the heater.
-        assert planner.wanted_state(minutes(16)) == State("heat_pump", 127)
-        stopped = {**raised, "compressor_on": False}
-        write = run(
-            planner, minutes(30), self._without(planner, no_w, **stopped)
-        )
-        assert write is not None
-        (lower,) = (e for e in write.added if e.kind == KIND_GRANT_LOWER)
-        assert (lower.mode, lower.setpoint_raw) == ("heat_pump", 120)
 
     def test_a_plan_adopted_in_vacation_falls_back_to_what_took_effect(
         self,
@@ -2853,110 +2387,6 @@ class TestUnreadableState:
         assert planner.owned
 
 
-class TestLoweringAndANewRaise:
-    """Issue #175: a lowering still to fire is withdrawn by a new raise."""
-
-    def _on_heater(self, planner: Planner, **overrides) -> Observed:
-        return obs(
-            reservations_enabled=True,
-            reservations=tuple(e.as_entry() for e in planner.owned),
-            **overrides,
-        )
-
-    def test_a_lowering_queued_while_powered_off_goes_with_a_new_raise(self):
-        planner = planner_with(
-            [
-                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=130),
-                segment(NOW, "a", 3, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "c", 600, mode="energy_saver", setpoint_f=120),
-            ],
-            grants=[grant(NOW, "g", -5, 300, max_f=146)],
-            observed=obs(mode="heat_pump", setpoint_raw=109),
-            shadow=False,
-            control_mode="live",
-            control_live_segments=True,
-            control_live_grants=True,
-            **SURPLUS,
-        )
-        on_a = {
-            "mode": "heat_pump",
-            "setpoint_raw": 120,
-            "compressor_on": True,
-            "surplus_on": True,
-        }
-        run(
-            planner,
-            minutes(1),
-            self._on_heater(planner, mode="heat_pump", setpoint_raw=109),
-        )
-        for m in (4, 20, 21):
-            run(planner, minutes(m), self._on_heater(planner, **on_a))
-        assert planner.raise_state is not None
-        raised = {**on_a, "setpoint_raw": 127}
-        run(planner, minutes(25), self._on_heater(planner, **raised))
-        off = {**raised, "mode": "power_off", "compressor_on": False}
-        run(planner, minutes(30), self._on_heater(planner, **off))
-        run(planner, minutes(31), self._on_heater(planner, **off))
-        # The compressor stopped: the raise is being lowered.
-        assert KIND_GRANT_LOWER in {e.kind for e in planner.extra}
-        write = run(planner, minutes(40), self._on_heater(planner, **raised))
-        assert write is not None
-        added = {e.kind for e in write.added}
-        assert KIND_GRANT_RAISE in added
-        # The lowering would fire after the new raise and undo it.
-        assert KIND_GRANT_LOWER not in added
-        assert not [e for e in planner.owned if e.kind == KIND_GRANT_LOWER]
-        assert planner.raise_state is not None
-
-    def test_a_raise_dropped_by_a_collision_keeps_the_lowering(self):
-        """PR #178 review: the new raise is moved onto the next segment.
-
-        No raise reaches the heater then, so the lowering still to fire
-        from before is kept: it restores the earlier raise's setpoint.
-        """
-        running = {
-            "mode": "heat_pump",
-            "setpoint_raw": 127,
-            "compressor_on": True,
-            "surplus_on": True,
-        }
-        planner = planner_with(
-            [
-                segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 13, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            grants=[grant(NOW, "g", -5, 180, max_f=146)],
-            observed=obs(**running),
-            shadow=False,
-            control_mode="live",
-            control_live_segments=True,
-            control_live_grants=True,
-            **SURPLUS,
-        )
-        # A lowering of an earlier raise, written and still to fire.
-        lowering = OwnedEntry(
-            KIND_GRANT_LOWER, "g", minutes(11), "heat_pump", 120
-        )
-        planner.extra.append(lowering)
-        planner.owned.append(lowering)
-        # Someone else's entry takes the raise's minute (10:12), so the
-        # raise would move to 10:13, b's start.
-        foreign = {"enable": 2, "week": MONDAY, "hour": 10, "min": 12}
-        foreign |= {"mode": 1, "param": 100}
-        run(
-            planner,
-            minutes(10),
-            obs(
-                reservations_enabled=True,
-                reservations=(foreign, *(e.as_entry() for e in planner.owned)),
-                **running,
-            ),
-        )
-        assert planner.raise_state is None
-        assert lowering in planner.owned
-
-
 class TestStaleNearTerm:
     """Issue #172: a near-term entry serves only while its segment is in force."""
 
@@ -3207,73 +2637,3 @@ class TestReadBackOfSkippedEntries:
         run(planner, minutes(44), self._on_heater(planner, **self.ON_A))
         run(planner, minutes(46), self._on_heater(planner, **self.ON_A))
         assert statuses(planner)["b"] == ("failed", "not_applied_on_device")
-
-
-class TestGrantRules:
-    """Issue #183: a grant's own timing rules replace the declared ones."""
-
-    RUNNING = obs(
-        mode="heat_pump", setpoint_raw=120, compressor_on=True, surplus_on=True
-    )
-
-    def _planner(self, **rules) -> Planner:
-        return planner_with(
-            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
-            grants=[grant(NOW, "g", -5, 180, max_f=146, **rules)],
-            observed=self.RUNNING,
-            **SURPLUS,
-        )
-
-    def test_the_grants_surplus_on_before_raise(self):
-        planner = self._planner(surplus_on_before_raise_min=3)
-        assert planner.next_event_at == minutes(3)
-        assert run(planner, minutes(2), self.RUNNING) is None
-        write = run(planner, minutes(3), self.RUNNING)
-        assert write is not None
-        assert write.reason == WRITE_GRANT_RAISE
-
-    def test_the_grants_surplus_off_before_lower_and_min_run(self):
-        planner = self._planner(
-            surplus_on_before_raise_min=0,
-            surplus_off_before_lower_min=2,
-            min_run_before_lower_min=0,
-        )
-        assert planner.raise_state is not None
-        raised = replace(self.RUNNING, setpoint_raw=127)
-        run(planner, minutes(3), raised)
-        gone = replace(raised, surplus_on=False)
-        assert run(planner, minutes(5), gone) is None
-        assert planner.next_event_at == minutes(7)
-        assert run(planner, minutes(6), gone) is None
-        write = run(planner, minutes(7), gone)
-        assert write is not None
-        assert write.reason == WRITE_GRANT_LOWER
-
-    def test_the_grants_min_run_before_lower(self):
-        """A minimum run of its own, 20 min, not the declared 120."""
-        planner = self._planner(
-            surplus_on_before_raise_min=0,
-            surplus_off_before_lower_min=2,
-            min_run_before_lower_min=20,
-        )
-        assert planner.raise_state is not None
-        raised = replace(self.RUNNING, setpoint_raw=127)
-        run(planner, minutes(3), raised)
-        gone = replace(raised, surplus_on=False)
-        run(planner, minutes(5), gone)
-        # Surplus has been gone 2 min at 7, but the compressor has run
-        # only 7 of its 20: the raise waits for the run.
-        assert run(planner, minutes(7), gone) is None
-        assert planner.raise_state is not None
-        assert planner.next_event_at == minutes(20)
-        assert run(planner, minutes(19), gone) is None
-        write = run(planner, minutes(20), gone)
-        assert write is not None
-        assert write.reason == WRITE_GRANT_LOWER
-
-    def test_without_rules_the_declared_ones_apply(self):
-        planner = self._planner()
-        assert run(planner, minutes(9), self.RUNNING) is None
-        write = run(planner, minutes(10), self.RUNNING)
-        assert write is not None
-        assert write.reason == WRITE_GRANT_RAISE

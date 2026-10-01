@@ -26,7 +26,6 @@ from custom_components.nwp500.const import (
 from custom_components.nwp500.control import ENTITY_KEYS
 from custom_components.nwp500.control.binary_sensor import (
     BINARY_SENSOR_KEYS,
-    ControlGrantRaisedBinarySensor,
     ControlInSyncBinarySensor,
     ControlOverrideBinarySensor,
 )
@@ -35,7 +34,6 @@ from custom_components.nwp500.control.button import (
     create_control_buttons,
 )
 from custom_components.nwp500.control.engine import (
-    RaiseState,
     Report,
     State,
     Write,
@@ -318,14 +316,6 @@ class TestBinarySensors:
         control.program_details.return_value["device_hash"] = None
         assert sensor.is_on is None
 
-    def test_grant_raised(self, control, entry_):
-        sensor = ControlGrantRaisedBinarySensor(control, "grant_raised")
-        assert sensor.is_on is False
-        assert sensor.extra_state_attributes["grant"] is None
-        control.raise_state = RaiseState("g1", WHEN, entry_, None)
-        assert sensor.is_on is True
-        assert sensor.extra_state_attributes["setpoint_f"] == 140.0
-
     def test_override(self, control):
         sensor = ControlOverrideBinarySensor(control, "override")
         assert sensor.is_on is False
@@ -603,10 +593,18 @@ class TestDisplayLabels:
         assert named == ENTITY_KEYS
 
     def test_the_mode_choices_are_labelled(self):
-        from custom_components.nwp500.config_flow import _FORM_MODES
+        from custom_components.nwp500.const import (
+            CONTROL_MODE_DISABLED,
+            CONTROL_MODE_LIVE,
+            CONTROL_MODE_SHADOW,
+        )
 
         labels = self._strings("strings.json")["selector"]["control_mode"]
-        assert set(labels["options"]) == set(_FORM_MODES)
+        assert set(labels["options"]) == {
+            CONTROL_MODE_SHADOW,
+            CONTROL_MODE_LIVE,
+            CONTROL_MODE_DISABLED,
+        }
 
     def test_technical_entities_are_diagnostic(self, control):
         """Kept enabled, so a scheduler can still read them."""

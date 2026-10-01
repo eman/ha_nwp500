@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from custom_components.nwp500.control.capabilities import build_capabilities
 
 from .conftest import FakeFeatures, capabilities
@@ -76,17 +78,21 @@ class TestDeclaration:
         assert declaration.setpoint_min_raw == 98
         assert declaration.as_attributes()["setpoint_min_f"] == 120.2
 
-    def test_grants_need_a_surplus_entity(self):
-        assert capabilities(
-            control_surplus_entity="binary_sensor.s"
-        ).grants_supported
+    def test_grants_are_never_supported(self):
+        """The adapter reads nothing about the home's power (section 5.7).
 
-    def test_live_switches_are_booleans(self):
-        declaration = capabilities(
-            control_live_segments=True, control_live_grants="yes"
-        )
-        assert declaration.live_segments is True
-        assert declaration.live_grants is False
+        Not even with the options an earlier version stored for them.
+        """
+        attrs = capabilities(
+            control_mode="live",
+            control_live_segments=True,
+            control_live_grants=True,
+            control_surplus_entity="binary_sensor.surplus",
+            control_min_run_before_lower_min=0,
+        ).as_attributes()
+        assert attrs["grants_supported"] is False
+        assert attrs["live"] == {"segments": True, "grants": False}
+        assert attrs["grant_rules"]["min_run_before_lower_min"] == 120
 
     def test_telemetry_carries_the_dip(self):
         telemetry = capabilities().as_attributes()["telemetry"]
@@ -168,3 +174,25 @@ class TestBoundsOnlyTighten:
         )
         assert declaration.setpoint_min_raw == 98
         assert declaration.setpoint_max_raw is None
+
+
+@pytest.mark.parametrize(
+    ("options", "follows"),
+    [
+        ({"control_mode": "live"}, True),
+        ({"control_mode": "live", "control_live_segments": True}, True),
+        # An earlier version's live with its segments switch off wrote
+        # nothing, and still writes nothing until the form is saved.
+        ({"control_mode": "live", "control_live_segments": False}, False),
+        ({"control_mode": "shadow"}, False),
+        ({"control_mode": "disabled"}, False),
+    ],
+)
+def test_live_follows_the_plan(options, follows):
+    from custom_components.nwp500.const import control_follows_plan
+
+    assert control_follows_plan(options) is follows
+    assert capabilities(**options).as_attributes()["live"] == {
+        "segments": follows,
+        "grants": False,
+    }

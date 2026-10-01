@@ -16,12 +16,15 @@ becomes unavailable, the heater keeps running the programmed entries. There is
 no default the heater falls back to inside a plan: the last programmed state
 holds until the next entry or the next plan.
 
-**The feature actuates; it does not decide.** Whether to heat, when, and for how
-long are the scheduler's decisions. The feature declares the device's facts
-and limits so that the scheduler can make them. The one rule the feature
-applies on its own is a surplus grant (section 5.7): a permission the
-scheduler gives, with a ceiling, to react to a signal faster than a scheduler
-can.
+**The feature operates and reports the water heater, and nothing else.**
+Whether to heat, when, for how long, and in which mode are the scheduler's
+decisions. The feature declares the device's limits, writes the plan, and
+reports what the heater does. It reads nothing but the heater: not the
+home's power, solar, prices or forecasts, and it makes no decision of its
+own. Surplus grants, which reacted to the home's spare power, were removed
+for that reason (section 5.7). What protocol 1 still lists for them, and for
+the other items withdrawn with them, is fixed or empty until #192 removes it
+from the protocol.
 
 This document is the complete specification. Everything an implementation
 needs is here or in this integration's and `nwp500-python`'s own docs.
@@ -60,9 +63,9 @@ needs is here or in this integration's and `nwp500-python`'s own docs.
 
 1. **Enabling starts in `shadow`.** The feature reads the device, plans the
    list it would program, and reports it. It writes nothing to the heater.
-2. **`live` is a separate option,** with its own switches for segments and
-   for surplus grants. A cut-over SHOULD start with a single allowed mode, so
-   that no entry changes the mode until setpoints have been proven.
+2. **`live` is a separate option,** chosen in the options flow. A cut-over
+   SHOULD start with a single allowed mode, so that no entry changes the mode
+   until setpoints have been proven.
 3. **The dashboard gets only a Disable button** (section 4.4). Enabling, going
    live and changing bounds happen in the options flow.
 4. **Nothing goes live before the device tests in section 8,** run on
@@ -98,6 +101,8 @@ Within major version `1`:
 Minor versions so far: **1.1** adds the segment key `reassert` (section
 3.2). **1.2** adds a grant's own timing rules, `surplus_on_before_raise_min`,
 `surplus_off_before_lower_min` and `min_run_before_lower_min` (section 3.3).
+Grants are no longer supported, so 1.2 adds nothing that takes effect; it
+leaves the protocol with them (#192).
 A feature that only knows an earlier minor version keeps such keys as opaque
 ones, so a scheduler relies on them only when `protocol_versions` (section
 4.1) lists that minor version or a later one for major `1`. A document may
@@ -110,7 +115,7 @@ declare `"1"` or any `"1.x"` either way.
 ```
 scheduler ──► [intent entity] ──► control feature ──whole-list writes──► heater's reservation list ──► heater
                                         │                                  (fires on its own)
-                                        ├── near-term entries: a segment already begun, surplus raises and lowers
+                                        ├── near-term entries: a segment already begun, the end of Vacation or power-off
                                         ├── one direct write: when the feature is disabled
                                         └──► entities (section 4): the declaration, the plan and its ack, the program, what happened
 ```
@@ -145,7 +150,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 | Unavailable | What happens |
 |---|---|
 | The scheduler stops publishing | The feature keeps programming the stored plan's remaining segments as room frees up. The heater runs the plan to its last segment, and that state holds until a new plan. Nothing is withdrawn. |
-| Home Assistant, or this feature | The heater runs the entries already programmed, up to `programmed_until` (section 4.2), then holds the last programmed segment. A surplus raise in progress ends at its guard entry (section 5.7). Entries that have fired are not removed, so after a week the device repeats the programmed run in order. |
+| Home Assistant, or this feature | The heater runs the entries already programmed, up to `programmed_until` (section 4.2), then holds the last programmed segment. Entries that have fired are not removed, so after a week the device repeats the programmed run in order. |
 | The Navien cloud, or the device's connection | Entries already on the device should fire, since the device runs them locally; this is untested (section 8, test 11). List writes fail and are retried. |
 | Home Assistant comes back | The feature reads the device's list and reconciles (section 6.5). It never removes an unfired entry of the stored plan. |
 
@@ -161,7 +166,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 | `intent_id` | string, at most 64 characters | yes | Unique per plan |
 | `issued_at` | ISO 8601 with offset | yes | When the scheduler made it. An older document never replaces a newer one |
 | `segments` | list | yes | The timeline (section 3.2). **An empty list stops the plan**: every programmed entry is withdrawn, and the heater keeps the state it is in |
-| `grants` | list | no | Surplus grants (section 3.3) |
+| `grants` | list | no | Surplus grants (section 3.3). Accepted, and each rejected: not supported |
 | any other key | any | no | Opaque. Echoed unchanged on the feature's plan entity, `sensor.<device>_control_intent` (section 4.2), for example `plan_id`, unless it has the name of one of that entity's own attributes (section 4.2), which win |
 
 There is no validity period. A plan's last segment holds until a new plan
@@ -197,7 +202,6 @@ example:
   heater can still start after a large draw, because the lower-tank trigger
   does not move with the setpoint (`lower_trigger_f` in section 4.1); it then
   heats only to the minimum.
-- **An assisted recovery** is a segment in the declared `assisted_mode`.
 
 `vacation` and `power_off` are never accepted as a segment's mode. Entries are
 skipped during Vacation (section 8), so the plan's next entry would never fire
@@ -207,8 +211,10 @@ Energy Saver instead (#160). Use `setpoint: "min"` instead.
 
 ### 3.3 Surplus grants
 
-A grant permits the feature to raise the setpoint while surplus power is
-available and the compressor is already running (section 5.7).
+**Not supported** (section 5.7). A document with grants stays valid under
+protocol 1, and its segments are programmed as usual. Each grant is checked
+for the shape below, and then rejected on its own, `grants_unsupported`.
+Grants leave the protocol with #192; a scheduler sends none.
 
 | Key | Type | Required | Meaning |
 |---|---|---|---|
@@ -221,8 +227,7 @@ available and the compressor is already running (section 5.7).
 | any other key | any | no | Opaque, echoed back on the grant's acknowledgement, unless it has the name of one of its own keys (`id`, `status`, `reason`, `warnings`), which win |
 
 A timing rule that is not a whole number (`3` and `3.0` are) rejects the
-document (`invalid_document`). One outside its declared range (`grant_rule_ranges`,
-section 4.1) rejects that grant alone, `out_of_bounds`.
+document (`invalid_document`).
 
 ### 3.4 Mode names
 
@@ -253,20 +258,8 @@ statuses, with the rejection beside them.
 A segment is part of a timeline, so one bad segment rejects the plan rather
 than leaving the previous segment in force over its time.
 
-**Grants are checked on their own.** A grant that does not fit is rejected,
-with a reason, while the plan proceeds:
-
-| Reason | When |
-|---|---|
-| `grants_unsupported` | No surplus entity is configured |
-| `invalid_window` | Its `end` is not later than its `start` |
-| `overlapping_grant` | It overlaps another grant |
-| `out_of_bounds` | Its maximum is outside `setpoint_min`–`setpoint_max` |
-| `in_past` | Its `end` has passed |
-
-A grant that passes these checks while the feature is `live` with the grants
-switch off is not rejected. It is evaluated as in shadow: status `shadow`,
-reason `not_live` (section 4.2).
+**Grants are rejected on their own,** `grants_unsupported`, while the plan
+proceeds (section 3.3).
 
 ### 3.6 Example
 
@@ -284,9 +277,6 @@ off. On Sunday at 05:00:12 the scheduler publishes:
     {"id": "s2", "start": "2026-10-04T10:30:00-07:00", "setpoint_f": 140, "purpose": "charge"},
     {"id": "s3", "start": "2026-10-04T14:30:00-07:00", "setpoint_f": 135, "mode": "energy_saver"},
     {"id": "s4", "start": "2026-10-04T22:00:00-07:00", "setpoint": "min"}
-  ],
-  "grants": [
-    {"id": "g1", "start": "2026-10-04T11:00:00-07:00", "end": "2026-10-04T14:00:00-07:00", "max_f": 146}
   ]
 }
 ```
@@ -303,18 +293,11 @@ writes one list:
 
 135 °F quantises to 57.0 °C, which reads back as 134.6 °F.
 
-Later, surplus appears at 11:20 while the compressor is running. After ten
-minutes of surplus the feature raises within the grant:
-
-| Time | List change | Why |
-|---|---|---|
-| 11:30 | Adds Sun 11:32, Heat Pump, 146.3 °F, and a guard entry at Sun 14:00, Heat Pump, 140.0 °F; removes the fired 05:03 and 10:30 entries | The raise, and its end at the grant's end; fired entries go with the next write (section 5.3) |
-| 12:40 | Adds Sun 12:42, Heat Pump, 140.0 °F; removes the 14:00 guard and the fired 11:32 entry | The compressor stopped, so the raise is lowered |
+Fired entries are removed with the next write (section 5.3).
 
 If Home Assistant stops at 06:00, the heater still charges at 10:30, moves to
 Energy Saver at 14:30 and goes to the minimum at 22:00, holding there until a
-new plan is programmed. If it stops at 12:00, mid-raise, the guard entry at
-14:00 lowers the setpoint.
+new plan is programmed.
 
 ---
 
@@ -339,29 +322,28 @@ keys and values, which are as documented here.
 | `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.2", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
-| `live` | The live switches: `segments`, `grants` |
+| `live` | `segments`: whether the plan is written (the mode is `live`); `grants`: always false. **Withdrawn (#192)**: reduces to `mode` |
 | `setpoint_min_f`, `setpoint_max_f` (and `_c`) | The bounds a setpoint must be within. Options, defaulting to the device's own `dhw_temperature_min` / `max`. A user MAY set a tighter floor, for example 120 °F. `"min"` resolves to `setpoint_min` |
 | `setpoint_resolution_c` | 0.5 on the NWP500, so a model can quantise exactly as the heater does |
-| `allowed_modes` | Modes a segment may use. Option; default `["heat_pump", "energy_saver"]`: a segment carries the heater's whole state and the last one holds, so the owner's usual Heat Pump must be allowed, and a surplus grant raises only in it. A single-mode cut-over (section 1.2) is the owner's choice |
-| `assisted_mode` | The mode a scheduler should use for faster recovery. Option; default `energy_saver`. It MUST be one of `allowed_modes`. A scheduler reads it instead of naming a mode, so its plans work with other heaters |
+| `allowed_modes` | Modes a segment may use. Option; default `["heat_pump", "energy_saver"]`: a segment carries the heater's whole state and the last one holds, so the owner's usual Heat Pump must be allowed. A single-mode cut-over (section 1.2) is the owner's choice |
+| `assisted_mode` | Always `energy_saver`. **Withdrawn (#192)**: which mode recovers hot water fast is the scheduler's choice, not the heater's |
 | `horizon_h` | How far ahead an entry may be programmed: 144 (section 5.3) |
 | `near_term_lead_min` | How far ahead a near-term entry is written: 2 (section 5.2) |
 | `entry_limit` | The most entries the feature will use on the device. Option, default **16**. The unit tested accepted and read back a list of 32 (section 8); larger lists are untested |
-| `entry_reserve` | Entries kept free for near-term entries and surplus raises. Option, default 2 |
+| `entry_reserve` | Entries kept free for near-term and precedence-exit entries. Option, default 2 |
 | `entries_available` | `entry_limit` minus every entry on the device and the reserve |
-| `grants_supported` | Whether a surplus entity is configured |
-| `grant_rules` | The timing rules a grant follows unless it gives its own (section 3.3): `surplus_on_before_raise_min` (10), `surplus_off_before_lower_min` (15), `min_run_before_lower_min` (option, default 120) |
-| `grant_rule_ranges` | The range, `[lowest, highest]` in whole minutes, a grant's own value of each rule must fall in: `surplus_on_before_raise_min` and `surplus_off_before_lower_min` `[0, 60]`, `min_run_before_lower_min` `[0, 600]`. Protocol 1.2 |
+| `grants_supported` | Always false (section 5.7). **Withdrawn (#192)** |
+| `grant_rules`, `grant_rule_ranges` | Fixed: `{"surplus_on_before_raise_min": 10, "surplus_off_before_lower_min": 15, "min_run_before_lower_min": 120}` and the ranges `[0, 60]`, `[0, 60]`, `[0, 600]`. Nothing follows them. **Withdrawn (#192)** |
 | `owner_program` | What disabling restores (section 5.1): `declared` (false while provisional), `mode`, `setpoint_f`, `setpoint_c`, `reservations_enabled`, and `entries`, the owner's own entries |
-| `lower_trigger_f` | The lower-tank turn-on temperature, which does not follow the setpoint: 104.9 on the unit measured. A low setpoint cannot prevent this trigger |
-| `setpoint_write_starts_recovery` | True on the NWP500. Outside a TOU window, a setpoint left above the upper tank started the compressor within about 30 s in 112 of 117 writes, whether the write came from an entry or directly |
-| `setpoint_write_stops_compressor` | True on the NWP500. A setpoint lowered well below the upper tank stopped a running compressor within 5 s |
+| `lower_trigger_f` | **Withdrawn (#192)**: tank modelling, which belongs in time_to_heat, and the heater reports it live as `hp_lower_on_temp_setting`. The lower-tank turn-on temperature, which does not follow the setpoint: 104.9 on the unit measured. A low setpoint cannot prevent this trigger |
+| `setpoint_write_starts_recovery` | **Withdrawn (#192)**, as `lower_trigger_f`. True on the NWP500. Outside a TOU window, a setpoint left above the upper tank started the compressor within about 30 s in 112 of 117 writes, whether the write came from an entry or directly |
+| `setpoint_write_stops_compressor` | **Withdrawn (#192)**, as `lower_trigger_f`. True on the NWP500. A setpoint lowered well below the upper tank stopped a running compressor within 5 s |
 | `entry_mode_in_tou_window` | `held` on the NWP500: an entry's mode does not take effect inside a TOU window, while its setpoint does (section 5.8) |
-| `list_write_starts_recovery` | False on the NWP500. Writing the list, with no entry firing, started no recovery in 8 writes, with the tank below the setpoint (section 8) |
-| `unchanged_entry_starts_recovery` | False on the NWP500: an entry repeating the heater's mode and setpoint started nothing in 4 runs, with the tank below the setpoint (section 8) |
+| `list_write_starts_recovery` | **Withdrawn (#192)**, as `lower_trigger_f`. False on the NWP500. Writing the list, with no entry firing, started no recovery in 8 writes, with the tank below the setpoint (section 8) |
+| `unchanged_entry_starts_recovery` | **Withdrawn (#192)**, as `lower_trigger_f`. False on the NWP500: an entry repeating the heater's mode and setpoint started nothing in 4 runs, with the tank below the setpoint (section 8) |
 | `entries_fire_when_powered_off` | True on the NWP500. An entry fires while the heater is powered off, and powers it on in the entry's mode (section 8). The library's docs say otherwise |
 | `entries_fire_in_vacation` | False on the NWP500. An entry is skipped during Vacation, and does not run late when Vacation ends (section 8) |
-| `telemetry` | Entity ids a consumer can read for this heater: `delivery_temperature` (the upper tank temperature), `compressor_running`, `power`; and `delivery_temperature_dip_f` with `delivery_temperature_dip_min`, the transient dip the delivery-temperature entity shows during a draw without the tank being depleted, which a consumer must not read as depletion (3.4 °F sustained for about 3 minutes on the NWP500's upper probe) |
+| `telemetry` | Entity ids a consumer can read for this heater: `delivery_temperature` (the upper tank temperature), `compressor_running`, `power` (the heater's own); and `delivery_temperature_dip_f` with `delivery_temperature_dip_min` (**Withdrawn (#192)**: time_to_heat has its own), the transient dip the delivery-temperature entity shows during a draw without the tank being depleted, which a consumer must not read as depletion (3.4 °F sustained for about 3 minutes on the NWP500's upper probe) |
 
 ### 4.2 State entities
 
@@ -376,9 +358,9 @@ Each is a **state**, so history and statestream carry it:
 | `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment still to be written that is not on the device yet, or of the last segment once all are; unknown without a plan. A `merged` segment, or one a person removed, is not to be written | `complete` (every segment to be written is programmed), `scheduled` (segments waiting for the horizon or for room) |
 | `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | `sensor.<device>_control_wanted_mode` | The mode the plan puts the heater in now: that of the segment in force, which a person's deletion can keep out (section 5.10), or, with none in force, the state in force when the plan was adopted: what the feature's entries last put in force, or, for a first plan, the heater's own (unknown if it was then in Vacation or powered off) | none |
-| `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, as for the mode, including a surplus raise, in Home Assistant's unit | `segment` (the segment in force, as the ack's `in_force`), `grant` |
-| `binary_sensor.<device>_control_grant_raised` | On while a surplus raise is in force | `grant`, `raised_at`, `fires_at`, `setpoint_f`, `setpoint_c` |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `grant_raise`, `grant_lower`, `precedence_exit`, `power_off`, `takeover`, `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
+| `sensor.<device>_control_wanted_setpoint` | The setpoint the plan puts the heater in now, as for the mode, in Home Assistant's unit | `segment` (the segment in force, as the ack's `in_force`), `grant` (always null; **Withdrawn (#192)**) |
+| `binary_sensor.<device>_control_grant_raised` | Always off: grants are not supported. **Withdrawn (#192)** | `grant`, `raised_at`, `setpoint_f`, all null |
+| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `precedence_exit`, `power_off`, `takeover`, `disable`; a write stored by an earlier version may say `grant_raise` or `grant_lower`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated`, `owner_state` (below) |
 | `binary_sensor.<device>_control_override` | On while a person's change is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | none |
 
@@ -388,21 +370,15 @@ list or took off it:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `kind` | string | What the entry is for: `plan`, `near_term`, `precedence_exit`, `grant_raise`, `grant_lower` or `guard` |
-| `owner` | string | The program's label for the kind: `plan`, `guard`, or `near_term` for the other four |
-| `serves` | string | The `id` of what it serves: a segment for `plan`, `near_term` and `precedence_exit`, a grant for `grant_raise`, `grant_lower` and `guard`. Ids are unique across a document's segments and grants, so `serves` with `kind` names one item. It is the same string as `control_next_entry`'s `serves` |
+| `kind` | string | What the entry is for: `plan`, `near_term` or `precedence_exit`. An entry an earlier version wrote for a grant is `grant_raise`, `grant_lower` or `guard`, until a write removes it |
+| `owner` | string | The program's label for the kind: `plan`, `guard`, or `near_term` for the others |
+| `serves` | string | The `id` of the segment it serves (of the grant, for an earlier version's grant entry). Ids are unique across a document's segments and grants, so `serves` with `kind` names one item. It is the same string as `control_next_entry`'s `serves` |
 | `fires_at` | string, ISO 8601 with the local offset | The minute the entry is written for: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). A near-term entry confirmed only after its minute never fired; it is issued again, for a later minute, in a later write. An entry left on the device fires again a week later |
 | `mode` | string | The mode it sets, as a name (section 3.4) |
 | `setpoint_f`, `setpoint_c` | number | The setpoint it sets, to one decimal |
 | `setpoint_raw` | integer | The same setpoint as the device holds it, in half-degrees Celsius |
 | `enabled` | boolean | False only for the feature's own entries while the heater is powered off (section 5.9) |
 | `week`, `hour`, `min` | integer | The device slot, under the device's key names: the weekday bit of `fires_at`'s local date (Monday 64, Tuesday 32, Wednesday 16, Thursday 8, Friday 4, Saturday 2, Sunday 128) and its local hour and minute |
-
-A `guard` entry serves its grant. It sets the state the plan wants at the
-grant's `end` (section 5.7), and fires at `end`, or a minute or more later
-when another enabled entry already takes that minute (section 5.2). A surplus
-raise is a `grant_raise` entry, and its lowering a `grant_lower` entry, each
-serving the grant.
 
 **Program items.** Each item of `control_program_hash`'s `entries` is an
 entry of the list the feature wants on the device, with the device's keys:
@@ -523,8 +499,8 @@ once it is programmed; for a segment already begun, its near-term entry's;
 a merged segment counts as the one it merged into, and a removed one never
 is; when a person's deletion leaves none in force, the state in force when
 the plan was adopted holds, section 5.10), `mode_confirmed`
-(for the segment in force in `live`, whether the heater's behaviour has
-confirmed its mode, section 5.11; `null` otherwise), and its opaque keys.
+(always `null`: the mode is not inferred from what the heater's compressor
+or elements do, section 5.11; **Withdrawn (#192)**), and its opaque keys.
 
 | Status | Meaning |
 |---|---|
@@ -553,17 +529,9 @@ Its `warnings`: `moved_1_min` (its entry moved past an occupied minute,
 section 5.2) and `mode_in_tou_window` (it changes the mode inside a TOU
 period, section 5.8).
 
-**Grants** on the ack entity each have `id`, `status`, `reason`,
-`warnings` (always empty) and their opaque keys:
-
-| Status | Meaning |
-|---|---|
-| `waiting` | Accepted, with no raise in force and its `end` still to come |
-| `raised` | A raise under it is in force (section 5.7) |
-| `ended` | Its `end` has passed |
-| `rejected` | It failed a check of section 3.5; `reason` says which |
-| `shadow` | `live` with the grants switch off: evaluated as in shadow, reason `not_live`. In the `shadow` mode, grants show `waiting`, `raised`, `ended` or `rejected` |
-| `failed` | Live: a write for it was not confirmed after its retry (`write_not_confirmed`), or its raise did not read back (`not_applied_on_device`) |
+**Grants** on the ack entity each have `id`, `status` (always `rejected`),
+`reason` (always `grants_unsupported`), `warnings` (always empty) and their
+opaque keys. **Withdrawn (#192)**
 
 **In shadow,** the program and wanted entities show what the feature would
 program. `in_sync` compares that program with the device, so it is off
@@ -577,10 +545,8 @@ audit.
 | The Reservation Schedule sensor (`entries`, `enabled`, `schedule_hash`) | The owner's entries, and read-back of every list write |
 | `dhw_target_temperature_setting` (water heater target, target-temperature number) | Setpoint read-back after each entry |
 | `dhw_operation_setting` (water heater operation mode) | Mode read-back after each entry |
-| `tank_upper_temperature`, `comp_use`, heat source and element use | Telemetry, surplus grants (section 5.7), and confirmation of a mode (section 5.11) |
 | `tou_status`, the TOU schedule | Flagging a mode change inside a TOU window (section 5.8) |
 | `anti_legionella_operation_busy`, `vacation_day_setting`, power state | Precedence (section 5.9) |
-| The configured surplus entity | Surplus grants |
 
 ### 4.4 Controls
 
@@ -619,8 +585,8 @@ disabling restores.
    time zone (section 8, test 1).
 4. **Near-term entries.** A change that must happen now is written as an entry
    for the first minute that starts at least `near_term_lead_min` (2) minutes
-   ahead. This covers a segment already begun when its plan arrives, surplus
-   raises and lowers, and re-asserting a segment after precedence ends.
+   ahead. This covers a segment already begun when its plan arrives, and
+   re-asserting a segment after precedence ends.
 5. **No entry for a passed minute.** An entry for a minute that has passed
    would fire a week later. If a write confirms only after its near-term
    entry's minute, the feature checks the read-back. If the heater did not
@@ -632,7 +598,7 @@ disabling restores.
    live: the device stores both and fires only the enabled one (section 8).
    Which of two enabled entries in one slot wins is untested.
 7. **Ownership.** Every entry the feature writes is recorded in storage as its
-   own, with the segment or grant it serves.
+   own, with the segment it serves.
 
 ### 5.3 Horizon, budget and fired entries
 
@@ -642,7 +608,7 @@ disabling restores.
   leaves a day's margin.
 - **Budget.** The plan's entries fit within `entry_limit`, minus every other
   entry on the device, minus `entry_reserve`. The reserve is kept free for
-  near-term entries and surplus raises.
+  near-term and precedence-exit entries.
 - **In time order.** Segments are programmed in order of `start`, as far as
   the horizon and the budget allow. The rest are `scheduled`, and are
   programmed as earlier entries fire and are removed. `programmed_until`
@@ -665,11 +631,10 @@ disabling restores.
 - **Coalesced.** Changes that arrive while a write is in flight are folded
   into the next write.
 - **Retry once.** An unconfirmed write is retried once after 60 s. After that,
-  its segments or grants are `failed`, and writing pauses for 15 min before
+  its segments are `failed`, and writing pauses for 15 min before
   it tries again. A near-term entry in an unconfirmed write moves to the
   first minute it can still make after the retry, so the retry never writes
-  an entry whose minute has passed. A surplus raise whose write failed is
-  withdrawn. A near-term entry is never dropped unwritten while its segment
+  an entry whose minute has passed. A near-term entry is never dropped unwritten while its segment
   is in force: while writes are paused, or once its minute has passed
   unwritten, it moves forward. Once a later segment is in force, it is
   dropped instead: it would put an ended segment's state back.
@@ -733,89 +698,17 @@ A new accepted plan applies from its receipt:
 
 ### 5.7 Surplus grants
 
-A grant is the scheduler's permission, with a ceiling, for the feature to
-store surplus energy in a compressor cycle that is already running.
+**Not supported.** The feature operates and reports the water heater, and
+reads nothing about the home's power: spare power, solar, the grid or a
+battery are not the heater's information. Storing surplus energy in the tank
+is the scheduler's goal, and it does so with ordinary segments.
 
-**Requires a configured surplus entity** (option). Without one, grants are
-unsupported. It is either:
-
-- a `binary_sensor`, where "on" means surplus; or
-- a numeric `sensor` in kW, where surplus means its value is at or above a
-  **surplus threshold** option (default: the heat pump's running power,
-  0.45 kW).
-
-An `unavailable` or `unknown` state counts as no surplus. A source that
-publishes its own validity should go `unknown` when stale.
-
-**Raise.** Within a grant's window, and only while the compressor is already
-running and the segment in force is in `heat_pump` mode:
-
-- once surplus has been on for the grant's `surplus_on_before_raise_min`
-  (section 3.3; 10 min unless the grant sets it), raise the setpoint to
-  `min(max, setpoint_max)` with a near-term entry, if that is above the
-  segment's setpoint, unless a segment that
-  changes the state starts at or before that entry would fire: the raise
-  would fire after the segment's entry and undo it. The raise is considered
-  again once that segment is in force. A `merged` segment changes nothing,
-  and one a person removed puts nothing on the heater, so neither stops a
-  raise;
-- at the same time, always add a **guard entry** at the grant's end,
-  restoring the state in force then (section 5.10). If a person deletes a
-  segment's entry within the grant, the guard is rewritten to restore what
-  holds instead, at the same minute. A segment's entry may end the
-  raise sooner, but it may never reach the heater, or be removed from it,
-  and the raise must stay bounded if Home Assistant stops;
-- raise at most once per compressor cycle;
-- never raise to start a cycle.
-
-**Lower** with a near-term entry restoring the state in force (section
-5.10), and remove the guard entry, when:
-
-- the compressor stops; or
-- the compressor has run the grant's `min_run_before_lower_min` **and**
-  surplus has been off for its `surplus_off_before_lower_min` (15 min
-  unless the grant sets it).
-
-**Ending a raise.**
-
-- **On the heater.** The device ends a raise when the guard fires, or when
-  one of the feature's own entries fires after the raise: a segment's entry,
-  or a near-term one. The feature then removes the guard if it has not
-  fired.
-- **Only entries on the heater count.** A segment starting ends nothing if
-  it puts nothing on the heater: a `merged` one, one a person removed
-  (section 5.10), or one not yet programmed. The raise then stays, with its
-  guard, and the conditions above still lower it. The guard, too, counts
-  only while it is on the heater: one a person deleted is not written again
-  (section 5.4), so the feature lowers the raise itself when the grant ends.
-- **A raise entry a person deletes** before it fires ends the raise.
-- **Lowering after a segment.** If a segment that changes the state starts
-  before a lowering entry could fire, the lowering waits for that segment's
-  entry, and the guard stays until then. A segment a person removed has no
-  entry, and does not hold a lowering back.
-- **A raise not yet fired** when the conditions end is removed instead of
-  lowered.
-- **A new raise withdraws a lowering still to fire** for the same grant, such
-  as one that became due while the heater was powered off and waits for
-  power: fired after the raise, it would undo it. Only a raise that is
-  written does: one that moving past other entries drops (above) leaves the
-  lowering to restore the earlier raise's setpoint.
-- **Moved entries.** If moving a raise entry past another entry in the same
-  minute would make it fire at or after a segment that changes the state,
-  no raise is made. A guard or near-term entry moved that way keeps the
-  minute it moved to.
-- **A new plan.** A plan that keeps the grant unchanged keeps the raise, and
-  its guard restores what the new plan wants at the grant's end, even a
-  plan that stops (empty `segments`). A plan without the grant lowers the
-  raise, to the state in force: for a plan whose first segment has yet to
-  start, the state before it, which holds until then. If that plan also
-  stops, it lowers to the state the guard would have restored.
-- **A lowering entry a person deletes** is not written again (section 5.4).
-  The raised setpoint then holds until the next entry fires, as any
-  person's removal holds (section 5.10).
-- **Failures and restarts.** A raise whose write failed after its retry is
-  lowered, since it may have landed. A restart keeps a raise whose grant the
-  stored plan still has.
+An earlier version raised the setpoint within a grant's window while a
+configured surplus entity was on. It is removed. A document's grants are
+rejected on their own, `grants_unsupported` (section 3.3), and the feature
+writes no entry for them. A heater still holding an earlier version's grant
+entries has them removed by the next write. What protocol 1 lists for
+grants is fixed or empty, and leaves the protocol with #192.
 
 ### 5.8 TOU
 
@@ -905,8 +798,7 @@ adopt them into the plan. The scheduler decides.
     is `removed`, and the segment before it holds over its time.
   - Any other entry of the feature's that a person deletes is not written
     again either, and is reported as `removed` on the override entity.
-    Nothing else is written in its place. For a grant's entries, see
-    section 5.7.
+    Nothing else is written in its place.
   - **One rule for every deletion, within the plan in force.** A segment
     takes effect only through the entry that puts it in force: its plan
     entry, or, for a segment already begun, its near-term or
@@ -950,15 +842,14 @@ adopt them into the plan. The scheduler decides.
 - **Each entry.** After an entry's minute, the feature compares the device's
   setpoint and mode with the entry's, within the poll interval plus one
   minute. Setpoints are compared within the device's half-degree resolution.
-  A setpoint that does not match marks the segment or grant with reason
+  A setpoint or mode that does not match marks the segment with reason
   `not_applied_on_device`. An entry the heater skipped, its minute in
   Vacation or power-off, is not read back: the exit entry after it is.
-- **A mode counts as applied only when the heater's behaviour confirms it,**
-  not on its read-back alone, because the read-back can be held or masked in
-  a TOU window. For a mode that uses an element, confirmation is an element
-  running or the reported heat source. For Heat Pump only, it is the mode
-  state and no element use. Inside a TOU window an unconfirmed mode is
-  reported `held_in_tou_window`, not as a failure.
+- **Only what the heater reports counts.** A mode is applied when the heater
+  reports it; nothing is inferred from what its compressor or elements do.
+  Inside a TOU window a mode the heater does not report yet is
+  `held_in_tou_window`, not a failure. It is applied once the heater reports
+  it, and `not_applied_on_device` if the window ends first.
 
 ### 5.12 Heartbeat
 
@@ -974,14 +865,13 @@ in shadow. That is how a consumer knows the feature is alive.
 - **`shadow`:** reads the device, validates, plans the list, and updates every
   entity with what it would write. Writes nothing. A segment that would be
   written, or is in force, has status `shadow`; `scheduled`, `merged` and
-  `ended` still show, and grants show `waiting`, `raised`, `ended` or
-  `rejected` as they would in `live`.
-- **`live`:** writes the list, for segments and for grants according to their
-  live switches. What is not live behaves as in shadow. Grants are written
-  only with segments live.
-- **Leaving live** for options that no longer write the list (`shadow`, or
-  segments no longer live) first hands the heater back as disabling does
-  (section 6.6), so shadow starts from the owner's program.
+  `ended` still show.
+- **`live`:** writes the list. Options an earlier version stored as `live`
+  with its separate segments switch off write nothing, and behave as
+  shadow, until the form is saved again.
+- **Leaving live** for options that no longer write the list first hands the
+  heater back as disabling does (section 6.6), so shadow starts from the
+  owner's program.
 - **`disabled`:** section 6.6.
 
 ### 6.2 Enabling
@@ -1066,26 +956,20 @@ is kept, so turning the feature on and disabling can finish.
 | Option | Default |
 |---|---|
 | External control enabled | off |
-| Mode | `shadow` |
-| Live switches: segments, grants | both off |
+| Mode | `shadow` (Preview), `live` or `disabled` (Stopped) |
 | Intent entity | none (required to enable) |
 | Setpoint min / max | The device's `dhw_temperature_min` / `max` |
 | Allowed modes | `heat_pump`, `energy_saver` |
-| Assisted mode | `energy_saver` |
 | Entry limit | 16 (the unit tested held 32; section 8) |
 | Entry reserve | 2 |
-| Surplus entity | none (a `binary_sensor`, or a kW `sensor` with a threshold) |
-| Surplus threshold (kW, numeric entity only) | 0.45 |
-| Minimum run before lowering a raise | 120 min |
 | Owner's program | Declared from a snapshot when `live` is chosen from another mode (section 6.3) |
 
 Changing an option updates the capability entity, and so its version.
 
-The form offers the mode and its live switches as one choice: Preview
-(`shadow`), Live (`live`, segments), Live with spare power (`live`,
-segments and grants) and Stopped (`disabled`). Saving stores the three
-options as before. Options stored as `live` with segments off show as
-Preview, since they write nothing.
+Options of earlier versions are dropped the next time the form is saved: the
+live switches, the surplus entity and threshold, the minimum run before
+lowering a raise, and the assisted mode. Options stored as `live` with the
+segments switch off show as Preview, since they write nothing.
 
 ---
 
@@ -1183,9 +1067,12 @@ was removed afterwards, which its status shows instead.
 ## 9. Out of scope
 
 - **Scheduling, forecasting, pricing or deciding anything.** The feature
-  programs a plan; it never makes one. Surplus grants react only within a
-  window and a ceiling the scheduler set.
-- **Cycle policy** beyond grants: minimum run times, not stopping a running
+  programs a plan; it never makes one, and reacts to nothing but the heater.
+- **The home's power:** spare power, solar, the grid, batteries (section
+  5.7). The feature reads only the heater.
+- **Inferring the heater's state** from its compressor or elements (section
+  5.11). The feature reports what the heater reports.
+- **Cycle policy:** minimum run times, not stopping a running
   compressor, not reversing within a cycle. The scheduler chooses segment
   times using the facts in section 4.1. The feature cannot enforce such rules
   on segments anyway, because the device fires an entry whatever the
@@ -1216,6 +1103,7 @@ was removed afterwards, which its status shows instead.
 | Precedence deleted pending entries | In Vacation, entries stay and the segment in force is re-asserted afterwards. At power-off, the feature switches its own entries off, and back on when power returns | The device skips entries in Vacation, but fires them while powered off and turns the heater back on |
 | `applied` meant a write read back | `programmed`, `in_force` and `ended`, with read-back after each entry | An entry's effect is only observable when it fires |
 | The TOU lever | Removed | Nothing on the device could undo it |
+| Surplus grants (kept by the revision), the assisted mode, mode confirmation from the compressor and elements, the separate live switches (2026-09-30, #191) | Removed. What protocol 1 lists for them is fixed or empty until #192 removes it, with the tank-modelling facts of section 4.1 | The feature operates and reports the water heater, and nothing else. The home's power and the scheduler's preferences are not the heater's |
 
 ---
 
@@ -1243,6 +1131,11 @@ was removed afterwards, which its status shows instead.
    compatibility promises of section 1.3, a JSON Schema
    (`docs/external-control-protocol-1.schema.json`) and the examples.
    Protocol `0` documents are still accepted.
+7. **The boundary** (2026-09-30, #191): what was not the water heater's is
+   removed. That covers surplus grants, the assisted mode, mode confirmation
+   from the compressor and elements, and the separate live switches. After
+   the scheduler's R2 dry run, #192 removes what protocol 1 still lists for
+   them, coordinated with eman/dhw-sensor-apps#389.
 
 Related: #157 (`water_heater` service reports success in two failure cases);
 #160 (turning the water heater off switched it to Energy Saver).

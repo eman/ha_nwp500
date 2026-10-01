@@ -20,7 +20,6 @@ from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 
 from custom_components.nwp500.const import (
-    CONF_CONTROL_LIVE_GRANTS,
     CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MODE,
     CONF_CONTROL_OWNER_PROGRAM,
@@ -43,7 +42,6 @@ from custom_components.nwp500.control.engine import (
     Report,
 )
 from custom_components.nwp500.control.entries import (
-    KIND_GRANT_RAISE,
     KIND_NEAR_TERM,
     KIND_PLAN,
     schedule_hash,
@@ -51,13 +49,12 @@ from custom_components.nwp500.control.entries import (
 from custom_components.nwp500.control.evaluate import (
     REASON_HELD_IN_TOU_WINDOW,
     REASON_NOT_APPLIED,
-    REASON_NOT_LIVE,
     REASON_WRITE_NOT_CONFIRMED,
 )
 from custom_components.nwp500.control.owner import OwnerProgram, describe
 from custom_components.nwp500.control.store import ControlStore
 
-from .conftest import grant, make_document, segment
+from .conftest import make_document, segment
 from .test_device import (
     MAC,
     _coordinator,
@@ -65,7 +62,7 @@ from .test_device import (
     _publish,
     _status,
 )
-from .test_engine import NOW, SURPLUS, TZ, give, minutes, obs, planner_with
+from .test_engine import NOW, TZ, give, minutes, obs, planner_with
 
 HAND_BACK_ISSUE = f"control_hand_back_failed_{MAC}"
 
@@ -220,55 +217,6 @@ class TestPlannerLive:
         planner.commit(again)
         assert statuses(planner.ack("i"))["b"] == ("programmed", None)
 
-    def test_a_raise_whose_write_failed_is_withdrawn(self):
-        running = obs(
-            mode="heat_pump",
-            setpoint_raw=120,
-            compressor_on=True,
-            surplus_on=True,
-        )
-        planner = planner_with(
-            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
-            grants=[grant(NOW, "g", -5, 180, max_f=146)],
-            observed=running,
-            shadow=False,
-            control_live_grants=True,
-            **{**SURPLUS, **LIVE},
-        )
-        seen = device_obs(
-            planner, mode="heat_pump", setpoint_raw=120, compressor_on=True
-        )
-        seen = obs(**{**seen.__dict__, "surplus_on": True})
-        write = planner.step(minutes(10), seen)
-        assert {e.kind for e in write.added} >= {KIND_GRANT_RAISE}
-        planner.reject(write, minutes(10), retry_at=minutes(11), final=True)
-        assert planner.raise_state is None
-        grants = {g.id: (g.status, g.reason) for g in planner.ack("i").grants}
-        assert grants == {"g": ("failed", REASON_WRITE_NOT_CONFIRMED)}
-
-    def test_no_raise_while_grants_are_not_live(self):
-        running = obs(
-            mode="heat_pump",
-            setpoint_raw=120,
-            compressor_on=True,
-            surplus_on=True,
-        )
-        planner = planner_with(
-            [segment(NOW, "s", -5, mode="heat_pump", setpoint_f=140)],
-            grants=[grant(NOW, "g", -5, 180, max_f=146)],
-            observed=running,
-            shadow=False,
-            **{**SURPLUS, **LIVE},
-        )
-        seen = device_obs(
-            planner, mode="heat_pump", setpoint_raw=120, compressor_on=True
-        )
-        seen = obs(**{**seen.__dict__, "surplus_on": True})
-        assert planner.step(minutes(10), seen) is None
-        assert planner.raise_state is None
-        grants = {g.id: (g.status, g.reason) for g in planner.ack("i").grants}
-        assert grants == {"g": ("shadow", REASON_NOT_LIVE)}
-
 
 class TestReadBack:
     """Section 5.11."""
@@ -331,62 +279,14 @@ class TestReadBack:
             seg.detail for seg in planner.ack("i").segments if seg.id == item
         )
 
-    def test_heat_pump_is_confirmed_by_running_without_an_element(self):
-        planner = self._planner(setpoint_f=140)
-        fired = device_obs(
-            planner, mode="heat_pump", setpoint_raw=120, elements_on=False
-        )
-        planner.step(minutes(10.5), fired)
-        planner.step(minutes(11.6), fired)
-        assert planner.mode_confirmed == {"b"}
-        assert self._detail(planner, "b")["mode_confirmed"] is True
-
-    def test_a_segment_that_needed_no_entry_is_confirmed_too(self):
-        planner = planner_with(shadow=False, **LIVE)
-        give(
-            planner,
-            [segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5)],
-        )
-        planner.step(minutes(1), device_obs(planner, elements_on=True))
-        assert planner.mode_confirmed == {"a"}
-        assert statuses(planner.ack("i"))["a"] == ("in_force", None)
-
-    def test_an_element_in_heat_pump_contradicts_it(self):
+    def test_the_mode_is_not_inferred_from_what_the_heater_runs(self):
+        """Only what the heater reports counts (section 5.11)."""
         planner = self._planner(setpoint_f=140)
         fired = device_obs(planner, mode="heat_pump", setpoint_raw=120)
         planner.step(minutes(10.5), fired)
         planner.step(minutes(11.6), fired)
-        heating = device_obs(
-            planner, mode="heat_pump", setpoint_raw=120, elements_on=True
-        )
-        planner.step(minutes(20), heating)
-        assert planner.readback == {"b": REASON_NOT_APPLIED}
-        assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
-
-    def test_an_element_mode_waits_for_an_element(self):
-        planner = planner_with(shadow=False, **LIVE)
-        give(
-            planner,
-            [
-                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
-                segment(NOW, "b", 10, mode="electric", setpoint_f=140),
-            ],
-        )
-        fired = device_obs(planner, mode="electric", setpoint_raw=120)
-        planner.step(minutes(10.5), fired)
-        planner.step(minutes(11.6), fired)
-        assert planner.mode_confirmed == set()
-        assert self._detail(planner, "b")["mode_confirmed"] is False
-        heating = device_obs(
-            planner, mode="electric", setpoint_raw=120, elements_on=True
-        )
-        planner.step(minutes(15), heating)
-        assert planner.mode_confirmed == {"b"}
-        compressor = device_obs(
-            planner, mode="electric", setpoint_raw=120, compressor_on=True
-        )
-        planner.step(minutes(20), compressor)
-        assert planner.readback == {"b": REASON_NOT_APPLIED}
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+        assert self._detail(planner, "b")["mode_confirmed"] is None
 
     def _window(self, end_hour: int) -> dict:
         return {
@@ -1089,11 +989,6 @@ class TestLiveDisable:
         assert heater.writes == []
         assert heater.states == []
 
-    @pytest.mark.asyncio
-    async def test_live_grants_switch_is_declared(self, live_factory):
-        _, control = await live_factory(**{CONF_CONTROL_LIVE_GRANTS: True})
-        assert control.capabilities.live_grants is True
-
 
 class TestLeavingLive:
     @pytest.mark.asyncio
@@ -1422,26 +1317,3 @@ class TestTrialFindings:
         # The heater's clock runs ahead: the change arrives 4 s early.
         planner.step(minutes(10) - timedelta(seconds=4), early)
         assert planner.reports == {}
-
-    def test_mode_confirmed_is_only_for_the_segment_in_force(self):
-        planner = planner_with(shadow=False, **LIVE)
-        give(
-            planner,
-            [
-                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
-                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
-            ],
-        )
-        planner.step(minutes(1), device_obs(planner, elements_on=True))
-        assert planner.mode_confirmed == {"a"}
-        details = {s.id: s.detail for s in planner.ack("i").segments}
-        assert details["a"]["mode_confirmed"] is True
-        assert details["b"]["mode_confirmed"] is None
-        # A new plan whose "a" is a different segment starts unconfirmed.
-        give(
-            planner,
-            [segment(NOW, "a", 30, mode="heat_pump", setpoint_f=140)],
-            now=minutes(2),
-            intent_id="i-2",
-        )
-        assert planner.mode_confirmed == set()

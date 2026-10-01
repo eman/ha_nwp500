@@ -21,14 +21,9 @@ from ..const import MODE_TO_DHW_ID
 from .capabilities import (
     HORIZON,
     NEAR_TERM_LEAD,
-    SURPLUS_OFF_BEFORE_LOWER,
-    SURPLUS_ON_BEFORE_RAISE,
     Capabilities,
 )
 from .entries import (
-    KIND_GRANT_LOWER,
-    KIND_GRANT_RAISE,
-    KIND_GUARD,
     KIND_NEAR_TERM,
     KIND_PLAN,
     KIND_PRECEDENCE_EXIT,
@@ -42,18 +37,12 @@ from .entries import (
     slots_collide,
 )
 from .evaluate import (
-    GRANT_ENDED,
-    GRANT_FAILED,
-    GRANT_RAISED,
     GRANT_REJECTED,
-    GRANT_SHADOW,
-    GRANT_WAITING,
     REASON_BEYOND_HORIZON,
     REASON_BOUNDS_UNKNOWN,
     REASON_ENTRY_BUDGET,
     REASON_HELD_IN_TOU_WINDOW,
     REASON_NOT_APPLIED,
-    REASON_NOT_LIVE,
     REASON_WRITE_NOT_CONFIRMED,
     STATE_PARTLY_PROGRAMMED,
     STATE_PENDING,
@@ -73,9 +62,8 @@ from .evaluate import (
     Ack,
     ItemAck,
     check_grants,
-    grants_live,
 )
-from .intent import Grant, Plan, Segment
+from .intent import Plan, Segment
 from .observed import Observed, raw_entry
 from .owner import OwnerProgram
 from .tou import in_tou_window
@@ -103,6 +91,8 @@ CLOCK_SKEW = timedelta(seconds=60)
 WRITE_PLAN = "plan"
 WRITE_CLEANUP = "cleanup"
 WRITE_NEAR_TERM = "near_term"
+# Surplus grant writes, which the feature no longer makes; a stored last
+# write from an earlier version may carry them.
 WRITE_GRANT_RAISE = "grant_raise"
 WRITE_GRANT_LOWER = "grant_lower"
 WRITE_PRECEDENCE_EXIT = "precedence_exit"
@@ -129,12 +119,9 @@ _SKIPPED = "skipped"
 
 # The reason a write reports, by the most telling kind of entry it adds.
 _WRITE_REASONS = (
-    (KIND_GRANT_RAISE, WRITE_GRANT_RAISE),
-    (KIND_GRANT_LOWER, WRITE_GRANT_LOWER),
     (KIND_PRECEDENCE_EXIT, WRITE_PRECEDENCE_EXIT),
     (KIND_NEAR_TERM, WRITE_NEAR_TERM),
     (KIND_PLAN, WRITE_PLAN),
-    (KIND_GUARD, WRITE_GRANT_RAISE),
 )
 
 
@@ -188,16 +175,6 @@ def _current_shape(report: Report) -> Report:
     except KeyError, TypeError, ValueError:
         return report
     return replace(report, value=entry.as_attributes())
-
-
-@dataclass(frozen=True)
-class RaiseState:
-    """A surplus raise in force (section 5.7)."""
-
-    grant_id: str
-    raised_at: datetime
-    entry: OwnedEntry
-    guard: OwnedEntry | None
 
 
 @dataclass(frozen=True)
@@ -283,7 +260,7 @@ class Planner:
         self.owner: OwnerProgram | None = None
         # What the feature believes is on the device, of its own.
         self.owned: list[OwnedEntry] = []
-        # Near-term, grant and guard entries wanted until they fire.
+        # Near-term and precedence-exit entries wanted until they fire.
         self.extra: list[OwnedEntry] = []
         # Segments whose state an entry has put, or will put, in force.
         self.asserted: set[str] = set()
@@ -301,10 +278,9 @@ class Planner:
         # starts with none: it is the scheduler's answer (section 5.6).
         self.removed_segments: set[str] = set()
         self.last_write: Write | None = None
-        self.raise_state: RaiseState | None = None
         self.suspended_by: str | None = None
-        # Live: whether the feature holds the list (section 5.1), segments or
-        # grants whose write failed after its retry (section 5.4), and the
+        # Live: whether the feature holds the list (section 5.1), segments
+        # whose write failed after its retry (section 5.4), and the
         # read-back of each served item's latest entry (section 5.11).
         self.took_over = False
         # A live write sent but not confirmed, with the hash of the list
@@ -319,8 +295,6 @@ class Planner:
         self.failed: dict[str, str] = {}
         self.readback: dict[str, str] = {}
         self._checked: set[str] = set()
-        # Served items whose mode the heater's behaviour has confirmed.
-        self.mode_confirmed: set[str] = set()
         self.next_event_at: datetime | None = None
         self.last_step: datetime | None = None
         self._info: dict[str, _SegmentInfo] = {}
@@ -332,11 +306,6 @@ class Planner:
         # When the reservation switch was seen to turn on: no entry fired
         # while it was off (section 4.2).
         self._reservations_on_since: datetime | None = None
-        self._compressor_on: bool | None = None
-        self._cycle_started_at: datetime | None = None
-        self._raised_in_cycle = False
-        self._surplus_on_since: datetime | None = None
-        self._surplus_off_since: datetime | None = None
         # What the feature's own entries have put in force: the segment (if
         # the plan in force has it) and state of the latest segment entry
         # that fired, and its minute (section 5.10).
@@ -363,7 +332,6 @@ class Planner:
 
     def as_document(self) -> dict[str, Any]:
         """The state worth keeping across a restart."""
-        rs = self.raise_state
         return {
             "owned": [e.as_document() for e in self.owned],
             "extra": [e.as_document() for e in self.extra],
@@ -392,14 +360,6 @@ class Planner:
             "last_write": self.last_write.as_document()
             if self.last_write
             else None,
-            "raise": {
-                "grant_id": rs.grant_id,
-                "raised_at": rs.raised_at.isoformat(),
-                "entry": rs.entry.as_document(),
-                "guard": rs.guard.as_document() if rs.guard else None,
-            }
-            if rs
-            else None,
             "device_state": list(self._device_state)
             if self._device_state
             else None,
@@ -407,13 +367,6 @@ class Planner:
             "reservations_on_since": self._reservations_on_since.isoformat()
             if self._reservations_on_since
             else None,
-            # The compressor cycle and whether it was raised in: a restart
-            # mid-cycle must not allow a second raise (section 5.7).
-            "compressor_on": self._compressor_on,
-            "cycle_started_at": self._cycle_started_at.isoformat()
-            if self._cycle_started_at
-            else None,
-            "raised_in_cycle": self._raised_in_cycle,
             "took_over": self.took_over,
             "unconfirmed": [
                 {"write": w.as_document(), "hash": h}
@@ -428,7 +381,6 @@ class Planner:
             "failed": dict(self.failed),
             "readback": dict(self.readback),
             "checked": sorted(self._checked),
-            "mode_confirmed": sorted(self.mode_confirmed),
         }
 
     def load_document(self, document: Mapping[str, Any]) -> None:
@@ -436,8 +388,14 @@ class Planner:
         self.owned = [
             OwnedEntry.from_document(e) for e in document.get("owned", [])
         ]
+        # A surplus grant's entries, stored by an earlier version, are no
+        # longer wanted: the next write removes any on the heater.
         self.extra = [
-            OwnedEntry.from_document(e) for e in document.get("extra", [])
+            entry
+            for entry in (
+                OwnedEntry.from_document(e) for e in document.get("extra", [])
+            )
+            if entry.kind in NEAR_TERM_KINDS
         ]
         self.asserted = set(document.get("asserted", []))
         if carry := document.get("carry_state"):
@@ -469,24 +427,11 @@ class Planner:
         self.removed_segments = set(document.get("removed_segments", []))
         if raw_write := document.get("last_write"):
             self.last_write = Write.from_document(raw_write)
-        if raw_raise := document.get("raise"):
-            self.raise_state = RaiseState(
-                grant_id=str(raw_raise["grant_id"]),
-                raised_at=datetime.fromisoformat(raw_raise["raised_at"]),
-                entry=OwnedEntry.from_document(raw_raise["entry"]),
-                guard=OwnedEntry.from_document(raw_raise["guard"])
-                if raw_raise.get("guard")
-                else None,
-            )
         if device_state := document.get("device_state"):
             self._device_state = (str(device_state[0]), int(device_state[1]))
         self._reservations_on = document.get("reservations_on")
         if on_since := document.get("reservations_on_since"):
             self._reservations_on_since = datetime.fromisoformat(on_since)
-        self._compressor_on = document.get("compressor_on")
-        if started := document.get("cycle_started_at"):
-            self._cycle_started_at = datetime.fromisoformat(started)
-        self._raised_in_cycle = bool(document.get("raised_in_cycle", False))
         self.took_over = bool(document.get("took_over", False))
         raw_unconfirmed = document.get("unconfirmed") or []
         if isinstance(raw_unconfirmed, Mapping):
@@ -504,14 +449,13 @@ class Planner:
             str(k): str(v) for k, v in document.get("readback", {}).items()
         }
         self._checked = set(document.get("checked", []))
-        self.mode_confirmed = set(document.get("mode_confirmed", []))
 
     @staticmethod
     def _report_key(report: Report) -> str:
         """One report per key; a newer one replaces it (section 4.2)."""
         if report.field == REPORT_REMOVED and isinstance(report.value, Mapping):
-            # A segment's plan and near-term entries, or a grant's raise and
-            # guard, can both be removed: the kind tells them apart.
+            # A segment's plan and near-term entries can both be removed:
+            # the kind tells them apart.
             kind = report.value.get("kind")
             return f"{report.field}:{kind}:{report.segment}"
         if report.field == REPORT_FOREIGN and isinstance(report.value, Mapping):
@@ -562,9 +506,7 @@ class Planner:
         self.removed_segments = set()
         self.readback = {}
         self._checked = set()
-        self.mode_confirmed = set()
         self.unconfirmed = []
-        self.raise_state = None
         self.last_write = None
         self.reports = {
             k: v for k, v in self.reports.items() if v.field != REPORT_REMOVED
@@ -653,7 +595,7 @@ class Planner:
         return anchor
 
     def _state_at(self, when: datetime) -> State | None:
-        """The state in force at `when`, before any surplus raise.
+        """The state in force at `when`.
 
         That of the segment in force, else the state before the plan. None
         for a plan that stops (no segments): it wants nothing.
@@ -680,7 +622,7 @@ class Planner:
         return anchor[0].id if anchor is not None else None
 
     def wanted_state(self, now: datetime) -> State | None:
-        """The state the plan puts the heater in now, with a surplus raise.
+        """The state the plan puts the heater in now.
 
         What took effect, not the plan alone: a segment a person's deletion
         kept out leaves the state before it (section 5.10).
@@ -688,11 +630,7 @@ class Planner:
         if self.plan is None:
             return None
         anchor = self._anchor(now)
-        state = anchor[1] if anchor is not None else self.carry_state
-        rs = self.raise_state
-        if state is not None and rs is not None and rs.entry.fires_at <= now:
-            state = State(rs.entry.mode, rs.entry.setpoint_raw)
-        return state
+        return anchor[1] if anchor is not None else self.carry_state
 
     # -- plans -------------------------------------------------------------
 
@@ -793,7 +731,6 @@ class Planner:
             if e.kind not in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
             or (e.serves, State(e.mode, e.setpoint_raw)) == keep
         ]
-        self._reconcile_raise(previous, now, restoring=restoring)
         # A plan entry already programmed with the same state serves the
         # new plan's segment of the same id too.
         states = {s.id: self.resolve(s) for s in plan.segments}
@@ -807,19 +744,6 @@ class Planner:
         self.readback = {
             k: v for k, v in self.readback.items() if k in self.asserted
         }
-        # A confirmation carries over only for the segment in force that the
-        # new plan keeps with the same state; another segment of the same id
-        # is a new one.
-        new_anchor = self._anchor(now)
-        unchanged = (
-            new_anchor is not None
-            and old_anchor is not None
-            and (old_anchor[0].id, old_anchor[1])
-            == (new_anchor[0].id, new_anchor[1])
-        )
-        self.mode_confirmed &= (
-            {new_anchor[0].id} if unchanged and new_anchor else set()
-        )
 
         if keep is None or self._holding_over(now):
             # Nothing of the plan's is in force yet, or a person's deletion
@@ -911,60 +835,6 @@ class Planner:
         if not kept:
             self.settled = (None, self.settled[1], self.settled[2])
 
-    def _reconcile_raise(
-        self, previous: Plan | None, now: datetime, *, restoring: bool = False
-    ) -> None:
-        """Keep a raise whose grant the new plan still has, unchanged.
-
-        At start-up the stored plan is re-adopted with nothing before it;
-        its raise is kept if its grant is still accepted.
-        """
-        rs = self.raise_state
-        if rs is None:
-            return
-        if (
-            restoring
-            and previous is None
-            and rs.grant_id not in self.grant_rejections
-            and any(g.id == rs.grant_id for g in self.plan.grants)
-            if self.plan is not None
-            else False
-        ):
-            return
-
-        def grant_of(plan: Plan | None) -> Grant | None:
-            if plan is None:
-                return None
-            return next((g for g in plan.grants if g.id == rs.grant_id), None)
-
-        kept = grant_of(self.plan)
-        if (
-            kept is not None
-            and kept == grant_of(previous)
-            and rs.grant_id not in self.grant_rejections
-        ):
-            self._retarget_guard(kept)
-            return
-        self._lower(now)
-
-    def _retarget_guard(self, grant: Grant) -> None:
-        """The guard restores what takes effect at the grant's end.
-
-        At the minute it was placed. A new plan, or a person's deletion of
-        a segment's entry within the grant, changes what that is.
-        """
-        rs = self.raise_state
-        old = rs.guard if rs is not None else None
-        if old is None:
-            return
-        guard = self._guard(grant, State(old.mode, old.setpoint_raw))
-        if (guard.mode, guard.setpoint_raw) == (old.mode, old.setpoint_raw):
-            return
-        self._swap_extra(
-            old,
-            replace(old, mode=guard.mode, setpoint_raw=guard.setpoint_raw),
-        )
-
     def disable(
         self,
         now: datetime,
@@ -998,7 +868,6 @@ class Planner:
         self.failed = {}
         self.readback = {}
         self._checked = set()
-        self.mode_confirmed = set()
         self.unconfirmed = []
         self.hold_until = None
         self.plan = None
@@ -1007,7 +876,6 @@ class Planner:
         self.carry_state = None
         self.adopted_from = None
         self._exit_owed = False
-        self.raise_state = None
         self.grant_rejections = {}
         self.forget_people()
         self.commit(write)
@@ -1024,9 +892,6 @@ class Planner:
         self._track_precedence(now, observed)
         self._track_people(now, observed)
         self._track_settled(now, observed)
-        self._track_cycle(now, observed)
-        self._track_surplus(now, observed)
-        self._track_grant(now, observed)
         self._track_readback(now, observed)
         self._track_in_force(now, observed)
         self._assert_in_force(now)
@@ -1150,12 +1015,11 @@ class Planner:
         with its confirmation lost. It is kept as unconfirmed, with the hash
         of the list sent, and reconciled against the next read of the list
         (`reconcile_unconfirmed`). Plan entries stay candidates and go in
-        the next write. An entry that must fire soon (a near-term, a
-        precedence exit, a raise or a lowering) is moved to the first minute
-        it can still make after `retry_at`, so the retry does not write an
-        entry whose minute has passed. After the retry has failed too
-        (`final`), what it served is `failed`, and a surplus raise is
-        lowered. A write that was never sent (the list could not be read
+        the next write. An entry that must fire soon (a near-term or a
+        precedence exit) is moved to the first minute it can still make
+        after `retry_at`, so the retry does not write an entry whose minute
+        has passed. After the retry has failed too (`final`), what it served
+        is `failed`. A write that was never sent (the list could not be read
         first) cannot have landed, and is not recorded as unconfirmed.
         """
         self.last_write = replace(write, simulated=False, confirmed=False)
@@ -1170,16 +1034,6 @@ class Planner:
                 self.failed[entry.serves] = REASON_WRITE_NOT_CONFIRMED
             if entry.kind not in NEAR_TERM_KINDS or entry.serves is None:
                 continue
-            rs = self.raise_state
-            if (
-                final
-                and entry.kind == KIND_GRANT_RAISE
-                and rs is not None
-                and rs.grant_id == entry.serves
-            ):
-                # It may have landed: lower it, rather than forget it.
-                self._lower(now)
-                continue
             self._retime(entry.kind, entry.serves, retry_at)
 
     def _retime(self, kind: str, serves: str, when: datetime) -> None:
@@ -1189,7 +1043,7 @@ class Planner:
         was written may have been moved past a collision. Dropped if the
         next segment starts by then, and a segment's entry once that segment
         is no longer the one in force (#172): it would put an ended
-        segment's state back. A raise moves with its entry.
+        segment's state back.
         """
         earliest = near_term_minute(when, NEAR_TERM_LEAD)
         for entry in [
@@ -1202,16 +1056,9 @@ class Planner:
                 anchor = self._anchor(when)
                 if anchor is None or anchor[0].id != serves:
                     continue
-            moved = self._near_term(
+            self._near_term(
                 kind, serves, State(entry.mode, entry.setpoint_raw), when
             )
-            rs = self.raise_state
-            if rs is not None and rs.entry == entry:
-                if moved is None:
-                    self._drop_raise_entries(when)
-                    self.raise_state = None
-                else:
-                    self.raise_state = replace(rs, entry=moved)
 
     def _hold(self, now: datetime) -> None:
         """In live, keep unwritten near-term entries makeable.
@@ -1493,21 +1340,11 @@ class Planner:
         """When a removed entry's time is over; None if it already is.
 
         A segment's entries hold until the next segment starts, or, for the
-        last, until a plan changes it. A grant's hold until the grant ends.
-        An item the plan in force no longer has is over.
+        last, until a plan changes it. An item the plan in force no longer
+        has is over.
         """
         plan = self.plan
-        value = report.value if isinstance(report.value, Mapping) else {}
         if plan is None or report.segment is None:
-            return None
-        if value.get("kind") in (
-            KIND_GRANT_RAISE,
-            KIND_GRANT_LOWER,
-            KIND_GUARD,
-        ):
-            for grant in plan.grants:
-                if grant.id == report.segment:
-                    return grant.end
             return None
         for segment in plan.segments:
             if segment.id == report.segment:
@@ -1569,11 +1406,6 @@ class Planner:
                         and e.serves == serves
                     )
                 ]
-            rs = self.raise_state
-            if rs is not None and owned_entry == rs.entry:
-                # The raise never fired: there is none to track or bound.
-                self._drop_raise_entries(now)
-                self.raise_state = None
             # The entry as the last write entity reported it (section 4.2).
             report = Report(
                 REPORT_REMOVED,
@@ -1715,14 +1547,11 @@ class Planner:
         )
 
     def _track_in_force(self, now: datetime, observed: Observed) -> None:
-        """Follow the state in force after its read-back (section 5.11).
+        """Follow a mode a TOU window held at its read-back (section 5.11).
 
-        A mode counts as applied only once the heater's behaviour confirms
-        it: Heat Pump by running without an element, a mode that uses an
-        element by an element running. Behaviour that contradicts the mode
-        (an element in Heat Pump, the compressor in Electric) makes it
-        `not_applied_on_device`. A mode held by a TOU window is applied when
-        the heater reports it, and not applied if the window ends first.
+        It is applied once the heater reports it, and not applied if the
+        window ends first. Only what the heater reports counts: nothing is
+        inferred from what its compressor or elements do.
         """
         if (
             self.shadow
@@ -1780,208 +1609,6 @@ class Planner:
                     latest.mode,
                 )
                 return
-        if found is not None or observed.mode != latest.mode:
-            return
-        contradicted = (
-            latest.mode == "heat_pump"
-            and observed.elements_on is True
-            and not observed.anti_legionella_busy
-        ) or (latest.mode == "electric" and observed.compressor_on is True)
-        if contradicted:
-            self.readback[served] = REASON_NOT_APPLIED
-            self.mode_confirmed.discard(served)
-            _LOGGER.warning(
-                "The heater's behaviour contradicts %s for %s",
-                latest.mode,
-                served,
-            )
-            return
-        if latest.mode == "heat_pump":
-            confirmed = observed.elements_on is False
-        else:
-            confirmed = observed.elements_on is True
-        if confirmed:
-            self.mode_confirmed.add(served)
-
-    # Surplus grants
-
-    def _track_cycle(self, now: datetime, observed: Observed) -> None:
-        on = observed.compressor_on
-        if on is None:
-            return
-        if on and not self._compressor_on:
-            # Started; or first seen running, in which case the start is
-            # unknown and taken as now, the safe assumption.
-            self._cycle_started_at = now
-            self._raised_in_cycle = False
-        elif not on and self._compressor_on:
-            self._cycle_started_at = None
-        self._compressor_on = on
-
-    def _track_surplus(self, now: datetime, observed: Observed) -> None:
-        if observed.surplus_on:
-            if self._surplus_on_since is None:
-                self._surplus_on_since = now
-            self._surplus_off_since = None
-        else:
-            # Unknown counts as no surplus (section 5.7).
-            if self._surplus_off_since is None:
-                self._surplus_off_since = now
-            self._surplus_on_since = None
-
-    def _accepted_grants(self) -> list[Grant]:
-        if self.plan is None:
-            return []
-        return [
-            g for g in self.plan.grants if g.id not in self.grant_rejections
-        ]
-
-    def _track_grant(self, now: datetime, observed: Observed) -> None:
-        rs = self.raise_state
-        if rs is not None:
-            if self.plan is None or self._raise_ended(rs, now):
-                # The device ended it on its own.
-                self._drop_raise_entries(now)
-                self.raise_state = None
-                return
-            grant = next(
-                (g for g in self._accepted_grants() if g.id == rs.grant_id),
-                None,
-            )
-            if grant is not None:
-                self._retarget_guard(grant)
-            # With no guard on the heater to end it at the grant's end, the
-            # feature lowers it then. A guard a person deleted is not
-            # written again (section 5.4).
-            unguarded_past_end = (
-                grant is not None
-                and now >= grant.end
-                and not self._guard_on_heater(rs)
-            )
-            run_time = (
-                now - self._cycle_started_at if self._cycle_started_at else None
-            )
-            _on, surplus_off, min_run = self._grant_timing(grant)
-            surplus_gone = (
-                run_time is not None
-                and run_time >= min_run
-                and self._surplus_off_since is not None
-                and now - self._surplus_off_since >= surplus_off
-            )
-            if (
-                observed.compressor_on is False
-                or grant is None
-                or surplus_gone
-                or unguarded_past_end
-            ):
-                self._lower(now)
-            return
-
-        grant = next(
-            (g for g in self._accepted_grants() if g.contains(now)), None
-        )
-        anchor = self._anchor(now)
-        if grant is None or anchor is None or anchor[1] is None:
-            return
-        if not self.shadow and not grants_live(self.capabilities):
-            # Live for segments only: a grant is evaluated as in shadow,
-            # and a raise would be written, so none is made.
-            return
-        state = anchor[1]
-        if (
-            state.mode != "heat_pump"
-            or not observed.compressor_on
-            or self._raised_in_cycle
-            or self._surplus_on_since is None
-            or now - self._surplus_on_since < self._grant_timing(grant)[0]
-            or grant.end - now >= HORIZON
-        ):
-            return
-        ceiling = self.capabilities.setpoint_max_raw
-        target = min(grant.max_raw, ceiling) if ceiling else grant.max_raw
-        if target <= state.setpoint_raw:
-            return
-        if near_term_minute(now, NEAR_TERM_LEAD) >= grant.end:
-            # The raise would fire at or after the grant's end, with or
-            # after its guard, and nothing on the device would end it.
-            return
-        entry = self._near_term(
-            KIND_GRANT_RAISE, grant.id, State("heat_pump", target), now
-        )
-        if entry is None:
-            return
-        # Always a guard, even when a segment's entry would end the raise
-        # first: that entry may not reach the heater, or be removed from
-        # it, and the raise must stay bounded if Home Assistant stops.
-        guard = self._guard(grant, state)
-        self.extra.append(guard)
-        self.raise_state = RaiseState(grant.id, now, entry, guard)
-        self._raised_in_cycle = True
-        _LOGGER.info(
-            "Surplus raise under grant %s to %d half-degrees", grant.id, target
-        )
-
-    def _grant_timing(
-        self, grant: Grant | None
-    ) -> tuple[timedelta, timedelta, timedelta]:
-        """A grant's surplus-on, surplus-off and minimum-run times (5.7).
-
-        Its own where it gives them (protocol 1.2), else the declared ones.
-        """
-        on = SURPLUS_ON_BEFORE_RAISE
-        off = SURPLUS_OFF_BEFORE_LOWER
-        min_run = timedelta(minutes=self.capabilities.min_run_before_lower_min)
-        if grant is not None:
-            if grant.surplus_on_min is not None:
-                on = timedelta(minutes=grant.surplus_on_min)
-            if grant.surplus_off_min is not None:
-                off = timedelta(minutes=grant.surplus_off_min)
-            if grant.min_run_min is not None:
-                min_run = timedelta(minutes=grant.min_run_min)
-        return on, off, min_run
-
-    def _raise_ended(self, rs: RaiseState, now: datetime) -> bool:
-        """Whether an entry on the heater has replaced the raise.
-
-        Its guard, or one of the feature's own entries that fired after it.
-        A segment starting is not enough: a merged one, one a person
-        removed, or one not yet programmed puts nothing on the heater, and
-        the raise then stays raised, with its guard. Nor is the guard's
-        minute passing, unless the guard is on the heater: a person may
-        have deleted it, or it may never have been written.
-        """
-        guard = rs.guard
-        if guard is not None and guard in self.owned and guard.fires_at <= now:
-            return True
-        return any(
-            e.kind in (KIND_PLAN, KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
-            and rs.entry.fires_at < e.fires_at <= now
-            for e in self.owned
-        )
-
-    def _guard_on_heater(self, rs: RaiseState) -> bool:
-        """Whether the raise's guard is among the entries on the heater."""
-        return rs.guard is not None and rs.guard in self.owned
-
-    def _guard(self, grant: Grant, fallback: State) -> OwnedEntry:
-        """The guard entry: the state in force when the grant ends."""
-        state = self._state_at(grant.end) or fallback
-        return OwnedEntry(
-            KIND_GUARD,
-            grant.id,
-            grant.end.astimezone(self.tz),
-            state.mode,
-            state.setpoint_raw,
-        )
-
-    def _swap_extra(self, old: OwnedEntry, new: OwnedEntry) -> None:
-        """Replace an extra entry, and the raise's copy of it."""
-        self.extra = [new if e == old else e for e in self.extra]
-        rs = self.raise_state
-        if rs is not None and rs.entry == old:
-            self.raise_state = rs = replace(rs, entry=new)
-        if rs is not None and rs.guard == old:
-            self.raise_state = replace(rs, guard=new)
 
     def _next_change_after(self, when: datetime) -> Segment | None:
         """The first segment after `when` whose entry changes the state.
@@ -1998,42 +1625,8 @@ class Planner:
                 return segment
         return None
 
-    def _drop_raise_entries(self, now: datetime) -> None:
-        rs = self.raise_state
-        if rs is None:
-            return
-        unfired = {
-            e
-            for e in (rs.entry, rs.guard)
-            if e is not None and e.fires_at > now
-        }
-        self.extra = [e for e in self.extra if e not in unfired]
-
-    def _lower(self, now: datetime) -> None:
-        rs = self.raise_state
-        if rs is None:
-            return
-        if rs.entry.fires_at > now:
-            # The raise has not fired: withdrawing it is enough.
-            self._drop_raise_entries(now)
-            self.raise_state = None
-            return
-        state = self._state_at(now)
-        if state is None and rs.guard is not None:
-            # A plan that stops: lower to the state the guard would have
-            # restored.
-            state = State(rs.guard.mode, rs.guard.setpoint_raw)
-        if (
-            state is not None
-            and self._near_term(KIND_GRANT_LOWER, rs.grant_id, state, now)
-            is None
-        ):
-            # A segment changing the state starts before a lowering could
-            # fire. The raise stays, with its guard, until an entry on the
-            # heater ends it, or a lowering can be written.
-            return
-        self._drop_raise_entries(now)
-        self.raise_state = None
+    def _swap_extra(self, old: OwnedEntry, new: OwnedEntry) -> None:
+        self.extra = [new if e == old else e for e in self.extra]
 
     # Entries
 
@@ -2172,49 +1765,23 @@ class Planner:
         desired: list[OwnedEntry] = [e for _, e in chosen]
         # Slots of the plan entries that will not be written go free again.
         occupied = self._occupied(others) + [e.slot for e in desired]
-        rs = self.raise_state
-        raise_dropped = False
         for entry in extra:
             placed = self._place(entry, occupied)
             if placed == entry:
                 occupied.append(placed.slot)
                 desired.append(placed)
                 continue
-            # A near-term or guard entry moved to, or past, the start of the
-            # next segment changing the state would undo that segment. The
+            # A near-term entry moved to, or past, the start of the next
+            # segment changing the state would undo that segment. The
             # segment's own entry supersedes it there, so it is dropped.
             nxt = self._next_change_after(entry.fires_at)
             if nxt is not None and placed.fires_at >= nxt.start:
-                if (
-                    rs is not None
-                    and entry == rs.entry
-                    and entry.fires_at > now
-                ):
-                    raise_dropped = True
                 continue
             # Kept at the minute it was moved to, so it is not taken for
             # fired, and withdrawn, at its original minute.
             self._swap_extra(entry, placed)
             occupied.append(placed.slot)
             desired.append(placed)
-        if raise_dropped and self.raise_state is not None:
-            # No raise reaches the heater, so none is in force.
-            desired = [e for e in desired if e != self.raise_state.guard]
-            self._drop_raise_entries(now)
-            self.raise_state = None
-        rs = self.raise_state
-        if rs is not None and rs.entry in desired:
-            # A lowering of this grant still to fire, from a raise before
-            # (one that became due while powered off waits for power, #175),
-            # would fire after the new raise and undo it. Withdrawn only
-            # once the new raise is kept: a raise dropped above leaves it to
-            # restore the earlier raise's setpoint.
-            def lowers(e: OwnedEntry) -> bool:
-                return e.kind == KIND_GRANT_LOWER and e.serves == rs.grant_id
-
-            self.extra = [e for e in self.extra if not lowers(e)]
-            desired = [e for e in desired if not lowers(e)]
-
         self._info = info
         scheduled = [
             s
@@ -2305,8 +1872,6 @@ class Planner:
                 if s.id in self._info
                 and self._info[s.id].reason == REASON_BEYOND_HORIZON
             )
-            for grant in self._accepted_grants():
-                times.extend((grant.start, grant.end))
         times.extend(e.fires_at + FIRED_GRACE for e in self.owned + self.extra)
         if not self.shadow:
             times.extend(
@@ -2319,27 +1884,6 @@ class Planner:
         ]
         if fired:
             times.append(min(fired) + CLEANUP_DEFER)
-        open_grant = next(
-            (g for g in self._accepted_grants() if g.contains(now)), None
-        )
-        rs = self.raise_state
-        raised_grant = (
-            next(
-                (g for g in self._accepted_grants() if g.id == rs.grant_id),
-                None,
-            )
-            if rs is not None
-            else None
-        )
-        if self._surplus_on_since:
-            times.append(
-                self._surplus_on_since + self._grant_timing(open_grant)[0]
-            )
-        _on, surplus_off, min_run = self._grant_timing(raised_grant)
-        if self._surplus_off_since and rs:
-            times.append(self._surplus_off_since + surplus_off)
-        if self._cycle_started_at and rs:
-            times.append(self._cycle_started_at + min_run)
         future = [t for t in times if t > now]
         return min(future) if future else None
 
@@ -2448,10 +1992,10 @@ class Planner:
             detail: dict[str, Any] = {
                 "fires_at": fires_at.isoformat() if fires_at else None,
                 "in_force": in_force,
-                # Only the segment in force has a mode to confirm.
-                "mode_confirmed": segment.id in self.mode_confirmed
-                if not self.shadow and in_force
-                else None,
+                # Always null: the mode is not inferred from what the
+                # heater's compressor or elements do (section 5.11).
+                # Protocol 1 keeps the key.
+                "mode_confirmed": None,
             }
             reason = info.reason
             if segment.id in self.removed_segments:
@@ -2493,33 +2037,17 @@ class Planner:
                 )
             )
 
-        grants: list[ItemAck] = []
-        live_grants = grants_live(self.capabilities)
-        for grant in plan.grants:
-            reason = self.grant_rejections.get(grant.id)
-            if reason is not None:
-                status = GRANT_REJECTED
-            elif self.raise_state and self.raise_state.grant_id == grant.id:
-                status = GRANT_RAISED
-            elif grant.end <= now:
-                status = GRANT_ENDED
-            else:
-                status = GRANT_WAITING
-            if reason is None and not self.shadow and not live_grants:
-                status, reason = GRANT_SHADOW, REASON_NOT_LIVE
-            elif reason is None and not self.shadow:
-                if grant.id in self.failed:
-                    status, reason = GRANT_FAILED, self.failed[grant.id]
-                elif (
-                    status == GRANT_RAISED
-                    and self.readback.get(grant.id) == REASON_NOT_APPLIED
-                ):
-                    status, reason = GRANT_FAILED, REASON_NOT_APPLIED
-            grants.append(
-                ItemAck(
-                    id=grant.id, status=status, reason=reason, extra=grant.extra
-                )
+        # Surplus grants are not supported: each is rejected on its own
+        # (section 5.7), and the segments are unaffected.
+        grants = [
+            ItemAck(
+                id=grant.id,
+                status=GRANT_REJECTED,
+                reason=self.grant_rejections.get(grant.id),
+                extra=grant.extra,
             )
+            for grant in plan.grants
+        ]
 
         if self.shadow:
             state = STATE_SHADOW

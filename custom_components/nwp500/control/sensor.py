@@ -170,7 +170,7 @@ class ControlWantedModeSensor(NWP500ControlEntity, SensorEntity):  # type: ignor
 
 
 class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """The setpoint the plan puts the heater in now, with any surplus raise."""
+    """The setpoint the plan puts the heater in now."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
     _attr_icon = "mdi:thermometer-auto"
@@ -191,16 +191,15 @@ class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: i
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The segment it comes from, and the grant raising it, if any.
+        """The segment it comes from.
 
         The segment in force on the heater: one a person's deletion kept
-        out is not (section 5.10).
+        out is not (section 5.10). `grant` is always None: surplus grants
+        are not supported (section 5.7).
         """
-        planner = self.control.planner
-        raised = planner.raise_state
         return {
-            "segment": planner.segment_in_force(dt_util.utcnow()),
-            "grant": raised.grant_id if raised else None,
+            "segment": self.control.planner.segment_in_force(dt_util.utcnow()),
+            "grant": None,
         }
 
 

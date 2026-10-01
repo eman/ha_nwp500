@@ -20,7 +20,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.const import STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
@@ -35,23 +35,20 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_CONTROL_INTENT_ENTITY,
-    CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MODE,
     CONF_CONTROL_OWNER_PROGRAM,
-    CONF_CONTROL_SURPLUS_ENTITY,
-    CONF_CONTROL_SURPLUS_THRESHOLD_KW,
     CONF_SCAN_INTERVAL,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
     DEFAULT_CONTROL_MODE,
-    DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    control_follows_plan,
 )
 from .capabilities import Capabilities, build_capabilities
-from .engine import WRITE_DISABLE, Planner, RaiseState, Report, State, Write
+from .engine import WRITE_DISABLE, Planner, Report, State, Write
 from .entries import schedule_hash
 from .evaluate import Ack, check_plan, rejected_ack
 from .intent import (
@@ -99,12 +96,11 @@ def live_writes(options: Mapping[str, Any], mac_address: str) -> bool:
     """Whether these options write the list to this heater.
 
     Live, with the gate open, the owner's program declared, and segments
-    live. Anything else writes nothing (grants follow segments).
+    live. Anything else writes nothing.
     """
     return (
         CONTROL_LIVE_AVAILABLE
-        and options.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE
-        and options.get(CONF_CONTROL_LIVE_SEGMENTS, False) is True
+        and control_follows_plan(options)
         and declared_owner(options, mac_address) is not None
     )
 
@@ -174,19 +170,9 @@ class DeviceControl:
             )
             mode = CONTROL_MODE_SHADOW
         self.mode = mode
-        # Live for segments; grants follow their own switch in the planner.
         self.writes = live_writes(options, mac_address)
         self.intent_entity_id: str | None = options.get(
             CONF_CONTROL_INTENT_ENTITY
-        )
-        self.surplus_entity_id: str | None = options.get(
-            CONF_CONTROL_SURPLUS_ENTITY
-        )
-        self.surplus_threshold_kw = float(
-            options.get(
-                CONF_CONTROL_SURPLUS_THRESHOLD_KW,
-                DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW,
-            )
         )
         poll = int(options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL))
 
@@ -299,14 +285,6 @@ class DeviceControl:
                         self.hass,
                         [self.intent_entity_id],
                         self._on_intent_event,
-                    )
-                )
-            if self.surplus_entity_id:
-                self._unsubscribe.append(
-                    async_track_state_change_event(
-                        self.hass,
-                        [self.surplus_entity_id],
-                        self._on_surplus_event,
                     )
                 )
             await self._async_adopt_initial(now, observed)
@@ -653,11 +631,6 @@ class DeviceControl:
         return self.planner.wanted_state(dt_util.utcnow())
 
     @property
-    def raise_state(self) -> RaiseState | None:
-        """The surplus raise in force, if any."""
-        return self.planner.raise_state
-
-    @property
     def last_write(self) -> Write | None:
         """The last list write, sent or simulated."""
         return self.planner.last_write
@@ -726,25 +699,10 @@ class DeviceControl:
             device_data.get("status"),
             self.coordinator.reservation_schedules.get(self.mac_address),
             self.coordinator.tou_schedules.get(self.mac_address),
-            surplus_on=self._surplus_on(),
             schedule_read_at=getattr(
                 self.coordinator, "reservation_schedules_read_at", {}
             ).get(self.mac_address),
         )
-
-    def _surplus_on(self) -> bool | None:
-        """Whether the surplus entity says there is surplus (section 5.7)."""
-        if not self.surplus_entity_id:
-            return None
-        state = self.hass.states.get(self.surplus_entity_id)
-        if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            return None
-        if self.surplus_entity_id.startswith("binary_sensor."):
-            return state.state == STATE_ON
-        try:
-            return float(state.state) >= self.surplus_threshold_kw
-        except ValueError:
-            return None
 
     async def _async_ensure_owner(self, observed: Observed) -> None:
         """Take the provisional owner's program once the device is known."""
@@ -946,10 +904,6 @@ class DeviceControl:
 
     @callback
     def _on_coordinator_update(self) -> None:
-        self.hass.async_create_task(self._async_evaluate(dt_util.utcnow()))
-
-    @callback
-    def _on_surplus_event(self, event: Event[EventStateChangedData]) -> None:
         self.hass.async_create_task(self._async_evaluate(dt_util.utcnow()))
 
     def _schedule_next_event(self) -> None:

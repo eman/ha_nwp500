@@ -1291,23 +1291,17 @@ CONF_CONTROL_ENABLED: Final = "control_enabled"
 CONF_CONTROL_MODE: Final = "control_mode"
 CONF_CONTROL_INTENT_ENTITY: Final = "control_intent_entity"
 CONF_CONTROL_LIVE_SEGMENTS: Final = "control_live_segments"
-CONF_CONTROL_LIVE_GRANTS: Final = "control_live_grants"
-CONF_CONTROL_SURPLUS_ENTITY: Final = "control_surplus_entity"
-CONF_CONTROL_SURPLUS_THRESHOLD_KW: Final = "control_surplus_threshold_kw"
 CONF_CONTROL_SETPOINT_MIN_F: Final = "control_setpoint_min_f"
 CONF_CONTROL_SETPOINT_MAX_F: Final = "control_setpoint_max_f"
 CONF_CONTROL_ALLOWED_MODES: Final = "control_allowed_modes"
 CONF_CONTROL_ASSISTED_MODE: Final = "control_assisted_mode"
-CONF_CONTROL_MIN_RUN_BEFORE_LOWER_MIN: Final = (
-    "control_min_run_before_lower_min"
-)
 CONF_CONTROL_RESERVATION_ENTRY_LIMIT: Final = "control_reservation_entry_limit"
 CONF_CONTROL_RESERVATION_ENTRY_RESERVE: Final = (
     "control_reservation_entry_reserve"
 )
 
-# Options the first draft of the specification had. They are dropped from
-# an entry's options whenever the control form is saved.
+# Options of earlier versions of the feature. They are dropped from an
+# entry's options whenever the control form is saved.
 CONTROL_OBSOLETE_OPTIONS: Final = (
     "control_live_types",
     "control_hold_off_supported",
@@ -1316,6 +1310,18 @@ CONTROL_OBSOLETE_OPTIONS: Final = (
     "control_min_run_before_stop_min",
     "control_daily_revert_time",
     "control_baseline",
+    # Surplus grants, which the adapter no longer handles: it operates the
+    # water heater and reads nothing about the home's power.
+    "control_live_grants",
+    "control_surplus_entity",
+    "control_surplus_threshold_kw",
+    "control_min_run_before_lower_min",
+    # Live now always follows the plan; the segments switch only existed
+    # beside the grants switch (see `control_follows_plan`).
+    "control_live_segments",
+    # Which mode a scheduler uses to recover quickly is the scheduler's
+    # choice, not the heater's.
+    "control_assisted_mode",
 )
 
 CONF_CONTROL_OWNER_PROGRAM: Final = "control_owner_program"
@@ -1346,13 +1352,11 @@ CONTROL_MODE_NAMES: Final = (
 )
 
 DEFAULT_CONTROL_MODE: Final = CONTROL_MODE_SHADOW
-DEFAULT_CONTROL_SURPLUS_THRESHOLD_KW: Final = 0.45
 # A segment carries the heater's whole state and the last one holds, so the
-# owner's usual Heat Pump must be allowed, and grants raise only in it. A
-# single-mode cut-over (spec 1.2.2) is the owner's choice in the options.
+# owner's usual Heat Pump must be allowed. A single-mode cut-over (spec
+# 1.2.2) is the owner's choice in the options.
 DEFAULT_CONTROL_ALLOWED_MODES: Final = ("heat_pump", "energy_saver")
 DEFAULT_CONTROL_ASSISTED_MODE: Final = "energy_saver"
-DEFAULT_CONTROL_MIN_RUN_BEFORE_LOWER_MIN: Final = 120
 # The unit tested accepted and read back a list of 32 entries (spec
 # section 8); larger lists are untested. The default stays at the library's
 # documented 16, and the option goes no higher than what was measured.
@@ -1376,6 +1380,19 @@ def control_enabled(entry: Any) -> bool:
     writes to a water heater, so a truthy string or a mock is not enough.
     """
     return entry.options.get(CONF_CONTROL_ENABLED, False) is True
+
+
+def control_follows_plan(options: Any) -> bool:
+    """Whether these options are live: the plan is written to the heater.
+
+    Live writes the plan. An earlier version stored a separate switch for
+    it; a `live` stored with that switch off wrote nothing, and still
+    writes nothing until the form is saved again.
+    """
+    return (
+        options.get(CONF_CONTROL_MODE) == CONTROL_MODE_LIVE
+        and options.get(CONF_CONTROL_LIVE_SEGMENTS, True) is True
+    )
 
 
 def control_feature(hass: Any, entry: Any) -> Any | None:

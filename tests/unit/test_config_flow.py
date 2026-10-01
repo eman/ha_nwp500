@@ -632,10 +632,7 @@ class TestExternalControlOptions:
         return {
             "control_intent_entity": "sensor.intent",
             "control_mode": "shadow",
-            "control_surplus_threshold_kw": 0.45,
             "control_allowed_modes": ["energy_saver", "heat_pump"],
-            "control_assisted_mode": "energy_saver",
-            "control_min_run_before_lower_min": 120.0,
             "control_reservation_entry_limit": 7.0,
             "control_reservation_entry_reserve": 2.0,
             **overrides,
@@ -750,10 +747,17 @@ class TestExternalControlOptions:
         assert data["control_mode"] == "shadow"
         assert data["control_setpoint_min_f"] == 120.0
         assert data["control_setpoint_max_f"] == 145.0
-        assert data["control_min_run_before_lower_min"] == 120
         assert isinstance(data["control_reservation_entry_limit"], int)
         assert "control_setpoint_min" not in data
-        assert "control_surplus_entity" not in data
+        # Nothing but the water heater's own settings (#191).
+        assert not {
+            "control_live_segments",
+            "control_live_grants",
+            "control_surplus_entity",
+            "control_surplus_threshold_kw",
+            "control_min_run_before_lower_min",
+            "control_assisted_mode",
+        } & set(data)
 
     @pytest.mark.asyncio
     async def test_setpoints_are_taken_in_celsius_and_stored_in_fahrenheit(
@@ -787,6 +791,7 @@ class TestExternalControlOptions:
     async def test_an_empty_optional_field_clears_the_stored_value(
         self, hass: HomeAssistant
     ):
+        """And options of earlier versions go, the surplus ones too."""
         handler, _ = self._handler(
             hass,
             {
@@ -849,11 +854,6 @@ class TestExternalControlOptions:
                 {"control_allowed_modes": []},
                 "control_allowed_modes",
                 "allowed_modes_empty",
-            ),
-            (
-                {"control_assisted_mode": "electric"},
-                "control_assisted_mode",
-                "assisted_mode_not_allowed",
             ),
         ],
     )
@@ -922,7 +922,7 @@ class TestExternalControlOptions:
         keys = {str(key) for key in form["data_schema"].schema}
         # One Mode choice stands for the mode and its two live switches.
         assert not {"control_live_segments", "control_live_grants"} & keys
-        for mode in ("shadow", "live", "live_surplus", "disabled"):
+        for mode in ("shadow", "live", "disabled"):
             form["data_schema"](self._control_input(control_mode=mode))
 
     @pytest.mark.asyncio
@@ -969,8 +969,7 @@ class TestExternalControlOptions:
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["data"]["control_mode"] == "live"
-        assert result["data"]["control_live_segments"] is True
-        assert result["data"]["control_live_grants"] is False
+        assert "control_live_segments" not in result["data"]
         assert result["data"]["control_owner_program"] == {
             "AA:BB": {
                 "mode": "energy_saver",
@@ -1037,8 +1036,8 @@ class TestExternalControlOptions:
             self._control_input(control_mode="live")
         )
 
-        assert result["step_id"] == "going_live"
-        result = await handler.async_step_going_live({})
+        assert result["step_id"] == "stay_live"
+        result = await handler.async_step_stay_live({})
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["data"]["control_owner_program"]["AA:BB"]["entries"] == [
             entry_
@@ -1067,7 +1066,7 @@ class TestExternalControlOptions:
             self._control_input(control_mode="live")
         )
 
-        assert result["step_id"] == "going_live"
+        assert result["step_id"] == "stay_live"
 
     @pytest.mark.asyncio
     async def test_going_live_before_the_entry_has_loaded(
@@ -1140,20 +1139,12 @@ class TestExternalControlOptions:
         assert url.startswith("https://github.com/eman/ha_nwp500/")
         assert url.endswith("docs/external-control.md")
 
-    @pytest.mark.parametrize(
-        ("choice", "mode", "segments", "grants"),
-        [
-            ("shadow", "shadow", False, False),
-            ("live", "live", True, False),
-            ("live_surplus", "live", True, True),
-            ("disabled", "disabled", False, False),
-        ],
-    )
+    @pytest.mark.parametrize("choice", ["shadow", "live", "disabled"])
     @pytest.mark.asyncio
-    async def test_the_mode_choice_stores_the_mode_and_its_switches(
-        self, hass: HomeAssistant, monkeypatch, choice, mode, segments, grants
+    async def test_the_mode_choice_is_the_stored_mode(
+        self, hass: HomeAssistant, monkeypatch, choice
     ):
-        """What is stored, and so declared, is what it was before (6.1)."""
+        """And the switches of earlier versions are dropped."""
         monkeypatch.setattr(
             "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
         )
@@ -1174,28 +1165,22 @@ class TestExternalControlOptions:
             result = await handler.async_step_going_live({})
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
-        assert result["data"]["control_mode"] == mode
-        assert result["data"]["control_live_segments"] is segments
-        assert result["data"]["control_live_grants"] is grants
+        assert result["data"]["control_mode"] == choice
+        assert "control_live_segments" not in result["data"]
+        assert "control_live_grants" not in result["data"]
 
     @pytest.mark.parametrize(
         ("stored", "choice"),
         [
             ({}, "shadow"),
-            (
-                {"control_mode": "shadow", "control_live_segments": True},
-                "shadow",
-            ),
-            # Live with segments not live writes nothing: it is Preview.
-            ({"control_mode": "live", "control_live_grants": True}, "shadow"),
+            ({"control_mode": "shadow"}, "shadow"),
+            ({"control_mode": "live"}, "live"),
             ({"control_mode": "live", "control_live_segments": True}, "live"),
+            # An earlier version's live with its segments switch off wrote
+            # nothing: it is Preview.
             (
-                {
-                    "control_mode": "live",
-                    "control_live_segments": True,
-                    "control_live_grants": True,
-                },
-                "live_surplus",
+                {"control_mode": "live", "control_live_segments": False},
+                "shadow",
             ),
             ({"control_mode": "disabled"}, "disabled"),
         ],
@@ -1218,7 +1203,6 @@ class TestExternalControlOptions:
         }
         assert suggested["control_mode"] == choice
         assert "control_live_segments" not in suggested
-        assert "control_live_grants" not in suggested
 
     @pytest.mark.asyncio
     async def test_saving_while_live_says_it_stays_live(
@@ -1242,7 +1226,7 @@ class TestExternalControlOptions:
         )
 
         result = await handler.async_step_external_control(
-            self._control_input(control_mode="live_surplus")
+            self._control_input(control_mode="live")
         )
 
         assert result["step_id"] == "stay_live"
@@ -1259,7 +1243,6 @@ class TestExternalControlOptions:
             assert "choose Stopped and save first" in text
         result = await handler.async_step_stay_live({})
         assert result["type"] == FlowResultType.CREATE_ENTRY
-        assert result["data"]["control_live_grants"] is True
         assert "AA:BB" in result["data"]["control_owner_program"]
 
     @pytest.mark.asyncio
