@@ -60,6 +60,13 @@ COMMAND_KEYS: dict[str, dict[str, type]] = {
     "demand_response": {"enabled": bool},
 }
 
+# A command's own keys on the acknowledgement. An opaque key with one of
+# these names is not echoed: `detail` is set only on some commands, and an
+# echoed one would pass for the feature's.
+_COMMAND_ACK_KEYS = frozenset(
+    {"id", "command", "status", "reason", "warnings", "detail"}
+)
+
 _TOP_LEVEL_KEYS = frozenset(
     {"protocol", "intent_id", "issued_at", "segments", "commands"}
 )
@@ -411,7 +418,7 @@ def _parse_commands(raw_commands: Any) -> tuple[Command, ...]:
         name = raw.get("command")
         keys = COMMAND_KEYS.get(name, {}) if isinstance(name, str) else {}
         problem = _command_problem(name, raw)
-        own = {"id", "command", *keys}
+        own = {*_COMMAND_ACK_KEYS, *keys}
         commands.append(
             Command(
                 id=command_id,

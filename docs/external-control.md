@@ -157,8 +157,10 @@ to Energy Saver (#160).
 Protocol 1.3. Settings a reservation entry cannot set. Adopting a plan
 writes its commands once, in order, after its entries are written, and
 reports each as the heater reports it. Each has an
-`id` (unique in the plan, segments included), a `command`, the command's
-keys, and any opaque keys.
+`id` (unique in the plan, segments included: a shared id rejects the
+plan, `duplicate_id`), a `command`, the command's keys, and any opaque keys.
+An opaque key named as one of the acknowledgement's own keys (`id`,
+`command`, `status`, `reason`, `warnings`, `detail`) is not echoed.
 
 | `command` | Keys | Reported from |
 |---|---|---|

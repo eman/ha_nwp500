@@ -36,10 +36,10 @@
   "$defs": {
     "command": {
       "type": "object",
-      "description": "A device command. Any other key is opaque and echoed on the command's acknowledgement.",
+      "description": "A device command. Any other key is opaque and echoed on the command's acknowledgement, unless it is named as one of the acknowledgement's own keys (id, command, status, reason, warnings, detail).",
       "required": ["id", "command"],
       "properties": {
-        "id": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Unique in the document, segments' ids included." },
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Unique in the document, segments' ids included; a shared id rejects the whole document (duplicate_id)." },
         "command": { "enum": ["vacation", "power", "anti_legionella", "tou", "demand_response"] }
       },
       "allOf": [
@@ -362,7 +362,7 @@
     },
     "command_ack": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: one device command on control_ack (spec sections 3.7 and 4.2), with the command's opaque keys. A command that is not supported has all its keys but id and command echoed as opaque.",
+      "description": "Entity attributes, not part of a plan: one device command on control_ack (spec sections 3.7 and 4.2), with the command's opaque keys, which never include its own keys' names. A command that is not supported has its other keys echoed as opaque.",
       "required": ["id", "command", "status", "reason", "warnings"],
       "properties": {
         "id": {"type": "string"},
