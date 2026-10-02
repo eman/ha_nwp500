@@ -382,7 +382,12 @@ keys and values, which are as documented here.
 
 ### 4.2 State entities
 
-Each is a **state**, so history and statestream carry it:
+Each is a **state**, so history and statestream carry it. `mqtt_statestream`
+publishes changes, and listens only from Home Assistant's start. Every entity
+of this section and section 4.1 therefore writes its state again, unchanged,
+once Home Assistant has started and on every MQTT connection, so a broker
+without retained copies has them all again. Only `last_changed` and
+`last_updated` move:
 
 | Entity | State | Attributes |
 |---|---|---|

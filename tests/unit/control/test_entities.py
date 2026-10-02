@@ -624,3 +624,117 @@ class TestDisplayLabels:
             e.entity_registry_enabled_default
             for e in create_control_sensors(feature)
         )
+
+
+class TestRepublish:
+    """Statestream sees every entity after a start and on MQTT connects.
+
+    `mqtt_statestream` publishes `state_changed` events and listens only
+    from Home Assistant's start, so the entities write their states again
+    then, and on each MQTT connection, though nothing changed (#202).
+    """
+
+    @staticmethod
+    async def _add_entities(hass: HomeAssistant, control) -> list[str]:
+        from pytest_homeassistant_custom_component.common import (
+            MockEntityPlatform,
+        )
+
+        entities = [
+            *((cls(control, key), "sensor") for key, cls in SENSOR_KEYS),
+            *(
+                (cls(control, key), "binary_sensor")
+                for key, cls in BINARY_SENSOR_KEYS
+            ),
+            (ControlDisableButton(control, "disable"), "button"),
+        ]
+        for entity, domain in entities:
+            await MockEntityPlatform(hass, domain=domain).async_add_entities(
+                [entity]
+            )
+        return [entity.entity_id for entity, _ in entities]
+
+    @staticmethod
+    def _changes(hass: HomeAssistant) -> list[str]:
+        from homeassistant.const import EVENT_STATE_CHANGED
+
+        changed: list[str] = []
+        hass.bus.async_listen(
+            EVENT_STATE_CHANGED,
+            lambda event: changed.append(event.data["entity_id"]),
+        )
+        return changed
+
+    @pytest.mark.asyncio
+    async def test_a_start_writes_every_state_again(
+        self, hass: HomeAssistant, control
+    ):
+        from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+        from homeassistant.core import CoreState
+
+        hass.set_state(CoreState.starting)
+        entity_ids = await self._add_entities(hass, control)
+        before = {e: hass.states.get(e) for e in entity_ids}
+        changed = self._changes(hass)
+
+        hass.set_state(CoreState.running)
+        hass.bus.async_fire(EVENT_HOMEASSISTANT_STARTED)
+        await hass.async_block_till_done()
+
+        assert sorted(changed) == sorted(entity_ids)
+        for entity_id, old in before.items():
+            new = hass.states.get(entity_id)
+            assert (new.state, new.attributes) == (old.state, old.attributes)
+
+    @pytest.mark.asyncio
+    async def test_an_mqtt_connection_writes_every_state_again(
+        self, hass: HomeAssistant, control
+    ):
+        from homeassistant.components.mqtt.const import (
+            MQTT_CONNECTION_STATE,
+        )
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+        entity_ids = await self._add_entities(hass, control)
+        before = {e: hass.states.get(e) for e in entity_ids}
+        changed = self._changes(hass)
+
+        async_dispatcher_send(hass, MQTT_CONNECTION_STATE, False)
+        await hass.async_block_till_done()
+        assert changed == []
+
+        async_dispatcher_send(hass, MQTT_CONNECTION_STATE, True)
+        await hass.async_block_till_done()
+
+        assert sorted(changed) == sorted(entity_ids)
+        for entity_id, old in before.items():
+            new = hass.states.get(entity_id)
+            assert (new.state, new.attributes) == (old.state, old.attributes)
+
+    @pytest.mark.asyncio
+    async def test_entities_added_once_started_write_only_on_add(
+        self, hass: HomeAssistant, control
+    ):
+        """A reload: statestream already listens, and the add is the change."""
+        changed = self._changes(hass)
+        entity_ids = await self._add_entities(hass, control)
+        await hass.async_block_till_done()
+        assert sorted(changed) == sorted(entity_ids)
+
+    @pytest.mark.asyncio
+    async def test_unchanged_writes_otherwise_fire_nothing(
+        self, hass: HomeAssistant, control
+    ):
+        """The force is only for the republish: the listener stays quiet."""
+        from homeassistant.helpers import entity_platform
+
+        entity_ids = await self._add_entities(hass, control)
+        changed = self._changes(hass)
+        for platform in entity_platform.async_get_platforms(
+            hass, "test_platform"
+        ):
+            for entity in platform.entities.values():
+                entity.async_write_ha_state()
+        await hass.async_block_till_done()
+        assert entity_ids
+        assert changed == []
