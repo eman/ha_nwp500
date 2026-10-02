@@ -386,8 +386,8 @@ Each is a **state**, so history and statestream carry it. `mqtt_statestream`
 publishes changes, and listens only from Home Assistant's start. Every entity
 of this section and section 4.1 therefore writes its state again, unchanged,
 once Home Assistant has started and on every MQTT connection, so a broker
-without retained copies has them all again. Only `last_changed` and
-`last_updated` move:
+without retained copies has them all again. Only the state's timestamps
+(`last_changed`, `last_updated`, `last_reported`) move:
 
 | Entity | State | Attributes |
 |---|---|---|
