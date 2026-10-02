@@ -180,6 +180,9 @@ and the command stays `applied`. A malformed or unknown command is
 `rejected` on its own, and the plan goes ahead; ranges, such as the days of
 Vacation, are checked by the library, and a value it refuses is `failed`
 with its message. Mode and setpoint are set by segments only.
+[`examples/plan-commands.json`](examples/plan-commands.json) carries one of
+each command, and `examples/ack-commands-live.json` and
+`ack-commands-shadow.json` are its acknowledgement, live and in shadow.
 
 ### Validation
 

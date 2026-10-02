@@ -321,6 +321,60 @@
         "properties": { "reports": { "minItems": 1 } }
       },
       "additionalProperties": true
+    },
+    "ack_attributes": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: control_ack's attributes (spec section 4.2). The entity's state is none, rejected, shadow, pending, partly_programmed or programmed.",
+      "required": ["intent_id", "reason", "detail", "segments", "commands", "rejected"],
+      "properties": {
+        "intent_id": {"type": ["string", "null"], "description": "The plan in force's, or, with none in force, the rejected document's."},
+        "reason": {"type": ["string", "null"], "description": "Set only in the rejected state: why the document was rejected whole (section 3.5)."},
+        "detail": {"type": ["string", "null"], "description": "Set only in the rejected state: a readable explanation."},
+        "segments": {"type": "array", "items": {"$ref": "#/$defs/segment_ack"}, "description": "The plan in force's segments, in its order; empty in the rejected state."},
+        "commands": {"type": "array", "items": {"$ref": "#/$defs/command_ack"}, "description": "Protocol 1.3. The plan in force's device commands, in its order (section 3.7)."},
+        "rejected": {
+          "type": ["object", "null"],
+          "description": "The most recent document rejected whole, or null. Cleared when a document received after it is accepted.",
+          "required": ["intent_id", "reason", "detail"],
+          "properties": {
+            "intent_id": {"type": ["string", "null"]},
+            "reason": {"type": "string"},
+            "detail": {"type": ["string", "null"]}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "segment_ack": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: one segment on control_ack (spec section 4.2), with the segment's opaque keys.",
+      "required": ["id", "status", "reason", "warnings", "fires_at", "in_force"],
+      "properties": {
+        "id": {"type": "string"},
+        "status": {"type": "string", "description": "shadow, scheduled, pending, programmed, merged, in_force, ended, failed or removed. Treat a value you do not know as opaque."},
+        "reason": {"type": ["string", "null"], "description": "beyond_horizon, entry_budget, write_not_confirmed, not_applied_on_device or held_in_tou_window. Treat a value you do not know as opaque."},
+        "warnings": {"type": "array", "items": {"type": "string"}, "description": "moved_1_min, mode_in_tou_window."},
+        "fires_at": {"type": ["string", "null"], "format": "date-time", "description": "The minute its entry fires, or will fire once programmed; null if it has none."},
+        "in_force": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "command_ack": {
+      "type": "object",
+      "description": "Entity attributes, not part of a plan: one device command on control_ack (spec sections 3.7 and 4.2), with the command's opaque keys. A command that is not supported has all its keys but id and command echoed as opaque.",
+      "required": ["id", "command", "status", "reason", "warnings"],
+      "properties": {
+        "id": {"type": "string"},
+        "command": {"type": "string", "description": "As sent, an unsupported one included; empty if the item gave none that is a string."},
+        "status": {"type": "string", "description": "shadow, pending, applied, failed or rejected. It reports the application only: a person's later change does not change it. Treat a value you do not know as opaque."},
+        "reason": {"type": ["string", "null"], "description": "failed: write_not_confirmed or not_applied_on_device; rejected: invalid_command or unsupported_command; otherwise null. Treat a value you do not know as opaque."},
+        "warnings": {"type": "array", "items": {"type": "string"}, "description": "None so far."},
+        "detail": {"type": "string", "description": "A readable explanation, given when rejected, and when failed with write_not_confirmed: the library's message."}
+      },
+      "if": {"properties": {"status": {"const": "rejected"}}},
+      "then": {"required": ["detail"], "properties": {"reason": {"type": "string"}}},
+      "additionalProperties": true
     }
   }
 }

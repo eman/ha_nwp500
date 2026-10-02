@@ -1,0 +1,17 @@
+{
+  "protocol": "1.3",
+  "intent_id": "i-20261004T1300-9",
+  "issued_at": "2026-10-04T13:00:05-07:00",
+  "segments": [
+    {"id": "afternoon", "start": "2026-10-04T13:00:00-07:00", "setpoint_f": 120, "mode": "heat_pump"},
+    {"id": "evening", "start": "2026-10-04T17:00:00-07:00", "setpoint_f": 140}
+  ],
+  "commands": [
+    {"id": "tou-off", "command": "tou", "enabled": false, "why": "export_window"},
+    {"id": "dr-on", "command": "demand_response", "enabled": true},
+    {"id": "legionella", "command": "anti_legionella", "enabled": true, "period_days": 14},
+    {"id": "away", "command": "vacation", "days": 45},
+    {"id": "power-on", "command": "power", "on": true},
+    {"id": "recirc", "command": "recirculation", "enabled": true}
+  ]
+}

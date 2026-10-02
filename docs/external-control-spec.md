@@ -326,6 +326,14 @@ live applies it; while `disabled` nothing is applied. A plan step can
 already put the heater in `vacation` or `power_off` at a time (section
 3.4); a command is for now.
 
+**Example.** `docs/examples/plan-commands.json` carries one of each command,
+and `tou-off` an opaque key. `away` asks for more days of Vacation than the
+heater takes, and `recirc` is a command this version does not have, so the
+schema, which takes exactly the commands applied, leaves it out.
+`docs/examples/ack-commands-live.json` and `ack-commands-shadow.json` are
+its acknowledgement live and in shadow, as the ack entity reports them
+(section 4.2).
+
 **Validation.** A command is checked on its own, and the plan proceeds
 whatever happens to it: a bad command never costs the heater its plan. One
 whose keys are missing or of the wrong type is `rejected`,
@@ -522,7 +530,7 @@ and not yet reported), `applied` (the heater reports it), `failed`
 or `not_applied_on_device` when the heater does not report it within the
 poll interval plus a minute) or `rejected` (`invalid_command` or
 `unsupported_command`). The status reports the application only (section
-3.7).
+3.7). The schema's `ack_attributes` describes the ack entity's attributes.
 
 **Segments** on the ack entity each have `id`, `status`, `reason`,
 `warnings` (a list), `fires_at` (the minute its entry fires, or will fire
