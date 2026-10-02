@@ -7,6 +7,7 @@ reports. Nothing here reaches a real heater: live tests send through the
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from typing import Any
 
@@ -40,7 +41,7 @@ from custom_components.nwp500.control.store import ControlStore
 from . import test_live
 from .conftest import make_document, segment
 from .test_device import MAC, _publish
-from .test_engine import NOW
+from .test_engine import EXAMPLES, NOW, SCHEMA, TZ, obs
 from .test_live import FakeHeater, _tick
 
 WINDOW = timedelta(seconds=90)
@@ -652,3 +653,114 @@ def test_the_schema_accepts_what_the_feature_applies(raw):
     document = _doc(raw)
     (command,) = parse_plan(document).commands
     assert _schema().is_valid(document) is (command.rejection is None)
+
+
+# -- the examples ---------------------------------------------------------
+
+# The library's refusal of 45 days of Vacation (it takes 1 to 30).
+LIBRARY_REFUSAL = "vacation_days must be between 1 and 30"
+
+
+def ack_examples() -> dict[str, tuple[str, dict[str, Any]]]:
+    """The ack entity's state and attributes for plan-commands.json.
+
+    Live: the plan arrives at 13:00:05 and its list write is confirmed. Its
+    commands are sent two seconds later; the library refuses `away`. Two
+    seconds after that the heater reports TOU off and the power on, but
+    still Anti-Legionella's old period, so `legionella` is pending.
+    Shadow: the same plan, evaluated and not written.
+    """
+    from dataclasses import replace
+    from unittest.mock import MagicMock
+
+    from custom_components.nwp500.control.engine import Planner
+    from custom_components.nwp500.control.evaluate import check_plan
+    from custom_components.nwp500.control.sensor import ControlAckSensor
+
+    from .conftest import capabilities
+
+    plan = parse_plan(json.loads((EXAMPLES / "plan-commands.json").read_text()))
+    at = plan.issued_at
+
+    def ack(*, shadow: bool) -> tuple[str, dict[str, Any]]:
+        planner = Planner(
+            capabilities(control_mode="shadow" if shadow else "live"),
+            TZ,
+            shadow=shadow,
+        )
+        check_plan(plan, planner.capabilities)
+        planner.set_plan(plan, at, obs())
+        write = planner.step(at, obs())
+        assert write is not None
+        commands = Commands(WINDOW)
+        commands.set_plan(plan.intent_id, plan.commands, writes=not shadow)
+        if not shadow:
+            planner.commit(replace(write, confirmed=True))
+            for command in commands.to_send():
+                commands.sending(command, at + timedelta(seconds=2))
+                if command.id == "away":
+                    commands.failed(command, LIBRARY_REFUSAL)
+            commands.check(
+                at + timedelta(seconds=4),
+                obs(
+                    mode="heat_pump",
+                    tou_on=False,
+                    anti_legionella_on=True,
+                    anti_legionella_period=7,
+                ),
+            )
+        control = MagicMock()
+        control.ack = replace(
+            planner.ack(plan.intent_id), commands=commands.ack()
+        )
+        sensor = ControlAckSensor(control, "ack")
+        return sensor.native_value, sensor.extra_state_attributes
+
+    return {
+        "ack-commands-live": ack(shadow=False),
+        "ack-commands-shadow": ack(shadow=True),
+    }
+
+
+@pytest.mark.parametrize("name", ["ack-commands-live", "ack-commands-shadow"])
+def test_the_ack_examples(name):
+    """docs/examples/ack-commands-*.json are what the entity reports.
+
+    Each is built from docs/examples/plan-commands.json, and fits the
+    schema's `ack_attributes`.
+    """
+    from jsonschema import Draft202012Validator
+
+    example = json.loads((EXAMPLES / f"{name}.json").read_text())
+    state, attributes = ack_examples()[name]
+    assert example["state"] == state
+    assert example["attributes"] == attributes
+    schema = json.loads(SCHEMA.read_text())
+    Draft202012Validator(
+        {"$defs": schema["$defs"], "$ref": "#/$defs/ack_attributes"}
+    ).validate(example["attributes"])
+
+
+def test_the_ack_examples_show_every_status_and_command():
+    """Between them: each command, each status, and an opaque key echoed."""
+    examples = ack_examples()
+    items = [
+        item
+        for _state, attributes in examples.values()
+        for item in attributes["commands"]
+    ]
+    assert {i["command"] for i in items} >= {
+        "vacation",
+        "power",
+        "anti_legionella",
+        "tou",
+        "demand_response",
+    }
+    assert {(i["status"], i["reason"]) for i in items} >= {
+        (STATUS_APPLIED, None),
+        (STATUS_PENDING, None),
+        (STATUS_FAILED, REASON_WRITE_NOT_CONFIRMED),
+        (STATUS_REJECTED, REASON_UNSUPPORTED_COMMAND),
+        (STATUS_SHADOW, None),
+    }
+    assert any(i.get("why") == "export_window" for i in items)

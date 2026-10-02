@@ -1,0 +1,76 @@
+{
+  "entity_id": "sensor.water_heater_control_ack",
+  "state": "programmed",
+  "attributes": {
+    "intent_id": "i-20261004T1300-9",
+    "reason": null,
+    "detail": null,
+    "segments": [
+      {
+        "id": "afternoon",
+        "status": "programmed",
+        "reason": null,
+        "warnings": [],
+        "fires_at": "2026-10-04T13:03:00-07:00",
+        "in_force": true
+      },
+      {
+        "id": "evening",
+        "status": "programmed",
+        "reason": null,
+        "warnings": [],
+        "fires_at": "2026-10-04T17:00:00-07:00",
+        "in_force": false
+      }
+    ],
+    "commands": [
+      {
+        "why": "export_window",
+        "id": "tou-off",
+        "status": "applied",
+        "reason": null,
+        "warnings": [],
+        "command": "tou"
+      },
+      {
+        "id": "dr-on",
+        "status": "applied",
+        "reason": null,
+        "warnings": [],
+        "command": "demand_response"
+      },
+      {
+        "id": "legionella",
+        "status": "pending",
+        "reason": null,
+        "warnings": [],
+        "command": "anti_legionella"
+      },
+      {
+        "id": "away",
+        "status": "failed",
+        "reason": "write_not_confirmed",
+        "warnings": [],
+        "command": "vacation",
+        "detail": "vacation_days must be between 1 and 30"
+      },
+      {
+        "id": "power-on",
+        "status": "applied",
+        "reason": null,
+        "warnings": [],
+        "command": "power"
+      },
+      {
+        "enabled": true,
+        "id": "recirc",
+        "status": "rejected",
+        "reason": "unsupported_command",
+        "warnings": [],
+        "command": "recirculation",
+        "detail": "command 'recirculation' is not supported"
+      }
+    ],
+    "rejected": null
+  }
+}

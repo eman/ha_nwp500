@@ -186,15 +186,41 @@ class TestRejectedDocuments:
         assert parse(make_document(now, protocol="0.1")).intent_id == "i-1"
 
     def test_the_examples_parse(self, parse):
+        """Each example is a protocol 1 plan the schema accepts.
+
+        A command the feature rejects is outside the schema, which takes
+        exactly the commands the feature applies: plan-commands.json's
+        `recirc` shows the rejection of one a later version may add.
+        """
         import json
         from pathlib import Path
 
+        from jsonschema import Draft202012Validator
+
+        schema = Draft202012Validator(
+            json.loads(
+                Path("docs/external-control-protocol-1.schema.json").read_text()
+            )
+        )
         examples = sorted(Path("docs/examples").glob("plan-*.json"))
         assert examples
         for path in examples:
             document = json.loads(path.read_text())
-            assert document["protocol"] == "1"
-            assert parse(document).intent_id == document["intent_id"]
+            assert document["protocol"].split(".")[0] == "1"
+            plan = parse(document)
+            assert plan.intent_id == document["intent_id"]
+            rejected = {c.id for c in plan.commands if c.rejection}
+            assert schema.is_valid(document) is not rejected
+            schema.validate(
+                {
+                    **document,
+                    "commands": [
+                        c
+                        for c in document.get("commands", [])
+                        if c["id"] not in rejected
+                    ],
+                }
+            )
 
     @pytest.mark.parametrize(
         "protocol", ["0.foo", "0.", "0.1.2", "", " 0", "v0"]

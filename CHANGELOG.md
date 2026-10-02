@@ -15,7 +15,9 @@
   that command is `applied` once sent. A person's later change is not
   undone. A malformed or unknown command is rejected on its
   own, and the plan goes ahead. `protocol_versions` is now `["1.3", "0"]`.
-  (#196)
+  `docs/examples/plan-commands.json` and its acknowledgements, live and in
+  shadow, are examples, and the schema now describes the ack entity's
+  attributes (`ack_attributes`). (#196)
 - **External control (protocol 1).** An optional, off-by-default feature
   that applies a plan from a scheduler of your own: a timeline of setpoints
   and modes, published on a Home Assistant entity. The feature writes it
