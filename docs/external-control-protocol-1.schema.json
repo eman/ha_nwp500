@@ -28,7 +28,7 @@
     },
     "commands": {
       "type": "array",
-      "description": "Protocol 1.3. Device commands, each applied once when the plan is adopted, in order, after its entries are written (spec section 3.7). Only a non-list, an item that is not an object, or an item without a valid id rejects the document; a malformed or unknown command is rejected on its own, so this schema describes the commands the feature applies.",
+      "description": "Protocol 1.3. Device commands, each applied once when the plan is adopted, in order, after its entries are written (spec section 3.7). Only a non-list, an item that is not an object, an item without a valid id, or an id shared with another command or a segment (duplicate_id) rejects the document; a malformed or unknown command is rejected on its own, so this schema describes the commands the feature applies.",
       "items": { "$ref": "#/$defs/command" }
     }
   },
