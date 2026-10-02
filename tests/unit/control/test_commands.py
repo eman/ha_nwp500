@@ -118,6 +118,32 @@ class TestParsing:
         assert command.params == {"days": 5}
         assert command.extra == {"why": "trip"}
 
+    def test_the_acks_own_keys_are_not_echoed(self):
+        """`detail` is the feature's alone, set only on some commands."""
+        raw = {
+            "id": "t",
+            "command": "tou",
+            "enabled": True,
+            "why": "w",
+            "status": "mine",
+            "reason": "mine",
+            "warnings": "mine",
+            "detail": "mine",
+        }
+        (command,) = _commands(raw)
+        assert command.extra == {"why": "w"}
+        assert command.as_document() == raw
+        runner = Commands(WINDOW)
+        runner.set_plan("i", (command,), writes=False)
+        assert runner.ack()[0].as_attribute() == {
+            "why": "w",
+            "id": "t",
+            "status": STATUS_SHADOW,
+            "reason": None,
+            "warnings": [],
+            "command": "tou",
+        }
+
     @pytest.mark.parametrize(
         "raw",
         [
@@ -168,6 +194,17 @@ class TestParsing:
     def test_an_id_shared_with_a_segment_is_a_duplicate(self):
         with pytest.raises(IntentRejected) as err:
             parse_plan(_doc({"id": "s", "command": "tou", "enabled": True}))
+        assert err.value.reason == REASON_DUPLICATE_ID
+
+    def test_two_commands_sharing_an_id_reject_the_document(self):
+        """Not only the second command: the whole plan (section 3.5)."""
+        with pytest.raises(IntentRejected) as err:
+            parse_plan(
+                _doc(
+                    {"id": "c", "command": "tou", "enabled": True},
+                    {"id": "c", "command": "power", "on": True},
+                )
+            )
         assert err.value.reason == REASON_DUPLICATE_ID
 
     def test_stored_and_parsed_again_unchanged(self):

@@ -70,6 +70,12 @@
   had not changed since, such as the capabilities, until the entry was
   reloaded. They now write their states again, unchanged, once Home
   Assistant has started and on every MQTT connection. (#202)
+- **A command's opaque `detail` is no longer echoed on its acknowledgement.**
+  `detail` is set by the feature only when a command is rejected or
+  refused, so an echoed one could pass for the feature's. A command's own
+  acknowledgement keys now always win, as a segment's do. The spec also
+  says that a command id shared with another command or a segment rejects
+  the whole plan (`duplicate_id`), as it always has.
 
 ## [0.21.1] - 2026-09-25
 

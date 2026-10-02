@@ -241,7 +241,7 @@ statuses, with the rejection beside them.
 |---|---|
 | `invalid_document` | JSON types or required keys are wrong; an id is empty or longer than 64 characters; a setpoint is given in more than one form; the first segment has no mode |
 | `unsupported_protocol` | `protocol` is not supported |
-| `duplicate_id` | Two segments share an id |
+| `duplicate_id` | Two items share an id: two segments, two commands (section 3.7), or a command and a segment |
 | `unordered_segments` | After truncation to the minute, a segment does not start after the one before it |
 | `mode_not_allowed` | A segment's mode is not one the heater has (section 3.4) |
 | `superseded` | `issued_at` is earlier than that of the plan in force. A document with the same `issued_at` is accepted |
@@ -300,7 +300,7 @@ nothing: when to send a command is the scheduler's.
 | `id` | string, 1 to 64 characters, unique in the document, segments' ids included (`duplicate_id`) | yes | Named in the acknowledgement |
 | `command` | string | yes | One of the table below |
 | the command's own keys | | as below | |
-| any other key | any | no | Opaque, echoed on the command's acknowledgement |
+| any other key | any | no | Opaque, echoed on the command's acknowledgement, unless it has the name of one of the acknowledgement's own keys (`id`, `command`, `status`, `reason`, `warnings`, `detail`): those are the feature's, and such a key is not echoed |
 
 | `command` | Keys | Library call | Read back from |
 |---|---|---|---|
@@ -343,7 +343,8 @@ many days of Vacation the heater takes, are the library's to check: a value
 it refuses makes the command `failed`, `write_not_confirmed`, with the
 library's message in `detail`. Only
 `commands` that is not a list, or an item that is not an object or has no
-valid `id`, rejects the document (`invalid_document`).
+valid `id`, rejects the document (`invalid_document`), and so does an id
+shared with another command or a segment (`duplicate_id`, section 3.5).
 
 **A status reports the application, not the setting afterwards.** Once the
 heater has reported what a command set, the command is `applied`, and stays
