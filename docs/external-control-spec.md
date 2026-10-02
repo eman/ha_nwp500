@@ -728,7 +728,9 @@ them removed by the next write.
 Documented in `nwp500-python` `docs/how-to/schedule-operation.rst`,
 "Reservations and mode writes during a TOU window":
 
-- **The feature never writes the TOU switch or the TOU schedule.**
+- **The feature never writes the TOU schedule.** It writes the TOU switch
+  only as a plan's `tou` command sets it (section 3.7), once, when the plan
+  is adopted.
 - **An entry's mode does not take effect inside a TOU window.** Its setpoint
   does. The mode is held, and applied when the window ends (section 8, test
   6). A low setpoint works in a window. A mode read back
@@ -1007,7 +1009,8 @@ was removed afterwards, which its status shows instead.
   times using the facts in section 4.1. The feature cannot enforce such rules
   on segments anyway, because the device fires an entry whatever the
   compressor is doing.
-- **The TOU switch and schedule** (section 5.8).
+- **The TOU schedule** (section 5.8). The TOU switch is set only by a
+  plan's `tou` command (section 3.7).
 - **MQTT, or any transport.** The intent entity is the interface.
 - **Estimating tank physics.** Plans come in temperatures and times.
 
