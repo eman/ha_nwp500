@@ -157,6 +157,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 | Unavailable | What happens |
 |---|---|
 | The scheduler stops publishing | The feature keeps programming the stored plan's remaining segments as room frees up. The heater runs the plan to its last segment, and that state holds until a new plan. Nothing is withdrawn. |
+| The intent entity is `unknown` or `unavailable`, or removed | Ignored: it is neither a plan nor a stop. The plan in force stays in force and is applied as in the row above: live, the feature keeps writing its remaining segments, near-term entries and the removal of fired ones. At start-up the stored plan is used (section 6.5). When the entity comes back with the plan in force, that plan is not adopted again (section 5.4). Clearing the entity therefore withdraws nothing: to withdraw the plan's entries, publish `segments: []` (section 3.1); to stop applying plans, disable (section 6.6). |
 | Home Assistant, or this feature | The heater runs the entries already programmed, up to `programmed_until` (section 4.2), then holds the last programmed segment. Entries that have fired are not removed, so after a week the device repeats the programmed run in order. |
 | The Navien cloud, or the device's connection | Entries already on the device should fire, since the device runs them locally; this is untested (section 8, test 11). List writes fail and are retried. |
 | Home Assistant comes back | The feature reads the device's list and reconciles (section 6.5). It never removes an unfired entry of the stored plan. |

@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from jsonschema import Draft202012Validator
@@ -244,14 +244,19 @@ class TestIntake:
         assert control.plan.extra == {}
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("gone", [STATE_UNKNOWN, STATE_UNAVAILABLE])
     async def test_source_unavailable_keeps_the_plan(
-        self, hass, control_factory, now
+        self, hass, control_factory, now, gone
     ):
+        """Neither a plan nor a stop (spec section 2.3)."""
         _publish(hass, _plan(now))
         control = await control_factory()
-        hass.states.async_set(INTENT_ENTITY, STATE_UNAVAILABLE)
+        owned = list(control.planner.owned)
+        hass.states.async_set(INTENT_ENTITY, gone)
         await hass.async_block_till_done()
         assert control.plan is not None
+        assert control.plan.intent_id == "i-1"
+        assert control.planner.owned == owned
 
     @pytest.mark.asyncio
     async def test_a_rejected_document_leaves_the_plan(
