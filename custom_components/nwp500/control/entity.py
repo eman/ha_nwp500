@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING, Any, override
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.components.button import ButtonEntity
 from homeassistant.components.sensor import SensorEntity
+from homeassistant.core import CoreState, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.start import async_at_started
 from homeassistant.util import slugify
 
 from ..entity import NWP500Entity
@@ -22,6 +25,11 @@ ATTRIBUTE_BUDGET = 15 * 1024
 # The name a heater's device takes without one of its own, as the device
 # registry gets it (`NWP500Entity._build_device_info`).
 DEFAULT_DEVICE_NAME = "Navien NWP500"
+
+# The MQTT integration's connection signal (its `MQTT_CONNECTION_STATE`),
+# sent with True on every connection. Named here so the feature does not
+# import that integration, which a user may not have.
+MQTT_CONNECTION_STATE = "mqtt_connection_state"
 
 
 def control_entity_id(domain: str, device_name: str, key: str) -> str:
@@ -77,6 +85,37 @@ class NWP500ControlEntity(NWP500Entity):
         self.async_on_remove(
             self.control.async_add_listener(self.async_write_ha_state)
         )
+        # `mqtt_statestream` publishes `state_changed` events, and listens
+        # only once Home Assistant starts, after these entities took their
+        # states. Write them again then, and on every MQTT connection, so a
+        # broker without retained copies gets them (issue #202).
+        if self.hass.state is not CoreState.running:
+            self.async_on_remove(
+                async_at_started(self.hass, self._async_republish_at_started)
+            )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, MQTT_CONNECTION_STATE, self._async_mqtt_connection
+            )
+        )
+
+    @callback
+    def _async_republish_at_started(self, _hass: HomeAssistant) -> None:
+        self._async_republish()
+
+    @callback
+    def _async_mqtt_connection(self, connected: bool) -> None:
+        if connected:
+            self._async_republish()
+
+    @callback
+    def _async_republish(self) -> None:
+        """Write the state as it is, firing `state_changed` though unchanged."""
+        self._attr_force_update = True
+        try:
+            self.async_write_ha_state()
+        finally:
+            self._attr_force_update = False
 
     @property
     @override

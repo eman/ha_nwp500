@@ -62,6 +62,12 @@
   the temperature in Home Assistant's own unit, but its field was a slider
   fixed at 80-150 °F, so a Celsius value could not be entered. It is now a
   plain number box; the heater's range is still checked. (#197)
+- **External control's entities reach `mqtt_statestream` after a start.**
+  Statestream publishes changes and listens only from Home Assistant's
+  start, so a broker without retained copies got none of the entities that
+  had not changed since, such as the capabilities, until the entry was
+  reloaded. They now write their states again, unchanged, once Home
+  Assistant has started and on every MQTT connection. (#202)
 
 ## [0.21.1] - 2026-09-25
 
