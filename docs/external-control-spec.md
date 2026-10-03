@@ -730,8 +730,9 @@ Documented in `nwp500-python` `docs/how-to/schedule-operation.rst`,
 "Reservations and mode writes during a TOU window":
 
 - **The feature never writes the TOU schedule.** It writes the TOU switch
-  only as a plan's `tou` command sets it (section 3.7), once, when the plan
-  is adopted.
+  only as a plan's `tou` command sets it, once, when section 3.7 applies the
+  command: at the plan's adoption, or, for a plan adopted in shadow, when
+  the feature goes live.
 - **An entry's mode does not take effect inside a TOU window.** Its setpoint
   does. The mode is held, and applied when the window ends (section 8, test
   6). A low setpoint works in a window. A mode read back
