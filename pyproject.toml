@@ -25,7 +25,7 @@ test = [
 ]
 mypy = [
     "homeassistant>=2026.3.0",
-    "mypy>=2.3.1",
+    "mypy>=2.4.0",
 ]
 basedpyright = [
     "homeassistant>=2026.3.0",
