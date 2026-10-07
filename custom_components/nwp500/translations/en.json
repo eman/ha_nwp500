@@ -752,7 +752,7 @@
   "services": {
     "set_reservation": {
       "name": "Set reservation",
-      "description": "Create or update a single reservation schedule entry. An existing entry scheduled for the same days and time is replaced, so repeating a call updates it rather than adding a duplicate. Reservations allow automatic mode and temperature changes at scheduled times. The device supports up to 16 reservation entries.",
+      "description": "Create or update a single reservation schedule entry. An existing entry scheduled for the same days and time is replaced, so repeating a call updates it rather than adding a duplicate. Reservations allow automatic mode and temperature changes at scheduled times. The device supports up to 16 reservation entries. The call returns once the device confirms it holds the new list, and fails if it does not.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -790,7 +790,7 @@
     },
     "update_reservations": {
       "name": "Update all reservations",
-      "description": "Replace all reservation entries with a new list. An advanced service for setting several entries at once; Set reservation adds a single entry.",
+      "description": "Replace all reservation entries with a new list. An advanced service for setting several entries at once; Set reservation adds a single entry. The call returns once the device confirms it holds the new list, and fails if it does not.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -812,7 +812,7 @@
     },
     "clear_reservations": {
       "name": "Clear all reservations",
-      "description": "Remove all reservation schedules from the device",
+      "description": "Remove all reservation schedules from the device. The call returns once the device confirms it holds the new list, and fails if it does not.",
       "fields": {
         "device_id": {
           "name": "Device",

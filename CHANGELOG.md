@@ -70,6 +70,15 @@
   had not changed since, such as the capabilities, until the entry was
   reloaded. They now write their states again, unchanged, once Home
   Assistant has started and on every MQTT connection. (#202)
+- **Reservation services report a write the heater did not take.**
+  Set reservation, Update all reservations and Clear all reservations
+  reported success once the list was sent, so a write the heater lost was
+  reported as done. They now use the confirmed write the external control
+  feature uses. A call returns once the heater's echo, or a read after it,
+  shows the new list, and fails otherwise, saying what the heater holds. No
+  call retries; that is the caller's to decide. Update all reservations and
+  Clear all reservations now also hold the reservation lock, as Set
+  reservation did, so they cannot interleave with another list write. (#212)
 - **A command's opaque `detail` is no longer echoed on its acknowledgement.**
   `detail` is set by the feature only when a command is rejected or
   refused, so an echoed one could pass for the feature's. A command's own

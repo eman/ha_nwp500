@@ -28,6 +28,7 @@ from nwp500.exceptions import (
     MqttError,
     TokenRefreshError,
 )
+from nwp500.reservations import update_reservations_confirmed
 
 from . import schedule_state
 from .const import (
@@ -1818,38 +1819,65 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return success_count > 0
 
-    async def async_update_reservations(
+    async def async_write_reservations(
         self,
         mac_address: str,
-        reservations: list[dict[str, int]],
+        reservations: list[dict[str, Any]],
         enabled: bool = True,
-    ) -> bool:
-        """Update reservation schedules for a device.
+    ) -> dict[str, Any] | None:
+        """Write the whole reservation list; return what the device holds.
+
+        The library's confirmed write resolves only on a device echo that
+        matches the list sent. Without one, a fresh read says what the
+        device holds: the write may have landed without an echo, or been
+        lost (#212). The caller compares the result with what it wrote, and
+        holds `_reservation_lock` from any read it wrote from through this.
 
         Args:
             mac_address: Device MAC address
-            reservations: List of reservation entries (built with build_reservation_entry)
+            reservations: The full list of raw reservation entries
             enabled: Whether the reservation system is enabled
 
         Returns:
-            True if command was sent successfully
+            The schedule the device holds afterwards, or None if the write
+            could not be sent or no read came back.
         """
-        if not self.mqtt_manager:
-            _LOGGER.error("MQTT manager not available")
-            return False
-
+        client = self.mqtt_manager.mqtt_client if self.mqtt_manager else None
         device = self._devices_by_mac.get(mac_address)
-
-        if not device:
-            _LOGGER.error("Device %s not found", mac_address)
-            return False
-
-        return await self.mqtt_manager.send_command(
-            device,
-            "update_reservations",
-            reservations=reservations,
-            enabled=enabled,
+        if client is None or device is None:
+            _LOGGER.error(
+                "Cannot write reservations to %s: %s",
+                mac_address,
+                "MQTT is not connected" if device else "unknown device",
+            )
+            return None
+        entries = [dict(e) for e in reservations]
+        confirmed = await update_reservations_confirmed(
+            client, device, entries, enabled=enabled
         )
+        if confirmed is None:
+            read = await self.async_fetch_reservations(mac_address)
+            _LOGGER.info(
+                "No echo confirmed the list write to %s; a fresh read %s",
+                mac_address,
+                "did not come back"
+                if read is None
+                else f"has {len(read.get('reservation') or [])} entries, "
+                f"switch {'on' if read.get('reservation_use') == 2 else 'off'}",
+            )
+            return read
+        # The device holds exactly this list. The stored copy is updated now
+        # rather than when the echo reaches it, so the next reader does not
+        # see the list from before the write.
+        written = {
+            **(self.reservation_schedules.get(mac_address) or {}),
+            # The device's bool convention: 2 = on, 1 = off.
+            "reservation_use": 2 if enabled else 1,
+            "reservation": entries,
+        }
+        self.reservation_schedules[mac_address] = written
+        self.reservation_schedules_read_at[mac_address] = dt_util.utcnow()
+        return written
 
     async def async_request_reservations(self, mac_address: str) -> bool:
         """Request current reservation schedules from a device.

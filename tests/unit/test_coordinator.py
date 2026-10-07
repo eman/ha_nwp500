@@ -541,9 +541,9 @@ async def test_async_update_starts_reauth_after_library_reconnect_failure(
 # ---------------------------------------------------------------------------
 # Device-routed commands
 #
-# async_control_device, async_send_command, async_update_reservations and
-# async_request_reservations all share the same guard shape: no MQTT manager
-# or an unknown MAC must fail closed rather than raise.
+# async_control_device, async_send_command, async_request_reservations and
+# the rest share the same guard shape: no MQTT manager or an unknown MAC must
+# fail closed rather than raise. async_write_reservations is tested below.
 # ---------------------------------------------------------------------------
 
 
@@ -595,7 +595,6 @@ def wired(coordinator):
     [
         ("async_control_device", (MAC, "set_power")),
         ("async_send_command", (MAC, "set_power")),
-        ("async_update_reservations", (MAC, [])),
         ("async_request_reservations", (MAC,)),
         ("async_configure_tou_schedule", (MAC, [])),
         ("async_request_device_info", (MAC,)),
@@ -619,7 +618,6 @@ async def test_commands_fail_closed_without_mqtt(wired, method, args):
     [
         ("async_control_device", ("99:99:99:99:99:99", "set_power")),
         ("async_send_command", ("99:99:99:99:99:99", "set_power")),
-        ("async_update_reservations", ("99:99:99:99:99:99", [])),
         ("async_request_reservations", ("99:99:99:99:99:99",)),
         ("async_configure_tou_schedule", ("99:99:99:99:99:99", [])),
         ("async_request_tou_settings", ("99:99:99:99:99:99",)),
@@ -652,19 +650,56 @@ async def test_send_command_delegates_kwargs(wired):
     )
 
 
+CONFIRMED = "custom_components.nwp500.coordinator.update_reservations_confirmed"
+ENTRY = {"enable": 2, "week": 8, "hour": 10, "min": 29, "mode": 1, "param": 121}
+
+
 @pytest.mark.asyncio
-async def test_update_reservations_passes_list_and_enabled_flag(wired):
-    """The reservation list and its enable flag reach the device together."""
-    entries = [{"week": 1, "hour": 6, "min": 0}]
+async def test_a_confirmed_write_updates_the_stored_list(wired):
+    """An echo of the list sent: the stored copy is that list (#212)."""
+    wired.reservation_schedules[MAC] = {
+        "reservation_use": 1,
+        "reservation": [],
+        "other": "kept",
+    }
+    wired.async_fetch_reservations = AsyncMock()
+    with patch(CONFIRMED, AsyncMock(return_value=MagicMock())) as confirmed:
+        held = await wired.async_write_reservations(MAC, [ENTRY], enabled=True)
 
-    assert await wired.async_update_reservations(MAC, entries, enabled=False)
+    args, kwargs = confirmed.await_args
+    assert args[0] is wired.mqtt_manager.mqtt_client
+    assert args[1] is wired._devices_by_mac[MAC]
+    assert args[2] == [ENTRY]
+    assert kwargs == {"enabled": True}
+    assert held == {
+        "reservation_use": 2,
+        "reservation": [ENTRY],
+        "other": "kept",
+    }
+    assert wired.reservation_schedules[MAC] == held
+    assert MAC in wired.reservation_schedules_read_at
+    wired.async_fetch_reservations.assert_not_awaited()
 
-    wired.mqtt_manager.send_command.assert_awaited_once_with(
-        wired._devices_by_mac[MAC],
-        "update_reservations",
-        reservations=entries,
-        enabled=False,
-    )
+
+@pytest.mark.asyncio
+async def test_without_an_echo_a_fresh_read_says_what_the_device_holds(wired):
+    """The write may have landed without an echo, or been lost."""
+    read = {"reservation_use": 1, "reservation": []}
+    wired.async_fetch_reservations = AsyncMock(return_value=read)
+    with patch(CONFIRMED, AsyncMock(return_value=None)):
+        held = await wired.async_write_reservations(MAC, [ENTRY], enabled=False)
+
+    assert held is read
+    wired.async_fetch_reservations.assert_awaited_once_with(MAC)
+
+
+@pytest.mark.asyncio
+async def test_a_write_without_a_session_or_device_sends_nothing(wired):
+    with patch(CONFIRMED, AsyncMock()) as confirmed:
+        assert await wired.async_write_reservations("99:99", [ENTRY]) is None
+        wired.mqtt_manager = None
+        assert await wired.async_write_reservations(MAC, [ENTRY]) is None
+    confirmed.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
