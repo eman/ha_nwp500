@@ -1,9 +1,16 @@
 """Config flow for Navien NWP500 integration."""
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import voluptuous as vol
+if TYPE_CHECKING:
+    # Home Assistant 2026.9 and later validate with probatio, and import
+    # `voluptuous` as an alias of it, so at runtime this is probatio there;
+    # earlier versions still run on voluptuous. Typed as probatio, as Home
+    # Assistant now types schemas.
+    import probatio as vol
+else:
+    import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
 from homeassistant.core import HomeAssistant, callback

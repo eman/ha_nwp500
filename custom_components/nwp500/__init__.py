@@ -5,9 +5,16 @@ Requires Home Assistant 2026.3+ (Python 3.14).
 
 import logging
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
-import voluptuous as vol
+if TYPE_CHECKING:
+    # Home Assistant 2026.9 and later validate with probatio, and import
+    # `voluptuous` as an alias of it, so at runtime this is probatio there;
+    # earlier versions still run on voluptuous. Typed as probatio, as Home
+    # Assistant now types schemas.
+    import probatio as vol
+else:
+    import voluptuous as vol
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import (
