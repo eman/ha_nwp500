@@ -603,7 +603,9 @@ class TestReservationWritesAreConfirmed:
 
     ENTRY = {"enable": 2, "week": 2, "hour": 15, "min": 34, "mode": 1}
 
-    async def _update(self, mock_hass, mock_device_registry, write):
+    async def _update(
+        self, mock_hass, mock_device_registry, write, entries=None
+    ):
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
@@ -622,7 +624,7 @@ class TestReservationWritesAreConfirmed:
         call = MagicMock(spec=ServiceCall)
         call.data = {
             ATTR_DEVICE_ID: "device_123",
-            ATTR_RESERVATIONS: [{**self.ENTRY, "param": 120}],
+            ATTR_RESERVATIONS: entries or [{**self.ENTRY, "param": 120}],
             ATTR_ENABLED: False,
         }
         await handler(call)
@@ -632,13 +634,17 @@ class TestReservationWritesAreConfirmed:
         self, mock_hass, mock_device_registry
     ):
         """In any order, and with keys beyond the protocol's."""
+        monday = {**self.ENTRY, "param": 120}
+        sunday = {**self.ENTRY, "week": 128, "hour": 6, "param": 110}
         held = {
             "reservation_use": 1,
-            "reservation": [{**self.ENTRY, "param": 120, "days": ["Monday"]}],
+            "reservation": [sunday, {**monday, "days": ["Monday"]}],
         }
+        write = AsyncMock(return_value=held)
         await self._update(
-            mock_hass, mock_device_registry, AsyncMock(return_value=held)
+            mock_hass, mock_device_registry, write, entries=[monday, sunday]
         )
+        assert write.await_args.args[1] == [monday, sunday]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
