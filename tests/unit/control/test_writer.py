@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -13,7 +13,6 @@ from custom_components.nwp500.control.writer import CoordinatorWriter
 MAC = "AA:BB:CC:DD:EE:FF"
 ENTRY = {"enable": 2, "week": 8, "hour": 10, "min": 29, "mode": 1, "param": 121}
 SCHEDULE = {"reservation_use": 2, "reservation": [ENTRY]}
-TARGET = "custom_components.nwp500.control.writer.update_reservations_confirmed"
 
 
 def _coordinator(unit_system: str = "us_customary") -> MagicMock:
@@ -38,52 +37,36 @@ def _coordinator(unit_system: str = "us_customary") -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_a_confirmed_write_updates_the_coordinator_copy():
+@pytest.mark.parametrize(("use", "enabled"), [(2, True), (1, False)])
+async def test_a_write_is_the_coordinators_confirmed_write(use, enabled):
+    """What the device holds afterwards comes back as the coordinator says."""
     coordinator = _coordinator()
+    held = {"reservation_use": use, "reservation": [ENTRY]}
+    coordinator.async_write_reservations = AsyncMock(return_value=held)
     writer = CoordinatorWriter(coordinator, MAC)
-    with patch(TARGET, AsyncMock(return_value=MagicMock())) as confirmed:
-        result = await writer.async_write(SCHEDULE)
 
-    confirmed.assert_awaited_once()
-    args, kwargs = confirmed.await_args
-    assert args[0] is coordinator.mqtt_manager.mqtt_client
-    assert args[1] is coordinator._devices_by_mac[MAC]
-    assert args[2] == [ENTRY]
-    assert kwargs == {"enabled": True}
-    assert result == {**SCHEDULE, "other": "kept"}
-    assert coordinator.reservation_schedules[MAC] == result
-    coordinator.async_fetch_reservations.assert_not_awaited()
+    result = await writer.async_write(
+        {"reservation_use": use, "reservation": [ENTRY]}
+    )
+
+    assert result is held
+    coordinator.async_write_reservations.assert_awaited_once_with(
+        MAC, [ENTRY], enabled=enabled
+    )
 
 
 @pytest.mark.asyncio
-async def test_without_an_echo_a_fresh_read_says_what_the_device_holds():
+async def test_no_confirmation_comes_back_as_none():
     coordinator = _coordinator()
-    coordinator.async_fetch_reservations.return_value = {
-        "reservation_use": 1,
-        "reservation": [],
-    }
+    coordinator.async_write_reservations = AsyncMock(return_value=None)
     writer = CoordinatorWriter(coordinator, MAC)
-    with patch(TARGET, AsyncMock(return_value=None)):
-        result = await writer.async_write(SCHEDULE)
-
-    assert result == {"reservation_use": 1, "reservation": []}
-    coordinator.async_fetch_reservations.assert_awaited_once_with(MAC)
+    assert await writer.async_write(SCHEDULE) is None
 
 
 def test_locked_is_the_reservation_services_lock():
     coordinator = _coordinator()
     writer = CoordinatorWriter(coordinator, MAC)
     assert writer.locked() is coordinator._reservation_lock
-
-
-@pytest.mark.asyncio
-async def test_nothing_is_sent_without_a_session_or_device():
-    coordinator = _coordinator()
-    coordinator.mqtt_manager = None
-    writer = CoordinatorWriter(coordinator, MAC)
-    with patch(TARGET, AsyncMock()) as confirmed:
-        assert await writer.async_write(SCHEDULE) is None
-    confirmed.assert_not_awaited()
 
 
 @pytest.mark.asyncio

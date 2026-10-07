@@ -561,12 +561,6 @@ class NWP500MqttManager:
                     )
                 case "disable_anti_legionella":
                     await self.mqtt_client.disable_anti_legionella(device)
-                case "update_reservations":
-                    reservations = kwargs.get("reservations", [])
-                    enabled = kwargs.get("enabled", True)
-                    await self.mqtt_client.update_reservations(
-                        device, reservations, enabled=enabled
-                    )
                 case "request_reservations":
                     await self.mqtt_client.request_reservations(device)
                 case "configure_tou_schedule":

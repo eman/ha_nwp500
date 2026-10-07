@@ -38,7 +38,9 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
-from . import energy_report
+from nwp500.exceptions import Nwp500Error
+
+from . import energy_report, schedule_state
 from .const import (
     CONF_CONTROL_ENABLED,
     CONTROL_UNIQUE_ID_MARKER,
@@ -170,6 +172,46 @@ def _merge_reservation_entry(
 
     merged.append(new_entry)
     return merged
+
+
+async def _async_write_confirmed(
+    coordinator: NWP500DataUpdateCoordinator,
+    mac_address: str,
+    entries: list[dict[str, Any]],
+    *,
+    enabled: bool,
+) -> None:
+    """Write the whole reservation list; succeed only if the device holds it.
+
+    A write is a full-list replacement that the device can lose without an
+    error (#212), so it counts only once the device's echo, or a read after
+    it, shows the list sent. Whether to try again is the caller's. The
+    caller holds `coordinator._reservation_lock`.
+    """
+    try:
+        held = await coordinator.async_write_reservations(
+            mac_address, entries, enabled=enabled
+        )
+    except Nwp500Error as err:
+        raise HomeAssistantError(
+            f"The reservation list for {mac_address} was not written: {err}"
+        ) from err
+    if held is None:
+        raise HomeAssistantError(
+            f"The reservation write to {mac_address} is not confirmed: it "
+            "could not be sent, or the device did not answer the read after "
+            "it. Read the schedule before trying again."
+        )
+    wanted = {"reservation_use": 2 if enabled else 1, "reservation": entries}
+    if schedule_state.reservation_canonical(
+        held
+    ) != schedule_state.reservation_canonical(wanted):
+        switch = "on" if held.get("reservation_use") == 2 else "off"
+        raise HomeAssistantError(
+            f"The device did not take the reservation write to {mac_address}: "
+            f"it holds {len(held.get('reservation') or [])} entries, with "
+            f"reservations switched {switch}."
+        )
 
 
 def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
@@ -665,15 +707,12 @@ class NWP500ServiceHandler:
                     True if reservation_use is None else reservation_use == 2
                 )
 
-                success = await coordinator.async_update_reservations(
-                    mac_address, existing_entries, enabled=system_enabled
+                await _async_write_confirmed(
+                    coordinator,
+                    mac_address,
+                    existing_entries,
+                    enabled=system_enabled,
                 )
-
-        if not success:
-            raise HomeAssistantError("Failed to set reservation")
-
-        # Auto-refresh stored reservation state
-        await coordinator.async_request_reservations(mac_address)
 
     async def async_update_reservations(self, call: ServiceCall) -> None:
         """Handle update_reservations service call."""
@@ -694,15 +733,10 @@ class NWP500ServiceHandler:
                 enabled,
             )
 
-            success = await coordinator.async_update_reservations(
-                mac_address, reservations, enabled=enabled
-            )
-
-        if not success:
-            raise HomeAssistantError("Failed to update reservations")
-
-        # Auto-refresh stored reservation state
-        await coordinator.async_request_reservations(mac_address)
+            async with coordinator._reservation_lock:
+                await _async_write_confirmed(
+                    coordinator, mac_address, reservations, enabled=enabled
+                )
 
     async def async_clear_reservations(self, call: ServiceCall) -> None:
         """Handle clear_reservations service call."""
@@ -710,16 +744,11 @@ class NWP500ServiceHandler:
 
         _LOGGER.info("Clearing all reservations for %s", mac_address)
 
-        # Send empty list to clear all reservations
-        success = await coordinator.async_update_reservations(
-            mac_address, [], enabled=False
-        )
-
-        if not success:
-            raise HomeAssistantError("Failed to clear reservations")
-
-        # Auto-refresh stored reservation state
-        await coordinator.async_request_reservations(mac_address)
+        # An empty list, with the reservation switch off, clears them all.
+        async with coordinator._reservation_lock:
+            await _async_write_confirmed(
+                coordinator, mac_address, [], enabled=False
+            )
 
     async def async_request_reservations(self, call: ServiceCall) -> None:
         """Handle request_reservations service call."""

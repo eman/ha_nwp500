@@ -12,9 +12,6 @@ import logging
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any, Protocol
 
-from homeassistant.util import dt as dt_util
-
-from nwp500.reservations import update_reservations_confirmed
 from nwp500.temperature import HalfCelsius
 
 from ..const import MODE_TO_DHW_ID
@@ -91,54 +88,18 @@ class CoordinatorWriter:
     async def async_write(
         self, schedule: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """Write the whole list with the library's confirmed write.
+        """Write the whole list with the coordinator's confirmed write.
 
-        The library resolves only on a device echo that matches what was
-        written. Without one, a fresh read says what the device holds: the
-        write may have landed without an echo, or been lost (section 8).
+        It resolves on a device echo that matches what was written, or,
+        without one, on a fresh read of what the device holds: the write may
+        have landed without an echo, or been lost (section 8).
         """
-        manager = self.coordinator.mqtt_manager
-        client = manager.mqtt_client if manager is not None else None
-        device = self.coordinator._devices_by_mac.get(  # noqa: SLF001
-            self.mac_address
-        )
-        if client is None or device is None:
-            return None
-        entries = [dict(e) for e in schedule["reservation"]]
-        enabled = schedule["reservation_use"] == DEVICE_BOOL_ON
         # The caller holds `locked()` from its read through this write.
-        confirmed = await update_reservations_confirmed(
-            client, device, entries, enabled=enabled
+        return await self.coordinator.async_write_reservations(
+            self.mac_address,
+            schedule["reservation"],
+            enabled=schedule["reservation_use"] == DEVICE_BOOL_ON,
         )
-        if confirmed is None:
-            read = await self.coordinator.async_fetch_reservations(
-                self.mac_address
-            )
-            _LOGGER.info(
-                "No echo confirmed the list write to %s; a fresh read %s",
-                self.mac_address,
-                "did not come back"
-                if read is None
-                else f"has {len(read.get('reservation') or [])} entries, "
-                f"switch {'on' if read.get('reservation_use') == DEVICE_BOOL_ON else 'off'}",
-            )
-            return read
-        # The device holds exactly this list. The coordinator's copy is
-        # updated now rather than when the echo reaches it, so the next
-        # pass does not read the list from before the write.
-        written = {
-            **(
-                self.coordinator.reservation_schedules.get(self.mac_address)
-                or {}
-            ),
-            "reservation_use": schedule["reservation_use"],
-            "reservation": entries,
-        }
-        self.coordinator.reservation_schedules[self.mac_address] = written
-        self.coordinator.reservation_schedules_read_at[self.mac_address] = (
-            dt_util.utcnow()
-        )
-        return written
 
     async def async_restore_state(self, mode: str, setpoint_raw: int) -> bool:
         """Write the owner's mode, then setpoint, in Home Assistant's unit.

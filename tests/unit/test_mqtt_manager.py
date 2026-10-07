@@ -471,30 +471,6 @@ async def test_request_status_consecutive_timeouts(
 
 
 @pytest.mark.asyncio
-async def test_send_command_update_reservations(
-    manager, mock_mqtt_client, mock_device
-):
-    """Test sending update_reservations command."""
-    await manager.setup()
-
-    reservations = [
-        {"enable": 1, "week": 42, "hour": 6, "min": 30, "mode": 3, "param": 120}
-    ]
-
-    result = await manager.send_command(
-        mock_device,
-        "update_reservations",
-        reservations=reservations,
-        enabled=True,
-    )
-
-    assert result is True
-    mock_mqtt_client.update_reservations.assert_called_once_with(
-        mock_device, reservations, enabled=True
-    )
-
-
-@pytest.mark.asyncio
 async def test_send_command_request_reservations(
     manager, mock_mqtt_client, mock_device
 ):

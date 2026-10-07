@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -49,6 +50,20 @@ from custom_components.nwp500.const import (
     DOMAIN,
 )
 from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
+
+
+def _echoed_writes(lock: asyncio.Lock | None = None) -> AsyncMock:
+    """A confirmed write the device takes: it then holds the list sent.
+
+    With `lock`, the write also checks the service holds it, so no other
+    writer can change the list in between (#212).
+    """
+
+    async def write(mac_address, entries, enabled=True):
+        assert lock is None or lock.locked()
+        return {"reservation_use": 2 if enabled else 1, "reservation": entries}
+
+    return AsyncMock(side_effect=write)
 
 
 def stage_coordinator(mock_hass, coordinator):
@@ -183,9 +198,7 @@ class TestReservationServices:
         mock_coordinator._reservation_lock = (
             asyncio.Lock()
         )  # Add lock for async context
-        mock_coordinator.async_update_reservations = AsyncMock(
-            return_value=True
-        )
+        mock_coordinator.async_write_reservations = _echoed_writes()
         mock_coordinator.async_request_reservations = AsyncMock(
             return_value=True
         )
@@ -248,7 +261,7 @@ class TestReservationServices:
             )
 
             # Verify coordinator was called
-            mock_coordinator.async_update_reservations.assert_called_once()
+            mock_coordinator.async_write_reservations.assert_called_once()
 
         @pytest.mark.asyncio
         async def test_set_reservation_with_device_feature_limits(
@@ -268,9 +281,7 @@ class TestReservationServices:
         mock_features.dhw_temperature_min = 90.0
         mock_features.dhw_temperature_max = 160.0
         mock_coordinator.device_features = {"AA:BB:CC:DD:EE:FF": mock_features}
-        mock_coordinator.async_update_reservations = AsyncMock(
-            return_value=True
-        )
+        mock_coordinator.async_write_reservations = _echoed_writes()
         stage_coordinator(mock_hass, mock_coordinator)
 
         # Setup device registry
@@ -328,7 +339,7 @@ class TestReservationServices:
             )
 
             # Verify coordinator was called
-            mock_coordinator.async_update_reservations.assert_called_once()
+            mock_coordinator.async_write_reservations.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_set_reservation_invalid_mode_raises_error(
@@ -427,9 +438,7 @@ class TestReservationServices:
         mock_coordinator._reservation_lock = (
             asyncio.Lock()
         )  # Add lock for async context
-        mock_coordinator.async_update_reservations = AsyncMock(
-            return_value=True
-        )
+        mock_coordinator.async_write_reservations = _echoed_writes()
         stage_coordinator(mock_hass, mock_coordinator)
 
         device_entry = MagicMock()
@@ -477,8 +486,9 @@ class TestReservationServices:
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator.async_update_reservations = AsyncMock(
-            return_value=True
+        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.async_write_reservations = _echoed_writes(
+            mock_coordinator._reservation_lock
         )
         stage_coordinator(mock_hass, mock_coordinator)
 
@@ -499,7 +509,7 @@ class TestReservationServices:
 
         await clear_handler(call)
 
-        mock_coordinator.async_update_reservations.assert_called_once_with(
+        mock_coordinator.async_write_reservations.assert_called_once_with(
             "AA:BB:CC:DD:EE:FF", [], enabled=False
         )
 
@@ -545,8 +555,9 @@ class TestReservationServices:
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator.async_update_reservations = AsyncMock(
-            return_value=True
+        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.async_write_reservations = _echoed_writes(
+            mock_coordinator._reservation_lock
         )
         stage_coordinator(mock_hass, mock_coordinator)
 
@@ -582,9 +593,111 @@ class TestReservationServices:
 
         await update_handler(call)
 
-        mock_coordinator.async_update_reservations.assert_called_once_with(
+        mock_coordinator.async_write_reservations.assert_called_once_with(
             "AA:BB:CC:DD:EE:FF", reservations, enabled=True
         )
+
+
+class TestReservationWritesAreConfirmed:
+    """A service call succeeds only once the device holds the list (#212)."""
+
+    ENTRY = {"enable": 2, "week": 2, "hour": 15, "min": 34, "mode": 1}
+
+    async def _update(
+        self, mock_hass, mock_device_registry, write, entries=None
+    ):
+        mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
+        mock_coordinator.unit_change_in_progress = False
+        mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
+        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.async_write_reservations = write
+        stage_coordinator(mock_hass, mock_coordinator)
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+        await _async_setup_services(mock_hass)
+        handler = next(
+            c[0][2]
+            for c in mock_hass.services.async_register.call_args_list
+            if c[0][1] == "update_reservations"
+        )
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            ATTR_RESERVATIONS: entries or [{**self.ENTRY, "param": 120}],
+            ATTR_ENABLED: False,
+        }
+        await handler(call)
+
+    @pytest.mark.asyncio
+    async def test_a_list_the_device_holds_succeeds(
+        self, mock_hass, mock_device_registry
+    ):
+        """In any order, and with keys beyond the protocol's."""
+        monday = {**self.ENTRY, "param": 120}
+        sunday = {**self.ENTRY, "week": 128, "hour": 6, "param": 110}
+        held = {
+            "reservation_use": 1,
+            "reservation": [sunday, {**monday, "days": ["Monday"]}],
+        }
+        write = AsyncMock(return_value=held)
+        await self._update(
+            mock_hass, mock_device_registry, write, entries=[monday, sunday]
+        )
+        assert write.await_args.args[1] == [monday, sunday]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("held", "match"),
+        [
+            (
+                # The write was lost: the device still holds its old list.
+                {
+                    "reservation_use": 2,
+                    "reservation": [{**ENTRY, "param": 120}, {**ENTRY}],
+                },
+                (
+                    "did not take .* holds 2 entries, with reservations "
+                    "switched on"
+                ),
+            ),
+            # Sent, but the switch did not change.
+            (
+                {
+                    "reservation_use": 2,
+                    "reservation": [{**ENTRY, "param": 120}],
+                },
+                "did not take",
+            ),
+            # Not sent, or no read came back after it.
+            (None, "not confirmed"),
+        ],
+    )
+    async def test_a_write_the_device_did_not_take_fails(
+        self, mock_hass, mock_device_registry, held, match
+    ):
+        with pytest.raises(HomeAssistantError, match=match):
+            await self._update(
+                mock_hass, mock_device_registry, AsyncMock(return_value=held)
+            )
+
+    @pytest.mark.asyncio
+    async def test_a_list_the_library_refuses_fails(
+        self, mock_hass, mock_device_registry
+    ):
+        from nwp500.exceptions import RangeValidationError
+
+        refusal = RangeValidationError(
+            "param must be between 70 and 150", "param", 200, 70, 150
+        )
+        with pytest.raises(
+            HomeAssistantError, match="was not written: param must be"
+        ):
+            await self._update(
+                mock_hass,
+                mock_device_registry,
+                AsyncMock(side_effect=refusal),
+            )
 
     @pytest.mark.asyncio
     async def test_device_not_found_raises_error(
@@ -1220,7 +1333,7 @@ class TestSetReservationRefusesUnfetchedWrite:
         coordinator.device_features = {}
         coordinator.reservation_schedules = {}  # never fetched
         coordinator._reservation_lock = asyncio.Lock()
-        coordinator.async_update_reservations = AsyncMock(return_value=True)
+        coordinator.async_write_reservations = _echoed_writes()
         coordinator.async_request_reservations = AsyncMock(return_value=True)
         coordinator.async_fetch_reservations = AsyncMock(
             return_value=fetch_result
@@ -1266,7 +1379,7 @@ class TestSetReservationRefusesUnfetchedWrite:
         await handler(self._call())
 
         coordinator.async_fetch_reservations.assert_awaited_once()
-        coordinator.async_update_reservations.assert_called_once()
+        coordinator.async_write_reservations.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_refuses_to_write_when_fetch_fails(
@@ -1288,7 +1401,7 @@ class TestSetReservationRefusesUnfetchedWrite:
         with pytest.raises(HomeAssistantError, match="Refusing to write"):
             await handler(self._call())
 
-        coordinator.async_update_reservations.assert_not_called()
+        coordinator.async_write_reservations.assert_not_called()
 
 
 class TestSetReservationPreservesGlobalSwitch:
@@ -1311,7 +1424,7 @@ class TestSetReservationPreservesGlobalSwitch:
         coordinator.device_features = {}
         coordinator.reservation_schedules = {"AA:BB:CC:DD:EE:FF": schedule}
         coordinator._reservation_lock = asyncio.Lock()
-        coordinator.async_update_reservations = AsyncMock(return_value=True)
+        coordinator.async_write_reservations = _echoed_writes()
         coordinator.async_request_reservations = AsyncMock(return_value=True)
         coordinator.async_fetch_reservations = AsyncMock(return_value=schedule)
         return coordinator
@@ -1354,7 +1467,7 @@ class TestSetReservationPreservesGlobalSwitch:
             {"reservation": [], "reservation_use": 1},
         )
 
-        _, kwargs = coordinator.async_update_reservations.call_args
+        _, kwargs = coordinator.async_write_reservations.call_args
         assert kwargs["enabled"] is False
 
     @pytest.mark.asyncio
@@ -1368,7 +1481,7 @@ class TestSetReservationPreservesGlobalSwitch:
             {"reservation": [], "reservation_use": 2},
         )
 
-        _, kwargs = coordinator.async_update_reservations.call_args
+        _, kwargs = coordinator.async_write_reservations.call_args
         assert kwargs["enabled"] is True
 
     @pytest.mark.asyncio
@@ -1380,7 +1493,7 @@ class TestSetReservationPreservesGlobalSwitch:
             mock_hass, mock_device_registry, {"reservation": []}
         )
 
-        _, kwargs = coordinator.async_update_reservations.call_args
+        _, kwargs = coordinator.async_write_reservations.call_args
         assert kwargs["enabled"] is True
 
 
@@ -1542,9 +1655,7 @@ class TestUnitSystemChangeGuard:
         mock_coordinator.unit_transition_guard = guard
         mock_coordinator.hass = mock_hass
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator.async_update_reservations = AsyncMock(
-            return_value=True
-        )
+        mock_coordinator.async_write_reservations = _echoed_writes()
         stage_coordinator(mock_hass, mock_coordinator)
 
         device_entry = MagicMock()
@@ -1610,7 +1721,7 @@ class TestUnitSystemChangeGuard:
         with pytest.raises(HomeAssistantError, match="unit system change"):
             await handler(call)
 
-        coordinator.async_update_reservations.assert_not_called()
+        coordinator.async_write_reservations.assert_not_called()
 
 
 class TestNwp500Python940Services:
