@@ -725,7 +725,7 @@ def ack_examples() -> dict[str, tuple[str, dict[str, Any]]]:
             TZ,
             shadow=shadow,
         )
-        check_plan(plan, planner.capabilities)
+        check_plan(plan)
         planner.set_plan(plan, at, obs())
         write = planner.step(at, obs())
         assert write is not None

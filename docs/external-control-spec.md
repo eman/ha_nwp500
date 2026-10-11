@@ -114,6 +114,7 @@ and mode changes (the override entity's `setpoint` and `mode` reports),
 whether an entry fired, and the state carried from one plan into the next.
 The wanted entities and `in_force` follow the plan's own segments, and a new
 plan's segment in force is compared with the state the heater reports.
+Entry items lost `enabled`, which only power-off handling ever set false.
 
 Minor versions so far: **1.1** adds the segment key `reassert` (section
 3.2). **1.2** added a grant's own timing rules; with grants gone it adds
@@ -130,8 +131,8 @@ declare `"1"` or any `"1.x"` either way.
 ```
 scheduler ──► [intent entity] ──► control feature ──whole-list writes──► heater's reservation list ──► heater
                                         │                                  (fires on its own)
-                                        ├── near-term entries: a segment already begun, the end of Vacation or power-off
-                                        ├── one direct write: when the feature is disabled
+                                        ├── near-term entries: a segment already begun
+                                        ├── direct writes: the plan's device commands, once each (section 3.7)
                                         └──► entities (section 4): the declaration, the plan and its ack, the program, what happened
 ```
 
@@ -238,6 +239,8 @@ Removed before release (section 1.3). A document's `grants` key is opaque.
 | `energy_saver` | Energy Saver (hybrid) |
 | `high_demand` | High Demand |
 | `electric` | Electric |
+| `vacation` | Vacation |
+| `power_off` | Powered off |
 
 ### 3.5 Validation
 
@@ -396,7 +399,8 @@ keys and values, which are as documented here.
 | `near_term_lead_min` | How far ahead a near-term entry is written: 2 (section 5.2) |
 | `entry_limit` | The most entries the feature will use on the device. Option, default **16**. The unit tested accepted and read back a list of 32 (section 8); larger lists are untested |
 | `entry_reserve` | Entries kept free for near-term entries. Option, default 2 |
-| `entries_available` | `entry_limit` minus every entry on the device and the reserve |
+| `entries_available` | `entry_limit` minus every entry on the device and the reserve. Not part of the version: it changes as entries fire |
+| `version` | The state, again as an attribute |
 
 ### 4.2 State entities
 
@@ -410,14 +414,14 @@ without retained copies has them all again. Only the state's timestamps
 | Entity | State | Attributes |
 |---|---|---|
 | `sensor.<device>_control_intent`, the plan entity (not the input intent entity of section 2.1) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque top-level keys |
-| `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, set only in the `rejected` state; `segments` (below); `rejected` (below) |
+| `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, set only in the `rejected` state; `segments` (below); `commands` (below, protocol 1.3); `rejected` (below) |
 | `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
 | `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
 | `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment still to be written that is not on the device yet, or of the last segment once all are; unknown without a plan. A `merged` segment, or one a person removed, is not to be written | `complete` (every segment to be written is programmed), `scheduled` (segments waiting for the horizon or for room) |
 | `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | `sensor.<device>_control_wanted_mode` | The mode of the plan's segment in force: the last segment that has started, a merged one counting as the one it merged into. Unknown before the first segment starts | none |
 | `sensor.<device>_control_wanted_setpoint` | The setpoint of the plan's segment in force, as for the mode, in Home Assistant's unit | `segment` (the plan's segment in force) |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term`, `takeover`; a write stored by an earlier version may say `grant_raise`, `grant_lower`, `precedence_exit`, `power_off` or `disable`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated` (below) |
+| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term` or `takeover`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated` (below) |
 | `binary_sensor.<device>_control_override` | On while a person's change to the reservation list is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
 | `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | `started_at` |
 
@@ -427,14 +431,13 @@ list or took off it:
 
 | Key | Type | Meaning |
 |---|---|---|
-| `kind` | string | What the entry is for: `plan` or `near_term`. An entry an earlier version wrote may be `precedence_exit`, `grant_raise`, `grant_lower` or `guard`, until a write removes it |
-| `owner` | string | The program's label for the kind: `plan`, `guard`, or `near_term` for the others |
-| `serves` | string | The `id` of the segment it serves; for an earlier version's `grant_raise`, `grant_lower` or `guard` entry, still being removed, the old grant's id. It is the same string as `control_next_entry`'s `serves` |
+| `kind` | string | What the entry is for: `plan` or `near_term` |
+| `owner` | string | The program's label for the kind: the kind itself |
+| `serves` | string | The `id` of the segment it serves. It is the same string as `control_next_entry`'s `serves` |
 | `fires_at` | string, ISO 8601 with the local offset | The minute the entry is written for: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). A near-term entry confirmed only after its minute never fired; it is issued again, for a later minute, in a later write. An entry left on the device fires again a week later |
 | `mode` | string | The mode it sets, as a name (section 3.4) |
 | `setpoint_f`, `setpoint_c` | number | The setpoint it sets, to one decimal |
 | `setpoint_raw` | integer | The same setpoint as the device holds it, in half-degrees Celsius |
-| `enabled` | boolean | False only for the feature's own entries while the heater is powered off (section 5.9) |
 | `week`, `hour`, `min` | integer | The device slot, under the device's key names: the weekday bit of `fires_at`'s local date (Monday 64, Tuesday 32, Wednesday 16, Thursday 8, Friday 4, Saturday 2, Sunday 128) and its local hour and minute |
 
 **Program items.** Each item of `control_program_hash`'s `entries` is an
@@ -470,8 +473,8 @@ At the default `entry_limit` this does not happen; it can at 32 entries,
 when a plan replaces most of its entries. The program entity's `entries`
 always lists every entry the feature wants: with ids of at most 64
 characters, 32 entries stay well within the limit.
-`docs/examples/last-write-*.json` are two writes for
-`docs/examples/plan-day.json`, as the entity reports them.
+`docs/examples/last-write-plan.json` is a write for
+`docs/examples/plan-day.json`, as the entity reports it.
 
 **Override reports.** Each report, and the override entity's own
 attributes for the latest, has `field`, `value`, `detected_at` (ISO 8601)
@@ -581,6 +584,7 @@ audit.
 | `dhw_target_temperature_setting` (water heater target, target-temperature number) | Setpoint read-back after each entry |
 | `dhw_operation_setting` (water heater operation mode) | Mode read-back after each entry |
 | `tou_status` | Read-back of a plan's `tou` command (section 3.7) |
+| `vacation_day_setting`, `anti_legionella_use`, `anti_legionella_period` | Read-back of a plan's `vacation` and `anti_legionella` commands (section 3.7) |
 
 ### 4.4 Controls
 
@@ -616,13 +620,13 @@ is the scheduler's to plan around.
    ahead. This covers a segment already begun when its plan arrives.
 5. **No entry for a passed minute.** An entry for a minute that has passed
    would fire a week later. If a write confirms only after its near-term
-   entry's minute, the feature checks the read-back. If the heater did not
-   change, it removes that entry and writes a new near-term entry.
+   entry's minute, that entry never fired: the feature removes it and writes
+   a new near-term entry for the next minute it can make.
 6. **One enabled entry per slot.** A plan entry never shares a weekday and
    minute with another enabled entry on the device. It moves to the next free
    minute, and its segment gets the warning `moved_1_min`. It may share one
-   with an entry switched off by its own flag, such as an owner entry while
-   live: the device stores both and fires only the enabled one (section 8).
+   with an entry switched off by its own flag: the device stores both and
+   fires only the enabled one (section 8).
    Which of two enabled entries in one slot wins is untested.
 7. **Ownership.** Every entry the feature writes is recorded in storage as its
    own, with the segment it serves.
@@ -889,7 +893,7 @@ in this document.
 | 5 | **Unchanged entries.** Whether an entry repeating the heater's mode and setpoint starts a recovery | **No**, in 4 runs with the tank 1.3–2.2 °F below the setpoint, the compressor off and no hot water drawn. That each fired is inferred from tests 1 and 2, since it changes nothing observable |
 | 6 | **Entry mode in a TOU window.** Held until the window ends, applied at the end, or discarded | **Held, and applied when the window ends.** An entry at 16:30 set Energy Saver at the heater's setpoint, inside the 16:00–20:59 peak window. The heater stayed in Heat Pump with no change through 20:57. At 21:00:05 it switched to Energy Saver and started a recovery: the upper element ran for about 3 minutes, then the compressor. That recovery may be the window's end rather than the mode change; this run cannot tell them apart |
 | 7 | **Vacation and power-off.** Whether entries are skipped, and whether a missed entry runs late | **Vacation: skipped, and not run late** when Vacation ended. **Power-off: not skipped.** In two runs an entry fired while the heater was powered off by the power command and turned it on: once in Heat Pump, and once in Energy Saver, the entry's mode rather than the mode the heater had. Powered off for 6 minutes with no entries, it stayed off, so the entry did it. This contradicts the library's docs |
-| 8 | **Anti-Legionella.** Whether an entry firing mid-cycle interrupts it | **Not run: no cycle could be started.** Enabling Anti-Legionella (period 14 days) did not start a cycle within 20 minutes, and nothing else starts one on demand. The owner keeps it off, so no cycle is due. The feature writes nothing while a cycle runs (section 5.9), so the open question only matters to an owner who enables it |
+| 8 | **Anti-Legionella.** Whether an entry firing mid-cycle interrupts it | **Not run: no cycle could be started.** Enabling Anti-Legionella (period 14 days) did not start a cycle within 20 minutes, and nothing else starts one on demand. The owner keeps it off, so no cycle is due. The feature gives a cycle no special handling (section 5.9), so the open question matters to a scheduler that plans around one |
 | 9 | **Per-entry enable flag.** Whether an entry with its own flag off is skipped | **Passed.** The switched-off entry was skipped and the next enabled entry fired |
 | 10 | **Slots.** Two entries on the same weekday and minute, one switched off | **Accepted.** The device stored both and fired only the enabled one |
 | 11 | **Offline.** Whether entries fire while the device is off the cloud, and survive a power cut | **Power cut: the list survives, a missed entry is skipped.** The heater's breaker was switched off for 6 minutes (00:17–00:23) with four entries programmed. On power-up it was back on the cloud in 23 s with the same list, reservation switch, mode and setpoint. The entry that fell during the cut did not run late. The next two fired within 3 s of their minute, so the clock kept time. **Off the cloud: not tested, and out of scope.** Every entry observed fired while the heater was on Navien's cloud, so whether entries or the clock depend on it is unknown. That matters only during an internet outage at the heater, not when Home Assistant or the scheduler is unavailable, which is the case the design must survive |
@@ -970,11 +974,12 @@ was removed afterwards, which its status shows instead.
   programs a plan; it never makes one, and reacts to nothing but the heater.
 - **The home's power:** spare power, solar, the grid, batteries (section
   5.7). The feature reads only the heater.
-- **Inferring the heater's state** from its compressor or elements (section
-  5.11). The feature reports what the heater reports.
+- **Inferring what the heater does not report:** its state from its
+  compressor or elements, a TOU window, whether an entry fired, or who
+  changed a setting. The feature reports what the heater reports.
 - **Cycle policy:** minimum run times, not stopping a running
   compressor, not reversing within a cycle. The scheduler chooses segment
-  times using the facts in section 4.1. The feature cannot enforce such rules
+  times. The feature cannot enforce such rules
   on segments anyway, because the device fires an entry whatever the
   compressor is doing.
 - **The TOU schedule** (section 5.8). The TOU switch is set only by a
@@ -989,22 +994,23 @@ was removed afterwards, which its status shows instead.
 | First draft | This revision | Why |
 |---|---|---|
 | Directives as windows over a baseline, with closing entries restoring it | A plan is a timeline of segments covering the whole period. No default inside a plan; the last segment holds until the next plan | Reservations cover the plan's whole period, and the heater never falls back mid-plan |
-| Direct writes as a second main channel: mode windows, hold-off starts, surplus raises, the TOU lever | Every change is an entry. A change needed now is a near-term entry two minutes ahead. The only direct write is disabling | The heater must keep running the plan when the service is unavailable |
+| Direct writes as a second main channel: mode windows, hold-off starts, surplus raises, the TOU lever | Every change of mode or setpoint is an entry. A change needed now is a near-term entry two minutes ahead. The only direct writes are the plan's device commands (section 3.7) | The heater must keep running the plan when the service is unavailable |
 | `valid_until`; a stale intent is withdrawn, and start-up deletes a stale intent's entries | Removed. Programmed entries run; only a new plan or disabling removes them | A silent scheduler or an outage must not end the schedule |
 | A daily-revert entry at 03:00, and re-applying the intent afterwards | Removed | It cut the plan short every day when Home Assistant was down, and was a daily write that could start a recovery |
 | Directive types `charge`, `hold_off`, `mode` and `surplus_grant`, with decisions inside the feature: a tank-relative hold setpoint, completion on the compressor stopping, request cycles | Segments with a setpoint and a mode; `setpoint: "min"` for effectively off | The feature actuates; the scheduler decides |
-| Surplus grants written directly | Kept, actuated by near-term entries, with a guard entry at the grant's end | A raise stays bounded on the device if Home Assistant stops mid-raise |
-| Minimum run before stop, no reversal within a cycle, restores waiting for the compressor | Removed for segments; declared as device facts. Kept only for lowering a surplus raise | A device-side entry fires regardless. The draft also contradicted itself: a charge's end was a hard limit, yet its restore waited |
-| An override blocked its field until 03:00, including the reservation list | People's changes are reported, never undone or adopted; they last until the next entry | With the list as the interface, a day-long pause would stop the controller |
-| A constant baseline restored after every directive | The owner's program, switched off while live and restored only by disabling | There is no fallback inside a plan |
-| Enabling reservations could re-activate disabled owner entries | Owner entries are switched off by their own enable flags while live | The owner's entries must not fire against the plan |
-| `vacation` and `power_off` excluded without a reason | Still excluded: entries are skipped in Vacation, and an entry's power-off mode is untested | `"min"` gives an off that the next entry can end |
+| Surplus grants written directly | Removed (#191) | The home's power is not the heater's |
+| Minimum run before stop, no reversal within a cycle, restores waiting for the compressor | Removed: cycle policy is the scheduler's (section 9) | A device-side entry fires regardless. The draft also contradicted itself: a charge's end was a hard limit, yet its restore waited |
+| An override blocked its field until 03:00, including the reservation list | Changes to the reservation list are reported, never undone; they last until a new plan (section 5.10) | With the list as the interface, a day-long pause would stop the controller |
+| A constant baseline restored after every directive | None: entries that are not the feature's are kept as read (section 5.1) | There is no fallback inside a plan |
+| Enabling reservations could re-activate disabled owner entries | Every entry that is not the feature's is kept as read, switched on or off (#193) | What the heater runs besides the plan is the scheduler's to plan around |
+| `vacation` and `power_off` excluded without a reason | Allowed, as every mode the heater has (section 3.4) | What a mode does is the scheduler's to know |
 | The entry's mode unstated | Every entry carries the full state; a segment may inherit the previous mode | A device entry always sets both |
 | No limit on how far ahead | A 144-hour horizon, and segments programmed in order as the budget allows, reported by `programmed_until` | A weekly entry fires at its next weekday occurrence, and the device holds few entries |
-| Precedence deleted pending entries | In Vacation, entries stay and the segment in force is re-asserted afterwards. At power-off, the feature switches its own entries off, and back on when power returns | The device skips entries in Vacation, but fires them while powered off and turns the heater back on |
+| Precedence deleted pending entries | No special handling (section 5.9, #193) | Whether to act on Vacation or power-off is the scheduler's |
 | `applied` meant a write read back | `programmed`, `in_force` and `ended`, with read-back after each entry | An entry's effect is only observable when it fires |
 | The TOU lever | Removed | Nothing on the device could undo it |
-| Surplus grants (kept by the revision), the assisted mode, mode confirmation from the compressor and elements, the separate live switches (2026-09-30, #191) | Removed, and with #192 removed from protocol 1 too, with the declaration's other keys beyond what runs and the entry budget (section 1.3) | The feature operates and reports the water heater, and nothing else. The home's power and the scheduler's preferences are not the heater's |
+| Surplus grants, the assisted mode, mode confirmation from the compressor and elements, the separate live switches (2026-09-30, #191) | Removed, and with #192 removed from protocol 1 too, with the declaration's other keys beyond what runs and the entry budget (section 1.3) | The feature operates and reports the water heater, and nothing else. The home's power and the scheduler's preferences are not the heater's |
+| The TOU window, people's setpoint and mode changes, whether an entry fired, and the state carried from one plan into the next, worked out by the feature | Removed (2026-10-11, #215, section 1.3) | The feature reads the heater; it does not infer what the heater does not report |
 
 ---
 
@@ -1014,20 +1020,16 @@ was removed afterwards, which its status shows instead.
 2. **Skeleton:** the options toggle and the disabled-path regression test;
    intake, validation and the stored plan; the capability entity; `shadow` as
    the default mode; the heartbeat; unload without writes. Done.
-3. **Shadow programming:** the owner's program; segments into entries, the
-   horizon, the budget and near-term entries; reading the list and
-   reconciling; surplus grants; the program, in-sync, programmed-until and
-   wanted entities; people's changes. This replaces the first draft's shadow
-   engine.
+3. **Shadow programming:** segments into entries, the horizon, the budget
+   and near-term entries; reading the list and reconciling; the program,
+   in-sync, programmed-until and wanted entities; people's changes. This
+   replaces the first draft's shadow engine.
 4. **The device tests** in section 8. Run on 2026-09-24 and 25. Test 8
    could not start a cycle, and the off-cloud half of test 11 is out of
    scope.
-5. **Live list writes** for segments, starting with a single allowed mode;
-   then more modes; then grants. Done, and cut over in stages on a real
-   heater (section 8.1). `CONTROL_LIVE_AVAILABLE` in `const.py` stays as a
-   kill switch. Leaving live, or switching the feature off, tries the
-   hand-back once; disabling retries it after a minute and at the next
-   start.
+5. **Live list writes** for segments, starting with a single mode, then
+   more modes. Done, and cut over in stages on a real heater (section 8.1).
+   `CONTROL_LIVE_AVAILABLE` in `const.py` stays as a kill switch.
 6. **Protocol `1`** after the staged live cut-over: declared, with the
    compatibility promises of section 1.3, a JSON Schema
    (`docs/external-control-protocol-1.schema.json`) and the examples.
@@ -1040,6 +1042,9 @@ was removed afterwards, which its status shows instead.
    hand-back. #192 removed them from protocol 1, with the declaration's
    other keys beyond what runs and the entry budget, coordinated with
    eman/dhw-sensor-apps#389 (section 1.3).
+8. **What the feature inferred** (2026-10-11, #215): the TOU window, people's
+   setpoint and mode changes, whether an entry fired, and the state carried
+   from one plan into the next were removed (section 1.3).
 
 Related: #157 (`water_heater` service reports success in two failure cases);
 #160 (turning the water heater off switched it to Energy Saver).

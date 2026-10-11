@@ -28,8 +28,6 @@ from custom_components.nwp500.control.engine import (
     State,
 )
 from custom_components.nwp500.control.entries import (
-    KIND_GRANT_RAISE,
-    KIND_GUARD,
     KIND_NEAR_TERM,
     KIND_PLAN,
     OwnedEntry,
@@ -95,7 +93,7 @@ def give(
 ):
     """Hand the planner a checked plan, and run a pass."""
     plan = parse_plan(make_document(now, segments, **document_kwargs))
-    check_plan(plan, planner.capabilities)
+    check_plan(plan)
     planner.set_plan(plan, now, observed or obs(), restoring=restoring)
     return run(planner, now, observed)
 
@@ -154,7 +152,7 @@ class TestSpecExample:
                 ],
             )
         )
-        check_plan(plan, planner.capabilities)
+        check_plan(plan)
         planner.set_plan(plan, self.SUNDAY, obs())
         return planner
 
@@ -242,7 +240,7 @@ def last_write_examples() -> dict[str, tuple[str, dict]]:
         TZ,
         shadow=False,
     )
-    check_plan(plan, planner.capabilities)
+    check_plan(plan)
     planner.set_plan(plan, at, obs())
 
     def on_device(**overrides) -> Observed:
@@ -744,14 +742,14 @@ class TestPeoplesChanges:
         assert planner.removed_segments == set()
 
     def test_removals_of_two_kinds_for_one_item_are_both_reported(self):
-        """A grant's raise and its guard: one report each."""
-        entry = OwnedEntry(KIND_GRANT_RAISE, "g1", minutes(5), "heat_pump", 127)
-        guard = OwnedEntry(KIND_GUARD, "g1", minutes(60), "heat_pump", 120)
+        """A segment's plan and near-term entries: one report each."""
+        plan = OwnedEntry(KIND_PLAN, "a", minutes(5), "heat_pump", 127)
+        near = OwnedEntry(KIND_NEAR_TERM, "a", minutes(60), "heat_pump", 127)
         keys = {
             Planner._report_key(
-                Report(REPORT_REMOVED, e.as_attributes(), NOW, "g1")
+                Report(REPORT_REMOVED, e.as_attributes(), NOW, "a")
             )
-            for e in (entry, guard)
+            for e in (plan, near)
         }
         assert len(keys) == 2
 
@@ -1211,7 +1209,7 @@ class TestDeletions:
                 NOW, [segment(NOW, "s0", -45, mode="heat_pump", setpoint_f=130)]
             )
         )
-        check_plan(plan, planner.capabilities)
+        check_plan(plan)
         planner.set_plan(plan, NOW, obs())
         assert (KIND_NEAR_TERM, "s0") in {
             (e.kind, e.serves) for e in planner.extra

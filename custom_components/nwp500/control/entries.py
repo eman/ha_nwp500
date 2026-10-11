@@ -22,24 +22,6 @@ from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
 # What an owned entry is for.
 KIND_PLAN = "plan"
 KIND_NEAR_TERM = "near_term"
-KIND_PRECEDENCE_EXIT = "precedence_exit"
-# Surplus grant entries, which the feature no longer writes. An earlier
-# version may have stored some as on the heater: they load, are reported, and
-# the next write removes them.
-KIND_GRANT_RAISE = "grant_raise"
-KIND_GRANT_LOWER = "grant_lower"
-KIND_GUARD = "guard"
-NEAR_TERM_KINDS = frozenset({KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT})
-
-# The owner label the program entity reports for each kind (section 4.2).
-OWNER_LABELS = {
-    KIND_PLAN: "plan",
-    KIND_NEAR_TERM: "near_term",
-    KIND_PRECEDENCE_EXIT: "near_term",
-    KIND_GRANT_RAISE: "near_term",
-    KIND_GRANT_LOWER: "near_term",
-    KIND_GUARD: "guard",
-}
 
 # Reservation bitfield: Sunday is bit 7, Saturday bit 1. Python's weekday()
 # has Monday as 0 and Sunday as 6.
@@ -67,9 +49,6 @@ class OwnedEntry:
     fires_at: datetime
     mode: str
     setpoint_raw: int
-    # False while the heater is powered off: entries fire then and would
-    # power it back on, so the feature switches its own off (section 5.9).
-    enabled: bool = True
 
     @property
     def slot(self) -> tuple[int, int, int]:
@@ -88,7 +67,7 @@ class OwnedEntry:
         """The device payload."""
         week, hour, minute = self.slot
         return {
-            "enable": DEVICE_BOOL_ON if self.enabled else DEVICE_BOOL_OFF,
+            "enable": DEVICE_BOOL_ON,
             "week": week,
             "hour": hour,
             "min": minute,
@@ -104,20 +83,20 @@ class OwnedEntry:
             "fires_at": self.fires_at.isoformat(),
             "mode": self.mode,
             "setpoint_raw": self.setpoint_raw,
-            "enabled": self.enabled,
         }
 
     def as_attributes(self) -> dict[str, Any]:
         """An entry as the entities report it (section 4.2).
 
-        The stored keys, the owner label, the setpoint in both units, and
-        the device slot under the Reservation Schedule sensor's key names.
+        The stored keys, the owner label (the kind), the setpoint in both
+        units, and the device slot under the Reservation Schedule sensor's
+        key names.
         """
         week, hour, minute = self.slot
         setpoint = HalfCelsius(self.setpoint_raw)
         return {
             **self.as_document(),
-            "owner": OWNER_LABELS.get(self.kind, self.kind),
+            "owner": self.kind,
             "setpoint_f": round(setpoint.to_fahrenheit(), 1),
             "setpoint_c": round(setpoint.to_celsius(), 1),
             "week": week,
@@ -134,7 +113,6 @@ class OwnedEntry:
             fires_at=datetime.fromisoformat(document["fires_at"]),
             mode=str(document["mode"]),
             setpoint_raw=int(document["setpoint_raw"]),
-            enabled=bool(document.get("enabled", True)),
         )
 
 

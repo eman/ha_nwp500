@@ -97,8 +97,7 @@ class ControlStore:
     def took_over(self, mac_address: str) -> bool:
         """Whether the feature has taken over the heater's reservation list.
 
-        True from the first confirmed live write until disabling restores
-        the owner's program (spec sections 5.1 and 6.6).
+        True from before the first live write is sent (spec section 5.1).
         """
         return bool(self._device(mac_address).get("took_over", False))
 

@@ -92,7 +92,7 @@ class TestAcceptedPlans:
         document["issued_at"] = now.replace(tzinfo=None).isoformat() + "Z"
         assert parse(document).issued_at == now
 
-    def test_segment_at(self, now, parse):
+    def test_next_segment_after(self, now, parse):
         plan = parse(
             make_document(
                 now,
@@ -102,9 +102,6 @@ class TestAcceptedPlans:
                 ],
             )
         )
-        assert plan.segment_at(now) is None
-        assert plan.segment_at(now + timedelta(minutes=10)).id == "a"
-        assert plan.segment_at(now + timedelta(minutes=25)).id == "b"
         assert plan.next_segment_after(now + timedelta(minutes=10)).id == "b"
         assert plan.next_segment_after(now + timedelta(minutes=20)) is None
 

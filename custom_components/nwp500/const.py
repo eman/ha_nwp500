@@ -1291,7 +1291,6 @@ CONF_CONTROL_ENABLED: Final = "control_enabled"
 CONF_CONTROL_MODE: Final = "control_mode"
 CONF_CONTROL_INTENT_ENTITY: Final = "control_intent_entity"
 CONF_CONTROL_LIVE_SEGMENTS: Final = "control_live_segments"
-CONF_CONTROL_ASSISTED_MODE: Final = "control_assisted_mode"
 CONF_CONTROL_RESERVATION_ENTRY_LIMIT: Final = "control_reservation_entry_limit"
 CONF_CONTROL_RESERVATION_ENTRY_RESERVE: Final = (
     "control_reservation_entry_reserve"
@@ -1307,28 +1306,17 @@ CONTROL_OBSOLETE_OPTIONS: Final = (
     "control_min_run_before_stop_min",
     "control_daily_revert_time",
     "control_baseline",
-    # Surplus grants, which the adapter no longer handles: it operates the
-    # water heater and reads nothing about the home's power.
     "control_live_grants",
     "control_surplus_entity",
     "control_surplus_threshold_kw",
     "control_min_run_before_lower_min",
-    # Live now always follows the plan; the segments switch only existed
-    # beside the grants switch (see `control_follows_plan`).
     "control_live_segments",
-    # Which mode a scheduler uses to recover quickly is the scheduler's
-    # choice, not the heater's.
     "control_assisted_mode",
-    # The heater clamps a setpoint and applies any mode: the adapter checks
-    # neither (limits belong in the library).
     "control_setpoint_min_f",
     "control_setpoint_max_f",
     "control_allowed_modes",
-    # The adapter keeps no copy of the owner's program: it applies the plan.
     "control_owner_program",
 )
-
-CONF_CONTROL_OWNER_PROGRAM: Final = "control_owner_program"
 
 CONTROL_MODE_SHADOW: Final = "shadow"
 CONTROL_MODE_LIVE: Final = "live"
@@ -1339,13 +1327,11 @@ CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 # writes the heater's reservation list. It was opened after the staged live
 # cut-over on a real heater (spec section 8, the live trial, 2026-09-25).
 # It is the kill switch: set it to False and the options form stops offering
-# `live`, and a `live` option runs as shadow. Handing the heater back is not
-# gated by it.
+# `live`, and a `live` option runs as shadow.
 CONTROL_LIVE_AVAILABLE: Final = True
 
 # The mode names a segment may use (spec section 3.4): every mode the heater
-# has. What a mode does, Vacation and power-off included, is the
-# scheduler's to know; the adapter applies it.
+# has.
 CONTROL_MODE_NAMES: Final = (
     "heat_pump",
     "energy_saver",

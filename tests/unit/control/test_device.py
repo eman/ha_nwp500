@@ -494,7 +494,6 @@ class TestReading:
             assert entry["mode_name"] == "heat_pump"
             assert entry["kind"] in ("plan", "near_term")
             assert entry["serves"]
-            assert entry["enabled"] is True
             assert entry["enable"] == 2
             assert entry["param"] == entry["setpoint_raw"]
             assert {"setpoint_f", "setpoint_c", "week", "hour", "min"} <= set(

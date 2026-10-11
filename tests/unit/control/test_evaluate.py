@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from custom_components.nwp500.control.capabilities import build_capabilities
 from custom_components.nwp500.control.evaluate import (
     NO_ACK,
     ItemAck,
@@ -16,7 +15,7 @@ from custom_components.nwp500.control.intent import (
     IntentRejected,
 )
 
-from .conftest import capabilities, make_document, segment
+from .conftest import make_document, segment
 
 SURPLUS = {"control_surplus_entity": "binary_sensor.surplus"}
 
@@ -28,7 +27,7 @@ class TestCheckPlan:
                 now, [segment(now, "s", 0, mode="heat_pump", setpoint_f=130)]
             )
         )
-        check_plan(plan, capabilities())
+        check_plan(plan)
 
     @pytest.mark.parametrize(
         "setpoint", [{"setpoint_f": 100}, {"setpoint_f": 155}]
@@ -40,21 +39,7 @@ class TestCheckPlan:
                 now, [segment(now, "s", 0, mode="heat_pump", **setpoint)]
             )
         )
-        check_plan(plan, capabilities())
-
-    def test_bounds_unknown_are_not_checked(self, now, parse):
-        plan = parse(
-            make_document(
-                now, [segment(now, "s", 0, mode="heat_pump", setpoint_f=90)]
-            )
-        )
-        check_plan(
-            plan,
-            build_capabilities(
-                {"control_allowed_modes": ["heat_pump"]},
-                feature_version="v",
-            ),
-        )
+        check_plan(plan)
 
     @pytest.mark.parametrize(
         "mode",
@@ -77,7 +62,7 @@ class TestCheckPlan:
                 ],
             )
         )
-        check_plan(plan, capabilities())
+        check_plan(plan)
 
     def test_a_mode_the_heater_does_not_have_rejects_the_plan(self, now, parse):
         plan = parse(
@@ -90,7 +75,7 @@ class TestCheckPlan:
             )
         )
         with pytest.raises(IntentRejected) as exc_info:
-            check_plan(plan, capabilities())
+            check_plan(plan)
         assert exc_info.value.reason == REASON_MODE_NOT_ALLOWED
 
 

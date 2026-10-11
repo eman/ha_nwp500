@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/eman/ha_nwp500/docs/external-control-protocol-1.schema.json",
   "title": "NWP500 external control plan, protocol 1",
-  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, bounds, allowed modes, the horizon and the entry budget) are checked by the feature and are listed in docs/external-control-spec.md. The $defs entry_item, program_item and last_write_attributes describe entity attributes the feature reports (spec section 4.2), not the plan.",
+  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, the horizon and the entry budget) are applied by the feature and are listed in docs/external-control-spec.md. The $defs entry_item, program_item and last_write_attributes describe entity attributes the feature reports (spec section 4.2), not the plan.",
   "type": "object",
   "required": ["protocol", "intent_id", "issued_at", "segments"],
   "properties": {
     "protocol": {
       "type": "string",
-      "pattern": "^1(\\.[0-9]+)?$",
+      "pattern": "^[01](\\.[0-9]+)?$",
       "description": "Protocol version: \"1\", or \"1.x\" for a later minor version. Within major version 1 changes are additive (spec section 1.3). A major version the feature does not support rejects the document (unsupported_protocol)."
     },
     "intent_id": {
@@ -115,20 +115,20 @@
     "entry_item": {
       "type": "object",
       "description": "Entity attributes, not part of a plan: one of the feature's own entries, as an item of control_last_write's added and removed (spec section 4.2). New keys may be added (spec section 1.3).",
-      "required": ["kind", "owner", "serves", "fires_at", "mode", "setpoint_f", "setpoint_c", "setpoint_raw", "enabled", "week", "hour", "min"],
+      "required": ["kind", "owner", "serves", "fires_at", "mode", "setpoint_f", "setpoint_c", "setpoint_raw", "week", "hour", "min"],
       "properties": {
         "kind": {
           "type": "string",
-          "description": "plan or near_term; an earlier version's entry may be precedence_exit, grant_raise, grant_lower or guard. Treat a value you do not know as opaque.",
+          "description": "plan or near_term. Treat a value you do not know as opaque.",
           "examples": ["plan", "near_term"]
         },
         "owner": {
           "type": "string",
-          "description": "The program's label for the kind: plan, or near_term for near_term (and an earlier version's precedence_exit, grant_raise and grant_lower; guard for guard)."
+          "description": "The program's label for the kind: the kind itself."
         },
         "serves": {
           "type": "string",
-          "description": "The id of the segment it serves; for an earlier version's grant_raise, grant_lower or guard entry, still being removed, the old grant's id. The same string as control_next_entry's serves."
+          "description": "The id of the segment it serves. The same string as control_next_entry's serves."
         },
         "fires_at": {
           "$ref": "#/$defs/timestamp",
@@ -140,10 +140,6 @@
         "setpoint_raw": {
           "type": "integer",
           "description": "The setpoint as the device holds it, in half-degrees Celsius."
-        },
-        "enabled": {
-          "type": "boolean",
-          "description": "False only while the heater is powered off (spec section 5.9)."
         },
         "week": {
           "type": "integer",
@@ -184,14 +180,14 @@
       "properties": {
         "owner": {
           "type": "string",
-          "description": "foreign (an entry the feature does not own, kept as read), or the owner label of one of the feature's own: plan, near_term or guard."
+          "description": "foreign (an entry the feature does not own, kept as read), or the owner label of one of the feature's own: plan or near_term."
         }
       },
       "if": {
         "properties": { "owner": { "const": "foreign" } }
       },
       "else": {
-        "required": ["kind", "serves", "fires_at", "mode_name", "setpoint_f", "setpoint_c", "setpoint_raw", "enabled"],
+        "required": ["kind", "serves", "fires_at", "mode_name", "setpoint_f", "setpoint_c", "setpoint_raw"],
         "properties": {
           "kind": { "$ref": "#/$defs/entry_item/properties/kind" },
           "serves": { "$ref": "#/$defs/entry_item/properties/serves" },
@@ -199,8 +195,7 @@
           "mode_name": { "$ref": "#/$defs/mode_name" },
           "setpoint_f": { "type": "number" },
           "setpoint_c": { "type": "number" },
-          "setpoint_raw": { "$ref": "#/$defs/entry_item/properties/setpoint_raw" },
-          "enabled": { "$ref": "#/$defs/entry_item/properties/enabled" }
+          "setpoint_raw": { "$ref": "#/$defs/entry_item/properties/setpoint_raw" }
         }
       },
       "additionalProperties": true

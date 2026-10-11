@@ -21,7 +21,6 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from custom_components.nwp500.const import (
     CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MODE,
-    CONF_CONTROL_OWNER_PROGRAM,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
 )
@@ -73,12 +72,6 @@ OWNER_ENTRY = {
     "min": 0,
     "mode": 3,
     "param": 120,
-}
-OWNER_DOC = {
-    "mode": "energy_saver",
-    "setpoint_raw": 119,
-    "reservations_enabled": True,
-    "entries": [OWNER_ENTRY],
 }
 OWNER_LIST = {"reservation_use": 2, "reservation": [OWNER_ENTRY]}
 FOREIGN_ENTRY = {
@@ -255,20 +248,6 @@ class TestReadBack:
         assert planner.readback == {"b": REASON_NOT_APPLIED}
         assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
 
-    def _detail(self, planner, item):
-        return next(
-            seg.detail for seg in planner.ack("i").segments if seg.id == item
-        )
-
-    def test_the_mode_is_not_inferred_from_what_the_heater_runs(self):
-        """Only what the heater reports counts (section 5.11)."""
-        planner = self._planner(setpoint_f=140)
-        fired = device_obs(planner, mode="heat_pump", setpoint_raw=120)
-        planner.step(minutes(10.5), fired)
-        planner.step(minutes(11.6), fired)
-        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
-        assert "mode_confirmed" not in self._detail(planner, "b")
-
     def test_not_in_shadow(self):
         planner = planner_with(
             [
@@ -301,11 +280,8 @@ class FakeHeater:
         self.lose = 0
         self.reads = 0
         self.writes: list[dict[str, Any]] = []
-        self.states: list[tuple[str, int]] = []
-        self.restore_ok = True
         self.gate: asyncio.Event | None = None
         self.lock = asyncio.Lock()
-        self.applies_state = True
         self.status_requests = 0
         # Lost writes that land anyway: only the confirmation is lost.
         self.land_unconfirmed = 0
@@ -345,19 +321,6 @@ class FakeHeater:
         self.person_sets(schedule)
         return copy.deepcopy(schedule)
 
-    async def async_restore_state(self, mode: str, setpoint_raw: int) -> bool:
-        self.states.append((mode, setpoint_raw))
-        if self.restore_ok and self.applies_state:
-            status = self.coordinator.data[MAC]["status"]
-            status.dhw_operation_setting = {
-                "heat_pump": 1,
-                "electric": 2,
-                "energy_saver": 3,
-                "high_demand": 4,
-            }[mode]
-            status.dhw_target_temperature_setting_raw = setpoint_raw
-        return self.restore_ok
-
     async def async_request_status(self) -> None:
         self.status_requests += 1
 
@@ -387,7 +350,6 @@ async def live_factory(
         merged = {
             CONF_CONTROL_MODE: CONTROL_MODE_LIVE,
             CONF_CONTROL_LIVE_SEGMENTS: True,
-            CONF_CONTROL_OWNER_PROGRAM: {MAC: OWNER_DOC},
             **options,
         }
         hass.config_entries.async_entries()
@@ -454,7 +416,6 @@ class TestGate:
             **{
                 CONF_CONTROL_MODE: CONTROL_MODE_LIVE,
                 CONF_CONTROL_LIVE_SEGMENTS: True,
-                CONF_CONTROL_OWNER_PROGRAM: {MAC: OWNER_DOC},
             },
         )
         store = ControlStore(hass, entry.entry_id)
@@ -516,7 +477,6 @@ class TestStopped:
         await hass.async_block_till_done()
 
         assert len(heater.writes) == writes
-        assert heater.states == []
         assert heater.schedule == written
         assert stopped.plan is None or stopped.plan.intent_id != "i-2"
 

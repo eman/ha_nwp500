@@ -25,8 +25,6 @@ from .capabilities import (
 from .entries import (
     KIND_NEAR_TERM,
     KIND_PLAN,
-    KIND_PRECEDENCE_EXIT,
-    NEAR_TERM_KINDS,
     OwnedEntry,
     compose_program,
     entry_slot,
@@ -73,15 +71,6 @@ UNCONFIRMED_KEPT = 5
 WRITE_PLAN = "plan"
 WRITE_CLEANUP = "cleanup"
 WRITE_NEAR_TERM = "near_term"
-# Surplus grant writes, which the feature no longer makes; a stored last
-# write from an earlier version may carry them.
-WRITE_GRANT_RAISE = "grant_raise"
-WRITE_GRANT_LOWER = "grant_lower"
-# Writes the feature no longer makes; a stored last write from an earlier
-# version may carry them.
-WRITE_PRECEDENCE_EXIT = "precedence_exit"
-WRITE_POWER_OFF = "power_off"
-WRITE_DISABLE = "disable"
 # The first live write: the reservation switch on (5.1).
 WRITE_TAKEOVER = "takeover"
 
@@ -291,14 +280,12 @@ class Planner:
         self.owned = [
             OwnedEntry.from_document(e) for e in document.get("owned", [])
         ]
-        # A surplus grant's entries, stored by an earlier version, are no
-        # longer wanted: the next write removes any on the heater.
         self.extra = [
             entry
             for entry in (
                 OwnedEntry.from_document(e) for e in document.get("extra", [])
             )
-            if entry.kind in NEAR_TERM_KINDS
+            if entry.kind == KIND_NEAR_TERM
         ]
         self.asserted = set(document.get("asserted", []))
         # Stored before this was kept: every owned plan entry is taken for
@@ -370,33 +357,30 @@ class Planner:
 
     # -- the timeline ------------------------------------------------------
 
-    def resolve(self, segment: Segment) -> State | None:
+    def resolve(self, segment: Segment) -> State:
         """A segment's state."""
         return State(segment.mode, segment.setpoint_raw)
 
-    def _timeline(self) -> list[tuple[Segment, State | None, bool]]:
+    def _timeline(self) -> list[tuple[Segment, State, bool]]:
         """Each segment, its state, and whether it merges into the last."""
-        result: list[tuple[Segment, State | None, bool]] = []
+        result: list[tuple[Segment, State, bool]] = []
         previous: State | None = None
         for segment in self.plan.segments if self.plan else ():
             state = self.resolve(segment)
             # A segment that repeats the state before it needs no entry,
             # unless it asks to re-assert it (protocol 1.1).
-            merged = (
-                state is not None and state == previous and not segment.reassert
-            )
+            merged = state == previous and not segment.reassert
             result.append((segment, state, merged))
-            if state is not None:
-                previous = state
+            previous = state
         return result
 
-    def _anchor(self, now: datetime) -> tuple[Segment, State | None] | None:
+    def _anchor(self, now: datetime) -> tuple[Segment, State] | None:
         """The plan's segment in force: the last one that has started.
 
         Merged segments are taken back to the first of their run. None
         before the first segment starts, or without a plan.
         """
-        anchor: tuple[Segment, State | None] | None = None
+        anchor: tuple[Segment, State] | None = None
         for segment, state, merged in self._timeline():
             if segment.start > now:
                 break
@@ -461,15 +445,11 @@ class Planner:
         # the same segment in force now, in the same state. Any other served
         # the old plan only.
         current = self._anchor(now)
-        keep = (
-            (current[0].id, current[1])
-            if current is not None and current[1] is not None
-            else None
-        )
+        keep = (current[0].id, current[1]) if current is not None else None
         self.extra = [
             e
             for e in self.extra
-            if e.kind not in NEAR_TERM_KINDS
+            if e.kind != KIND_NEAR_TERM
             or (e.serves, State(e.mode, e.setpoint_raw)) == keep
         ]
         # A plan entry already programmed with the same state serves the
@@ -493,7 +473,7 @@ class Planner:
         segment_id, state = keep
         self.asserted.add(segment_id)
         if restoring or any(
-            e.kind in NEAR_TERM_KINDS and e.serves == segment_id
+            e.kind == KIND_NEAR_TERM and e.serves == segment_id
             for e in self.extra
         ):
             # In force before the restart, or an entry kept for it will put
@@ -503,7 +483,7 @@ class Planner:
             state.mode,
             state.setpoint_raw,
         ):
-            self._near_term(KIND_NEAR_TERM, segment_id, state, now)
+            self._near_term(segment_id, state, now)
 
     # -- a planning pass ---------------------------------------------------
 
@@ -548,16 +528,9 @@ class Planner:
         """
         self.owned = list(write.result)
         self.last_write = write
-        # A planning write's plan entries are the plan in force's; the
-        # power-off write only switches entries off, whatever plan they are.
+        # A write's plan entries are the plan in force's.
         self._plan_entries = {
-            self._check_key(e)
-            for e in self.owned
-            if e.kind == KIND_PLAN
-            and (
-                write.reason != WRITE_POWER_OFF
-                or self._check_key(e) in self._plan_entries
-            )
+            self._check_key(e) for e in self.owned if e.kind == KIND_PLAN
         }
         for entry in write.added:
             if entry.kind == KIND_PLAN and entry.serves:
@@ -574,7 +547,7 @@ class Planner:
         if confirmed_at is not None:
             for entry in write.added:
                 if (
-                    entry.kind in NEAR_TERM_KINDS
+                    entry.kind == KIND_NEAR_TERM
                     and entry.serves is not None
                     and entry.fires_at <= confirmed_at
                 ):
@@ -585,7 +558,7 @@ class Planner:
                         entry.serves,
                     )
                     self._checked.add(self._check_key(entry))
-                    self._retime(entry.kind, entry.serves, confirmed_at)
+                    self._retime(entry.serves, confirmed_at)
 
     def reject(
         self,
@@ -603,8 +576,7 @@ class Planner:
         with its confirmation lost. It is kept as unconfirmed, with the hash
         of the list sent, and reconciled against the next read of the list
         (`reconcile_unconfirmed`). Plan entries stay candidates and go in
-        the next write. An entry that must fire soon (a near-term or a
-        precedence exit) is moved to the first minute it can still make
+        the next write. A near-term entry, which must fire soon, is moved to the first minute it can still make
         after `retry_at`, so the retry does not write an entry whose minute
         has passed. After the retry has failed too (`final`), what it served
         is `failed`. A write that was never sent (the list could not be read
@@ -620,33 +592,31 @@ class Planner:
                 continue
             if final and entry.serves:
                 self.failed[entry.serves] = REASON_WRITE_NOT_CONFIRMED
-            if entry.kind not in NEAR_TERM_KINDS or entry.serves is None:
+            if entry.kind != KIND_NEAR_TERM or entry.serves is None:
                 continue
-            self._retime(entry.kind, entry.serves, retry_at)
+            self._retime(entry.serves, retry_at)
 
-    def _retime(self, kind: str, serves: str, when: datetime) -> None:
+    def _retime(self, serves: str, when: datetime) -> None:
         """Move a pending near-term entry to the first minute after `when`.
 
-        Matched by kind and what it serves, not by equality: the copy that
-        was written may have been moved past a collision. Dropped if the
-        next segment starts by then, and a segment's entry once that segment
-        is no longer the one in force (#172): it would put an ended
-        segment's state back.
+        Matched by what it serves, not by equality: the copy that was
+        written may have been moved past a collision. Dropped if the next
+        segment starts by then, and once its segment is no longer the one
+        in force (#172): it would put an ended segment's state back.
         """
         earliest = near_term_minute(when, NEAR_TERM_LEAD)
         for entry in [
-            e for e in self.extra if e.kind == kind and e.serves == serves
+            e
+            for e in self.extra
+            if e.kind == KIND_NEAR_TERM and e.serves == serves
         ]:
             if entry.fires_at >= earliest:
                 continue
             self.extra = [e for e in self.extra if e != entry]
-            if kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT):
-                anchor = self._anchor(when)
-                if anchor is None or anchor[0].id != serves:
-                    continue
-            self._near_term(
-                kind, serves, State(entry.mode, entry.setpoint_raw), when
-            )
+            anchor = self._anchor(when)
+            if anchor is None or anchor[0].id != serves:
+                continue
+            self._near_term(serves, State(entry.mode, entry.setpoint_raw), when)
 
     def _hold(self, now: datetime) -> None:
         """In live, keep unwritten near-term entries makeable.
@@ -662,13 +632,13 @@ class Planner:
         until = self.hold_until
         if until is not None and now >= until:
             until = None
-        for entry in [e for e in self.extra if e.kind in NEAR_TERM_KINDS]:
+        for entry in [e for e in self.extra if e.kind == KIND_NEAR_TERM]:
             if entry.serves is None or self._written(entry):
                 continue
             if until is not None:
-                self._retime(entry.kind, entry.serves, until)
+                self._retime(entry.serves, until)
             elif entry.fires_at + FIRED_GRACE <= now:
-                self._retime(entry.kind, entry.serves, now)
+                self._retime(entry.serves, now)
 
     def _written(self, entry: OwnedEntry) -> bool:
         """Whether a near-term entry is on the device.
@@ -747,7 +717,7 @@ class Planner:
                 self.extra = [
                     e
                     for e in self.extra
-                    if not (e.kind in NEAR_TERM_KINDS and e.serves == serves)
+                    if not (e.kind == KIND_NEAR_TERM and e.serves == serves)
                 ]
             # The entry as the last write entity reported it (section 4.2).
             report = Report(
@@ -769,7 +739,7 @@ class Planner:
         """
         if entry.kind == KIND_PLAN:
             return self._check_key(entry) in self._plan_entries
-        return entry.kind in NEAR_TERM_KINDS
+        return entry.kind == KIND_NEAR_TERM
 
     def _placed_as_planned(self, entry: OwnedEntry, observed: Observed) -> bool:
         """Whether a plan entry is where the plan in force places it now.
@@ -820,8 +790,7 @@ class Planner:
         due = [
             e
             for e in self.owned
-            if e.enabled
-            and e.fires_at + self.explain_window <= now
+            if e.fires_at + self.explain_window <= now
             and self._check_key(e) not in self._checked
         ]
         if not due:
@@ -871,29 +840,25 @@ class Planner:
     # Entries
 
     def _near_term(
-        self, kind: str, serves: str, state: State, now: datetime
+        self, serves: str, state: State, now: datetime
     ) -> OwnedEntry | None:
         """An entry for the first minute at least the lead time away.
 
         None if a segment changing the state starts by then: its own entry
-        makes this one pointless. A merged segment has none.
+        makes this one pointless. A merged segment has none. It replaces a
+        near-term entry still pending for the segment.
         """
         fires_at = near_term_minute(now, NEAR_TERM_LEAD).astimezone(self.tz)
         nxt = self._next_change_after(now)
         if nxt is not None and nxt.start <= fires_at:
             return None
         entry = OwnedEntry(
-            kind, serves, fires_at, state.mode, state.setpoint_raw
-        )
-        # An exit re-asserts the segment: it replaces a near-term entry
-        # still pending for it (#172).
-        replaced = (
-            (kind, KIND_NEAR_TERM) if kind == KIND_PRECEDENCE_EXIT else (kind,)
+            KIND_NEAR_TERM, serves, fires_at, state.mode, state.setpoint_raw
         )
         self.extra = [
             e
             for e in self.extra
-            if not (e.kind in replaced and e.serves == serves)
+            if not (e.kind == KIND_NEAR_TERM and e.serves == serves)
         ]
         self.extra.append(entry)
         return entry
@@ -907,14 +872,10 @@ class Planner:
         if anchor is None:
             return
         segment, state = anchor
-        if (
-            state is None
-            or segment.id in self.asserted
-            or segment.id in self.removed_segments
-        ):
+        if segment.id in self.asserted or segment.id in self.removed_segments:
             return
         self.asserted.add(segment.id)
-        self._near_term(KIND_NEAR_TERM, segment.id, state, now)
+        self._near_term(segment.id, state, now)
 
     def others(self, observed: Observed) -> list[dict[str, int]]:
         """Entries on the device that the feature does not own."""
@@ -946,8 +907,6 @@ class Planner:
                 or segment.id in self.removed_segments
             ):
                 info[segment.id] = _SegmentInfo(False, warnings=tuple(warnings))
-                continue
-            if state is None:
                 continue
             entry = OwnedEntry(
                 KIND_PLAN,
@@ -1164,8 +1123,7 @@ class Planner:
         asserting = [
             e
             for e in self.extra
-            if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
-            and e.serves == item
+            if e.kind == KIND_NEAR_TERM and e.serves == item
         ]
         if any(not self._written(e) for e in asserting):
             return STATUS_PENDING
@@ -1205,8 +1163,7 @@ class Planner:
                     (
                         e.fires_at
                         for e in (*self.owned, *self.extra)
-                        if e.kind in (KIND_NEAR_TERM, KIND_PRECEDENCE_EXIT)
-                        and e.serves == segment.id
+                        if e.kind == KIND_NEAR_TERM and e.serves == segment.id
                     ),
                     None,
                 )
@@ -1272,8 +1229,3 @@ class Planner:
             state=state,
             segments=tuple(segments),
         )
-
-
-def owned_documents(entries: Iterable[OwnedEntry]) -> list[dict[str, Any]]:
-    """Owned entries for an entity's attributes."""
-    return [e.as_document() for e in entries]

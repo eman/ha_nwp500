@@ -225,7 +225,6 @@ class TestSensors:
                 "setpoint_raw": 120,
                 "setpoint_f": 140.0,
                 "setpoint_c": 60.0,
-                "enabled": True,
                 "week": 128,
                 "hour": 12,
                 "min": 0,
@@ -242,7 +241,7 @@ class TestSensors:
         entries = tuple(
             OwnedEntry(
                 "plan",
-                f"segment-{i:04d}-{'x' * 30}",
+                f"segment-{i:04d}-{'x' * 40}",
                 WHEN + timedelta(minutes=i),
                 "energy_saver",
                 114,
@@ -272,12 +271,11 @@ class TestSensors:
             }
             for entry in (
                 OwnedEntry(
-                    "precedence_exit",
+                    "near_term",
                     f"{i:02d}".ljust(ITEM_ID_MAX_LENGTH, "x"),
                     WHEN + timedelta(hours=i),
                     "energy_saver",
                     114,
-                    enabled=False,
                 )
                 for i in range(MAX_CONTROL_RESERVATION_ENTRY_LIMIT)
             )

@@ -16,9 +16,8 @@ Live mode was cut over in stages on a real heater before protocol `1` was
 declared.
 
 The options form and the entities use plain names; the protocol keeps its
-own. A **plan** is the specification's *intent* (its id is `intent_id`), a
-**plan step** is a *segment*, and **your own settings** are the *owner's
-program*. Raw states and attribute values are the protocol's, whatever the
+own. A **plan** is the specification's *intent* (its id is `intent_id`), and
+a **plan step** is a *segment*. Raw states and attribute values are the protocol's, whatever the
 display shows.
 
 **The feature applies your scheduler's plan and reports the result.** It
@@ -41,10 +40,11 @@ say `"0"` are still accepted and mean the same.
 |---|---|---|
 | 1 | The specification, the JSON Schema and the examples | Done |
 | 2 | Options toggle and the disabled-path regression test; intake, validation and the stored plan; the capability entity; `shadow` as the default mode; heartbeat; unload without writes | Done |
-| 3 | Shadow programming: the owner's program; segments into entries, the horizon, the budget and near-term entries; reading the list; surplus grants; the program, in-sync, programmed-until and wanted entities; people's changes | Done |
+| 3 | Shadow programming: segments into entries, the horizon, the budget and near-term entries; reading the list; the program, in-sync, programmed-until and wanted entities; people's changes | Done |
 | 4 | The device tests in section 8 of the specification | Done on 2026-09-24 and 25, except test 8 (no cycle could be started) and the off-cloud half of test 11 |
-| 5 | Live list writes: segments with a single allowed mode, then more modes, then grants | Done; cut over in stages on a real heater on 2026-09-25 (specification section 8.1) |
+| 5 | Live list writes: segments with a single mode, then more modes | Done; cut over in stages on a real heater on 2026-09-25 (specification section 8.1) |
 | 6 | Protocol `1` after the staged live cut-over | Done: compatibility promises in section 1.3, a JSON Schema, and the examples |
+| 7 | The boundary: the feature applies the plan and reports the result, and nothing else (#191, #193, #215) | Done |
 
 In shadow every write the planner asks for is committed as **simulated**:
 the last write entity shows it with `simulated: true`, and the program
@@ -184,7 +184,9 @@ Vacation, are checked by the library, and a value it refuses is `failed`
 with its message. Mode and setpoint are set by segments only.
 [`examples/plan-commands.json`](examples/plan-commands.json) carries one of
 each command, and `examples/ack-commands-live.json` and
-`ack-commands-shadow.json` are its acknowledgement, live and in shadow.
+`ack-commands-shadow.json` are its acknowledgement, live and in shadow. Its
+`recirculation` command is not one the feature knows, to show a command
+rejected on its own, so the example does not validate against the schema.
 
 ### Validation
 
@@ -257,13 +259,13 @@ reads.
 |---|---|---|
 | External control interface (`capabilities`), diagnostic | The declaration's version | The declaration (below) |
 | Plan (`intent`) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque keys |
-| Plan status (`ack`) | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force` and its opaque keys |
-| External control schedule fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `foreign` (not the feature's), `plan`, `near_term` or `guard`; the feature's own also say what they serve and when they fire (spec section 4.2) |
-| Plan written to heater (`in_sync`) | On when the device's list hashes the same as the program; off in Preview whenever the plan has entries of its own | `device_hash`, `read_at` |
+| Plan status (`ack`) | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force` and its opaque keys; `commands` (above) |
+| External control schedule fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `foreign` (not the feature's), `plan` or `near_term`; the feature's own also say what they serve and when they fire (spec section 4.2) |
+| Plan written to heater (`in_sync`) | On when the device's list hashes the same as the program, the reservation switch included; so in Preview it is off whenever the plan has entries of its own, or the switch is off | `device_hash`, `read_at` |
 | Plan written up to (`programmed_until`) | How far the device's copy of the plan reaches | `complete`, `scheduled` |
 | Plan next change (`next_entry`) | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | Plan mode now, Plan temperature now (`wanted_mode`, `wanted_setpoint`) | The state of the plan's segment in force; unknown before its first segment | `segment` (on the temperature: the segment in force) |
-| External control last write (`last_write`), diagnostic | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`. Examples: `docs/examples/last-write-*.json` |
+| External control last write (`last_write`), diagnostic | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`. Example: `docs/examples/last-write-plan.json` |
 | Manual change detected (`override`) | On while a person's change to the reservation list is reported: a deleted entry, or the switch turned off | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
 | External control heartbeat (`heartbeat`), diagnostic | Updated at least every 15 minutes | `started_at`: when the feature last started (set-up or reload) |
 | Stop external control (`disable`, button) | | Sets Mode to Stopped: the feature stops applying plans |
@@ -277,7 +279,7 @@ The last write's `reason` is one of `plan`,
 
 | Attribute | Meaning |
 |---|---|
-| `protocols`, `protocol_versions`, `feature_version`, `mode` | What runs. `protocol_versions` names the newest minor of each major, `["1.3", "0"]`; a scheduler checks it before relying on `reassert` (1.1) |
+| `protocols`, `protocol_versions`, `feature_version`, `mode`, `version` | What runs; `version` is the state again. `protocol_versions` names the newest minor of each major, `["1.3", "0"]`; a scheduler checks it before relying on `reassert` (1.1) |
 | `setpoint_resolution_c` | The device's half-degree resolution |
 | `horizon_h`, `near_term_lead_min`, `entry_limit`, `entry_reserve`, `entries_available` | How entries are budgeted. `entries_available` changes as entries fire, so it is left out of the version |
 
@@ -321,7 +323,8 @@ Live mode writes the plan into the heater's reservation list.
 In Preview (`shadow`) the program entities show the list the feature would
 write, and the last write entity shows each write it would have made.
 Compare the schedule fingerprint with the device's own Reservation Schedule
-sensor: Plan written to heater is off whenever they differ, which in shadow means the plan has entries of its own.
+sensor: Plan written to heater is off whenever they differ, which in shadow
+means the plan has entries of its own, or the reservation switch is off.
 The acknowledgement shows each segment's status, when its entry fires, and
 any warning.
 

@@ -3,9 +3,8 @@
 A plan's commands are settings a reservation entry cannot set. Adopting a
 plan applies its commands, once each, in list order, after the list is
 written; nothing is kept of a plan's commands once another is adopted.
-Whether to send a command is the scheduler's: it puts it in a plan or not.
 A status reports the application only: a person changing the setting later
-does not change it, and nothing here undoes their change.
+does not change it.
 """
 
 from __future__ import annotations

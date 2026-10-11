@@ -39,8 +39,9 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
 - **Scheduling** — Recurring mode and temperature changes via the reservation service.
 - **External control** — Optional, and off unless you turn it on. Lets a
   scheduler of your own publish a plan: when to change the heater's
-  temperature and mode. The plan is written into the heater's own schedule,
-  so the heater keeps following it if Home Assistant is down. See
+  temperature and mode, and settings such as Vacation. The plan is written
+  into the heater's own schedule, so the heater keeps following it if Home
+  Assistant is down. See
   [docs/external-control.md](docs/external-control.md).
 
 ## Installation

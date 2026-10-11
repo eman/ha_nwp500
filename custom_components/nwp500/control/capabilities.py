@@ -41,7 +41,7 @@ NEAR_TERM_LEAD = timedelta(minutes=2)
 
 @dataclass(frozen=True)
 class Capabilities:
-    """The declaration, with the bounds in device resolution for checks."""
+    """The declaration."""
 
     mode: str
     entry_limit: int

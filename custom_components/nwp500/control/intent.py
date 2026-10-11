@@ -1,10 +1,9 @@
 """The intent document: a plan of segments and device commands.
 
 Spec section 3 of issue #158. Parsing checks what the document says on its
-own terms: types, required keys, ids and the order of segments. Checks that
-depend on the capability declaration (bounds, allowed modes) are in
-`evaluate.py`; the superseded check needs the plan in force and is made by
-the device controller.
+own terms: types, required keys, ids and the order of segments. The mode
+names are checked in `evaluate.py`; the superseded check needs the plan in
+force and is made by the device controller.
 """
 
 from __future__ import annotations
@@ -43,7 +42,6 @@ REASON_INVALID_DOCUMENT = "invalid_document"
 REASON_UNSUPPORTED_PROTOCOL = "unsupported_protocol"
 REASON_DUPLICATE_ID = "duplicate_id"
 REASON_UNORDERED_SEGMENTS = "unordered_segments"
-REASON_OUT_OF_BOUNDS = "out_of_bounds"
 REASON_MODE_NOT_ALLOWED = "mode_not_allowed"
 REASON_SUPERSEDED = "superseded"
 # A command rejected on its own; the plan proceeds (section 3.7).
@@ -183,16 +181,6 @@ class Plan:
     segments: tuple[Segment, ...]
     extra: dict[str, Any] = field(default_factory=dict)
     commands: tuple[Command, ...] = ()
-
-    def segment_at(self, when: datetime) -> Segment | None:
-        """The segment in force at `when`, or None before the first."""
-        current: Segment | None = None
-        for segment in self.segments:
-            if segment.start <= when:
-                current = segment
-            else:
-                break
-        return current
 
     def next_segment_after(self, when: datetime) -> Segment | None:
         """The first segment that starts after `when`."""

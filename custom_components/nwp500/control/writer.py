@@ -1,6 +1,6 @@
 """Writing to the heater: the one narrow path live mode uses.
 
-Spec sections 5.4 and 6.6 of issue #158. Everything live mode sends to the
+Spec section 5.4 of issue #158. Everything live mode sends to the
 heater goes through a `ListWriter`, so tests can put a simulated heater in
 its place and nothing else in the feature can reach the device.
 """
@@ -12,9 +12,6 @@ import logging
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any, Protocol
 
-from nwp500.temperature import HalfCelsius
-
-from ..const import MODE_TO_DHW_ID
 from .observed import DEVICE_BOOL_ON
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,10 +45,6 @@ class ListWriter(Protocol):
         compares the read with what it wrote: a write counts only once the
         heater holds the new list.
         """
-        ...
-
-    async def async_restore_state(self, mode: str, setpoint_raw: int) -> bool:
-        """Disabling's one direct write: the owner's mode and setpoint."""
         ...
 
     async def async_request_status(self) -> None:
@@ -100,27 +93,6 @@ class CoordinatorWriter:
             schedule["reservation"],
             enabled=schedule["reservation_use"] == DEVICE_BOOL_ON,
         )
-
-    async def async_restore_state(self, mode: str, setpoint_raw: int) -> bool:
-        """Write the owner's mode, then setpoint, in Home Assistant's unit.
-
-        The setpoint goes through the same `set_temperature` dispatch as the
-        water heater entity, which the library converts from the unit
-        system in force; the guard keeps that unit from changing meanwhile.
-        """
-        mode_sent = await self.coordinator.async_control_device(
-            self.mac_address, "set_dhw_mode", mode=MODE_TO_DHW_ID[mode]
-        )
-        async with self.coordinator.unit_transition_guard(
-            "restore the owner's setpoint"
-        ):
-            celsius = self.coordinator.unit_system == "metric"
-            setpoint_sent = await self.coordinator.async_control_device(
-                self.mac_address,
-                "set_temperature",
-                temperature=HalfCelsius(setpoint_raw).to_preferred(celsius),
-            )
-        return bool(mode_sent and setpoint_sent)
 
     async def async_request_status(self) -> None:
         """Ask for a fresh status; it arrives through the coordinator."""

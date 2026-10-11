@@ -82,7 +82,7 @@ class ControlAckSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[repor
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Per-segment and per-grant statuses, and any rejection reason."""
+        """Per-segment and per-command statuses, and any rejection reason."""
         return self.control.ack.as_attributes()
 
 

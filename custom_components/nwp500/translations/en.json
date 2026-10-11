@@ -549,11 +549,7 @@
             "name": "Kind",
             "state": {
               "plan": "Plan step",
-              "near_term": "Plan step, written now",
-              "precedence_exit": "Back to the plan",
-              "grant_raise": "Surplus raise",
-              "grant_lower": "End of surplus raise",
-              "guard": "Surplus raise end, as a safeguard"
+              "near_term": "Plan step, written now"
             }
           },
           "serves": {
@@ -570,11 +566,6 @@
               "plan": "Plan",
               "cleanup": "Cleanup",
               "near_term": "Plan step, written now",
-              "grant_raise": "Surplus raise",
-              "grant_lower": "End of surplus raise",
-              "precedence_exit": "Back to the plan",
-              "power_off": "Power off",
-              "disable": "Stopped",
               "takeover": "Going live"
             }
           },
