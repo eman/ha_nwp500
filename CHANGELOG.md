@@ -63,7 +63,7 @@
 - **Duration sensors use Home Assistant's time units.** The library reports
   `days` and `hours`, which a duration sensor rejects: the Anti-Legionella
   period, the vacation days and the demand response override logged a
-  warning at start-up. They now report `d` and `h`. (#220)
+  warning at start-up. They now report `d` and `h`. (#216)
 - **Services stay while another entry is loaded.** Unloading one Navien
   entry, or a reload that failed, removed the integration's services for
   every entry. They are now removed with the last entry. (#219)
