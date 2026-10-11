@@ -230,9 +230,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
         )
 
 
-# The setpoint bounds are stored in degF whatever Home Assistant displays,
-# so a later change of unit system cannot misread them. The form shows and
-# takes them in the configured unit.
 # The user guide, linked from the form: translations may not hold URLs.
 CONTROL_GUIDE_URL = (
     "https://github.com/eman/ha_nwp500/blob/main/docs/external-control.md"
@@ -251,7 +248,7 @@ def _form_mode(options: dict[str, Any]) -> str:
     return str(mode)
 
 
-def _control_schema(hass: HomeAssistant) -> vol.Schema:
+def _control_schema() -> vol.Schema:
     """The external control options form."""
     modes: list[str] = list(CONTROL_MODES_SELECTABLE)
     if CONTROL_LIVE_AVAILABLE:
@@ -295,9 +292,7 @@ def _control_schema(hass: HomeAssistant) -> vol.Schema:
     )
 
 
-def _control_suggested_values(
-    hass: HomeAssistant, options: dict[str, Any]
-) -> dict[str, Any]:
+def _control_suggested_values(options: dict[str, Any]) -> dict[str, Any]:
     """What the form shows for an entry that already has the options."""
     suggested = {
         key: value
@@ -321,9 +316,7 @@ def _validate_control_input(user_input: dict[str, Any]) -> dict[str, str]:
     return errors
 
 
-def _normalise_control_input(
-    hass: HomeAssistant, user_input: dict[str, Any]
-) -> dict[str, Any]:
+def _normalise_control_input(user_input: dict[str, Any]) -> dict[str, Any]:
     """Turn form values into stored options."""
     stored: dict[str, Any] = dict(user_input)
     for key in (
@@ -394,17 +387,17 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                 data = {
                     **options,
                     **self._init_input,
-                    **_normalise_control_input(self.hass, user_input),
+                    **_normalise_control_input(user_input),
                 }
                 return self.async_create_entry(title="", data=data)
 
-        suggested = _control_suggested_values(self.hass, options)
+        suggested = _control_suggested_values(options)
         if user_input is not None:
             suggested.update(user_input)
         return self.async_show_form(
             step_id="external_control",
             data_schema=self.add_suggested_values_to_schema(
-                _control_schema(self.hass), suggested
+                _control_schema(), suggested
             ),
             errors=errors,
             description_placeholders={"guide_url": CONTROL_GUIDE_URL},

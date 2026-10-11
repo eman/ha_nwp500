@@ -1,7 +1,7 @@
 """Checks against the declaration, and the acknowledgement (section 3.5).
 
 A segment is part of a timeline, so a segment that does not fit rejects the
-whole plan. A grant that does not fit is rejected on its own.
+whole plan.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..const import CONTROL_MODE_NAMES
-from .capabilities import Capabilities
 from .intent import (
     REASON_MODE_NOT_ALLOWED,
     IntentRejected,
@@ -44,16 +43,14 @@ REASON_ENTRY_BUDGET = "entry_budget"
 # Live only (sections 5.4 and 5.11).
 REASON_WRITE_NOT_CONFIRMED = "write_not_confirmed"
 REASON_NOT_APPLIED = "not_applied_on_device"
-REASON_HELD_IN_TOU_WINDOW = "held_in_tou_window"
 
 # Warnings.
 WARNING_MOVED = "moved_1_min"
-WARNING_MODE_IN_TOU_WINDOW = "mode_in_tou_window"
 
 
 @dataclass(frozen=True)
 class ItemAck:
-    """What the ack entity says about one segment or grant."""
+    """What the ack entity says about one segment."""
 
     id: str
     status: str
@@ -119,15 +116,8 @@ def rejected_ack(
     )
 
 
-def check_plan(plan: Plan, capabilities: Capabilities) -> None:
-    """Reject the plan if a segment names a mode the heater does not have.
-
-    Every mode it has is accepted, Vacation and power-off included: what a
-    mode does is the scheduler's to know. Setpoints are not checked here:
-    limits belong in the library, which refuses a list write with a
-    setpoint outside the heater's range.
-    """
-    del capabilities
+def check_plan(plan: Plan) -> None:
+    """Reject the plan if a segment names a mode the heater does not have."""
     for segment in plan.segments:
         if not mode_is_valid(segment.mode):
             raise IntentRejected(

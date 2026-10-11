@@ -32,13 +32,13 @@
   are kept as read. Entities show what runs, the plan, its acknowledgement,
   the program and whether the device matches it, how far the programmed plan
   reaches, the next entry, the wanted state, the last write, people's changes
-  and a heartbeat, with a Stop button; a Repairs issue reports a feature
+  to the reservation list and a heartbeat, with a Stop button; a Repairs issue reports a feature
   that cannot start. Protocol 1 comes with compatibility promises; protocol
   0 documents are still accepted. The specification, JSON Schema and
   examples are in `docs/`, with the device tests and the staged live
   cut-over run on a real heater. With the feature off nothing of it loads,
   and a regression test holds set-up to what it was before. (#158, #191,
-  #193, #194, #192)
+  #193, #194, #192, #215)
 
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 9.4.3. The library
@@ -60,6 +60,13 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **Duration sensors use Home Assistant's time units.** The library reports
+  `days` and `hours`, which a duration sensor rejects: the Anti-Legionella
+  period, the vacation days and the demand response override logged a
+  warning at start-up. They now report `d` and `h`. (#216)
+- **Services stay while another entry is loaded.** Unloading one Navien
+  entry, or a reload that failed, removed the integration's services for
+  every entry. They are now removed with the last entry. (#219)
 - **The Set reservation temperature works in Celsius.** The service reads
   the temperature in Home Assistant's own unit, but its field was a slider
   fixed at 80-150 °F, so a Celsius value could not be entered. It is now a

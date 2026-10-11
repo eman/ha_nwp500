@@ -244,6 +244,27 @@ class TestIntake:
         assert control.plan.extra == {}
 
     @pytest.mark.asyncio
+    async def test_a_new_state_before_its_attributes_is_still_adopted(
+        self, hass, control_factory, now
+    ):
+        """A source that writes the state and attributes one at a time."""
+        first = _plan(now)
+        _publish(hass, first)
+        control = await control_factory()
+        hass.states.async_set(
+            INTENT_ENTITY,
+            "i-2",
+            {**first, "friendly_name": "Water heater intent"},
+        )
+        await hass.async_block_till_done()
+        _publish(
+            hass,
+            _plan(now, intent_id="i-2", issued_at=now + timedelta(minutes=1)),
+        )
+        await hass.async_block_till_done()
+        assert control.plan.intent_id == "i-2"
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("gone", [STATE_UNKNOWN, STATE_UNAVAILABLE])
     async def test_source_unavailable_keeps_the_plan(
         self, hass, control_factory, now, gone
@@ -458,12 +479,10 @@ class TestTiming:
     async def test_coordinator_updates_evaluate(self, hass, control_factory):
         control = await control_factory()
         listener = control.coordinator.async_add_listener.call_args.args[0]
-        control.coordinator.data[MAC]["status"] = _status(
-            dhw_target_temperature_setting_raw=100
-        )
+        control.planner.last_step = None
         listener()
         await hass.async_block_till_done()
-        assert "setpoint" in control.reports
+        assert control.planner.last_step is not None
 
     @pytest.mark.asyncio
     async def test_stop_cancels_the_timers(
@@ -496,7 +515,6 @@ class TestReading:
             assert entry["mode_name"] == "heat_pump"
             assert entry["kind"] in ("plan", "near_term")
             assert entry["serves"]
-            assert entry["enabled"] is True
             assert entry["enable"] == 2
             assert entry["param"] == entry["setpoint_raw"]
             assert {"setpoint_f", "setpoint_c", "week", "hour", "min"} <= set(

@@ -225,7 +225,6 @@ class TestSensors:
                 "setpoint_raw": 120,
                 "setpoint_f": 140.0,
                 "setpoint_c": 60.0,
-                "enabled": True,
                 "week": 128,
                 "hour": 12,
                 "min": 0,
@@ -242,7 +241,7 @@ class TestSensors:
         entries = tuple(
             OwnedEntry(
                 "plan",
-                f"segment-{i:04d}-{'x' * 30}",
+                f"segment-{i:04d}-{'x' * 40}",
                 WHEN + timedelta(minutes=i),
                 "energy_saver",
                 114,
@@ -272,12 +271,11 @@ class TestSensors:
             }
             for entry in (
                 OwnedEntry(
-                    "precedence_exit",
+                    "near_term",
                     f"{i:02d}".ljust(ITEM_ID_MAX_LENGTH, "x"),
                     WHEN + timedelta(hours=i),
                     "energy_saver",
                     114,
-                    enabled=False,
                 )
                 for i in range(MAX_CONTROL_RESERVATION_ENTRY_LIMIT)
             )
@@ -345,21 +343,20 @@ class TestBinarySensors:
         }
 
     def test_every_kind_of_override_report_fits_the_schema(self, control):
-        entry = OwnedEntry("guard", "g1", WHEN, "heat_pump", 120)
-        added = {"enable": 2, "week": 2, "hour": 7, "min": 0}
-        added |= {"mode": 1, "param": 100}
+        entry = OwnedEntry("plan", "s1", WHEN, "heat_pump", 120)
         reports = [
-            Report("setpoint", 100, WHEN, "s1"),
-            Report("mode", "vacation", WHEN, None),
-            Report("removed", entry.as_attributes(), WHEN, "g1"),
+            Report("removed", entry.as_attributes(), WHEN, "s1"),
             Report("reservations_switched_off", False, WHEN, None),
         ]
         control.reports = {str(i): r for i, r in enumerate(reports)}
         sensor = ControlOverrideBinarySensor(control, "override")
         attrs = sensor.extra_state_attributes
         _override_schema().validate(attrs)
-        # A mode that is not one is not a report.
-        broken = [{**attrs["reports"][1], "value": "not_a_mode"}]
+        # A removed report's value is an entry item; the switch's is false.
+        broken = [
+            {**attrs["reports"][0], "value": "not_an_entry"},
+            {**attrs["reports"][1], "value": True},
+        ]
         for report in broken:
             assert not _override_schema().is_valid(
                 {**attrs, "reports": [report]}

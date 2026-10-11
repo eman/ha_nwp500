@@ -677,7 +677,6 @@ async def test_a_confirmed_write_updates_the_stored_list(wired):
         "other": "kept",
     }
     assert wired.reservation_schedules[MAC] == held
-    assert MAC in wired.reservation_schedules_read_at
     wired.async_fetch_reservations.assert_not_awaited()
 
 

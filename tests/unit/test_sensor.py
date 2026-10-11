@@ -483,6 +483,49 @@ class TestNWP500Sensor:
             mock_device_status, "recirc_temperature"
         )
 
+    @pytest.mark.parametrize(
+        ("library_unit", "unit"), [("days", "d"), ("hours", "h")]
+    )
+    def test_the_librarys_time_units_are_home_assistants(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+        library_unit: str,
+        unit: str,
+    ):
+        """A duration sensor rejects `days`; Home Assistant's unit is `d`."""
+        from homeassistant.components.sensor import SensorDeviceClass
+
+        from custom_components.nwp500.sensor import (
+            NWP500Sensor,
+            NWP500SensorEntityDescription,
+        )
+
+        desc = NWP500SensorEntityDescription(
+            key="anti_legionella_period",
+            attr_name="anti_legionella_period",
+            name="Anti-Legionella period",
+            device_class=SensorDeviceClass.DURATION,
+            native_unit_of_measurement="d",
+        )
+        mock_coordinator.get_field_unit_safe = MagicMock(
+            return_value=library_unit
+        )
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {
+                "device": mock_device,
+                "status": mock_device_status,
+            }
+        }
+        sensor = NWP500Sensor(
+            mock_coordinator,
+            mock_device.device_info.mac_address,
+            mock_device,
+            desc,
+        )
+        assert sensor.native_unit_of_measurement == unit
+
     def test_sensor_unit_fallback_when_no_status(
         self,
         mock_coordinator: MagicMock,

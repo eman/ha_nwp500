@@ -7,8 +7,8 @@ writes it asks for, and persists what it must remember across a restart.
 In shadow each write the planner asks for is committed as simulated and
 never sent. In live (delivery step 5) every write goes through one
 `ListWriter`: the list is read first, written whole, and committed only once
-the device holds it (section 5.4). Live is gated by `CONTROL_LIVE_AVAILABLE`
-and needs a declared owner's program; without either it runs as shadow.
+the device holds it (section 5.4). Live is gated by `CONTROL_LIVE_AVAILABLE`;
+without it, it runs as shadow.
 """
 
 from __future__ import annotations
@@ -80,12 +80,11 @@ WRITE_RETRY = timedelta(seconds=60)
 WRITE_PAUSE = timedelta(minutes=15)
 
 
-def live_writes(options: Mapping[str, Any], mac_address: str) -> bool:
-    """Whether these options write the list to this heater.
+def live_writes(options: Mapping[str, Any]) -> bool:
+    """Whether these options write the list to the heater.
 
     Live, with the gate open. Anything else writes nothing.
     """
-    del mac_address
     return CONTROL_LIVE_AVAILABLE and control_follows_plan(options)
 
 
@@ -128,7 +127,7 @@ class DeviceControl:
             # nothing; the declaration says what runs.
             mode = CONTROL_MODE_SHADOW
         self.mode = mode
-        self.writes = live_writes(options, mac_address)
+        self.writes = live_writes(options)
         self.intent_entity_id: str | None = options.get(
             CONF_CONTROL_INTENT_ENTITY
         )
@@ -192,9 +191,9 @@ class DeviceControl:
                 if self.store.took_over(self.mac_address):
                     _LOGGER.error(
                         "Unreadable stored control state for %s while the "
-                        "heater may hold the feature's entries. Disabling "
-                        "keeps any it can no longer recognise; check the "
-                        "reservation list afterwards",
+                        "heater may hold the feature's entries. Those it can "
+                        "no longer recognise are kept as not its own; check "
+                        "the reservation list",
                         self.mac_address,
                     )
                 else:
@@ -225,8 +224,7 @@ class DeviceControl:
             self._going_live = True
         observed = self.observe()
 
-        # Stopped: no plan is adopted and nothing is written. What is on
-        # the heater stays there; the scheduler's next plan is its answer.
+        # Stopped: no plan is adopted and nothing is written.
         if self.mode != CONTROL_MODE_DISABLED:
             if self.intent_entity_id:
                 self._unsubscribe.append(
@@ -288,12 +286,6 @@ class DeviceControl:
 
         The store's flag is set before any live write is sent, since a write
         can land without being confirmed; the planner's once one is.
-        Handing back is idempotent, so a flag set for a write that never
-        landed costs one list read and the owner's state written again.
-
-        Handing back is not gated by `CONTROL_LIVE_AVAILABLE`: a heater left
-        holding the feature's list (after a trial with the gate open) must
-        always be returnable to the owner's program.
         """
         return self.planner.took_over or self.store.took_over(self.mac_address)
 
@@ -415,10 +407,7 @@ class DeviceControl:
         return observe(
             device_data.get("status"),
             self.coordinator.reservation_schedules.get(self.mac_address),
-            self.coordinator.tou_schedules.get(self.mac_address),
-            schedule_read_at=getattr(
-                self.coordinator, "reservation_schedules_read_at", {}
-            ).get(self.mac_address),
+            status_at=device_data.get("last_update"),
         )
 
     def _track_device_hash(self, observed: Observed, now: datetime) -> None:
@@ -459,7 +448,7 @@ class DeviceControl:
                 if self.holds_device:
                     # The heater holds the feature's real entries: a
                     # simulated write must not replace the record of them,
-                    # or disabling could not recognise and remove them.
+                    # or going live again could not recognise them.
                     _LOGGER.debug(
                         "Not simulating over the live entries on %s",
                         self.mac_address,
@@ -566,7 +555,7 @@ class DeviceControl:
                     schedule
                 ):
                     # From here the heater may hold the feature's list,
-                    # confirmed or not: disabling must hand it back.
+                    # confirmed or not.
                     await self.store.async_set_took_over(self.mac_address, True)
                     sent = True
                 confirmed = await self._async_write_list(schedule, observed)
@@ -669,7 +658,7 @@ class DeviceControl:
     def _parse(self, document: Mapping[str, Any]) -> Plan:
         """Parse and check a document; raises `IntentRejected`."""
         plan = parse_plan(document)
-        check_plan(plan, self.capabilities)
+        check_plan(plan)
         return plan
 
     async def _async_adopt_initial(
@@ -705,6 +694,7 @@ class DeviceControl:
                 now,
                 observed,
                 restoring=not self._going_live,
+                stored=True,
             )
         if entity_document is not None and (
             stored_plan is None
@@ -721,11 +711,8 @@ class DeviceControl:
         ):
             # The source went away. The plan in force stays in force.
             return
-        old_state = event.data["old_state"]
-        if old_state is not None and old_state.state == new_state.state:
-            # The protocol requires the state to change on every new plan;
-            # an attribute-only change is not a new plan.
-            return
+        # Attributes count too: a source may write a new state before its
+        # document. The plan in force received again changes nothing.
         document = document_from_attributes(new_state.attributes)
         self.hass.async_create_task(
             self.async_receive(document, dt_util.utcnow())
@@ -819,7 +806,14 @@ class DeviceControl:
         observed: Observed,
         *,
         restoring: bool = False,
+        stored: bool = False,
     ) -> None:
+        """Adopt a plan; `stored` is the stored plan at start-up.
+
+        Its commands keep what became of them even when the list is
+        programmed afresh on going live: one sent may have been applied
+        (section 3.7).
+        """
         self.plan = plan
         self.received_at = received_at
         self.planner.capabilities = self._build_capabilities()
@@ -828,7 +822,7 @@ class DeviceControl:
             plan.intent_id,
             plan.commands,
             writes=self.writes,
-            restoring=restoring,
+            restoring=restoring or stored,
         )
         _LOGGER.debug(
             "Plan %s for %s adopted: %d segment(s)",

@@ -21,7 +21,6 @@ from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from custom_components.nwp500.const import (
     CONF_CONTROL_LIVE_SEGMENTS,
     CONF_CONTROL_MODE,
-    CONF_CONTROL_OWNER_PROGRAM,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
 )
@@ -42,10 +41,10 @@ from custom_components.nwp500.control.entries import (
     schedule_hash,
 )
 from custom_components.nwp500.control.evaluate import (
-    REASON_HELD_IN_TOU_WINDOW,
     REASON_NOT_APPLIED,
     REASON_WRITE_NOT_CONFIRMED,
 )
+from custom_components.nwp500.control.intent import parse_plan
 from custom_components.nwp500.control.store import ControlStore
 
 from .conftest import make_document, segment
@@ -74,12 +73,6 @@ OWNER_ENTRY = {
     "min": 0,
     "mode": 3,
     "param": 120,
-}
-OWNER_DOC = {
-    "mode": "energy_saver",
-    "setpoint_raw": 119,
-    "reservations_enabled": True,
-    "entries": [OWNER_ENTRY],
 }
 OWNER_LIST = {"reservation_use": 2, "reservation": [OWNER_ENTRY]}
 FOREIGN_ENTRY = {
@@ -111,16 +104,55 @@ def device_obs(planner: Planner, **overrides):
 
 
 class TestPlannerLive:
-    def test_takes_the_list_over_with_nothing_to_add(self):
+    def test_takes_the_list_over_for_entries_it_has(self):
+        """Its entries landed unconfirmed, the switch off: it turns it on."""
+        planner = planner_with(shadow=False, **LIVE)
+        off = obs(reservations_enabled=False, reservations=())
+        plan = parse_plan(
+            make_document(
+                NOW,
+                [segment(NOW, "s", 60, mode="energy_saver", setpoint_c=59.5)],
+            )
+        )
+        planner.set_plan(plan, NOW, off)
+        write = planner.step(NOW, off)
+        assert write is not None
+        planner.reject(write, NOW, retry_at=minutes(1), final=False)
+        landed = obs(
+            reservations_enabled=False,
+            reservations=tuple(e.as_entry() for e in write.added),
+        )
+        takeover = planner.step(minutes(1), landed)
+        assert takeover is not None
+        assert takeover.reason == WRITE_TAKEOVER
+        assert planner.program(landed)["reservation_use"] == 2
+
+    def test_no_takeover_with_no_entries_of_its_own(self):
+        """The heater already holds the segment in force: nothing to write.
+
+        The switch stays as it is, so the owner's entries do not start
+        firing (#215 audit).
+        """
         planner = planner_with(
             [segment(NOW, "s", -5, mode="energy_saver", setpoint_c=59.5)],
             shadow=False,
             **LIVE,
         )
-        assert planner.last_write is not None
-        assert planner.last_write.reason == WRITE_TAKEOVER
-        assert planner.took_over is True
-        assert planner.step(minutes(1), device_obs(planner)) is None
+        assert planner.owned == []
+        assert planner.last_write is None
+        assert planner.took_over is False
+        off = obs(reservations_enabled=False, reservations=(OWNER_ENTRY,))
+        assert planner.step(minutes(1), off) is None
+        assert planner.program(off)["reservation_use"] == 1
+
+    def test_a_first_plan_that_stops_does_not_take_over(self):
+        planner = planner_with(shadow=False, **LIVE)
+        off = obs(reservations_enabled=False, reservations=(OWNER_ENTRY,))
+        plan = parse_plan(make_document(NOW, []))
+        planner.set_plan(plan, NOW, off)
+        assert planner.step(NOW, off) is None
+        assert planner.took_over is False
+        assert planner.program(off)["reservation_use"] == 1
 
     def test_no_takeover_without_a_plan(self):
         planner = planner_with(shadow=False, **LIVE)
@@ -249,72 +281,43 @@ class TestReadBack:
         planner.step(minutes(12), device_obs(planner))
         assert planner.readback == {}
 
-    def test_a_mode_held_in_a_tou_window(self):
+    def test_a_mode_that_differs_is_not_applied(self):
+        """Whatever the heater's TOU program: only its report counts."""
         planner = self._planner(setpoint_c=59.5)
-        all_day = {
-            "season": 0xFFF,
-            "week": 254,
-            "start_hour": 0,
-            "start_min": 0,
-            "end_hour": 23,
-            "end_min": 59,
-            "price_max": 10,
-        }
-        held = device_obs(planner, tou_on=True, tou_periods=(all_day,))
-        planner.step(minutes(11.6), held)
-        assert planner.readback == {"b": REASON_HELD_IN_TOU_WINDOW}
-        assert statuses(planner.ack("i"))["b"] == (
-            "in_force",
-            REASON_HELD_IN_TOU_WINDOW,
-        )
-
-    def _detail(self, planner, item):
-        return next(
-            seg.detail for seg in planner.ack("i").segments if seg.id == item
-        )
-
-    def test_the_mode_is_not_inferred_from_what_the_heater_runs(self):
-        """Only what the heater reports counts (section 5.11)."""
-        planner = self._planner(setpoint_f=140)
-        fired = device_obs(planner, mode="heat_pump", setpoint_raw=120)
-        planner.step(minutes(10.5), fired)
-        planner.step(minutes(11.6), fired)
-        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
-        assert "mode_confirmed" not in self._detail(planner, "b")
-
-    def _window(self, end_hour: int) -> dict:
-        return {
-            "season": 0xFFF,
-            "week": 254,
-            "start_hour": 0,
-            "start_min": 0,
-            "end_hour": end_hour,
-            "end_min": 59,
-            "price_max": 10,
-        }
-
-    def test_a_held_mode_is_applied_when_the_window_ends(self):
-        planner = self._planner(setpoint_c=59.5)
-        window = (self._window(10),)
-        held = device_obs(planner, tou_on=True, tou_periods=window)
-        planner.step(minutes(11.6), held)
-        # The window runs to 10:59; the heater applies the mode at 11:00,
-        # with no entry firing then. That is not a person's change.
-        applied = device_obs(
-            planner, mode="heat_pump", tou_on=True, tou_periods=window
-        )
-        planner.step(minutes(60.2), applied)
-        assert planner.readback == {}
-        assert planner.reports == {}
-        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
-
-    def test_a_held_mode_not_applied_after_the_window_fails(self):
-        planner = self._planner(setpoint_c=59.5)
-        window = (self._window(10),)
-        held = device_obs(planner, tou_on=True, tou_periods=window)
-        planner.step(minutes(11.6), held)
-        planner.step(minutes(62), held)
+        planner.step(minutes(11.6), device_obs(planner, tou_on=True))
         assert planner.readback == {"b": REASON_NOT_APPLIED}
+        assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
+
+    def test_only_a_status_reported_after_the_entry_counts(self):
+        """While the heater is unreachable, its last status is stale."""
+        planner = self._planner(setpoint_f=140)
+        stale = device_obs(planner, status_at=minutes(5))
+        planner.step(minutes(11.6), stale)
+        planner.step(minutes(14), stale)
+        assert planner.readback == {}
+        fresh = device_obs(
+            planner,
+            mode="heat_pump",
+            setpoint_raw=120,
+            status_at=minutes(14.5),
+        )
+        planner.step(minutes(15), fresh)
+        assert planner.readback == {}
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+
+    def test_a_stale_status_is_not_waited_for_forever(self):
+        planner = self._planner(setpoint_f=140)
+        stale = device_obs(planner, status_at=minutes(5))
+        planner.step(minutes(11.6), stale)
+        # A wake-up for giving up comes, whatever else does.
+        give_up = minutes(11.5) + timedelta(minutes=15, seconds=1)
+        assert planner.next_event_at is not None
+        assert planner.next_event_at <= give_up
+        write = planner.step(minutes(30), stale)
+        # Past the read-back window: the fired entry goes, unchecked.
+        assert write is not None
+        assert write.reason == "cleanup"
+        assert planner.readback == {}
 
     def test_not_in_shadow(self):
         planner = planner_with(
@@ -348,11 +351,8 @@ class FakeHeater:
         self.lose = 0
         self.reads = 0
         self.writes: list[dict[str, Any]] = []
-        self.states: list[tuple[str, int]] = []
-        self.restore_ok = True
         self.gate: asyncio.Event | None = None
         self.lock = asyncio.Lock()
-        self.applies_state = True
         self.status_requests = 0
         # Lost writes that land anyway: only the confirmation is lost.
         self.land_unconfirmed = 0
@@ -369,7 +369,6 @@ class FakeHeater:
     def _seen(self, schedule: dict[str, Any]) -> None:
         """The coordinator holds the list as read from the heater now."""
         self.coordinator.reservation_schedules[MAC] = copy.deepcopy(schedule)
-        self.coordinator.reservation_schedules_read_at[MAC] = dt_util.utcnow()
 
     async def async_read(self) -> dict[str, Any] | None:
         self.reads += 1
@@ -391,19 +390,6 @@ class FakeHeater:
             return None
         self.person_sets(schedule)
         return copy.deepcopy(schedule)
-
-    async def async_restore_state(self, mode: str, setpoint_raw: int) -> bool:
-        self.states.append((mode, setpoint_raw))
-        if self.restore_ok and self.applies_state:
-            status = self.coordinator.data[MAC]["status"]
-            status.dhw_operation_setting = {
-                "heat_pump": 1,
-                "electric": 2,
-                "energy_saver": 3,
-                "high_demand": 4,
-            }[mode]
-            status.dhw_target_temperature_setting_raw = setpoint_raw
-        return self.restore_ok
 
     async def async_request_status(self) -> None:
         self.status_requests += 1
@@ -434,7 +420,6 @@ async def live_factory(
         merged = {
             CONF_CONTROL_MODE: CONTROL_MODE_LIVE,
             CONF_CONTROL_LIVE_SEGMENTS: True,
-            CONF_CONTROL_OWNER_PROGRAM: {MAC: OWNER_DOC},
             **options,
         }
         hass.config_entries.async_entries()
@@ -501,7 +486,6 @@ class TestGate:
             **{
                 CONF_CONTROL_MODE: CONTROL_MODE_LIVE,
                 CONF_CONTROL_LIVE_SEGMENTS: True,
-                CONF_CONTROL_OWNER_PROGRAM: {MAC: OWNER_DOC},
             },
         )
         store = ControlStore(hass, entry.entry_id)
@@ -563,7 +547,6 @@ class TestStopped:
         await hass.async_block_till_done()
 
         assert len(heater.writes) == writes
-        assert heater.states == []
         assert heater.schedule == written
         assert stopped.plan is None or stopped.plan.intent_id != "i-2"
 

@@ -18,11 +18,8 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from custom_components.nwp500.control.engine import (
-    CLEANUP_DEFER,
     REPORT_FOREIGN,
-    REPORT_MODE,
     REPORT_REMOVED,
-    REPORT_SETPOINT,
     REPORT_SWITCHED_OFF,
     WRITE_NEAR_TERM,
     WRITE_PLAN,
@@ -31,8 +28,6 @@ from custom_components.nwp500.control.engine import (
     State,
 )
 from custom_components.nwp500.control.entries import (
-    KIND_GRANT_RAISE,
-    KIND_GUARD,
     KIND_NEAR_TERM,
     KIND_PLAN,
     OwnedEntry,
@@ -41,7 +36,6 @@ from custom_components.nwp500.control.entries import (
 from custom_components.nwp500.control.evaluate import (
     REASON_BEYOND_HORIZON,
     REASON_ENTRY_BUDGET,
-    WARNING_MODE_IN_TOU_WINDOW,
     WARNING_MOVED,
     check_plan,
 )
@@ -99,7 +93,7 @@ def give(
 ):
     """Hand the planner a checked plan, and run a pass."""
     plan = parse_plan(make_document(now, segments, **document_kwargs))
-    check_plan(plan, planner.capabilities)
+    check_plan(plan)
     planner.set_plan(plan, now, observed or obs(), restoring=restoring)
     return run(planner, now, observed)
 
@@ -158,7 +152,7 @@ class TestSpecExample:
                 ],
             )
         )
-        check_plan(plan, planner.capabilities)
+        check_plan(plan)
         planner.set_plan(plan, self.SUNDAY, obs())
         return planner
 
@@ -246,7 +240,7 @@ def last_write_examples() -> dict[str, tuple[str, dict]]:
         TZ,
         shadow=False,
     )
-    check_plan(plan, planner.capabilities)
+    check_plan(plan)
     planner.set_plan(plan, at, obs())
 
     def on_device(**overrides) -> Observed:
@@ -285,10 +279,8 @@ class TestTranslation:
             (KIND_PLAN, "a", "11:00"),
             (KIND_PLAN, "b", "12:00"),
         ]
-        # Before the first segment, what was in force continues.
-        assert planner.wanted_state(NOW) == State(
-            "energy_saver", OWNER_SETPOINT
-        )
+        # Before the first segment the plan sets nothing.
+        assert planner.wanted_state(NOW) is None
         assert planner.wanted_state(minutes(61)) == State("energy_saver", 120)
 
     def test_a_segment_in_force_matching_the_device_needs_no_entry(self):
@@ -338,40 +330,68 @@ class TestTranslation:
         )
         assert [k for k, _, _ in kinds(planner)] == [KIND_PLAN]
 
-    def test_mode_change_in_a_tou_window_is_flagged(self):
-        periods = (
-            {
-                "season": 4095,
-                "week": 254,
-                "start_hour": 0,
-                "start_min": 0,
-                "end_hour": 15,
-                "end_min": 59,
-                "price_max": 28000,
-            },
-            {
-                "season": 4095,
-                "week": 254,
-                "start_hour": 16,
-                "start_min": 0,
-                "end_hour": 20,
-                "end_min": 59,
-                "price_max": 32000,
-            },
-        )
-        observed = obs(tou_on=True, tou_periods=periods)
-        planner = planner_with(
+    def test_a_move_in_the_repeated_hour_keeps_elapsed_time(self):
+        """Fall-back: 01:30 comes twice; the second segment's entry moves.
+
+        It moves a minute later in elapsed time, not to the first 01:31,
+        which is an hour before the segment starts.
+        """
+        first = datetime(2026, 11, 1, 1, 30, tzinfo=TZ)
+        second = datetime(2026, 11, 1, 1, 30, fold=1, tzinfo=TZ)
+        base = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+        planner = Planner(capabilities(), TZ)
+        run(planner, base)
+        document = make_document(
+            base,
             [
-                segment(NOW, "noon", 120, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "peak", 420, mode="energy_saver", setpoint_f=140),
-                segment(NOW, "peak-setpoint", 480, setpoint_f=130),
+                segment(base, "a", 0, mode="heat_pump", setpoint_f=130),
+                segment(base, "b", 0, setpoint_f=140),
+                segment(base, "c", 0, setpoint_f=120),
             ],
-            observed=observed,
         )
-        warnings = {a.id: a.warnings for a in planner.ack("i").segments}
-        assert warnings["noon"] == ()
-        assert warnings["peak"] == (WARNING_MODE_IN_TOU_WINDOW,)
-        assert warnings["peak-setpoint"] == ()
+        document["segments"][1]["start"] = first.isoformat()
+        document["segments"][2]["start"] = second.isoformat()
+        plan = parse_plan(document)
+        check_plan(plan)
+        planner.set_plan(plan, base, obs())
+        run(planner, base)
+        (c,) = (e for e in planner.owned if e.serves == "c")
+        assert c.fires_at.astimezone(UTC) == second.astimezone(UTC) + timedelta(
+            minutes=1
+        )
+
+    def test_an_entry_moved_across_the_fold_is_placed_as_planned(self):
+        """The moved entry is still the segment's after the fold.
+
+        01:59 PDT is taken; the next minute is 01:00 PST, the wall clock
+        running back.
+        """
+        start = datetime(2026, 11, 1, 1, 59, tzinfo=TZ)
+        base = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+        taken = {"enable": 2, "week": 128, "hour": 1, "min": 59}
+        taken |= {"mode": 1, "param": 100}
+        observed = obs(reservations_enabled=True, reservations=(taken,))
+        planner = Planner(capabilities(), TZ)
+        run(planner, base, observed)
+        document = make_document(
+            base,
+            [
+                segment(base, "a", 0, mode="heat_pump", setpoint_f=130),
+                segment(base, "b", 0, setpoint_f=140),
+            ],
+        )
+        document["segments"][1]["start"] = start.isoformat()
+        plan = parse_plan(document)
+        check_plan(plan)
+        planner.set_plan(plan, base, observed)
+        run(planner, base, observed)
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert (b.fires_at.hour, b.fires_at.minute, b.fires_at.fold) == (
+            1,
+            0,
+            1,
+        )
+        assert planner._placed_as_planned(b, observed)
 
     def test_an_enabled_entry_in_the_slot_moves_the_plan_entry(self):
         foreign = {
@@ -474,14 +494,12 @@ class TestHorizonAndBudget:
         )
         assert len(planner.owned) == 3
 
-    def test_cleanup_alone_waits_up_to_a_day(self):
+    def test_a_fired_entry_is_removed_by_the_next_pass(self):
         planner = planner_with(
             [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)]
         )
-        assert run(planner, minutes(62)) is None
-        assert len(planner.owned) == 1
-        assert planner.next_event_at == minutes(60) + CLEANUP_DEFER
-        write = run(planner, minutes(60) + CLEANUP_DEFER)
+        assert planner.next_event_at == minutes(60)
+        write = run(planner, minutes(60))
         assert write is not None
         assert write.reason == "cleanup"
         assert planner.owned == []
@@ -534,7 +552,7 @@ class TestReplacingAPlan:
         planner = planner_with(self.SEGMENTS)
         give(planner, [], now=minutes(5), intent_id="i-2")
         assert planner.owned == []
-        assert planner.wanted_state(minutes(5)) == State("heat_pump", 120)
+        assert planner.wanted_state(minutes(5)) is None
 
     def test_restoring_at_start_up_writes_nothing_for_the_segment_in_force(
         self,
@@ -557,58 +575,14 @@ class TestPeoplesChanges:
         "param": 110,
     }
 
-    def test_an_unexplained_change_is_reported_not_undone(self):
+    def test_a_setpoint_or_mode_change_is_not_reported(self):
+        """The heater's state is read back (section 5.11), nothing more."""
         planner = planner_with(
             [segment(NOW, "a", 60, mode="energy_saver", setpoint_f=140)]
         )
         assert run(planner, minutes(5), obs(setpoint_raw=100)) is None
-        report = planner.reports[REPORT_SETPOINT]
-        assert report.value == 100
-        assert report.detected_at == minutes(5)
-        run(planner, minutes(6), obs(mode="heat_pump", setpoint_raw=100))
-        assert planner.reports[REPORT_MODE].value == "heat_pump"
-
-    def test_an_entry_firing_explains_a_change(self):
-        observed = obs(
-            reservations_enabled=True, reservations=(self.OWNER_ENTRY,)
-        )
-        planner = planner_with(observed=observed)
-        run(
-            planner,
-            minutes(31),
-            obs(
-                reservations_enabled=True,
-                reservations=(self.OWNER_ENTRY,),
-                setpoint_raw=110,
-            ),
-        )
+        assert run(planner, minutes(6), obs(mode="vacation")) is None
         assert planner.reports == {}
-
-    def test_a_report_lasts_until_the_next_entry_fires(self):
-        observed = obs(
-            reservations_enabled=True, reservations=(self.OWNER_ENTRY,)
-        )
-        planner = planner_with(observed=observed)
-        run(
-            planner,
-            minutes(5),
-            obs(
-                reservations_enabled=True,
-                reservations=(self.OWNER_ENTRY,),
-                setpoint_raw=100,
-            ),
-        )
-        assert REPORT_SETPOINT in planner.reports
-        run(
-            planner,
-            minutes(31),
-            obs(
-                reservations_enabled=True,
-                reservations=(self.OWNER_ENTRY,),
-                setpoint_raw=110,
-            ),
-        )
-        assert REPORT_SETPOINT not in planner.reports
 
     def test_switching_reservations_off_is_reported(self):
         planner = planner_with(observed=obs(reservations_enabled=True))
@@ -616,19 +590,6 @@ class TestPeoplesChanges:
         assert REPORT_SWITCHED_OFF in planner.reports
         run(planner, minutes(2), obs(reservations_enabled=True))
         assert REPORT_SWITCHED_OFF not in planner.reports
-
-    def test_a_persons_vacation_is_reported(self):
-        """Told to the scheduler like any change; it decides (#192)."""
-        planner = planner_with()
-        run(planner, minutes(1), obs())
-        run(planner, minutes(2), obs(mode="vacation"))
-        assert planner.reports[REPORT_MODE].value == "vacation"
-
-    def test_a_persons_power_off_is_reported(self):
-        planner = planner_with()
-        run(planner, minutes(1), obs())
-        run(planner, minutes(2), obs(mode="power_off"))
-        assert planner.reports[REPORT_MODE].value == "power_off"
 
     def test_live_a_deleted_entry_is_not_restored(self):
         planner = planner_with(
@@ -679,28 +640,21 @@ class TestPeoplesChanges:
         assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" in planner.reports
         return planner, only_b
 
-    def test_a_removal_lasts_until_the_next_segment_starts(self):
-        """Section 4.2: by the plan's clock, not by what fires."""
+    def test_a_removal_lasts_until_a_new_plan(self):
+        """Section 4.2: not by the plan's clock, nor by what is read."""
         planner, only_b = self._remove_a()
-        # An entry of someone else's fires at 10:30, before a's minute: the
-        # time a would have set is still to come.
-        other = {"enable": 2, "week": MONDAY, "hour": 10, "min": 30}
-        other |= {"mode": 1, "param": 100}
-        with_other = obs(
-            reservations_enabled=True,
-            reservations=(*only_b.reservations, other),
+        unread = obs(
+            mode=None,
+            setpoint_raw=None,
+            reservations_enabled=None,
+            reservations=None,
         )
-        run(planner, minutes(45), with_other)
+        run(planner, minutes(121), unread)
+        run(planner, minutes(24 * 60), only_b)
         assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" in planner.reports
-        # a's minute (11:00) passes; the entry before it holds over.
-        run(planner, minutes(90), with_other)
-        assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" in planner.reports
-        # b starts at 12:00: a's time is over.
-        run(planner, minutes(121), with_other)
-        assert f"{REPORT_REMOVED}:{KIND_PLAN}:a" not in planner.reports
 
-    def test_the_segment_before_a_removed_one_holds_over_its_time(self):
-        """Section 5.10: a removed segment never takes effect."""
+    def test_the_plan_is_reported_as_it_stands_around_a_removal(self):
+        """Section 5.10: the plan's own timeline, less nothing."""
         planner = planner_with(self.SEGMENTS, shadow=False)
         a, b = sorted(planner.owned, key=lambda e: e.fires_at)
         both = obs(
@@ -710,20 +664,14 @@ class TestPeoplesChanges:
         run(planner, minutes(1), both)
         only_a = obs(reservations_enabled=True, reservations=(a.as_entry(),))
         run(planner, minutes(2), only_a)
-        after_b = obs(
-            mode="energy_saver",
-            setpoint_raw=a.setpoint_raw,
-            reservations_enabled=True,
-            reservations=(a.as_entry(),),
-        )
-        run(planner, minutes(121), after_b)
+        run(planner, minutes(121), only_a)
         ack = {s.id: s for s in planner.ack("i").segments}
-        assert ack["a"].status == "in_force"
-        assert ack["a"].detail["in_force"] is True
+        assert ack["a"].status == "ended"
         assert ack["b"].status == "removed"
         assert ack["b"].detail["in_force"] is False
+        assert planner.segment_in_force(minutes(121)) == "b"
         assert planner.wanted_state(minutes(121)) == State(
-            "energy_saver", a.setpoint_raw
+            b.mode, b.setpoint_raw
         )
         # Nothing waits to be written: b's entry is not coming back.
         assert planner.programmed_complete is True
@@ -791,18 +739,6 @@ class TestPeoplesChanges:
         assert now_status["a1"] == "removed"
         assert now_status["a2"] == now_status["a3"] == "merged"
 
-    def test_a_removal_ends_though_nothing_is_read(self):
-        """Neither the heater's status nor its list is needed."""
-        planner, _ = self._remove_a()
-        unread = obs(
-            mode=None,
-            setpoint_raw=None,
-            reservations_enabled=None,
-            reservations=None,
-        )
-        run(planner, minutes(121), unread)
-        assert planner.reports == {}
-
     def test_the_last_segments_removal_lasts_until_a_plan_changes_it(self):
         planner = planner_with(self.SEGMENTS, shadow=False)
         a, b = sorted(planner.owned, key=lambda e: e.fires_at)
@@ -819,24 +755,6 @@ class TestPeoplesChanges:
         assert key in planner.reports
         give(planner, self.SEGMENTS[:1], now=minutes(3 * 24 * 60 + 1))
         assert key not in planner.reports
-
-    def test_a_change_ends_only_by_an_entry_fired_while_switched_on(self):
-        """An entry whose minute passes with the switch off did not fire."""
-        daily = {"enable": 2, "week": 254, "hour": 10, "min": 30}
-        daily |= {"mode": 3, "param": 119}
-        on = {"reservations_enabled": True, "reservations": (daily,)}
-        planner = planner_with(observed=obs(**on))
-        run(planner, minutes(1), obs(setpoint_raw=100, **on))
-        assert REPORT_SETPOINT in planner.reports
-        off = {"reservations_enabled": False, "reservations": (daily,)}
-        run(planner, minutes(10), obs(setpoint_raw=100, **off))
-        run(planner, minutes(40), obs(setpoint_raw=100, **off))
-        # On again after 10:30: that minute passed while it was off.
-        run(planner, minutes(41), obs(setpoint_raw=100, **on))
-        assert REPORT_SETPOINT in planner.reports
-        # The next day's 10:30 fires.
-        run(planner, minutes(24 * 60 + 31), obs(setpoint_raw=100, **on))
-        assert REPORT_SETPOINT not in planner.reports
 
     def test_stored_reports_load_in_the_current_shape(self):
         """Reports stored by earlier versions load as current ones.
@@ -887,14 +805,14 @@ class TestPeoplesChanges:
         assert planner.removed_segments == set()
 
     def test_removals_of_two_kinds_for_one_item_are_both_reported(self):
-        """A grant's raise and its guard: one report each."""
-        entry = OwnedEntry(KIND_GRANT_RAISE, "g1", minutes(5), "heat_pump", 127)
-        guard = OwnedEntry(KIND_GUARD, "g1", minutes(60), "heat_pump", 120)
+        """A segment's plan and near-term entries: one report each."""
+        plan = OwnedEntry(KIND_PLAN, "a", minutes(5), "heat_pump", 127)
+        near = OwnedEntry(KIND_NEAR_TERM, "a", minutes(60), "heat_pump", 127)
         keys = {
             Planner._report_key(
-                Report(REPORT_REMOVED, e.as_attributes(), NOW, "g1")
+                Report(REPORT_REMOVED, e.as_attributes(), NOW, "a")
             )
-            for e in (entry, guard)
+            for e in (plan, near)
         }
         assert len(keys) == 2
 
@@ -1058,11 +976,11 @@ class TestReviewFindings:
         assert kinds(planner) == [(KIND_PLAN, "next", "10:03")]
 
 
-class TestEffectiveTimeline:
-    """A person deleting any of the feature's entries (#171, section 5.10).
+class TestDeletions:
+    """A person deleting any of the feature's entries (section 5.10).
 
-    The segment the entry would have put in force never takes effect: the
-    state before it holds, and nothing is written for that state.
+    Nothing is written for its segment again while the plan is in force,
+    and the plan is reported as it stands.
     """
 
     def _on_heater(self, planner: Planner, **overrides) -> Observed:
@@ -1104,11 +1022,7 @@ class TestEffectiveTimeline:
         (a,) = (s for s in planner.ack("i").segments if s.id == "a")
         assert a.detail["in_force"] is False
         assert a.status == "removed"
-        # The heater keeps the state it had when the plan arrived.
-        assert planner.wanted_state(minutes(10)) == State(
-            "energy_saver", OWNER_SETPOINT
-        )
-        assert planner.segment_in_force(minutes(10)) is None
+        assert planner.segment_in_force(minutes(10)) == "a"
         # b is still programmed, and takes effect at its minute.
         b = next(e for e in planner.owned if e.serves == "b")
         at_b = obs(
@@ -1121,14 +1035,10 @@ class TestEffectiveTimeline:
         assert planner.segment_in_force(minutes(121)) == "b"
         assert statuses(planner)["a"][0] == "removed"
 
-    # The rest pin one rule across every kind of deletion: the state before
-    # holds, and nothing is written for it.
+    def test_a_plan_begun_in_the_past_writes_nothing_for_its_past(self):
+        """Segment z ended before the plan arrived.
 
-    def test_a_plan_begun_in_the_past_does_not_fall_back_to_its_past(self):
-        """Segment z ended before the plan arrived: it never took effect.
-
-        With a's near-term entry deleted, the state the heater had holds,
-        and z's is not written.
+        With a's near-term entry deleted, z's state is not written.
         """
         planner = planner_with(
             [
@@ -1147,14 +1057,11 @@ class TestEffectiveTimeline:
         assert ack["z"].detail["in_force"] is False
         assert ack["a"].status == "removed"
         assert not any(s.detail["in_force"] for s in ack.values())
-        assert planner.wanted_state(minutes(119)) == State(
-            "energy_saver", OWNER_SETPOINT
-        )
 
     def test_deleting_a_merged_runs_entry_writes_nothing_through_the_run(
         self,
     ):
-        """With nothing before the run, the state before the plan holds."""
+        """The run's head is removed, and the rest merge into it."""
         run_of = [
             segment(NOW, "a1", 60, mode="heat_pump", setpoint_f=140),
             segment(NOW, "a2", 120, setpoint_f=140),
@@ -1166,10 +1073,7 @@ class TestEffectiveTimeline:
         only_y = self._without(planner, lambda e: e.serves != "y")
         for m in (2, 61, 121, 181):
             assert run(planner, minutes(m), only_y) is None
-        assert planner.segment_in_force(minutes(181)) is None
-        assert planner.wanted_state(minutes(181)) == State(
-            "energy_saver", OWNER_SETPOINT
-        )
+        assert planner.segment_in_force(minutes(181)) == "a1"
         now_status = {s.id: s.status for s in planner.ack("i").segments}
         assert now_status == {
             "a1": "removed",
@@ -1196,7 +1100,7 @@ class TestEffectiveTimeline:
         assert run(planner, minutes(2), without_a) is None
         assert {e.serves for e in planner.owned} == {"b", "c"}
         assert run(planner, minutes(61), without_a) is None
-        assert planner.segment_in_force(minutes(61)) == "x"
+        assert planner.segment_in_force(minutes(61)) == "a"
         run(planner, minutes(121), without_a)
         assert planner.segment_in_force(minutes(121)) == "b"
         ack = {s.id: s.status for s in planner.ack("i").segments}
@@ -1256,10 +1160,6 @@ class TestEffectiveTimeline:
         planner, without = self._declined_a()
         assert run(planner, minutes(10), without) is None
         assert statuses(planner)["a"][0] == "removed"
-        assert planner.segment_in_force(minutes(10)) is None
-        assert planner.wanted_state(minutes(10)) == State(
-            "energy_saver", OWNER_SETPOINT
-        )
 
     def test_a_new_plan_wanting_another_state_now_is_asserted(self):
         planner, without = self._declined_a()
@@ -1301,55 +1201,12 @@ class TestEffectiveTimeline:
         assert write is None or not write.added
         assert statuses(restarted)["a"][0] == "removed"
         assert restarted.segment_in_force(minutes(at)) == (
-            "b" if at > 120 else None
+            "b" if at > 120 else "a"
         )
-
-    def test_the_state_before_a_plan_holds_after_a_decline(self):
-        """A new plan keeps x and adds w, begun; w's near-term is deleted.
-
-        The state x put in force holds. x is not in force in the new plan:
-        it had ended by the new plan's clock when that plan was adopted.
-        """
-        on_x = {"mode": "heat_pump", "setpoint_raw": 120}
-        planner = planner_with(
-            [
-                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            observed=obs(**on_x),
-            shadow=False,
-        )
-        run(planner, minutes(1), self._on_heater(planner, **on_x))
-        write = give(
-            planner,
-            [
-                segment(NOW, "x", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "v", -30, mode="electric", setpoint_f=120),
-                segment(NOW, "w", 0, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            now=minutes(5),
-            observed=self._on_heater(planner, **on_x),
-            intent_id="i-2",
-        )
-        assert write is not None
-        assert (KIND_NEAR_TERM, "w") in {
-            (e.kind, e.serves) for e in write.added
-        }
-        without = self._without(
-            planner, lambda e: e.kind == KIND_NEAR_TERM, **on_x
-        )
-        assert run(planner, minutes(6), without) is None
-        assert run(planner, minutes(30), without) is None
-        ack = {s.id: s for s in planner.ack("i").segments}
-        assert ack["x"].status == ack["v"].status == "ended"
-        assert ack["w"].status == "removed"
-        assert not any(s.detail["in_force"] for s in ack.values())
-        assert planner.wanted_state(minutes(30)) == State("heat_pump", 120)
 
     @pytest.mark.parametrize("rename", [False, True])
-    def test_a_new_plan_after_a_hold_over_asserts_its_segment(self, rename):
-        """Segment b's entry was deleted and its minute passed; x holds over.
+    def test_a_new_plan_after_a_removal_asserts_its_segment(self, rename):
+        """Segment b's entry was deleted, and its minute passed.
 
         A new plan with b, as it was or renamed, puts b in force.
         """
@@ -1383,13 +1240,8 @@ class TestEffectiveTimeline:
         }
         assert planner.removed_segments == set()
 
-    # Found by the adversarial review of the effective timeline.
-
-    def test_a_plan_entry_deleted_after_it_fired_leaves_its_segment(self):
-        """Seen on the heater at its minute, it fired: it took effect.
-
-        Deleted within the minute after, it still ends nothing.
-        """
+    def test_a_plan_entry_deleted_after_its_minute_is_no_removal(self):
+        """Its minute was over when the deletion was found."""
         on_x = {"mode": "heat_pump", "setpoint_raw": 120}
         planner = planner_with(
             [
@@ -1404,74 +1256,9 @@ class TestEffectiveTimeline:
         on_a = {"mode": "energy_saver", "setpoint_raw": 109}
         run(planner, minutes(30), self._on_heater(planner, **on_a))
         without_a = self._without(planner, lambda e: e.serves == "a", **on_a)
-        run(planner, minutes(30.5), without_a)
+        run(planner, minutes(31), without_a)
         assert "a" not in planner.removed_segments
         assert planner.segment_in_force(minutes(31)) == "a"
-
-    # Found by the second adversarial review.
-
-    def test_a_stale_list_read_does_not_count_an_entry_as_fired(self):
-        """A pass at b's minute on a list read before it, then a fresh read.
-
-        The fresh read shows b's entry gone: it never fired, so b is out.
-        """
-        planner = planner_with(
-            [
-                segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 60, setpoint_f=120),
-            ],
-            shadow=False,
-        )
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        run(
-            planner,
-            minutes(1),
-            self._on_heater(planner, reservations_read_at=minutes(1), **on_a),
-        )
-        run(
-            planner,
-            minutes(3),
-            self._on_heater(planner, reservations_read_at=minutes(3), **on_a),
-        )
-        at_b = minutes(30) + timedelta(seconds=1)
-        cached = self._on_heater(
-            planner, reservations_read_at=minutes(3), **on_a
-        )
-        planner.step(at_b, cached)
-        fresh = self._without(
-            planner,
-            lambda e: e.serves == "b",
-            reservations_read_at=at_b,
-            **on_a,
-        )
-        planner.step(at_b, fresh)
-        assert "b" in planner.removed_segments
-        assert planner.segment_in_force(at_b) == "a"
-
-    def test_a_blip_in_reading_the_state_outside_precedence_is_no_skip(self):
-        """The mode is unreadable for a pass just before b's minute.
-
-        Outside Vacation and power-off, b's entry still fired, and a new
-        plan carries the state it put in force.
-        """
-        planner = planner_with(
-            [
-                segment(NOW, "a", -60, mode="heat_pump", setpoint_f=140),
-                segment(NOW, "b", 30, mode="energy_saver", setpoint_f=130),
-                segment(NOW, "c", 240, setpoint_f=120),
-            ],
-            shadow=False,
-        )
-        on_a = {"mode": "heat_pump", "setpoint_raw": 120}
-        run(planner, minutes(1), self._on_heater(planner, **on_a))
-        run(planner, minutes(3), self._on_heater(planner, **on_a))
-        unread = {"mode": None, "setpoint_raw": None}
-        run(planner, minutes(29), self._on_heater(planner, **unread))
-        on_b = {"mode": "energy_saver", "setpoint_raw": 109}
-        run(planner, minutes(31), self._on_heater(planner, **on_b))
-        assert planner.settled is not None
-        assert planner.settled[:2] == ("b", State("energy_saver", 109))
 
     def test_a_rename_before_the_near_term_is_written_asserts_it(self):
         """A plan is renamed while its near-term entry is still unwritten.
@@ -1485,7 +1272,7 @@ class TestEffectiveTimeline:
                 NOW, [segment(NOW, "s0", -45, mode="heat_pump", setpoint_f=130)]
             )
         )
-        check_plan(plan, planner.capabilities)
+        check_plan(plan)
         planner.set_plan(plan, NOW, obs())
         assert (KIND_NEAR_TERM, "s0") in {
             (e.kind, e.serves) for e in planner.extra

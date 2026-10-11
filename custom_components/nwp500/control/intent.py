@@ -1,10 +1,9 @@
 """The intent document: a plan of segments and device commands.
 
 Spec section 3 of issue #158. Parsing checks what the document says on its
-own terms: types, required keys, ids and the order of segments. Checks that
-depend on the capability declaration (bounds, allowed modes) are in
-`evaluate.py`; the superseded check needs the plan in force and is made by
-the device controller.
+own terms: types, required keys, ids and the order of segments. The mode
+names are checked in `evaluate.py`; the superseded check needs the plan in
+force and is made by the device controller.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from nwp500.temperature import HalfCelsius
@@ -37,13 +36,14 @@ INTENT_ID_MAX_LENGTH = 64
 # Segment ids. Bounded so that the entities naming them stay
 # within the recorder's attribute limit (spec section 4.2).
 ITEM_ID_MAX_LENGTH = 64
+# How far either side of a document's times planning may reach.
+_MARGIN = timedelta(days=8)
 
 # Document-level rejection reasons (spec section 3.5).
 REASON_INVALID_DOCUMENT = "invalid_document"
 REASON_UNSUPPORTED_PROTOCOL = "unsupported_protocol"
 REASON_DUPLICATE_ID = "duplicate_id"
 REASON_UNORDERED_SEGMENTS = "unordered_segments"
-REASON_OUT_OF_BOUNDS = "out_of_bounds"
 REASON_MODE_NOT_ALLOWED = "mode_not_allowed"
 REASON_SUPERSEDED = "superseded"
 # A command rejected on its own; the plan proceeds (section 3.7).
@@ -184,16 +184,6 @@ class Plan:
     extra: dict[str, Any] = field(default_factory=dict)
     commands: tuple[Command, ...] = ()
 
-    def segment_at(self, when: datetime) -> Segment | None:
-        """The segment in force at `when`, or None before the first."""
-        current: Segment | None = None
-        for segment in self.segments:
-            if segment.start <= when:
-                current = segment
-            else:
-                break
-        return current
-
     def next_segment_after(self, when: datetime) -> Segment | None:
         """The first segment that starts after `when`."""
         for segment in self.segments:
@@ -242,6 +232,14 @@ def _parse_timestamp(value: Any, where: str) -> datetime:
         raise _reject(
             REASON_INVALID_DOCUMENT, f"{where} has no UTC offset: {value!r}"
         )
+    try:
+        # Planning works a week either side of a time, in any time zone.
+        parsed.astimezone(UTC) + _MARGIN
+        parsed.astimezone(UTC) - _MARGIN
+    except OverflowError as err:
+        raise _reject(
+            REASON_INVALID_DOCUMENT, f"{where} is out of range: {value!r}"
+        ) from err
     return parsed
 
 
@@ -284,7 +282,11 @@ def _parse_segment_setpoint(
             REASON_INVALID_DOCUMENT, f"{where} {key} must be a number"
         )
     unit = key.rsplit("_", 1)[1]
-    return _to_raw(float(value), unit), unit
+    try:
+        number = float(value)
+    except OverflowError:
+        number = math.inf
+    return _to_raw(number, unit), unit
 
 
 def _parse_id(raw: Mapping[str, Any], where: str) -> str:
@@ -367,6 +369,8 @@ def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
 def _is_type(value: Any, kind: type) -> bool:
     if kind is int:
         # JSON has numbers, not integers: 5.0 is 5, as the schema has it.
+        if isinstance(value, int):
+            return not isinstance(value, bool)
         return (
             _is_number(value) and math.isfinite(value) and value == int(value)
         )

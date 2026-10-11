@@ -17,6 +17,7 @@ from homeassistant.const import (
     PERCENTAGE,
     UnitOfEnergy,
     UnitOfPower,
+    UnitOfTime,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
@@ -38,6 +39,13 @@ if TYPE_CHECKING:
     from nwp500 import Device  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
+
+# The library's unit names that are not Home Assistant's; a duration sensor
+# rejects them.
+_LIBRARY_UNITS: dict[str, str] = {
+    "days": UnitOfTime.DAYS,
+    "hours": UnitOfTime.HOURS,
+}
 
 
 @dataclass(frozen=True)
@@ -342,7 +350,7 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
             )
             unit = self.coordinator.get_field_unit_safe(status, field_name)
             if unit:
-                return unit
+                return _LIBRARY_UNITS.get(unit, unit)
 
         # 2. For temperature sensors, if we have a status but no specific unit field,
         # we might want to check the coordinator's unit system setting, but it's safer

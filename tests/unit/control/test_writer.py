@@ -77,34 +77,6 @@ async def test_read_waits_for_the_device():
     assert await writer.async_read() == SCHEDULE
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("unit_system", "temperature"),
-    [("us_customary", 140.0), ("metric", 60.0)],
-)
-async def test_restore_state_writes_mode_then_setpoint(
-    unit_system, temperature
-):
-    coordinator = _coordinator(unit_system)
-    writer = CoordinatorWriter(coordinator, MAC)
-
-    assert await writer.async_restore_state("energy_saver", 120) is True
-
-    calls = coordinator.async_control_device.await_args_list
-    assert calls[0].args == (MAC, "set_dhw_mode")
-    assert calls[0].kwargs == {"mode": 3}
-    assert calls[1].args == (MAC, "set_temperature")
-    assert calls[1].kwargs["temperature"] == pytest.approx(temperature)
-
-
-@pytest.mark.asyncio
-async def test_a_refused_direct_write_is_reported():
-    coordinator = _coordinator()
-    coordinator.async_control_device.return_value = False
-    writer = CoordinatorWriter(coordinator, MAC)
-    assert await writer.async_restore_state("heat_pump", 120) is False
-
-
 # -- device commands (section 3.7) -----------------------------------------
 
 

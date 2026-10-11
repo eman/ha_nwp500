@@ -171,6 +171,13 @@ class TestParsing:
         assert command.rejection == REASON_INVALID_COMMAND
         assert command.detail
 
+    def test_a_huge_whole_number_is_the_librarys_to_refuse(self):
+        """Parsed, not a crash: the library checks the range when sent."""
+        (command,) = _commands(
+            {"id": "v", "command": "vacation", "days": 10**400}
+        )
+        assert command.rejection is None
+
     def test_an_unknown_command_is_rejected_on_its_own(self):
         (command,) = _commands({"id": "r", "command": "recirculation"})
         assert command.rejection == REASON_UNSUPPORTED_COMMAND
@@ -628,6 +635,47 @@ class TestLive:
             await again.async_stop()
 
     @pytest.mark.asyncio
+    async def test_a_restart_before_the_list_is_written_does_not_send_it_again(
+        self, hass, command_heater, live_factory, now, monkeypatch
+    ):
+        """The list could not be read, so nothing of it was written."""
+        unreadable = [True]
+        read = CommandHeater.async_read
+
+        async def maybe_read(heater):
+            return None if unreadable[0] else await read(heater)
+
+        monkeypatch.setattr(CommandHeater, "async_read", maybe_read)
+        _publish(
+            hass, _live_doc(now, {"id": "t", "command": "tou", "enabled": True})
+        )
+        heater, control = await live_factory()
+        assert heater.writes == []
+        assert len(heater.commands) == 1
+        await control.async_stop()
+        unreadable[0] = False
+
+        store = ControlStore(hass, control.entry.entry_id)
+        await store.async_load()
+        assert store.took_over(MAC) is False
+        again = DeviceControl(
+            hass,
+            control.entry,
+            heater.coordinator,
+            MAC,
+            control.device,
+            store,
+            writer=heater,
+        )
+        await again.async_start()
+        await hass.async_block_till_done()
+        try:
+            assert len(heater.commands) == 1
+            assert _ack_commands(again)[0]["status"] == "applied"
+        finally:
+            await again.async_stop()
+
+    @pytest.mark.asyncio
     async def test_shadow_sends_nothing(
         self, hass, command_heater, live_factory, now
     ):
@@ -725,7 +773,7 @@ def ack_examples() -> dict[str, tuple[str, dict[str, Any]]]:
             TZ,
             shadow=shadow,
         )
-        check_plan(plan, planner.capabilities)
+        check_plan(plan)
         planner.set_plan(plan, at, obs())
         write = planner.step(at, obs())
         assert write is not None

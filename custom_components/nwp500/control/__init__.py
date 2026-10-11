@@ -5,10 +5,9 @@ the option is on; `control_enabled` in the shared constants is the whole of
 the check the integration makes while it is off.
 
 The specification is issue #158, kept in `docs/external-control-spec.md`.
-Delivery steps 2 (the skeleton), 3 (shadow programming) and 5 (live list
-writes) are here. Shadow, the default, reads the device, plans the
-reservation list it would program, and reports it, writing nothing. Live
-writes the list; `CONTROL_LIVE_AVAILABLE` is its kill switch.
+Shadow, the default, reads the device, plans the reservation list it would
+program, and reports it, writing nothing. Live writes the list;
+`CONTROL_LIVE_AVAILABLE` is its kill switch.
 """
 
 from __future__ import annotations
@@ -143,7 +142,7 @@ class ControlFeature:
 
         Called when the option is switched off, before the entry reloads
         without the feature (spec section 1.1.6). Nothing is written to the
-        heater: what the plans put there stays, and is the scheduler's.
+        heater.
         """
         await self.async_stop()
         self._remove_entities(stale_only=False)
