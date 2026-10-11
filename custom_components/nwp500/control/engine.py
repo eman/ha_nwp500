@@ -766,11 +766,14 @@ class Planner:
             return False
         occupied = self._occupied(self.others(observed))
         probe = replace(entry, fires_at=segment.start.astimezone(self.tz))
-        while probe.fires_at < entry.fires_at:
+        # In elapsed time: the same zone compares by wall clock, which runs
+        # back in the repeated hour of a fall-back.
+        target = entry.fires_at.astimezone(UTC)
+        while probe.fires_at.astimezone(UTC) < target:
             if not any(slots_collide(probe.slot, slot) for slot in occupied):
                 return False
             probe = replace(probe, fires_at=_next_minute(probe.fires_at))
-        return probe.fires_at == entry.fires_at
+        return probe.fires_at.astimezone(UTC) == target
 
     # Read-back (section 5.11)
 
@@ -1075,11 +1078,14 @@ class Planner:
             )
         times.extend(e.fires_at + FIRED_GRACE for e in self.owned + self.extra)
         if not self.shadow:
-            times.extend(
-                e.fires_at + self.explain_window
-                for e in self.owned
-                if self._check_key(e) not in self._checked
-            )
+            for e in self.owned:
+                if self._check_key(e) in self._checked:
+                    continue
+                due = e.fires_at + self.explain_window
+                # The read-back, and when it is given up without a fresh
+                # status (section 5.11).
+                times.append(due)
+                times.append(due + READBACK_STALE + timedelta(seconds=1))
         future = [t for t in times if t > now]
         return min(future) if future else None
 

@@ -309,6 +309,10 @@ class TestReadBack:
         planner = self._planner(setpoint_f=140)
         stale = device_obs(planner, status_at=minutes(5))
         planner.step(minutes(11.6), stale)
+        # A wake-up for giving up comes, whatever else does.
+        give_up = minutes(11.5) + timedelta(minutes=15, seconds=1)
+        assert planner.next_event_at is not None
+        assert planner.next_event_at <= give_up
         write = planner.step(minutes(30), stale)
         # Past the read-back window: the fired entry goes, unchecked.
         assert write is not None

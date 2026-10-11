@@ -360,6 +360,39 @@ class TestTranslation:
             minutes=1
         )
 
+    def test_an_entry_moved_across_the_fold_is_placed_as_planned(self):
+        """The moved entry is still the segment's after the fold.
+
+        01:59 PDT is taken; the next minute is 01:00 PST, the wall clock
+        running back.
+        """
+        start = datetime(2026, 11, 1, 1, 59, tzinfo=TZ)
+        base = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+        taken = {"enable": 2, "week": 128, "hour": 1, "min": 59}
+        taken |= {"mode": 1, "param": 100}
+        observed = obs(reservations_enabled=True, reservations=(taken,))
+        planner = Planner(capabilities(), TZ)
+        run(planner, base, observed)
+        document = make_document(
+            base,
+            [
+                segment(base, "a", 0, mode="heat_pump", setpoint_f=130),
+                segment(base, "b", 0, setpoint_f=140),
+            ],
+        )
+        document["segments"][1]["start"] = start.isoformat()
+        plan = parse_plan(document)
+        check_plan(plan)
+        planner.set_plan(plan, base, observed)
+        run(planner, base, observed)
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert (b.fires_at.hour, b.fires_at.minute, b.fires_at.fold) == (
+            1,
+            0,
+            1,
+        )
+        assert planner._placed_as_planned(b, observed)
+
     def test_an_enabled_entry_in_the_slot_moves_the_plan_entry(self):
         foreign = {
             "enable": 2,
