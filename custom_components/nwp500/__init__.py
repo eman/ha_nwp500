@@ -1364,7 +1364,13 @@ async def async_unload_entry(
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         await entry.runtime_data.async_shutdown()
 
-        for service_name, _handler_attr, _schema in _SERVICES:
-            hass.services.async_remove(DOMAIN, service_name)
+        # The services serve every entry: they go with the last one loaded.
+        if not any(
+            other.entry_id != entry.entry_id
+            and other.state is ConfigEntryState.LOADED
+            for other in hass.config_entries.async_entries(DOMAIN)
+        ):
+            for service_name, _handler_attr, _schema in _SERVICES:
+                hass.services.async_remove(DOMAIN, service_name)
 
     return unload_ok

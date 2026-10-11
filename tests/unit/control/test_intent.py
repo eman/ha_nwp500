@@ -268,6 +268,19 @@ class TestRejectedDocuments:
             in self._rejects(parse, document, REASON_INVALID_DOCUMENT).detail
         )
 
+    @pytest.mark.parametrize(
+        "when", ["9999-12-31T23:59:00-12:00", "0001-01-01T00:00:00+14:00"]
+    )
+    def test_a_time_out_of_range(self, now, parse, when):
+        document = make_document(
+            now, [segment(now, "s", 0, mode="heat_pump", setpoint_f=130)]
+        )
+        document["segments"][0]["start"] = when
+        assert (
+            "out of range"
+            in self._rejects(parse, document, REASON_INVALID_DOCUMENT).detail
+        )
+
     def test_first_segment_needs_a_mode(self, now, parse):
         self._rejects(
             parse,
@@ -285,6 +298,7 @@ class TestRejectedDocuments:
             {"setpoint": 130},
             {"setpoint_f": "130"},
             {"setpoint_c": True},
+            {"setpoint_f": 10**400},
         ],
     )
     def test_setpoint_forms(self, now, parse, setpoint):

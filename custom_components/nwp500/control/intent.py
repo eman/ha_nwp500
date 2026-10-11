@@ -13,7 +13,7 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from nwp500.temperature import HalfCelsius
@@ -36,6 +36,8 @@ INTENT_ID_MAX_LENGTH = 64
 # Segment ids. Bounded so that the entities naming them stay
 # within the recorder's attribute limit (spec section 4.2).
 ITEM_ID_MAX_LENGTH = 64
+# How far either side of a document's times planning may reach.
+_MARGIN = timedelta(days=8)
 
 # Document-level rejection reasons (spec section 3.5).
 REASON_INVALID_DOCUMENT = "invalid_document"
@@ -230,6 +232,14 @@ def _parse_timestamp(value: Any, where: str) -> datetime:
         raise _reject(
             REASON_INVALID_DOCUMENT, f"{where} has no UTC offset: {value!r}"
         )
+    try:
+        # Planning works a week either side of a time, in any time zone.
+        parsed.astimezone(UTC) + _MARGIN
+        parsed.astimezone(UTC) - _MARGIN
+    except OverflowError as err:
+        raise _reject(
+            REASON_INVALID_DOCUMENT, f"{where} is out of range: {value!r}"
+        ) from err
     return parsed
 
 
@@ -272,7 +282,11 @@ def _parse_segment_setpoint(
             REASON_INVALID_DOCUMENT, f"{where} {key} must be a number"
         )
     unit = key.rsplit("_", 1)[1]
-    return _to_raw(float(value), unit), unit
+    try:
+        number = float(value)
+    except OverflowError:
+        number = math.inf
+    return _to_raw(number, unit), unit
 
 
 def _parse_id(raw: Mapping[str, Any], where: str) -> str:
@@ -355,6 +369,8 @@ def _parse_segments(raw_segments: Any) -> tuple[Segment, ...]:
 def _is_type(value: Any, kind: type) -> bool:
     if kind is int:
         # JSON has numbers, not integers: 5.0 is 5, as the schema has it.
+        if isinstance(value, int):
+            return not isinstance(value, bool)
         return (
             _is_number(value) and math.isfinite(value) and value == int(value)
         )

@@ -261,7 +261,7 @@ reads.
 | Plan (`intent`) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque keys |
 | Plan status (`ack`) | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force` and its opaque keys; `commands` (above) |
 | External control schedule fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `foreign` (not the feature's), `plan` or `near_term`; the feature's own also say what they serve and when they fire (spec section 4.2) |
-| Plan written to heater (`in_sync`) | On when the device's list hashes the same as the program, the reservation switch included; so in Preview it is off whenever the plan has entries of its own, or the switch is off | `device_hash`, `read_at` |
+| Plan written to heater (`in_sync`) | On when the device's list hashes the same as the program, the reservation switch included; so in Preview it is off whenever the plan has entries of its own | `device_hash`, `read_at` |
 | Plan written up to (`programmed_until`) | How far the device's copy of the plan reaches | `complete`, `scheduled` |
 | Plan next change (`next_entry`) | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | Plan mode now, Plan temperature now (`wanted_mode`, `wanted_setpoint`) | The state of the plan's segment in force; unknown before its first segment | `segment` (on the temperature: the segment in force) |
@@ -287,8 +287,9 @@ The last write's `reason` is one of `plan`,
 
 Live mode writes the plan into the heater's reservation list.
 
-- **Taking the list over.** The first write, once a plan is in force, turns
-  the reservation switch on. Every entry that is not the feature's stays as
+- **Taking the list over.** The first write of the feature's own entries
+  turns the reservation switch on. A plan with none, such as one that stops,
+  leaves the switch as it is. Every entry that is not the feature's stays as
   it is.
 - **Every write** reads the list first, keeps entries the feature does not
   own, writes the list whole, and counts only once the heater reads back the
@@ -324,7 +325,7 @@ In Preview (`shadow`) the program entities show the list the feature would
 write, and the last write entity shows each write it would have made.
 Compare the schedule fingerprint with the device's own Reservation Schedule
 sensor: Plan written to heater is off whenever they differ, which in shadow
-means the plan has entries of its own, or the reservation switch is off.
+means the plan has entries of its own.
 The acknowledgement shows each segment's status, when its entry fires, and
 any warning.
 

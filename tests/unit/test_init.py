@@ -290,6 +290,31 @@ async def test_async_unload_entry_removes_services_when_last():
 
 
 @pytest.mark.asyncio
+async def test_async_unload_entry_keeps_services_for_another_entry():
+    """Another loaded entry still uses them."""
+    from homeassistant.config_entries import ConfigEntryState
+
+    mock_hass = MagicMock()
+    mock_entry = MagicMock()
+    mock_entry.entry_id = "test_entry"
+    mock_entry.runtime_data.async_shutdown = AsyncMock()
+    other = MagicMock()
+    other.entry_id = "other_entry"
+    other.state = ConfigEntryState.LOADED
+    mock_hass.config_entries.async_entries = MagicMock(
+        return_value=[mock_entry, other]
+    )
+    mock_hass.config_entries.async_unload_platforms = AsyncMock(
+        return_value=True
+    )
+    mock_hass.services.async_remove = MagicMock()
+
+    await async_unload_entry(mock_hass, mock_entry)
+
+    mock_hass.services.async_remove.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_migrate_entry_runs_stale_sweep_once():
     """A pre-1.2 entry gets the sweep, then is stamped so it never repeats."""
     from custom_components.nwp500 import async_migrate_entry

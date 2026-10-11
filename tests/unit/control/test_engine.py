@@ -330,6 +330,36 @@ class TestTranslation:
         )
         assert [k for k, _, _ in kinds(planner)] == [KIND_PLAN]
 
+    def test_a_move_in_the_repeated_hour_keeps_elapsed_time(self):
+        """Fall-back: 01:30 comes twice; the second segment's entry moves.
+
+        It moves a minute later in elapsed time, not to the first 01:31,
+        which is an hour before the segment starts.
+        """
+        first = datetime(2026, 11, 1, 1, 30, tzinfo=TZ)
+        second = datetime(2026, 11, 1, 1, 30, fold=1, tzinfo=TZ)
+        base = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+        planner = Planner(capabilities(), TZ)
+        run(planner, base)
+        document = make_document(
+            base,
+            [
+                segment(base, "a", 0, mode="heat_pump", setpoint_f=130),
+                segment(base, "b", 0, setpoint_f=140),
+                segment(base, "c", 0, setpoint_f=120),
+            ],
+        )
+        document["segments"][1]["start"] = first.isoformat()
+        document["segments"][2]["start"] = second.isoformat()
+        plan = parse_plan(document)
+        check_plan(plan)
+        planner.set_plan(plan, base, obs())
+        run(planner, base)
+        (c,) = (e for e in planner.owned if e.serves == "c")
+        assert c.fires_at.astimezone(UTC) == second.astimezone(UTC) + timedelta(
+            minutes=1
+        )
+
     def test_an_enabled_entry_in_the_slot_moves_the_plan_entry(self):
         foreign = {
             "enable": 2,

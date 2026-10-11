@@ -44,6 +44,7 @@ from custom_components.nwp500.control.evaluate import (
     REASON_NOT_APPLIED,
     REASON_WRITE_NOT_CONFIRMED,
 )
+from custom_components.nwp500.control.intent import parse_plan
 from custom_components.nwp500.control.store import ControlStore
 
 from .conftest import make_document, segment
@@ -103,16 +104,55 @@ def device_obs(planner: Planner, **overrides):
 
 
 class TestPlannerLive:
-    def test_takes_the_list_over_with_nothing_to_add(self):
+    def test_takes_the_list_over_for_entries_it_has(self):
+        """Its entries landed unconfirmed, the switch off: it turns it on."""
+        planner = planner_with(shadow=False, **LIVE)
+        off = obs(reservations_enabled=False, reservations=())
+        plan = parse_plan(
+            make_document(
+                NOW,
+                [segment(NOW, "s", 60, mode="energy_saver", setpoint_c=59.5)],
+            )
+        )
+        planner.set_plan(plan, NOW, off)
+        write = planner.step(NOW, off)
+        assert write is not None
+        planner.reject(write, NOW, retry_at=minutes(1), final=False)
+        landed = obs(
+            reservations_enabled=False,
+            reservations=tuple(e.as_entry() for e in write.added),
+        )
+        takeover = planner.step(minutes(1), landed)
+        assert takeover is not None
+        assert takeover.reason == WRITE_TAKEOVER
+        assert planner.program(landed)["reservation_use"] == 2
+
+    def test_no_takeover_with_no_entries_of_its_own(self):
+        """The heater already holds the segment in force: nothing to write.
+
+        The switch stays as it is, so the owner's entries do not start
+        firing (#215 audit).
+        """
         planner = planner_with(
             [segment(NOW, "s", -5, mode="energy_saver", setpoint_c=59.5)],
             shadow=False,
             **LIVE,
         )
-        assert planner.last_write is not None
-        assert planner.last_write.reason == WRITE_TAKEOVER
-        assert planner.took_over is True
-        assert planner.step(minutes(1), device_obs(planner)) is None
+        assert planner.owned == []
+        assert planner.last_write is None
+        assert planner.took_over is False
+        off = obs(reservations_enabled=False, reservations=(OWNER_ENTRY,))
+        assert planner.step(minutes(1), off) is None
+        assert planner.program(off)["reservation_use"] == 1
+
+    def test_a_first_plan_that_stops_does_not_take_over(self):
+        planner = planner_with(shadow=False, **LIVE)
+        off = obs(reservations_enabled=False, reservations=(OWNER_ENTRY,))
+        plan = parse_plan(make_document(NOW, []))
+        planner.set_plan(plan, NOW, off)
+        assert planner.step(NOW, off) is None
+        assert planner.took_over is False
+        assert planner.program(off)["reservation_use"] == 1
 
     def test_no_takeover_without_a_plan(self):
         planner = planner_with(shadow=False, **LIVE)
@@ -248,6 +288,33 @@ class TestReadBack:
         assert planner.readback == {"b": REASON_NOT_APPLIED}
         assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
 
+    def test_only_a_status_reported_after_the_entry_counts(self):
+        """While the heater is unreachable, its last status is stale."""
+        planner = self._planner(setpoint_f=140)
+        stale = device_obs(planner, status_at=minutes(5))
+        planner.step(minutes(11.6), stale)
+        planner.step(minutes(14), stale)
+        assert planner.readback == {}
+        fresh = device_obs(
+            planner,
+            mode="heat_pump",
+            setpoint_raw=120,
+            status_at=minutes(14.5),
+        )
+        planner.step(minutes(15), fresh)
+        assert planner.readback == {}
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+
+    def test_a_stale_status_is_not_waited_for_forever(self):
+        planner = self._planner(setpoint_f=140)
+        stale = device_obs(planner, status_at=minutes(5))
+        planner.step(minutes(11.6), stale)
+        write = planner.step(minutes(30), stale)
+        # Past the read-back window: the fired entry goes, unchecked.
+        assert write is not None
+        assert write.reason == "cleanup"
+        assert planner.readback == {}
+
     def test_not_in_shadow(self):
         planner = planner_with(
             [
@@ -298,7 +365,6 @@ class FakeHeater:
     def _seen(self, schedule: dict[str, Any]) -> None:
         """The coordinator holds the list as read from the heater now."""
         self.coordinator.reservation_schedules[MAC] = copy.deepcopy(schedule)
-        self.coordinator.reservation_schedules_read_at[MAC] = dt_util.utcnow()
 
     async def async_read(self) -> dict[str, Any] | None:
         self.reads += 1

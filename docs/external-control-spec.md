@@ -139,7 +139,10 @@ scheduler ──► [intent entity] ──► control feature ──whole-list w
 ### 2.1 Input: an intent entity
 
 - An option selects **any entity** as the intent source.
-- Its **state** MUST change on every new plan. Use the `intent_id`.
+- Its **state** MUST change on every new plan. Use the `intent_id`. A
+  source that writes the state before the document still works: a change of
+  attributes alone is read too, and the plan in force received again
+  changes nothing.
 - Its **attributes** are the intent document (section 3), with top-level keys
   as attributes.
 - Typical sources, none of which this feature depends on:
@@ -251,7 +254,7 @@ statuses, with the rejection beside them.
 
 | Reason | When |
 |---|---|
-| `invalid_document` | JSON types or required keys are wrong; an id is empty or longer than 64 characters; a setpoint is given in more than one form; the first segment has no mode |
+| `invalid_document` | JSON types or required keys are wrong; an id is empty or longer than 64 characters; a setpoint is given in more than one form, or is not a temperature; a time is out of range (within a week of year 1 or 9999); the first segment has no mode |
 | `unsupported_protocol` | `protocol` is not supported |
 | `duplicate_id` | Two items share an id: two segments, two commands (section 3.7), or a command and a segment |
 | `unordered_segments` | After truncation to the minute, a segment does not start after the one before it |
@@ -601,7 +604,7 @@ stops applying plans (section 6.6). Nothing on the dashboard switches it to
 The feature owns only the entries it writes. Every other entry on the
 heater, the owner's or anyone's, is kept exactly as read: not switched off,
 not restored, and counted against `entry_limit`. While live, the first write
-turns the reservation switch on, so the plan's entries fire. The feature
+of the feature's own entries turns the reservation switch on, so they fire. The feature
 keeps no copy of the owner's program; what the heater runs besides the plan
 is the scheduler's to plan around.
 
@@ -673,9 +676,10 @@ is the scheduler's to plan around.
   while the device took the list. The next read settles it: if the device
   holds the list sent, the write is committed; otherwise any of its entries
   found on the device are the feature's, not a person's.
-- **Taking the list over.** The first live write, once a plan is in force,
-  turns the reservation switch on, even if the plan has nothing of its own
-  to add yet (reason `takeover`).
+- **Taking the list over.** Once the feature has entries of its own on the
+  list, its first live write turns the reservation switch on, even with
+  nothing to add (reason `takeover`). A plan with no entries of its own,
+  such as one that stops, leaves the switch as it is.
 - **A missing entry is not restored.** A plan entry missing from the device
   was removed by a person. The feature does not write it again, and its
   segment is `removed`, for as long as that plan is in force, across
@@ -786,7 +790,9 @@ scheduler decides.
   `schedule_hash` with the program's on every schedule read.
 - **Each entry.** After an entry's minute, the feature compares the device's
   setpoint and mode with the entry's, within the poll interval plus one
-  minute. Setpoints are compared within the device's half-degree resolution.
+  minute, against a status the heater reported after the entry's minute.
+  While none comes, as when the heater is unreachable, the check waits,
+  for 15 minutes at most; an entry not checked by then is not checked. Setpoints are compared within the device's half-degree resolution.
   A setpoint or mode that does not match marks the segment with reason
   `not_applied_on_device`. Each entry is checked once.
 

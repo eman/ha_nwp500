@@ -244,6 +244,27 @@ class TestIntake:
         assert control.plan.extra == {}
 
     @pytest.mark.asyncio
+    async def test_a_new_state_before_its_attributes_is_still_adopted(
+        self, hass, control_factory, now
+    ):
+        """A source that writes the state and attributes one at a time."""
+        first = _plan(now)
+        _publish(hass, first)
+        control = await control_factory()
+        hass.states.async_set(
+            INTENT_ENTITY,
+            "i-2",
+            {**first, "friendly_name": "Water heater intent"},
+        )
+        await hass.async_block_till_done()
+        _publish(
+            hass,
+            _plan(now, intent_id="i-2", issued_at=now + timedelta(minutes=1)),
+        )
+        await hass.async_block_till_done()
+        assert control.plan.intent_id == "i-2"
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("gone", [STATE_UNKNOWN, STATE_UNAVAILABLE])
     async def test_source_unavailable_keeps_the_plan(
         self, hass, control_factory, now, gone

@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, tzinfo
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Any
 
 from .capabilities import (
@@ -86,6 +86,11 @@ _WRITE_REASONS = (
     (KIND_NEAR_TERM, WRITE_NEAR_TERM),
     (KIND_PLAN, WRITE_PLAN),
 )
+
+
+def _next_minute(when: datetime) -> datetime:
+    """A minute later, in elapsed time: right across a change of offset."""
+    return (when.astimezone(UTC) + timedelta(minutes=1)).astimezone(when.tzinfo)
 
 
 @dataclass(frozen=True)
@@ -504,10 +509,10 @@ class Planner:
             write is None
             and not self.shadow
             and not self.took_over
-            and self.plan is not None
+            and self.owned
         ):
-            # Going live with nothing of its own to add yet still takes the
-            # list over: the reservation switch must be on for its entries.
+            # Going live with nothing to add yet still takes the list over:
+            # the reservation switch must be on for the entries it has.
             write = Write(
                 reason=WRITE_TAKEOVER,
                 at=now,
@@ -764,9 +769,7 @@ class Planner:
         while probe.fires_at < entry.fires_at:
             if not any(slots_collide(probe.slot, slot) for slot in occupied):
                 return False
-            probe = replace(
-                probe, fires_at=probe.fires_at + timedelta(minutes=1)
-            )
+            probe = replace(probe, fires_at=_next_minute(probe.fires_at))
         return probe.fires_at == entry.fires_at
 
     # Read-back (section 5.11)
@@ -779,6 +782,7 @@ class Planner:
         """Compare the device's state with the latest entry that fired.
 
         Live only. Checked once per entry, after the poll interval plus a
+        minute, against a status the heater reported after the entry's
         minute. A setpoint or mode that differs is `not_applied_on_device`.
         """
         if self.shadow:
@@ -795,11 +799,17 @@ class Planner:
         ]
         if not due:
             return
-        self._checked.update(self._check_key(e) for e in due)
         latest = max(due, key=lambda e: e.fires_at)
-        if latest.serves is None or (
-            now - (latest.fires_at + self.explain_window) > READBACK_STALE
+        stale = now - (latest.fires_at + self.explain_window) > READBACK_STALE
+        if (
+            not stale
+            and observed.status_at is not None
+            and observed.status_at < latest.fires_at
         ):
+            # The heater has not reported since the entry's minute.
+            return
+        self._checked.update(self._check_key(e) for e in due)
+        if latest.serves is None or stale:
             return
         if (observed.mode, observed.setpoint_raw) == (
             latest.mode,
@@ -1009,9 +1019,7 @@ class Planner:
         """The entry, moved a minute at a time past any occupied slot."""
         placed = entry
         while any(slots_collide(placed.slot, slot) for slot in occupied):
-            placed = replace(
-                placed, fires_at=placed.fires_at + timedelta(minutes=1)
-            )
+            placed = replace(placed, fires_at=_next_minute(placed.fires_at))
         return placed
 
     def _diff(self, desired: list[OwnedEntry], now: datetime) -> Write | None:
@@ -1025,7 +1033,7 @@ class Planner:
             not added
             and not self.shadow
             and all(e.fires_at <= now for e in removed)
-            and any(now < e.fires_at + self.explain_window for e in removed)
+            and any(self._awaiting_readback(e, now) for e in removed)
         ):
             return None
         kinds = {e.kind for e in added}
@@ -1046,6 +1054,13 @@ class Planner:
             removed=tuple(removed),
             result=tuple(desired),
             simulated=self.shadow,
+        )
+
+    def _awaiting_readback(self, entry: OwnedEntry, now: datetime) -> bool:
+        """Whether an entry's read-back is still to be made."""
+        return (
+            self._check_key(entry) not in self._checked
+            and now - (entry.fires_at + self.explain_window) <= READBACK_STALE
         )
 
     def _next_event(self, now: datetime) -> datetime | None:
@@ -1090,13 +1105,18 @@ class Planner:
         upcoming = [e for e in self.owned if e.fires_at > now]
         return min(upcoming, key=lambda e: e.fires_at) if upcoming else None
 
-    def reservations_on(self, observed: Observed) -> bool:
-        """The reservation switch the feature wants.
+    def reservations_on(
+        self, observed: Observed, owned: Iterable[OwnedEntry]
+    ) -> bool:
+        """The reservation switch the feature wants with `owned` on the list.
 
-        On, to take the list over. Once it holds the list, as the device
-        reports it: a person who turned it off keeps it off (section 5.10).
+        On, to take the list over for its entries. With none, or once it
+        holds the list, as the device reports it: a person who turned it
+        off keeps it off (section 5.10).
         """
-        if not self.took_over or observed.reservations_enabled is None:
+        if observed.reservations_enabled is None:
+            return True
+        if not self.took_over and any(True for _ in owned):
             return True
         return observed.reservations_enabled
 
@@ -1104,10 +1124,11 @@ class Planner:
         self, observed: Observed, owned: Iterable[OwnedEntry] | None = None
     ) -> dict[str, Any]:
         """The whole list the feature wants on the device."""
+        entries = list(self.owned if owned is None else owned)
         return compose_program(
             self.others(observed),
-            self.owned if owned is None else owned,
-            reservations_on=self.reservations_on(observed),
+            entries,
+            reservations_on=self.reservations_on(observed, entries),
         )
 
     def program_hash(self, observed: Observed) -> str:

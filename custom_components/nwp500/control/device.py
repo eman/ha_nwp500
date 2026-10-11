@@ -407,6 +407,7 @@ class DeviceControl:
         return observe(
             device_data.get("status"),
             self.coordinator.reservation_schedules.get(self.mac_address),
+            status_at=device_data.get("last_update"),
         )
 
     def _track_device_hash(self, observed: Observed, now: datetime) -> None:
@@ -693,6 +694,7 @@ class DeviceControl:
                 now,
                 observed,
                 restoring=not self._going_live,
+                stored=True,
             )
         if entity_document is not None and (
             stored_plan is None
@@ -709,11 +711,8 @@ class DeviceControl:
         ):
             # The source went away. The plan in force stays in force.
             return
-        old_state = event.data["old_state"]
-        if old_state is not None and old_state.state == new_state.state:
-            # The protocol requires the state to change on every new plan;
-            # an attribute-only change is not a new plan.
-            return
+        # Attributes count too: a source may write a new state before its
+        # document. The plan in force received again changes nothing.
         document = document_from_attributes(new_state.attributes)
         self.hass.async_create_task(
             self.async_receive(document, dt_util.utcnow())
@@ -807,7 +806,14 @@ class DeviceControl:
         observed: Observed,
         *,
         restoring: bool = False,
+        stored: bool = False,
     ) -> None:
+        """Adopt a plan; `stored` is the stored plan at start-up.
+
+        Its commands keep what became of them even when the list is
+        programmed afresh on going live: one sent may have been applied
+        (section 3.7).
+        """
         self.plan = plan
         self.received_at = received_at
         self.planner.capabilities = self._build_capabilities()
@@ -816,7 +822,7 @@ class DeviceControl:
             plan.intent_id,
             plan.commands,
             writes=self.writes,
-            restoring=restoring,
+            restoring=restoring or stored,
         )
         _LOGGER.debug(
             "Plan %s for %s adopted: %d segment(s)",

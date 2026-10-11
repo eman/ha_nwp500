@@ -60,6 +60,9 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **Services stay while another entry is loaded.** Unloading one Navien
+  entry, or a reload that failed, removed the integration's services for
+  every entry. They are now removed with the last entry. (#219)
 - **The Set reservation temperature works in Celsius.** The service reads
   the temperature in Home Assistant's own unit, but its field was a slider
   fixed at 80-150 °F, so a Celsius value could not be entered. It is now a

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from ..const import MODE_TO_DHW_ID, get_enum_value
@@ -57,6 +58,8 @@ class Observed:
     mode: str | None = None
     # The setpoint, in half-degrees Celsius.
     setpoint_raw: int | None = None
+    # When the heater reported that status; None if unknown.
+    status_at: datetime | None = None
     tou_on: bool | None = None
     # The reservation list as the device last reported it; None until read.
     reservations_enabled: bool | None = None
@@ -82,6 +85,8 @@ class Observed:
 def observe(
     status: Any,
     schedule: Mapping[str, Any] | None,
+    *,
+    status_at: float | None = None,
 ) -> Observed:
     """Build a snapshot from the coordinator's data."""
     mode = setpoint_raw = tou_on = None
@@ -109,6 +114,9 @@ def observe(
     return Observed(
         mode=mode,
         setpoint_raw=setpoint_raw,
+        status_at=datetime.fromtimestamp(status_at, UTC)
+        if status is not None and status_at is not None
+        else None,
         tou_on=tou_on,
         reservations_enabled=reservations_enabled,
         reservations=reservations,
