@@ -32,13 +32,13 @@
   are kept as read. Entities show what runs, the plan, its acknowledgement,
   the program and whether the device matches it, how far the programmed plan
   reaches, the next entry, the wanted state, the last write, people's changes
-  and a heartbeat, with a Stop button; a Repairs issue reports a feature
+  to the reservation list and a heartbeat, with a Stop button; a Repairs issue reports a feature
   that cannot start. Protocol 1 comes with compatibility promises; protocol
   0 documents are still accepted. The specification, JSON Schema and
   examples are in `docs/`, with the device tests and the staged live
   cut-over run on a real heater. With the feature off nothing of it loads,
   and a regression test holds set-up to what it was before. (#158, #191,
-  #193, #194, #192)
+  #193, #194, #192, #215)
 
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 9.4.3. The library

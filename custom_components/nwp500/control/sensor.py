@@ -190,11 +190,7 @@ class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: i
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The segment it comes from.
-
-        The segment in force on the heater: one a person's deletion kept
-        out is not (section 5.10).
-        """
+        """The plan's segment in force, as the ack's `in_force`."""
         return {
             "segment": self.control.planner.segment_in_force(dt_util.utcnow())
         }

@@ -1,7 +1,7 @@
 """What the feature reads from the device (spec section 4.3).
 
-One immutable snapshot per evaluation, built from the coordinator's status,
-the stored reservation and TOU schedules, so the planner never touches Home
+One immutable snapshot per evaluation, built from the coordinator's status
+and the stored reservation schedule, so the planner never touches Home
 Assistant objects.
 """
 
@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from ..const import MODE_TO_DHW_ID, get_enum_value
@@ -21,15 +20,6 @@ DEVICE_BOOL_ON = 2
 DEVICE_BOOL_OFF = 1
 
 ENTRY_FIELDS = ("enable", "week", "hour", "min", "mode", "param")
-_TOU_FIELDS = (
-    "season",
-    "week",
-    "start_hour",
-    "start_min",
-    "end_hour",
-    "end_min",
-    "price_max",
-)
 
 
 def raw_entry(entry: Mapping[str, Any]) -> dict[str, int]:
@@ -71,11 +61,6 @@ class Observed:
     # The reservation list as the device last reported it; None until read.
     reservations_enabled: bool | None = None
     reservations: tuple[dict[str, int], ...] | None = None
-    # When that list was read from the device; None if unknown, taken as
-    # the time of the pass.
-    reservations_read_at: datetime | None = None
-    # The TOU program's periods, each with its price; empty if unknown.
-    tou_periods: tuple[dict[str, int], ...] = ()
     # What device commands set (section 3.7), to read them back.
     vacation_days: int | None = None
     anti_legionella_on: bool | None = None
@@ -97,9 +82,6 @@ class Observed:
 def observe(
     status: Any,
     schedule: Mapping[str, Any] | None,
-    tou_schedule: Mapping[str, Any] | None = None,
-    *,
-    schedule_read_at: datetime | None = None,
 ) -> Observed:
     """Build a snapshot from the coordinator's data."""
     mode = setpoint_raw = tou_on = None
@@ -124,24 +106,12 @@ def observe(
             raw_entry(e) for e in schedule.get("reservation") or []
         )
 
-    tou_periods: tuple[dict[str, int], ...] = ()
-    if tou_schedule is not None:
-        tou_periods = tuple(
-            {k: int(p.get(k, 0) or 0) for k in _TOU_FIELDS}
-            for p in tou_schedule.get("reservation") or []
-            if isinstance(p, Mapping)
-        )
-
     return Observed(
         mode=mode,
         setpoint_raw=setpoint_raw,
         tou_on=tou_on,
         reservations_enabled=reservations_enabled,
         reservations=reservations,
-        reservations_read_at=schedule_read_at
-        if reservations is not None
-        else None,
-        tou_periods=tou_periods,
         vacation_days=vacation_days,
         anti_legionella_on=anti_legionella_on,
         anti_legionella_period=anti_legionella_period,

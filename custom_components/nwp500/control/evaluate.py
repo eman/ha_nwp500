@@ -44,11 +44,9 @@ REASON_ENTRY_BUDGET = "entry_budget"
 # Live only (sections 5.4 and 5.11).
 REASON_WRITE_NOT_CONFIRMED = "write_not_confirmed"
 REASON_NOT_APPLIED = "not_applied_on_device"
-REASON_HELD_IN_TOU_WINDOW = "held_in_tou_window"
 
 # Warnings.
 WARNING_MOVED = "moved_1_min"
-WARNING_MODE_IN_TOU_WINDOW = "mode_in_tou_window"
 
 
 @dataclass(frozen=True)

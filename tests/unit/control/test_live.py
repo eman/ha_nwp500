@@ -42,7 +42,6 @@ from custom_components.nwp500.control.entries import (
     schedule_hash,
 )
 from custom_components.nwp500.control.evaluate import (
-    REASON_HELD_IN_TOU_WINDOW,
     REASON_NOT_APPLIED,
     REASON_WRITE_NOT_CONFIRMED,
 )
@@ -249,24 +248,12 @@ class TestReadBack:
         planner.step(minutes(12), device_obs(planner))
         assert planner.readback == {}
 
-    def test_a_mode_held_in_a_tou_window(self):
+    def test_a_mode_that_differs_is_not_applied(self):
+        """Whatever the heater's TOU program: only its report counts."""
         planner = self._planner(setpoint_c=59.5)
-        all_day = {
-            "season": 0xFFF,
-            "week": 254,
-            "start_hour": 0,
-            "start_min": 0,
-            "end_hour": 23,
-            "end_min": 59,
-            "price_max": 10,
-        }
-        held = device_obs(planner, tou_on=True, tou_periods=(all_day,))
-        planner.step(minutes(11.6), held)
-        assert planner.readback == {"b": REASON_HELD_IN_TOU_WINDOW}
-        assert statuses(planner.ack("i"))["b"] == (
-            "in_force",
-            REASON_HELD_IN_TOU_WINDOW,
-        )
+        planner.step(minutes(11.6), device_obs(planner, tou_on=True))
+        assert planner.readback == {"b": REASON_NOT_APPLIED}
+        assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
 
     def _detail(self, planner, item):
         return next(
@@ -281,40 +268,6 @@ class TestReadBack:
         planner.step(minutes(11.6), fired)
         assert statuses(planner.ack("i"))["b"] == ("in_force", None)
         assert "mode_confirmed" not in self._detail(planner, "b")
-
-    def _window(self, end_hour: int) -> dict:
-        return {
-            "season": 0xFFF,
-            "week": 254,
-            "start_hour": 0,
-            "start_min": 0,
-            "end_hour": end_hour,
-            "end_min": 59,
-            "price_max": 10,
-        }
-
-    def test_a_held_mode_is_applied_when_the_window_ends(self):
-        planner = self._planner(setpoint_c=59.5)
-        window = (self._window(10),)
-        held = device_obs(planner, tou_on=True, tou_periods=window)
-        planner.step(minutes(11.6), held)
-        # The window runs to 10:59; the heater applies the mode at 11:00,
-        # with no entry firing then. That is not a person's change.
-        applied = device_obs(
-            planner, mode="heat_pump", tou_on=True, tou_periods=window
-        )
-        planner.step(minutes(60.2), applied)
-        assert planner.readback == {}
-        assert planner.reports == {}
-        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
-
-    def test_a_held_mode_not_applied_after_the_window_fails(self):
-        planner = self._planner(setpoint_c=59.5)
-        window = (self._window(10),)
-        held = device_obs(planner, tou_on=True, tou_periods=window)
-        planner.step(minutes(11.6), held)
-        planner.step(minutes(62), held)
-        assert planner.readback == {"b": REASON_NOT_APPLIED}
 
     def test_not_in_shadow(self):
         planner = planner_with(

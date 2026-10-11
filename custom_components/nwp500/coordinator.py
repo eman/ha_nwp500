@@ -6,7 +6,7 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Final
 
 from awscrt.exceptions import AwsCrtError
@@ -19,7 +19,6 @@ from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
-from homeassistant.util import dt as dt_util
 
 from nwp500.exceptions import (
     APIError,
@@ -136,10 +135,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
         self.reservation_schedules: dict[str, dict[str, Any]] = {}
-        # When each device's reservation list was last read from it (or
-        # written and confirmed): the external control feature judges by
-        # it whether an entry was still on the heater at its minute.
-        self.reservation_schedules_read_at: dict[str, datetime] = {}
         self.tou_schedules: dict[str, dict[str, Any]] = {}
         self.recirculation_schedules: dict[str, dict[str, Any]] = {}
         # The installer diagnostics counters (`DeviceDiagnostics.model_dump()`
@@ -1558,7 +1553,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("Received reservation schedule for %s", mac_address)
 
             self.reservation_schedules[mac_address] = response
-            self.reservation_schedules_read_at[mac_address] = dt_util.utcnow()
 
             # Wake anything waiting on a fresh read (async_fetch_reservations)
             for waiter in self._reservation_waiters.pop(mac_address, []):
@@ -1876,7 +1870,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "reservation": entries,
         }
         self.reservation_schedules[mac_address] = written
-        self.reservation_schedules_read_at[mac_address] = dt_util.utcnow()
         return written
 
     async def async_request_reservations(self, mac_address: str) -> bool:
@@ -2345,7 +2338,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Clear device features cache to prevent memory leaks
         self.device_features.clear()
         self.reservation_schedules.clear()
-        self.reservation_schedules_read_at.clear()
         self.tou_schedules.clear()
         self.recirculation_schedules.clear()
         self.device_diagnostics.clear()

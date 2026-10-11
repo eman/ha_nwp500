@@ -458,12 +458,10 @@ class TestTiming:
     async def test_coordinator_updates_evaluate(self, hass, control_factory):
         control = await control_factory()
         listener = control.coordinator.async_add_listener.call_args.args[0]
-        control.coordinator.data[MAC]["status"] = _status(
-            dhw_target_temperature_setting_raw=100
-        )
+        control.planner.last_step = None
         listener()
         await hass.async_block_till_done()
-        assert "setpoint" in control.reports
+        assert control.planner.last_step is not None
 
     @pytest.mark.asyncio
     async def test_stop_cancels_the_timers(
