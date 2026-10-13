@@ -29,7 +29,7 @@ mypy = [
 ]
 basedpyright = [
     "homeassistant>=2026.3.0",
-    "basedpyright>=1.40.1",
+    "basedpyright>=1.40.2",
 ]
 lint = [
     "ruff>=0.16.10",
