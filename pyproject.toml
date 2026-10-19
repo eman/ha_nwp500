@@ -39,7 +39,7 @@ dev = [
     {include-group = "mypy"},
     {include-group = "basedpyright"},
     {include-group = "lint"},
-    "tox>=4.65.2",
+    "tox>=4.66.0",
     "tox-uv>=1.36.1",
 ]
 
