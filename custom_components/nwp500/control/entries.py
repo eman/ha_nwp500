@@ -16,8 +16,13 @@ from typing import Any
 from nwp500.temperature import HalfCelsius
 
 from .. import schedule_state
-from ..const import MODE_TO_DHW_ID
+from ..const import RESERVATION_MODE_IDS
 from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
+
+# A segment's mode as an entry's. A reservation entry has no Vacation mode;
+# a vacation segment writes 5, as it did before nwp500-python 9.5.0, which
+# the heater takes as Power Off (#229).
+_ENTRY_MODE_IDS = {**RESERVATION_MODE_IDS, "vacation": 5}
 
 # What an owned entry is for.
 KIND_PLAN = "plan"
@@ -71,7 +76,7 @@ class OwnedEntry:
             "week": week,
             "hour": hour,
             "min": minute,
-            "mode": MODE_TO_DHW_ID[self.mode],
+            "mode": _ENTRY_MODE_IDS[self.mode],
             "param": self.setpoint_raw,
         }
 

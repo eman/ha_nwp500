@@ -73,9 +73,11 @@ def _is_credential_failure(err: BaseException) -> bool:
       when the broker needed them, which is ordinary at token expiry and
       during a reconnect.
 
-    A changed password still reaches us as `InvalidCredentialsError`:
-    `ensure_valid_token()` re-runs `sign_in()` whenever the AWS credentials
-    expire, so a rejected login surfaces there rather than only at setup.
+    A changed password still reaches us as `InvalidCredentialsError`, but
+    later than before 9.5.0: `ensure_valid_token()` renews expired AWS
+    credentials with the access token first (session refresh, then secured
+    sign-in) and falls back to `sign_in()` only when those fail, so a
+    rejected login surfaces once the tokens can no longer be renewed.
     """
     return isinstance(err, InvalidCredentialsError)
 

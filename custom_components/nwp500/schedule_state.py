@@ -92,6 +92,25 @@ def reservation_entries(schedule: dict[str, Any]) -> list[dict[str, Any]]:
     return [copy.deepcopy(entry) for entry in entries]
 
 
+def kept_positions(
+    entries: list[dict[str, Any]], held: list[dict[str, Any]]
+) -> list[int]:
+    """1-based positions of `entries` that `held` already has, unchanged.
+
+    The library's `kept`: such an entry is sent back as read, so its mode
+    is not held to the writable range, and an entry with a mode an earlier
+    library version wrote does not block a write of the rest.
+    """
+    remaining = [_entry_key(entry, _RESERVATION_FIELDS) for entry in held]
+    kept: list[int] = []
+    for index, entry in enumerate(entries, start=1):
+        key = _entry_key(entry, _RESERVATION_FIELDS)
+        if key in remaining:
+            remaining.remove(key)
+            kept.append(index)
+    return kept
+
+
 def is_enabled(schedule: dict[str, Any]) -> bool:
     """Whether the schedule system is switched on at the device."""
     return schedule.get("reservation_use") == _DEVICE_BOOL_ON

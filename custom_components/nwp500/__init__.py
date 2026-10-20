@@ -54,7 +54,7 @@ from .const import (
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
-    MODE_TO_DHW_ID,
+    RESERVATION_MODE_IDS,
     control_enabled,
     control_feature,
     control_storage_key,
@@ -125,14 +125,7 @@ VALID_DAYS = [
 ]
 
 # Valid operation modes for reservations
-VALID_MODES = [
-    "heat_pump",
-    "electric",
-    "energy_saver",
-    "high_demand",
-    "vacation",
-    "power_off",
-]
+VALID_MODES = list(RESERVATION_MODE_IDS)
 
 
 def _reservation_slot(entry: dict[str, Any]) -> tuple[int, int, int]:
@@ -219,7 +212,7 @@ def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
     mode = data.get(ATTR_OP_MODE)
     temperature = data.get(ATTR_TEMPERATURE)
 
-    if mode not in ["vacation", "power_off"] and temperature is None:
+    if mode != "power_off" and temperature is None:
         raise vol.Invalid(f"Temperature is required for mode '{mode}'")
 
     # Note: Default temperature for modes that don't use it is handled
@@ -411,7 +404,7 @@ SERVICE_SET_VACATION_DAYS_SCHEMA = vol.All(
             vol.Optional(ATTR_DEVICE_ID): cv.string,
             vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
             vol.Required(ATTR_DAYS): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=30)
+                vol.Coerce(int), vol.Range(min=1, max=99)
             ),
         }
     ),
@@ -576,15 +569,15 @@ class NWP500ServiceHandler:
             mode = call.data[ATTR_OP_MODE]
             temperature = call.data.get(ATTR_TEMPERATURE)
 
-            # Convert mode string to DHW mode ID
-            mode_id = MODE_TO_DHW_ID.get(mode)
+            # Convert mode string to the reservation entry's mode ID
+            mode_id = RESERVATION_MODE_IDS.get(mode)
             if mode_id is None:
                 raise HomeAssistantError(f"Invalid mode: {mode}")
 
             # Temperature is guaranteed by schema validation for most modes.
-            # For vacation/power_off, we use a default that matches the unit system.
+            # For power_off, we use a default that matches the unit system.
             if temperature is None:
-                if mode in ["vacation", "power_off"]:
+                if mode == "power_off":
                     temperature = (
                         DEFAULT_TEMPERATURE_C
                         if coordinator.hass.config.units.temperature_unit

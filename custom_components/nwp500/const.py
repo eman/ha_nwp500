@@ -175,8 +175,7 @@ def get_dhw_operation_setting_state(
         return fallback
 
 
-# Mapping for reservation service calls (friendly mode names to DHW mode IDs)
-# Used by set_reservation and related services
+# Friendly mode names to DhwOperationSetting IDs, the mode a status reports.
 MODE_TO_DHW_ID: Final = {
     "heat_pump": 1,
     "electric": 2,
@@ -184,6 +183,17 @@ MODE_TO_DHW_ID: Final = {
     "high_demand": 4,
     "vacation": 5,
     "power_off": 6,
+}
+
+# Friendly mode names to reservation entry mode IDs (the library's
+# ReservationMode). These differ from the DHW operation setting from 5 on: an
+# entry's 5 is Power Off, and an entry has no Vacation mode.
+RESERVATION_MODE_IDS: Final = {
+    "heat_pump": 1,
+    "electric": 2,
+    "energy_saver": 3,
+    "high_demand": 4,
+    "power_off": 5,
 }
 
 # Temperature ranges (from nwp500-python documentation)
@@ -309,14 +319,14 @@ DEVICE_STATUS_SENSORS: Final = {
     },
     "target_super_heat": {
         "name": "Target superheat",
-        "device_class": "temperature",
+        "device_class": "temperature_delta",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
     },
     "current_super_heat": {
         "name": "Current superheat",
-        "device_class": "temperature",
+        "device_class": "temperature_delta",
         "unit": None,
         "state_class": "measurement",
         "entity_registry_enabled_default": False,
@@ -611,7 +621,7 @@ SENSOR_CONFIGS: Final = {
     "target_super_heat": {
         "attr": "target_super_heat",
         "name": "Target superheat",
-        "device_class": "temperature",
+        "device_class": "temperature_delta",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -619,7 +629,7 @@ SENSOR_CONFIGS: Final = {
     "current_super_heat": {
         "attr": "current_super_heat",
         "name": "Current superheat",
-        "device_class": "temperature",
+        "device_class": "temperature_delta",
         "unit": None,
         "state_class": "measurement",
         "enabled": False,
@@ -1069,12 +1079,10 @@ SENSOR_CONFIGS: Final = {
         "special": "enum_name",
         "enabled": False,
     },
+    # 0 unknown, 1 off, 2 on: the device's tri-state flag, not hours.
     "dr_override_status": {
         "attr": "dr_override_status",
-        "name": "DR override hours remaining",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "measurement",
+        "name": "DR override status",
         "enabled": False,
     },
     "recirculation_error_status": {

@@ -36,6 +36,7 @@ from custom_components.nwp500 import (
     SERVICE_SET_AIR_FILTER_LIFE_SCHEMA,
     SERVICE_SET_RECIRCULATION_MODE,
     SERVICE_SET_RESERVATION,
+    SERVICE_SET_RESERVATION_SCHEMA,
     SERVICE_SET_VACATION_DAYS,
     SERVICE_SET_VACATION_DURATION,
     SERVICE_TRIGGER_RECIRCULATION,
@@ -115,12 +116,18 @@ class TestReservationValidator:
         with pytest.raises(vol.Invalid, match="Temperature is required"):
             validate_reservation_temperature(data)
 
-    def test_validate_temperature_optional_for_vacation(self):
-        """Test temperature is optional for vacation mode."""
-        # Note: Validation doesn't set the default anymore, it's done in the handler
-        data = {ATTR_OP_MODE: "vacation"}
-        result = validate_reservation_temperature(data)
-        assert ATTR_TEMPERATURE not in result
+    def test_a_reservation_has_no_vacation_mode(self):
+        """A reservation entry has no Vacation mode (nwp500-python 9.5.0)."""
+        with pytest.raises(vol.Invalid):
+            SERVICE_SET_RESERVATION_SCHEMA(
+                {
+                    ATTR_DEVICE_ID: "d",
+                    ATTR_ENABLED: True,
+                    ATTR_DAYS: ["Monday"],
+                    ATTR_HOUR: 6,
+                    ATTR_OP_MODE: "vacation",
+                }
+            )
 
     def test_validate_temperature_optional_for_power_off(self):
         """Test temperature is optional for power_off mode."""
@@ -414,10 +421,10 @@ class TestReservationServices:
             await set_reservation_handler(call)
 
     @pytest.mark.asyncio
-    async def test_set_reservation_vacation_mode_uses_default_temp(
+    async def test_set_reservation_power_off_mode_uses_default_temp(
         self, mock_hass, mock_device_registry
     ):
-        """Test set_reservation uses default temperature for vacation mode."""
+        """Power off is entry mode 5, with the default temperature."""
         import asyncio
 
         from homeassistant.const import UnitOfTemperature
@@ -464,7 +471,7 @@ class TestReservationServices:
             ATTR_DAYS: ["Monday"],
             ATTR_HOUR: 6,
             ATTR_MINUTE: 0,
-            ATTR_OP_MODE: "vacation",
+            ATTR_OP_MODE: "power_off",
             # ATTR_TEMPERATURE not provided
         }
 
@@ -472,6 +479,7 @@ class TestReservationServices:
             await set_reservation_handler(call)
 
             mock_build.assert_called_once()
+            assert mock_build.call_args.kwargs["mode_id"] == 5
             # Verify temperature is DEFAULT_TEMPERATURE_F (since we mocked HA as Fahrenheit)
             assert (
                 mock_build.call_args.kwargs["temperature"]

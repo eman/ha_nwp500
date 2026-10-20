@@ -314,7 +314,7 @@
         "name": "DR event status"
       },
       "dr_override_status": {
-        "name": "DR override hours remaining"
+        "name": "DR override status"
       },
       "recirculation_error_status": {
         "name": "Recirculation error status"
@@ -771,7 +771,7 @@
         },
         "temperature": {
           "name": "Temperature",
-          "description": "Target temperature, in Home Assistant's temperature unit and within the heater's range. Required for heating modes, ignored for Vacation and power off."
+          "description": "Target temperature, in Home Assistant's temperature unit and within the heater's range. Required for heating modes, ignored for power off."
         },
         "entity_id": {
           "name": "Entity",
@@ -873,7 +873,7 @@
     },
     "set_vacation_duration": {
       "name": "Set vacation duration",
-      "description": "Change the vacation day count without changing the operation mode. Unlike Set vacation days, this does not put the device into vacation mode; it only updates the number of days (1-30) the next vacation period will last.",
+      "description": "Change the vacation day count without changing the operation mode. Unlike Set vacation days, this does not put the device into vacation mode; it only updates the number of days (1-99) the next vacation period will last.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -885,7 +885,7 @@
         },
         "days": {
           "name": "Days",
-          "description": "Vacation duration in days (1-30)"
+          "description": "Vacation duration in days (1-99)"
         }
       }
     },
@@ -923,7 +923,7 @@
     },
     "set_vacation_days": {
       "name": "Set vacation days",
-      "description": "Configure vacation mode duration. Sets the device to vacation mode for the specified number of days (1-30). Vacation mode reduces energy consumption during extended absences.",
+      "description": "Configure vacation mode duration. Sets the device to vacation mode for the specified number of days (1-99). Vacation mode reduces energy consumption during extended absences.",
       "fields": {
         "device_id": {
           "name": "Device",
@@ -935,7 +935,7 @@
         },
         "days": {
           "name": "Days",
-          "description": "Number of days for vacation mode (1-30)"
+          "description": "Number of days for vacation mode (1-99)"
         }
       }
     },
@@ -953,7 +953,7 @@
         },
         "mode": {
           "name": "Mode",
-          "description": "Recirculation pump operation mode: 1=Always On, 2=Button/On Demand, 3=Schedule, 4=Temperature Triggered"
+          "description": "Recirculation pump operation mode: 1=Always On, 2=Weekly schedule, 3=Hot Button only, 4=Off"
         }
       }
     },

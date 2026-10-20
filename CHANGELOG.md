@@ -41,6 +41,36 @@
   #193, #194, #192, #215)
 
 ### Changed
+- **Library Dependency: nwp500-python**: Upgraded to 9.5.0. What the
+  integration did before is kept; the library's corrections change these:
+  - **Reservations have no Vacation mode.** An entry's mode 5 is Power Off,
+    the NaviLink app's numbering, and the library refuses 6. Set
+    reservation's `power_off` now writes 5 (it wrote 6, which the heater
+    did not take as power-off), and `vacation` is no longer accepted: it
+    wrote 5, which powered the heater off. **Breaking:** an automation that
+    sets a reservation with `vacation` must use `power_off`. The schedule
+    card shows 5 as Power Off and no longer offers 6; an entry with another
+    mode shows as "Unknown mode". With external control, a `power_off`
+    segment writes 5, and a `vacation` segment still writes 5 (#229).
+  - **An old entry does not block a write.** An entry the heater already
+    holds is sent back as the library's `kept`, so one with mode 6 from an
+    earlier version does not make every reservation write fail.
+  - **Superheat is a temperature difference.** Target and Current
+    superheat use the temperature-delta device class. In Fahrenheit their
+    values drop by 32 °F, so their recorded history is 32 °F too high.
+  - **DR override status is an on/off flag.** It reads 0 unknown, 1 off,
+    2 on, and is no longer "DR override hours remaining" in hours.
+  - **Vacation takes 1-99 days**, as the app and the front panel do:
+    Set vacation days, Set vacation duration and the away-mode blueprint.
+  - **Recirculation modes follow the app.** Set recirculation mode's
+    options read 1 Always on, 2 Weekly schedule, 3 Hot Button only,
+    4 Off; the values sent are unchanged. The Recirculation operation mode
+    sensor reads `ALWAYS_ON` for 1 and `WEEKLY` for 2 (was `ALWAYS` and
+    `BUTTON`).
+  - A heater reporting the operation setting 0 (Standby) is no longer
+    rejected; its operation shows as unknown.
+  - Expired AWS credentials are renewed with the access token before the
+    password, so a changed password is noticed later than before.
 - **Library Dependency: nwp500-python**: Upgraded to 9.4.3. The library
   now checks every reservation entry before a list write, against the
   setpoint range the heater reports, instead of sending it for the heater

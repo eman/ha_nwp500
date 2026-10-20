@@ -203,7 +203,7 @@ increasing order of `start`.
 |---|---|---|---|
 | `id` | string, at most 64 characters, unique in the document | yes | Named in acknowledgements |
 | `start` | ISO 8601 with offset | yes | Truncated to the minute |
-| `setpoint_f` or `setpoint_c` | number | exactly one | The setpoint, converted and quantised to the device's half-degree-Celsius resolution. The feature does not check it: the library (nwp500-python 9.4.3) refuses a list write with a setpoint outside the range the heater reports, so the write fails (section 5.4) and the segments it served are `failed`, `write_not_confirmed` |
+| `setpoint_f` or `setpoint_c` | number | exactly one | The setpoint, converted and quantised to the device's half-degree-Celsius resolution. The feature does not check it: the library (nwp500-python 9.4.3 and later) refuses a list write with a setpoint outside the range the heater reports, so the write fails (section 5.4) and the segments it served are `failed`, `write_not_confirmed` |
 | `mode` | string (section 3.4) | on the first segment | The operation mode. A later segment that omits it keeps the previous segment's mode |
 | `reassert` | boolean | no | Protocol 1.1. `true` programs the segment's entry even when its state repeats the segment before it (section 5.2), so a setpoint or mode a person set is ended at its start, for example by a nightly segment. An entry that repeats the heater's state starts no recovery (section 8, test 5) |
 | any other key | any | no | Opaque, echoed back on the segment's acknowledgement, for example `purpose`, unless it has the name of one of the acknowledgement's own keys (`id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`), which win |
@@ -226,9 +226,12 @@ example:
 Every mode the heater has may be a segment's, `vacation` and `power_off`
 included: the feature applies it. What it does is the scheduler's to know.
 The heater skips entries during Vacation (section 8), so a plan's later entry
-does not end it. Whether an entry with the power-off mode powers the heater
-off is untested; the mode command with that value switched the unit tested
-to Energy Saver (#160).
+does not end it. A `power_off` segment's entry carries the reservation mode
+5, Power Off in the NaviLink app's numbering (nwp500-python 9.5.0); before
+9.5.0 it carried 6, which the library now refuses. Whether such an entry
+powers the heater off is untested; the mode command with 6 switched the unit
+tested to Energy Saver (#160). A reservation entry has no Vacation mode: a
+`vacation` segment's entry carries 5 as well.
 
 ### 3.3 Surplus grants (removed)
 

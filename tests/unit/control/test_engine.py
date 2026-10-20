@@ -1337,3 +1337,21 @@ class TestStaleNearTerm:
             reservations=tuple(e.as_entry() for e in planner.owned),
             **overrides,
         )
+
+
+@pytest.mark.parametrize(
+    ("mode", "entry_mode"),
+    [
+        ("heat_pump", 1),
+        ("electric", 2),
+        ("energy_saver", 3),
+        ("high_demand", 4),
+        ("power_off", 5),
+        # No entry is Vacation; the segment writes 5 as before 9.5.0.
+        ("vacation", 5),
+    ],
+)
+def test_a_segment_mode_is_written_as_the_entry_mode(mode, entry_mode):
+    """Entry modes are the library's ReservationMode, not the DHW setting."""
+    entry = OwnedEntry(KIND_PLAN, "a", minutes(60), mode, 120)
+    assert entry.as_entry()["mode"] == entry_mode

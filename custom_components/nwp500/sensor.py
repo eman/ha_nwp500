@@ -74,6 +74,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
     # Device class mapping for string-based device classes
     device_class_map: dict[str, SensorDeviceClass] = {
         "temperature": SensorDeviceClass.TEMPERATURE,
+        "temperature_delta": SensorDeviceClass.TEMPERATURE_DELTA,
         "power": SensorDeviceClass.POWER,
         "energy": SensorDeviceClass.ENERGY,
         "energy_storage": SensorDeviceClass.ENERGY_STORAGE,
@@ -153,6 +154,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         # Default precision by device class if not explicitly set
         default_precision: dict[str, int] = {
             "temperature": 1,
+            "temperature_delta": 1,
             "power": 0,
             "energy": 0,
             "energy_storage": 0,

@@ -27,14 +27,14 @@ blueprint:
     vacation_days:
       name: Vacation Duration (Days)
       description: >
-        Number of days to set for vacation mode (1–30). The device will
+        Number of days to set for vacation mode (1–99). The device will
         automatically exit vacation mode after this many days even if the
         automation does not trigger again.
       default: 30
       selector:
         number:
           min: 1
-          max: 30
+          max: 99
           step: 1
           unit_of_measurement: days
           mode: box
