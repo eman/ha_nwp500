@@ -581,8 +581,10 @@ class NWP500ScheduleCard extends HTMLElement {
       $('#nwpModalSave')?.addEventListener('click', () => {
         const hour = Number($('#nwpHourSelect').value);
         const min = Number($('#nwpMinSelect').value);
+        // An entry with an unsupported mode opens with none selected.
         const mb = el.querySelector('.nwp-mode-btn.selected');
-        const mode = mb ? Number(mb.dataset.mode) : 3;
+        if (!mb) { alert('Select a mode'); return; }
+        const mode = Number(mb.dataset.mode);
         const sliderVal = Number($('#nwpTempSlider')?.value || (this._usesCelsius() ? 49 : 120));
         const param = this._usesCelsius() ? cToParam(sliderVal) : fToParam(sliderVal);
         let week = 0;
