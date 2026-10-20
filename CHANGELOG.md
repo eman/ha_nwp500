@@ -46,12 +46,14 @@
   - **Reservations have no Vacation mode.** An entry's mode 5 is Power Off,
     the NaviLink app's numbering, and the library refuses 6. Set
     reservation's `power_off` now writes 5 (it wrote 6, which the heater
-    did not take as power-off), and `vacation` is no longer accepted: it
-    wrote 5, which powered the heater off. **Breaking:** an automation that
-    sets a reservation with `vacation` must use `power_off`. The schedule
-    card shows 5 as Power Off and no longer offers 6; an entry with another
-    mode shows as "Unknown mode". With external control, a `power_off`
-    segment writes 5, and a `vacation` segment still writes 5 (#229).
+    did not take as power-off). `vacation` is no longer offered: it wrote
+    5, which powered the heater off rather than starting Vacation; use Set
+    vacation days. The schedule card shows 5 as Power Off and no longer
+    offers 6; an entry with another mode shows as "Unknown mode".
+  - **External control: `vacation` is not a segment mode.** A `power_off`
+    segment writes 5. A plan with a `vacation` segment is rejected,
+    `mode_not_allowed`: its entry powered the heater off. The plan's
+    `vacation` command sets Vacation. (#229)
   - **An old entry does not block a write.** An entry the heater already
     holds is sent back as the library's `kept`, so one with mode 6 from an
     earlier version does not make every reservation write fail.

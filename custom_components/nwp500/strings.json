@@ -491,7 +491,6 @@
           "energy_saver": "Energy Saver (Eco)",
           "high_demand": "High demand",
           "electric": "Electric",
-          "vacation": "Vacation",
           "power_off": "Power off"
         }
       },
@@ -535,7 +534,6 @@
               "energy_saver": "Energy Saver (Eco)",
               "high_demand": "High demand",
               "electric": "Electric",
-              "vacation": "Vacation",
               "power_off": "Power off"
             }
           },

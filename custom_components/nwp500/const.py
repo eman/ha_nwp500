@@ -1338,14 +1338,14 @@ CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 # `live`, and a `live` option runs as shadow.
 CONTROL_LIVE_AVAILABLE: Final = True
 
-# The mode names a segment may use (spec section 3.4): every mode the heater
-# has.
+# The mode names a segment may use (spec section 3.4): every mode a
+# reservation entry can set. An entry has no Vacation; a plan's `vacation`
+# command sets it.
 CONTROL_MODE_NAMES: Final = (
     "heat_pump",
     "energy_saver",
     "high_demand",
     "electric",
-    "vacation",
     "power_off",
 )
 

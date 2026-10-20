@@ -1347,8 +1347,6 @@ class TestStaleNearTerm:
         ("energy_saver", 3),
         ("high_demand", 4),
         ("power_off", 5),
-        # No entry is Vacation; the segment writes 5 as before 9.5.0.
-        ("vacation", 5),
     ],
 )
 def test_a_segment_mode_is_written_as_the_entry_mode(mode, entry_mode):

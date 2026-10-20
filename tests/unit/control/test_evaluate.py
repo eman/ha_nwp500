@@ -48,11 +48,10 @@ class TestCheckPlan:
             "energy_saver",
             "high_demand",
             "electric",
-            "vacation",
             "power_off",
         ],
     )
-    def test_any_mode_the_heater_has_is_accepted(self, now, parse, mode):
+    def test_any_mode_an_entry_can_set_is_accepted(self, now, parse, mode):
         plan = parse(
             make_document(
                 now,
@@ -64,13 +63,17 @@ class TestCheckPlan:
         )
         check_plan(plan)
 
-    def test_a_mode_the_heater_does_not_have_rejects_the_plan(self, now, parse):
+    @pytest.mark.parametrize("mode", ["eco", "vacation"])
+    def test_a_mode_an_entry_cannot_set_rejects_the_plan(
+        self, now, parse, mode
+    ):
+        """Vacation included: an entry has none, the command sets it."""
         plan = parse(
             make_document(
                 now,
                 [
                     segment(now, "a", 0, mode="energy_saver", setpoint_f=130),
-                    segment(now, "b", 60, mode="eco", setpoint_f=130),
+                    segment(now, "b", 60, mode=mode, setpoint_f=130),
                 ],
             )
         )

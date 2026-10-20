@@ -223,15 +223,16 @@ example:
   because the lower-tank trigger does not move with the setpoint; it then
   heats only to the setpoint.
 
-Every mode the heater has may be a segment's, `vacation` and `power_off`
+Every mode a reservation entry can set may be a segment's, `power_off`
 included: the feature applies it. What it does is the scheduler's to know.
-The heater skips entries during Vacation (section 8), so a plan's later entry
-does not end it. A `power_off` segment's entry carries the reservation mode
-5, Power Off in the NaviLink app's numbering (nwp500-python 9.5.0); before
-9.5.0 it carried 6, which the library now refuses. Whether such an entry
-powers the heater off is untested; the mode command with 6 switched the unit
-tested to Energy Saver (#160). A reservation entry has no Vacation mode: a
-`vacation` segment's entry carries 5 as well.
+An entry has no Vacation mode, so `vacation` is not a segment mode; the
+`vacation` command (section 3.7) sets it. The heater skips entries during
+Vacation (section 8), so a plan's later entry does not end it. A `power_off`
+segment's entry carries the reservation mode 5, Power Off in the NaviLink
+app's numbering (nwp500-python 9.5.0); before 9.5.0 it carried 6, which the
+library now refuses. Whether such an entry powers the heater off is
+untested; the mode command with 6 switched the unit tested to Energy Saver
+(#160).
 
 ### 3.3 Surplus grants (removed)
 
@@ -245,7 +246,6 @@ Removed before release (section 1.3). A document's `grants` key is opaque.
 | `energy_saver` | Energy Saver (hybrid) |
 | `high_demand` | High Demand |
 | `electric` | Electric |
-| `vacation` | Vacation |
 | `power_off` | Powered off |
 
 ### 3.5 Validation
@@ -261,7 +261,7 @@ statuses, with the rejection beside them.
 | `unsupported_protocol` | `protocol` is not supported |
 | `duplicate_id` | Two items share an id: two segments, two commands (section 3.7), or a command and a segment |
 | `unordered_segments` | After truncation to the minute, a segment does not start after the one before it |
-| `mode_not_allowed` | A segment's mode is not one the heater has (section 3.4) |
+| `mode_not_allowed` | A segment's mode is not one an entry can set (section 3.4) |
 | `superseded` | `issued_at` is earlier than that of the plan in force. A document with the same `issued_at` is accepted |
 
 A segment is part of a timeline, so one bad segment rejects the plan rather
@@ -1012,7 +1012,7 @@ was removed afterwards, which its status shows instead.
 | An override blocked its field until 03:00, including the reservation list | Changes to the reservation list are reported, never undone; they last until a new plan (section 5.10) | With the list as the interface, a day-long pause would stop the controller |
 | A constant baseline restored after every directive | None: entries that are not the feature's are kept as read (section 5.1) | There is no fallback inside a plan |
 | Enabling reservations could re-activate disabled owner entries | Every entry that is not the feature's is kept as read, switched on or off (#193) | What the heater runs besides the plan is the scheduler's to plan around |
-| `vacation` and `power_off` excluded without a reason | Allowed, as every mode the heater has (section 3.4) | What a mode does is the scheduler's to know |
+| `vacation` and `power_off` excluded without a reason | `power_off` allowed, as every mode an entry can set; `vacation` is a command, since an entry has no Vacation (section 3.4, #229) | What a mode does is the scheduler's to know |
 | The entry's mode unstated | Every entry carries the full state; a segment may inherit the previous mode | A device entry always sets both |
 | No limit on how far ahead | A 144-hour horizon, and segments programmed in order as the budget allows, reported by `programmed_until` | A weekly entry fires at its next weekday occurrence, and the device holds few entries |
 | Precedence deleted pending entries | No special handling (section 5.9, #193) | Whether to act on Vacation or power-off is the scheduler's |
