@@ -382,10 +382,26 @@ class TestIntake:
         assert control.plan.intent_id == "i-1"
 
     @pytest.mark.asyncio
-    async def test_any_mode_the_heater_has_is_applied(
+    async def test_any_mode_an_entry_can_set_is_applied(
         self, hass, control_factory, now
     ):
-        """Vacation included: what a mode does is the scheduler's to know."""
+        """Power off included: what a mode does is the scheduler's to know."""
+        control = await control_factory()
+        _publish(
+            hass,
+            make_document(
+                now, [segment(now, "off", 60, mode="power_off", setpoint_f=120)]
+            ),
+        )
+        await hass.async_block_till_done()
+        assert control.plan is not None
+        assert control.ack.reason is None
+
+    @pytest.mark.asyncio
+    async def test_a_vacation_segment_rejects_the_plan(
+        self, hass, control_factory, now
+    ):
+        """An entry has no Vacation; the vacation command sets it (#229)."""
         control = await control_factory()
         _publish(
             hass,
@@ -394,8 +410,8 @@ class TestIntake:
             ),
         )
         await hass.async_block_till_done()
-        assert control.plan is not None
-        assert control.ack.reason is None
+        assert control.plan is None
+        assert control.ack.reason == REASON_MODE_NOT_ALLOWED
 
     @pytest.mark.asyncio
     async def test_a_mode_the_heater_does_not_have_rejects_the_plan(

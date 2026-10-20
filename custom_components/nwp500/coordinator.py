@@ -823,7 +823,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                'uv pip install "nwp500-python==9.4.3" "awsiotsdk==1.31.0"'
+                'uv pip install "nwp500-python==9.5.0" "awsiotsdk==1.31.0"'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
@@ -1846,8 +1846,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             return None
         entries = [dict(e) for e in reservations]
+        held = (self.reservation_schedules.get(mac_address) or {}).get(
+            "reservation"
+        ) or []
         confirmed = await update_reservations_confirmed(
-            client, device, entries, enabled=enabled
+            client,
+            device,
+            entries,
+            enabled=enabled,
+            kept=schedule_state.kept_positions(entries, held),
         )
         if confirmed is None:
             read = await self.async_fetch_reservations(mac_address)

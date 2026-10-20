@@ -16,7 +16,7 @@ from typing import Any
 from nwp500.temperature import HalfCelsius
 
 from .. import schedule_state
-from ..const import MODE_TO_DHW_ID
+from ..const import RESERVATION_MODE_IDS
 from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
 
 # What an owned entry is for.
@@ -71,7 +71,7 @@ class OwnedEntry:
             "week": week,
             "hour": hour,
             "min": minute,
-            "mode": MODE_TO_DHW_ID[self.mode],
+            "mode": RESERVATION_MODE_IDS[self.mode],
             "param": self.setpoint_raw,
         }
 

@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+from nwp500.exceptions import RangeValidationError
+from nwp500.mqtt.control import validate_reservation_entries
+
 from custom_components.nwp500 import schedule_state
 
 
@@ -322,3 +326,32 @@ class TestTouInfoToSchedule:
 
         assert schedule["reservation"] == []
         assert schedule_state.reservation_entries(schedule) == []
+
+
+def test_kept_positions_names_entries_the_device_holds_unchanged():
+    """An entry is kept once for each copy the device holds."""
+    held = [_entry(mode=6), _entry(hour=7), _entry(hour=7)]
+    entries = [
+        _entry(hour=7, days=["Mon"]),  # model_dump() extras do not count
+        _entry(mode=6),
+        _entry(hour=8),
+        _entry(hour=7),
+        _entry(hour=7),
+    ]
+
+    assert schedule_state.kept_positions(entries, held) == [1, 2, 4]
+
+
+def test_a_held_mode_6_entry_does_not_block_a_write_of_the_rest():
+    """The library exempts kept entries from the writable mode range."""
+    held = [_entry(mode=6)]
+    entries = [_entry(mode=6), _entry(hour=8, mode=5)]
+    validate_reservation_entries(
+        entries, kept=schedule_state.kept_positions(entries, held)
+    )
+
+    new = [_entry(hour=9, mode=6)]
+    with pytest.raises(RangeValidationError):
+        validate_reservation_entries(
+            new, kept=schedule_state.kept_positions(new, held)
+        )

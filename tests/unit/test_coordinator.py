@@ -670,7 +670,7 @@ async def test_a_confirmed_write_updates_the_stored_list(wired):
     assert args[0] is wired.mqtt_manager.mqtt_client
     assert args[1] is wired._devices_by_mac[MAC]
     assert args[2] == [ENTRY]
-    assert kwargs == {"enabled": True}
+    assert kwargs == {"enabled": True, "kept": []}
     assert held == {
         "reservation_use": 2,
         "reservation": [ENTRY],
@@ -678,6 +678,20 @@ async def test_a_confirmed_write_updates_the_stored_list(wired):
     }
     assert wired.reservation_schedules[MAC] == held
     wired.async_fetch_reservations.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_entries_sent_back_as_read_are_kept(wired):
+    """A held entry sent unchanged is `kept`, so its mode is not re-checked."""
+    old = {**ENTRY, "hour": 6, "mode": 6}
+    wired.reservation_schedules[MAC] = {
+        "reservation_use": 2,
+        "reservation": [{**old, "days": ["Wed"]}],
+    }
+    with patch(CONFIRMED, AsyncMock(return_value=MagicMock())) as confirmed:
+        await wired.async_write_reservations(MAC, [ENTRY, old])
+
+    assert confirmed.await_args.kwargs["kept"] == [2]
 
 
 @pytest.mark.asyncio

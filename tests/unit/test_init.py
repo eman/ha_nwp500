@@ -8,9 +8,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryNotReady
+from nwp500.enums import ReservationMode
 
 from custom_components.nwp500 import (
-    MODE_TO_DHW_ID,
+    RESERVATION_MODE_IDS,
     SERVICE_CLEAR_RESERVATIONS,
     SERVICE_CONFIGURE_TOU,
     SERVICE_DISABLE_DEMAND_RESPONSE,
@@ -51,29 +52,21 @@ class TestInit:
 
 
 class TestModeMapping:
-    """Tests for mode mapping constants."""
+    """Tests for the reservation mode mapping."""
 
-    def test_mode_to_dhw_id_contains_all_modes(self):
-        """Test all expected modes are in the mapping."""
-        expected_modes = [
-            "heat_pump",
-            "electric",
-            "energy_saver",
-            "high_demand",
-            "vacation",
-            "power_off",
-        ]
-        for mode in expected_modes:
-            assert mode in MODE_TO_DHW_ID
+    def test_reservation_modes_are_the_librarys(self):
+        """Each mode a reservation may take is the library's entry mode."""
+        assert RESERVATION_MODE_IDS == {
+            "heat_pump": ReservationMode.HEAT_PUMP,
+            "electric": ReservationMode.ELECTRIC,
+            "energy_saver": ReservationMode.ENERGY_SAVER,
+            "high_demand": ReservationMode.HIGH_DEMAND,
+            "power_off": ReservationMode.POWER_OFF,
+        }
 
-    def test_mode_values_are_correct(self):
-        """Test mode values match DHW operation setting IDs."""
-        assert MODE_TO_DHW_ID["heat_pump"] == 1
-        assert MODE_TO_DHW_ID["electric"] == 2
-        assert MODE_TO_DHW_ID["energy_saver"] == 3
-        assert MODE_TO_DHW_ID["high_demand"] == 4
-        assert MODE_TO_DHW_ID["vacation"] == 5
-        assert MODE_TO_DHW_ID["power_off"] == 6
+    def test_a_reservation_has_no_vacation_mode(self):
+        """Entry mode 5 is Power Off; the old vacation -> 5 is gone."""
+        assert "vacation" not in RESERVATION_MODE_IDS
 
 
 @pytest.mark.asyncio

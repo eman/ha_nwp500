@@ -22,15 +22,18 @@ function esc(value) {
   })[c]);
 }
 
-// Mode definitions
+// Reservation entry modes, as the heater numbers them (5 is Power Off; a
+// schedule entry has no Vacation mode).
 const MODES = {
   1: { name: 'Heat Pump', icon: 'mdi:heat-pump', color: '#00BCD4', short: 'HP' },
   2: { name: 'Electric', icon: 'mdi:flash', color: '#FF5722', short: 'ELEC' },
   3: { name: 'Energy Saver', icon: 'mdi:leaf', color: '#4CAF50', short: 'ECO' },
   4: { name: 'High Demand', icon: 'mdi:fire', color: '#FF9800', short: 'HIGH' },
-  5: { name: 'Vacation', icon: 'mdi:palm-tree', color: '#9C27B0', short: 'VAC' },
-  6: { name: 'Power Off', icon: 'mdi:power-off', color: '#607D8B', short: 'OFF' },
+  5: { name: 'Power Off', icon: 'mdi:power-off', color: '#607D8B', short: 'OFF' },
 };
+// An entry whose mode is not one of the above, such as a 6 written before
+// 9.5.0 of the library.
+const UNKNOWN_MODE = { name: 'Unknown mode', icon: 'mdi:help-circle', color: '#9E9E9E', short: '?' };
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // MGPP Week Bitfield: Sun=bit7(128), Mon=bit6(64), ..., Sat=bit1(2). Bit0 unused.
@@ -163,8 +166,11 @@ class NWP500ScheduleCard extends HTMLElement {
   async _updateReservations(reservations, enabled) {
     if (!this._hass) return;
     try {
+      // Entries from the reservations event also carry display fields
+      // (days, time, mode_name, ...), which the service refuses.
       const serviceData = {
-        reservations: reservations,
+        reservations: reservations.map(({ enable, week, hour, min, mode, param }) =>
+          ({ enable, week, hour, min, mode, param })),
         enabled: enabled,
       };
       if (this._config.entity) serviceData.entity_id = this._config.entity;
@@ -315,7 +321,7 @@ class NWP500ScheduleCard extends HTMLElement {
     const markers = hours.map(h => `<div class="time-marker" style="left:${(h / 24) * 100}%"><span>${h === 0 ? '12a' : h < 12 ? h + 'a' : h === 12 ? '12p' : (h - 12) + 'p'}</span></div>`).join('');
     const blocks = entries.map(e => {
       const left = ((e.hour * 60 + e.min) / 1440) * 100;
-      const mode = MODES[e.mode] || MODES[1];
+      const mode = MODES[e.mode] || UNKNOWN_MODE;
       const tempDisplay = this._formatTemp(e.param);
       const opacity = 1;
       return `<div class="timeline-block" style="left:${left}%;background:${esc(mode.color)};opacity:${opacity}" data-edit="${e._idx}" title="${esc(mode.name)} at ${pad(e.hour)}:${pad(e.min)} \u2014 ${esc(tempDisplay)}">
@@ -333,7 +339,7 @@ class NWP500ScheduleCard extends HTMLElement {
       </div>`;
     }
     return `<div class="entry-list">${entries.map(e => {
-      const mode = MODES[e.mode] || MODES[1];
+      const mode = MODES[e.mode] || UNKNOWN_MODE;
       const tempDisplay = this._formatTemp(e.param);
       const days = decodeDays(e.week);
       return `<div class="entry-row">
@@ -483,7 +489,7 @@ class NWP500ScheduleCard extends HTMLElement {
     const tempUnit = useCelsius ? '°C' : '°F';
     const tempMin = useCelsius ? 35 : 80;
     const tempMax = useCelsius ? 65 : 150;
-    const MI = { 1: '\u2744\ufe0f', 2: '\u26a1', 3: '\ud83c\udf3f', 4: '\ud83d\udd25', 5: '\ud83c\udf34', 6: '\u23fb' };
+    const MI = { 1: '\u2744\ufe0f', 2: '\u26a1', 3: '\ud83c\udf3f', 4: '\ud83d\udd25', 5: '\u23fb' };
 
     return `<div class="nwp-modal-overlay" id="nwpModalOverlay">
       <div class="nwp-modal">
@@ -578,8 +584,10 @@ class NWP500ScheduleCard extends HTMLElement {
       $('#nwpModalSave')?.addEventListener('click', () => {
         const hour = Number($('#nwpHourSelect').value);
         const min = Number($('#nwpMinSelect').value);
+        // An entry with an unsupported mode opens with none selected.
         const mb = el.querySelector('.nwp-mode-btn.selected');
-        const mode = mb ? Number(mb.dataset.mode) : 3;
+        if (!mb) { alert('Select a mode'); return; }
+        const mode = Number(mb.dataset.mode);
         const sliderVal = Number($('#nwpTempSlider')?.value || (this._usesCelsius() ? 49 : 120));
         const param = this._usesCelsius() ? cToParam(sliderVal) : fToParam(sliderVal);
         let week = 0;

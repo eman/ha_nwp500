@@ -143,14 +143,15 @@ to the minute.
 | `id` | yes | Unique in the plan |
 | `start` | yes | ISO 8601 with offset |
 | `setpoint_f` or `setpoint_c` | exactly one | The setpoint, written as given and quantised to half a degree Celsius. The library checks it against the range the heater reports: a setpoint outside it makes the list write fail, and the segments it served are reported `failed`, `write_not_confirmed` |
-| `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand`, `electric`, `vacation` or `power_off`. A later segment without one keeps the previous mode |
+| `mode` | on the first segment | `heat_pump`, `energy_saver`, `high_demand`, `electric` or `power_off`. A later segment without one keeps the previous mode. Vacation is not a segment mode, since a reservation entry has none: use the `vacation` command |
 | `reassert` | no | Protocol 1.1. `true` gives the segment its own entry even when it repeats the state before it, so a person's change is ended at its start |
 
 Every mode is applied as given; what it does is your scheduler's to know.
 The heater skips entries during Vacation, so a later entry of the plan does
-not end it. Whether an entry with the power-off mode powers the heater off
-is untested, and the mode command with that value switched the unit tested
-to Energy Saver (#160).
+not end it. A power-off entry carries the reservation mode 5 (6 before
+nwp500-python 9.5.0). Whether such an entry powers the heater off is
+untested, and the mode command with 6 switched the unit tested to Energy
+Saver (#160).
 
 ### Commands
 
@@ -192,7 +193,7 @@ rejected on its own, so the example does not validate against the schema.
 
 A plan is **rejected whole**, and the plan in force stays, for:
 `invalid_document`, `unsupported_protocol`, `duplicate_id`,
-`unordered_segments`, `mode_not_allowed` (a mode the heater does not have)
+`unordered_segments`, `mode_not_allowed` (a mode an entry cannot set)
 or `superseded`. One bad segment rejects the plan, because
 skipping it would leave the segment before it in force over its time.
 

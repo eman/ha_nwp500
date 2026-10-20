@@ -106,23 +106,24 @@ def test_enable_documented_with_device_bool_convention(services_yaml):
     assert "1=enabled" not in description
 
 
-@pytest.mark.parametrize("days", [1, 30])
+@pytest.mark.parametrize("days", [1, 99])
 def test_vacation_description_matches_validator_bounds(services_yaml, days):
     """The documented vacation range must be what the schema accepts.
 
     The service description claimed 1-365 while the validator, the field
-    description and the selector all capped at 30 (issue #105).
+    description and the selector all capped at 30 (issue #105). The
+    library accepts 1-99 since 9.5.0, as the app and the front panel do.
     """
     SERVICE_SET_VACATION_DAYS_SCHEMA({"device_id": "d", "days": days})
 
     spec = services_yaml["set_vacation_days"]
-    assert "1-30" in spec["description"]
-    assert "1-30" in spec["fields"]["days"]["description"]
+    assert "1-99" in spec["description"]
+    assert "1-99" in spec["fields"]["days"]["description"]
     selector = spec["fields"]["days"]["selector"]["number"]
-    assert (selector["min"], selector["max"]) == (1, 30)
+    assert (selector["min"], selector["max"]) == (1, 99)
 
 
-@pytest.mark.parametrize("days", [0, 31, 365])
+@pytest.mark.parametrize("days", [0, 100, 365])
 def test_vacation_validator_rejects_out_of_range(days):
     """Values outside the documented range are rejected."""
     with pytest.raises(vol.Invalid):

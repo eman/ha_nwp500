@@ -80,8 +80,8 @@
     },
     "mode_name": {
       "type": "string",
-      "enum": ["heat_pump", "energy_saver", "high_demand", "electric", "vacation", "power_off"],
-      "description": "Every mode the heater has; the adapter applies it as given. The heater skips entries during Vacation, so a later entry does not end it; an entry with the power-off mode is untested, and the mode command with that value switched the unit tested to Energy Saver (#160)."
+      "enum": ["heat_pump", "energy_saver", "high_demand", "electric", "power_off"],
+      "description": "Every mode a reservation entry can set; the adapter applies it as given. An entry has no Vacation: the vacation command sets it. A power_off entry carries the reservation mode 5; whether it powers the heater off is untested."
     },
     "segment": {
       "type": "object",

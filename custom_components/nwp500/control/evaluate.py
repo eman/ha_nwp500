@@ -117,7 +117,7 @@ def rejected_ack(
 
 
 def check_plan(plan: Plan) -> None:
-    """Reject the plan if a segment names a mode the heater does not have."""
+    """Reject the plan if a segment names a mode an entry cannot set."""
     for segment in plan.segments:
         if not mode_is_valid(segment.mode):
             raise IntentRejected(

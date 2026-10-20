@@ -10,7 +10,7 @@
     {"id": "tou-off", "command": "tou", "enabled": false, "why": "export_window"},
     {"id": "dr-on", "command": "demand_response", "enabled": true},
     {"id": "legionella", "command": "anti_legionella", "enabled": true, "period_days": 14},
-    {"id": "away", "command": "vacation", "days": 45},
+    {"id": "away", "command": "vacation", "days": 120},
     {"id": "power-on", "command": "power", "on": true},
     {"id": "recirc", "command": "recirculation", "enabled": true}
   ]
