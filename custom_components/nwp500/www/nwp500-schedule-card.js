@@ -166,8 +166,11 @@ class NWP500ScheduleCard extends HTMLElement {
   async _updateReservations(reservations, enabled) {
     if (!this._hass) return;
     try {
+      // Entries from the reservations event also carry display fields
+      // (days, time, mode_name, ...), which the service refuses.
       const serviceData = {
-        reservations: reservations,
+        reservations: reservations.map(({ enable, week, hour, min, mode, param }) =>
+          ({ enable, week, hour, min, mode, param })),
         enabled: enabled,
       };
       if (this._config.entity) serviceData.entity_id = this._config.entity;

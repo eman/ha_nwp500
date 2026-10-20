@@ -105,6 +105,11 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **The schedule card saves again.** It sent the entries it was given back
+  with their display fields (`days`, `time`, `mode_name` and others), which
+  Update all reservations refuses, so every edit, deletion, copy and switch
+  failed while the heater held any entry, with nothing shown but a browser
+  console error. It now sends each entry's six device fields.
 - **Duration sensors use Home Assistant's time units.** The library reports
   `days` and `hours`, which a duration sensor rejects: the Anti-Legionella
   period, the vacation days and the demand response override logged a
