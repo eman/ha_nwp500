@@ -341,8 +341,8 @@ off) can leave the earlier one unreported; a scheduler that needs one
 command to have taken before the next sends the next in a later plan. In
 shadow a command is evaluated, not written (status `shadow`), and going
 live applies it; while `disabled` nothing is applied. A plan step can
-already put the heater in `vacation` or `power_off` at a time (section
-3.4); a command is for now.
+already put the heater in `power_off` at a time (section 3.4), but not in
+Vacation, which only the `vacation` command sets; a command is for now.
 
 **Example.** `docs/examples/plan-commands.json` carries one of each command,
 and `tou-off` an opaque key. `away` asks for more days of Vacation than the

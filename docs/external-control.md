@@ -148,9 +148,10 @@ to the minute.
 
 Every mode is applied as given; what it does is your scheduler's to know.
 The heater skips entries during Vacation, so a later entry of the plan does
-not end it. Whether an entry with the power-off mode powers the heater off
-is untested, and the mode command with that value switched the unit tested
-to Energy Saver (#160).
+not end it. A power-off entry carries the reservation mode 5 (6 before
+nwp500-python 9.5.0). Whether such an entry powers the heater off is
+untested, and the mode command with 6 switched the unit tested to Energy
+Saver (#160).
 
 ### Commands
 

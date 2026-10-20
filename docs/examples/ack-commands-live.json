@@ -52,7 +52,7 @@
         "reason": "write_not_confirmed",
         "warnings": [],
         "command": "vacation",
-        "detail": "vacation_days must be between 1 and 30"
+        "detail": "vacation_days must be between 1 and 99"
       },
       {
         "id": "power-on",

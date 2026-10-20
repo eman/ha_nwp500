@@ -1248,6 +1248,35 @@ class TestTOUWeekBitfieldValidation:
         )
 
 
+@pytest.mark.parametrize(
+    ("mode", "accepted"),
+    [(1, True), (5, True), (6, True), (0, False), (7, False)],
+)
+def test_update_reservations_modes(mode, accepted):
+    """1-5 are entry modes; 6 passes so a held entry can be sent back.
+
+    The library refuses a 6 the heater does not already hold.
+    """
+    data = {
+        ATTR_DEVICE_ID: "device_123",
+        ATTR_RESERVATIONS: [
+            {
+                "enable": 2,
+                "week": 8,
+                "hour": 6,
+                "min": 0,
+                "mode": mode,
+                "param": 120,
+            }
+        ],
+    }
+    if accepted:
+        SERVICE_UPDATE_RESERVATIONS_SCHEMA(data)
+    else:
+        with pytest.raises(vol.Invalid, match="Mode must be 1-5"):
+            SERVICE_UPDATE_RESERVATIONS_SCHEMA(data)
+
+
 class TestReservationMergeSemantics:
     """`set_reservation` is documented "create or update", not append.
 

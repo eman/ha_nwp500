@@ -1028,8 +1028,10 @@ SENSOR_CONFIGS: Final = {
     },
     # Operation time sensors
     "cumulated_evaporator_fan_op_time": {
+        # Hours since the last air-filter reset (nwp500-python 9.5.0); the
+        # lifetime total is evaporator_fan_run_time.
         "attr": "cumulated_op_time_eva_fan",
-        "name": "Cumulated evaporator fan operation time",
+        "name": "Evaporator fan time since filter reset",
         "unit": "h",
         "device_class": "duration",
         "state_class": "total_increasing",

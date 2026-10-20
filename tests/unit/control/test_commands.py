@@ -566,9 +566,10 @@ class TestLive:
     async def test_a_library_refusal_is_reported_with_its_reason(
         self, hass, command_heater, live_factory, monkeypatch, now
     ):
-        monkeypatch.setattr(CommandHeater, "refuse", "days must be 1-30")
+        monkeypatch.setattr(CommandHeater, "refuse", "days must be 1-99")
         _publish(
-            hass, _live_doc(now, {"id": "v", "command": "vacation", "days": 45})
+            hass,
+            _live_doc(now, {"id": "v", "command": "vacation", "days": 120}),
         )
         _, control = await live_factory()
 
@@ -576,7 +577,7 @@ class TestLive:
         assert (item["status"], item["reason"], item["detail"]) == (
             "failed",
             REASON_WRITE_NOT_CONFIRMED,
-            "days must be 1-30",
+            "days must be 1-99",
         )
         # The plan's segments are unaffected.
         assert control.plan.segments[0].id == "s"
@@ -742,8 +743,8 @@ def test_the_schema_accepts_what_the_feature_applies(raw):
 
 # -- the examples ---------------------------------------------------------
 
-# The library's refusal of 45 days of Vacation (it takes 1 to 30).
-LIBRARY_REFUSAL = "vacation_days must be between 1 and 30"
+# The library's refusal of 120 days of Vacation (it takes 1 to 99).
+LIBRARY_REFUSAL = "vacation_days must be between 1 and 99"
 
 
 def ack_examples() -> dict[str, tuple[str, dict[str, Any]]]:

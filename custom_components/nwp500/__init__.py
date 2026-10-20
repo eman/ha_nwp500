@@ -274,9 +274,13 @@ SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
                                 vol.Range(min=0, max=59),
                                 msg="Minute must be 0-59",
                             ),
+                            # 1-5 as ReservationMode numbers them; 6 only so
+                            # an entry an earlier version wrote can be sent
+                            # back as the heater holds it (the library's kept).
                             vol.Required("mode"): vol.In(
                                 [1, 2, 3, 4, 5, 6],
-                                msg="Mode must be 1-6 (HP, ELEC, ECO, BOOST, VAC, OFF)",
+                                msg="Mode must be 1-5 (heat pump, electric, "
+                                "energy saver, high demand, power off)",
                             ),
                             vol.Required("param"): vol.All(
                                 vol.Coerce(int),

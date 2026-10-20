@@ -132,7 +132,8 @@ update_reservations:
       description: >-
         List of reservation entries. Each entry should be a dictionary with keys:
         enable (2=enabled, 1=disabled), week (day bitfield), hour (0-23),
-        min (0-59), mode (1-6), param (temperature in half-degrees Celsius).
+        min (0-59), mode (1=heat pump, 2=electric, 3=energy saver, 4=high demand,
+        5=power off), param (temperature in half-degrees Celsius).
         Set reservation adds a single entry more simply.
       required: true
       selector:

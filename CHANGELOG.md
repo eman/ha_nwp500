@@ -43,17 +43,23 @@
 ### Changed
 - **Library Dependency: nwp500-python**: Upgraded to 9.5.0. What the
   integration did before is kept; the library's corrections change these:
-  - **Reservations have no Vacation mode.** An entry's mode 5 is Power Off,
-    the NaviLink app's numbering, and the library refuses 6. Set
-    reservation's `power_off` now writes 5 (it wrote 6, which the heater
-    did not take as power-off). `vacation` is no longer offered: it wrote
-    5, which powered the heater off rather than starting Vacation; use Set
-    vacation days. The schedule card shows 5 as Power Off and no longer
-    offers 6; an entry with another mode shows as "Unknown mode".
+  - **Reservations have no Vacation mode.** The library now numbers
+    entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
+    Whether a mode-5 entry powers the heater off is untested. Set
+    reservation's `power_off` now
+    writes 5 (it wrote 6), and `vacation` is no longer offered: it wrote 5,
+    which is Power Off, not Vacation; use Set vacation days. Update all
+    reservations documents modes 1-5 and takes 6 only for an entry the
+    heater already holds. The schedule card shows 5 as Power Off and no
+    longer offers 6; an entry with another mode shows as "Unknown mode",
+    and saving it asks for a mode. In the Reservation Schedule sensor's
+    entries and the `nwp500_reservations_updated` event, `mode_name` reads
+    "Power Off" for 5 (was "Vacation") and "Unknown (6)" for 6 (was
+    "Power Off").
   - **External control: `vacation` is not a segment mode.** A `power_off`
     segment writes 5. A plan with a `vacation` segment is rejected,
-    `mode_not_allowed`: its entry powered the heater off. The plan's
-    `vacation` command sets Vacation. (#229)
+    `mode_not_allowed`, since an entry cannot set Vacation; the plan's
+    `vacation` command does. (#229)
   - **An old entry does not block a write.** An entry the heater already
     holds is sent back as the library's `kept`, so one with mode 6 from an
     earlier version does not make every reservation write fail.
@@ -61,14 +67,21 @@
     superheat use the temperature-delta device class. In Fahrenheit their
     values drop by 32 °F, so their recorded history is 32 °F too high.
   - **DR override status is an on/off flag.** It reads 0 unknown, 1 off,
-    2 on, and is no longer "DR override hours remaining" in hours.
+    2 on, and is no longer "DR override hours remaining" in hours. If it
+    was enabled and kept long-term statistics, Home Assistant reports a
+    statistics issue for it to fix in Developer tools.
+  - **Evaporator fan time since filter reset.** The library corrected
+    `cumulated_op_time_eva_fan`: it is the fan's hours since the last
+    air-filter reset, not a lifetime total, so the sensor once called
+    "Cumulated evaporator fan operation time" is renamed. Evaporator fan
+    run time is the lifetime total.
   - **Vacation takes 1-99 days**, as the app and the front panel do:
     Set vacation days, Set vacation duration and the away-mode blueprint.
   - **Recirculation modes follow the app.** Set recirculation mode's
     options read 1 Always on, 2 Weekly schedule, 3 Hot Button only,
     4 Off; the values sent are unchanged. The Recirculation operation mode
-    sensor reads `ALWAYS_ON` for 1 and `WEEKLY` for 2 (was `ALWAYS` and
-    `BUTTON`).
+    sensor reads `ALWAYS_ON`, `WEEKLY`, `HOT_BUTTON_ONLY` and `OFF` (was
+    `ALWAYS`, `BUTTON`, `SCHEDULE` and `TEMPERATURE`).
   - A heater reporting the operation setting 0 (Standby) is no longer
     rejected; its operation shows as unknown.
   - Expired AWS credentials are renewed with the access token before the

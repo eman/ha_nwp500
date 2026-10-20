@@ -152,11 +152,11 @@ async def test_each_command_makes_its_one_library_call(raw, method, args):
 async def test_the_library_error_is_raised():
     coordinator = _coordinator()
     client = MagicMock(name="client")
-    client.set_vacation_days = AsyncMock(side_effect=ValueError("1-30"))
+    client.set_vacation_days = AsyncMock(side_effect=ValueError("1-99"))
     coordinator.mqtt_manager.mqtt_client = client
     writer = CoordinatorWriter(coordinator, MAC)
 
-    with pytest.raises(ValueError, match="1-30"):
+    with pytest.raises(ValueError, match="1-99"):
         await writer.async_send_command(
             _command({"command": "vacation", "days": 45})
         )
