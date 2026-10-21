@@ -132,7 +132,10 @@ back:
   left out of the fit.
 
 The recording is the finer of the two, and is used once it reaches as far
-back as the recorder. The air and humidity sensors' history comes from the
+back as the recorder's history of the tank; if one fails, the other is
+fitted. On an account with several heaters only the recording is used:
+the Last MQTT response sensor is the account's, so the recorder's history
+can't say when each heater was heard from. The air and humidity sensors' history comes from the
 recorder.
 
 **The air matters.** Without an air sensor, the standby loss is not fitted.

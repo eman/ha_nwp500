@@ -32,6 +32,7 @@ from nwp500.sim_home_assistant import (  # noqa: E402
 )
 
 from custom_components.nwp500.simulator.calibration import (  # noqa: E402
+    first_change,
     run_change_calibration,
 )
 from custom_components.nwp500.simulator.ha_client import (  # noqa: E402
@@ -178,6 +179,17 @@ async def test_both_clients_read_the_same_heater_history(
     assert local.notes == remote.notes
     assert local.rows == remote.rows
     assert local.observed
+
+    # Where the recorder's tank history begins: its first row, or the
+    # start of a span it began before.
+    first = await first_change(
+        hass, "sensor.upper", start - timedelta(hours=1), end
+    )
+    assert first is not None
+    assert abs((first - start).total_seconds()) < 1
+    later = start + timedelta(minutes=7)
+    assert await first_change(hass, "sensor.upper", later, end) == later
+    assert await first_change(hass, "sensor.none", start, end) is None
 
     # And through the library's fit, which a quarter hour cannot inform.
     done = run_change_calibration(local, sim.default_params(), None)

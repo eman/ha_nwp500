@@ -36,6 +36,7 @@ from datetime import time as dt_time
 from typing import TYPE_CHECKING, Any, TextIO, cast
 
 from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder import history as recorder_history
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
@@ -152,6 +153,44 @@ def recorded(paths: Sequence[str]) -> Iterator[tuple[datetime, DeviceStatus]]:
                 yield from status_history.iter_read(f)
         except (OSError, EOFError, ValueError) as err:
             _LOGGER.warning("Part of %s is not read: %s", path, err)
+
+
+def first_status(paths: Sequence[str]) -> datetime | None:
+    """When the first status in `paths` arrived. Runs in an executor."""
+    for at, _ in recorded(paths):
+        return at
+    return None
+
+
+def _first_change(
+    hass: HomeAssistant, entity_id: str, start: datetime, end: datetime
+) -> datetime | None:
+    """When the recorder's history of `entity_id` begins after `start`.
+
+    Runs in the recorder's executor.
+    """
+    states = recorder_history.state_changes_during_period(
+        hass,
+        start,
+        end,
+        entity_id,
+        no_attributes=True,
+        limit=1,
+        include_start_time_state=True,
+    )
+    rows = states.get(entity_id) or []
+    # The state in force at the start, where there was one, is dated
+    # when it was set.
+    return max(rows[0].last_updated, start) if rows else None
+
+
+async def first_change(
+    hass: HomeAssistant, entity_id: str, start: datetime, end: datetime
+) -> datetime | None:
+    """`_first_change`, in the recorder's executor."""
+    return await get_instance(hass).async_add_executor_job(
+        _first_change, hass, entity_id, start, end
+    )
 
 
 def run_calibration(
@@ -334,73 +373,104 @@ async def async_calibrate(
     if feature is None:
         return failed("the heater's features are not read yet")
     days: list[tuple[date, str]] = []
+    statuses_from: datetime | None = None
     if recorder is not None:
         # Today's statuses too.
         await recorder.async_flush()
-        days = await hass.async_add_executor_job(day_files, recorder.directory)
+        try:
+            days = await hass.async_add_executor_job(
+                day_files, recorder.directory
+            )
+            if days:
+                statuses_from = await hass.async_add_executor_job(
+                    first_status, [path for _, path in days]
+                )
+        except OSError as err:
+            return failed(f"the recorded history is not read: {err}")
     entities: HeaterEntities | None = None
-    missing: list[str] = []
-    keep_days = 0
-    if "recorder" in hass.config.components:
-        entities, missing = heater_entities(hass, runner.mac_address)
-        keep_days = min(get_instance(hass).keep_days, ENTITY_HISTORY_DAYS)
-    recorded_days = (started.date() - days[0][0]).days + 1 if days else 0
-    if days and (entities is None or recorded_days >= keep_days):
-        source = SOURCE_STATUSES
-        start = datetime.combine(days[0][0], dt_time(0), tzinfo=UTC)
-    elif entities is not None:
-        source = SOURCE_ENTITIES
-        start = started - timedelta(days=keep_days)
-    elif "recorder" not in hass.config.components:
-        return failed(
-            "no history: the heater's history is not recorded, and Home "
-            "Assistant's recorder is not running"
+    entities_from: datetime | None = None
+    if "recorder" not in hass.config.components:
+        unrecorded = "Home Assistant's recorder is not running"
+    elif len(runner.coordinator.data or {}) > 1:
+        # The last response time is the account's, on its first heater:
+        # it does not say when each heater was heard from.
+        unrecorded = (
+            "Home Assistant's history does not say when each heater of an "
+            "account with several was heard from"
         )
     else:
-        return failed(
-            "no history: the heater's history is not recorded, and Home "
-            "Assistant's recorder does not keep its "
+        entities, missing = heater_entities(hass, runner.mac_address)
+        unrecorded = (
+            "Home Assistant's recorder does not keep its "
             + ", ".join(missing)
             + " sensor"
             + ("s" if len(missing) > 1 else "")
         )
+        if entities is not None:
+            entities_from = await first_change(
+                hass,
+                entities.upper,
+                started - timedelta(days=ENTITY_HISTORY_DAYS),
+                started,
+            )
+            if entities_from is None:
+                unrecorded = "Home Assistant's recorder has no tank history"
+    # The history that reaches further back first; the statuses, the finer
+    # record, when both reach as far. The other if the first fails.
+    sources: list[tuple[datetime, str]] = []
+    if statuses_from is not None:
+        sources.append((statuses_from, SOURCE_STATUSES))
+    if entities_from is not None:
+        sources.append((entities_from, SOURCE_ENTITIES))
+    sources.sort(key=lambda s: (s[0], s[1] != SOURCE_STATUSES))
+    if not sources:
+        why = "the heater's history is not recorded"
+        return failed(f"no history: {why}, and {unrecorded}")
     # The in-process client answers the calls the library's REST client
     # would.
     client = cast("HomeAssistantClient", InProcessClient(hass))
-    record = None
-    if runner.entities.air is not None or runner.entities.humidity is not None:
-        try:
-            record = await record_inputs(
-                client,
-                runner.entities,
-                start,
-                started,
-            )
-        except HomeAssistantError as err:
-            # record_inputs reports what it could not read in its notes;
-            # anything else leaves the air out, as with no sensor.
-            _LOGGER.debug("The air's history is not read: %s", err)
     # Refit what the heater runs on: a term this history can't fit keeps
     # an earlier fit's value rather than going back to the defaults.
     base = runner.params if runner.params is not None else sa.params(feature)
-    try:
-        # Entities are chosen only when there are some.
-        if source == SOURCE_STATUSES or entities is None:
-            done = await hass.async_add_executor_job(
-                run_calibration, [path for _, path in days], base, record
-            )
-        else:
-            history = await read_heater_history(
-                client, entities, start, started
-            )
-            done = await hass.async_add_executor_job(
-                run_change_calibration, history, base, record
-            )
-    except (HomeAssistantError, CalibrationInputError) as err:
-        return failed(str(err))
-    except Exception as err:
-        _LOGGER.exception("The simulator's calibration failed")
-        return failed(f"{type(err).__name__}: {err}")
+    done: Calibrated | None = None
+    errors: list[tuple[str, str]] = []
+    for start, source in sources:
+        record = None
+        if (
+            runner.entities.air is not None
+            or runner.entities.humidity is not None
+        ):
+            try:
+                record = await record_inputs(
+                    client, runner.entities, start, started
+                )
+            except HomeAssistantError as err:
+                # record_inputs reports what it could not read in its
+                # notes; anything else leaves the air out, as with no
+                # sensor.
+                _LOGGER.debug("The air's history is not read: %s", err)
+        try:
+            if source == SOURCE_STATUSES or entities is None:
+                done = await hass.async_add_executor_job(
+                    run_calibration, [path for _, path in days], base, record
+                )
+            else:
+                history = await read_heater_history(
+                    client, entities, start, started
+                )
+                done = await hass.async_add_executor_job(
+                    run_change_calibration, history, base, record
+                )
+            break
+        except (HomeAssistantError, CalibrationInputError) as err:
+            errors.append((source, str(err)))
+        except Exception as err:
+            _LOGGER.exception("The simulator's calibration failed")
+            errors.append((source, f"{type(err).__name__}: {err}"))
+    if done is None:
+        if len(errors) == 1:
+            return failed(errors[0][1])
+        return failed("; ".join(f"{s}: {e}" for s, e in errors))
     terms = _terms(done)
     fitted = any(term["fitted"] for term in terms)
     # Over the defaults only: see `CalibrationReport.applied`.
@@ -441,6 +511,8 @@ __all__ = [
     "async_calibrate",
     "day_files",
     "due",
+    "first_change",
+    "first_status",
     "heater_entities",
     "recorded",
     "run_calibration",
