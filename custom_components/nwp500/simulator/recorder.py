@@ -147,10 +147,19 @@ def _compress(path: str) -> None:
     The compressed file is rebuilt beside it and swapped in whole, then
     the plain file is removed. A day whose compressed file exists already
     (a late line) keeps it, with the lines as one more gzip member, which
-    reads back as one stream.
+    reads back as one stream. If the compressed file already ends with
+    the plain file's lines, a run stopped between the swap and the
+    removal, only the removal is left to do.
     """
     target = path[: -len(_SUFFIX)] + _GZ_SUFFIX
     partial = target + ".partial"
+    if os.path.exists(target):
+        with open(path, "rb") as src:
+            lines = src.read()
+        with gzip.open(target, "rb") as old:
+            if old.read().endswith(lines):
+                os.remove(path)
+                return
     try:
         with open(partial, "wb") as out:
             with (
@@ -216,6 +225,9 @@ class HistoryRecorder:
         self._buffer: list[tuple[date, str]] = []
         self._lock = asyncio.Lock()
         self._unsubs: list[Callable[[], None]] = []
+        # Cleared once it takes no more statuses: one already on its way
+        # to `_on_status` is then dropped.
+        self._taking = True
         #: Statuses recorded since the start, and dropped (unwritable).
         self.recorded = 0
         self.dropped = 0
@@ -248,10 +260,14 @@ class HistoryRecorder:
 
     async def async_stop(self) -> None:
         """Stop taking statuses and write what is held."""
+        self._stop_taking()
+        await self.async_flush()
+
+    def _stop_taking(self) -> None:
+        self._taking = False
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
-        await self.async_flush()
 
     def _listen_for_final_write(self) -> Callable[[], None]:
         fired = False
@@ -274,6 +290,8 @@ class HistoryRecorder:
 
     @callback
     def _on_status(self, payload: dict[str, Any]) -> None:
+        if not self._taking:
+            return
         try:
             DeviceStatus.model_validate(payload)
         except ValueError as err:
@@ -344,9 +362,16 @@ class HistoryRecorder:
             )
         self.error = str(err)
 
-    async def async_delete(self) -> None:
-        """Delete the history recorded so far, with the lines held."""
+    async def async_delete(self, *, stop: bool) -> None:
+        """Delete the history recorded so far, with the lines held.
+
+        With `stop`, for a heater that is not to record any more, it also
+        stops taking statuses: one arriving before the entry reloads
+        would otherwise bring the day back when the recorder stops.
+        """
         async with self._lock:
+            if stop:
+                self._stop_taking()
             self._buffer = []
             await self.hass.async_add_executor_job(delete, self.directory)
             self.stored = Stored()

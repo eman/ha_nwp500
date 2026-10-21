@@ -616,7 +616,8 @@ async def test_a_heater_still_recording_drops_what_it_holds_on_delete(
         )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    recorder.async_delete.assert_awaited_once()
+    # Still recording: it takes statuses on after the deletion.
+    recorder.async_delete.assert_awaited_once_with(stop=False)
     # The recorder deletes it; the flow leaves the directory to it.
     assert directory.exists()
 
@@ -662,7 +663,8 @@ async def test_a_heater_recording_offers_deletion_before_it_writes(
         )
 
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    recorder.async_delete.assert_awaited_once()
+    # Switched off: it takes nothing more before the entry reloads.
+    recorder.async_delete.assert_awaited_once_with(stop=True)
 
 
 @pytest.mark.asyncio

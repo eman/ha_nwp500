@@ -219,7 +219,7 @@ async def test_deleting_drops_the_lines_held_too(hass: HomeAssistant, clock):
     await recorder.async_flush()
     coordinator.listeners[0](status_dict())
 
-    await recorder.async_delete()
+    await recorder.async_delete(stop=False)
     await recorder.async_stop()
 
     assert not Path(recorder.directory).exists()
@@ -345,3 +345,44 @@ async def test_home_assistant_stopping_writes_what_is_held(
     # Stopping after it does not remove the listener twice.
     await recorder.async_stop()
     assert "Unable to remove" not in caplog.text
+
+
+def test_a_compression_stopped_before_its_last_step_is_not_repeated(
+    tmp_path: Path,
+):
+    """The compressed file was swapped in; the plain file was not removed."""
+    write(str(tmp_path), [(DAY, "a")], DAY + timedelta(days=1), 60)
+    write(str(tmp_path), [(DAY, "late")], DAY, 60)
+    tomorrow = DAY + timedelta(days=1)
+    real_remove = os.remove
+
+    def remove(path):
+        if str(path).endswith(".jsonl"):
+            raise OSError("busy")
+        real_remove(path)
+
+    with (
+        patch.object(recorder_module.os, "remove", side_effect=remove),
+        pytest.raises(OSError, match="busy"),
+    ):
+        maintain(str(tmp_path), tomorrow, 60)
+    maintain(str(tmp_path), tomorrow, 60)
+
+    assert sorted(os.listdir(tmp_path)) == ["2026-10-21.jsonl.gz"]
+    assert _lines(tmp_path, "2026-10-21.jsonl.gz") == ["a", "late"]
+
+
+@pytest.mark.asyncio
+async def test_deleting_for_good_takes_nothing_more(hass: HomeAssistant, clock):
+    coordinator = _Coordinator()
+    recorder = HistoryRecorder(hass, coordinator, MAC, 60, clock=clock)  # type: ignore[arg-type]
+    recorder.async_start()
+    await hass.async_block_till_done()
+    listener = coordinator.listeners[0]
+
+    await recorder.async_delete(stop=True)
+    assert coordinator.listeners == []
+    listener(status_dict())  # one already on its way
+    await recorder.async_stop()
+
+    assert not Path(recorder.directory).exists()

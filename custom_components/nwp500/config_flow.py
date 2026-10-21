@@ -241,7 +241,12 @@ class _SimulatorSteps:
         rest = []
         for mac_address in sorted(self._simulator_delete):
             if (recorder := recorders.get(mac_address)) is not None:
-                await recorder.async_delete()
+                # Only a heater whose form was saved with recording on
+                # records on; switching the simulator off answers no form.
+                answer = self._simulator_answers.get(mac_address, {})
+                await recorder.async_delete(
+                    stop=answer.get(CONF_SIMULATOR_RECORD) is not True
+                )
             else:
                 rest.append(mac_address)
         if rest:

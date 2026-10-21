@@ -1574,3 +1574,55 @@ async def test_raw_statuses_are_passed_on_when_wanted(
     mock_mqtt_client.subscribe_device = AsyncMock()
     await manager.subscribe_raw_status(mock_device)
     mock_mqtt_client.subscribe_device.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_raw_statuses_are_subscribed_once_while_a_subscribe_is_under_way(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """A second call before the broker answers adds no second handler."""
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_raw_status=MagicMock(),
+        wants_raw_status=lambda mac: True,
+    )
+    await manager.setup()
+    answered = asyncio.Event()
+
+    async def subscribe(device, handler):
+        await answered.wait()
+
+    mock_mqtt_client.subscribe_device = AsyncMock(side_effect=subscribe)
+
+    first = asyncio.ensure_future(manager.subscribe_raw_status(mock_device))
+    await asyncio.sleep(0)
+    await manager.subscribe_raw_status(mock_device)
+    answered.set()
+    await first
+
+    mock_mqtt_client.subscribe_device.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_raw_subscribe_is_tried_again(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_raw_status=MagicMock(),
+    )
+    await manager.setup()
+    mock_mqtt_client.subscribe_device = AsyncMock(
+        side_effect=[RuntimeError("no ack"), None]
+    )
+
+    await manager.subscribe_raw_status(mock_device)
+    await manager.subscribe_raw_status(mock_device)
+
+    assert mock_mqtt_client.subscribe_device.await_count == 2

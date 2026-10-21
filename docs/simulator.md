@@ -90,6 +90,10 @@ history to start from.
   to well under 1 MB.
 - **How long.** **Days of history to keep**, 60 unless you change it
   (7 to 365). Older days are deleted.
+
+Compressing and deleting old days happen while the heater records. A
+history no longer recorded, because its recording or the simulator was
+turned off, stays as it was left until you delete it.
 - **How often.** As often as the integration asks the heater for its
   status: the **Scan interval** option, 30 seconds unless you changed it.
   A longer interval records less detail.

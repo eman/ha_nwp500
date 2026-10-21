@@ -505,6 +505,10 @@ class NWP500MqttManager:
             or mac_address in self._raw_status_subscribed
         ):
             return
+        # Marked before the await: a second call while the subscription is
+        # under way (a reconnect's resubscribe, a recorder starting) would
+        # otherwise add a second handler, and every status twice.
+        self._raw_status_subscribed.add(mac_address)
         try:
             await self.mqtt_client.subscribe_device(
                 device,
@@ -513,13 +517,12 @@ class NWP500MqttManager:
                 ),
             )
         except Exception as err:
+            self._raw_status_subscribed.discard(mac_address)
             _LOGGER.warning(
                 "Failed to subscribe to raw statuses of %s: %s",
                 mac_address,
                 err,
             )
-            return
-        self._raw_status_subscribed.add(mac_address)
 
     def _on_raw_message(
         self, mac_address: str, message: dict[str, Any]

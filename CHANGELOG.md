@@ -26,8 +26,9 @@
   without the heater's address, so that a later version can fit the
   simulator to the heater. It writes every 15 minutes, to one file per day
   under `nwp500/history/` in Home Assistant's configuration folder, which
-  goes into backups. Each finished day is compressed, and days older than
-  the retention (60 days unless changed) are deleted. Turning the recording
+  goes into backups. While it records, each finished day is compressed,
+  and days older than the retention (60 days unless changed) are deleted.
+  Turning the recording
   or the simulator off keeps what was recorded; the options flow deletes it
   only when asked, and removing the integration deletes it. The
   diagnostics show the days stored, their size and the longest gap.
