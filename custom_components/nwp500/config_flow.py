@@ -220,6 +220,17 @@ class _SimulatorSteps:
     ) -> config_entries.ConfigFlowResult:
         raise NotImplementedError
 
+    def _simulator_recording(self) -> set[str]:
+        """The heaters recording now, whose history may not be on disk yet."""
+        return set()
+
+    async def _async_has_history(self, mac_address: str) -> bool:
+        return mac_address in self._simulator_recording() or (
+            await self.hass.async_add_executor_job(
+                _history_exists, self.hass.config.config_dir, mac_address
+            )
+        )
+
     async def _async_delete_history(self, feature: Any = None) -> None:
         """Delete the history the owner asked to, as the flow is saved.
 
@@ -327,7 +338,6 @@ class _SimulatorSteps:
     ) -> config_entries.ConfigFlowResult:
         """The sensors beside one heater, each optional."""
         mac_address, name = self._simulator_devices[self._simulator_index]
-        config_dir = self.hass.config.config_dir
         if user_input is not None:
             if user_input.get(DELETE_HISTORY):
                 self._simulator_delete.add(mac_address)
@@ -344,9 +354,7 @@ class _SimulatorSteps:
             step_id="simulator_device",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
                 _simulator_device_schema(
-                    has_history=await self.hass.async_add_executor_job(
-                        _history_exists, config_dir, mac_address
-                    )
+                    has_history=await self._async_has_history(mac_address)
                 ),
                 self._simulator_existing.get(mac_address, {}),
             ),
@@ -718,15 +726,16 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
         return self._init_form()
 
     async def _async_recorded_heaters(self) -> list[str]:
-        config_dir = self.hass.config.config_dir
         known = self.config_entry.options.get(CONF_SIMULATOR) or {}
         return [
             mac_address
             for mac_address in known
-            if await self.hass.async_add_executor_job(
-                _history_exists, config_dir, mac_address
-            )
+            if await self._async_has_history(mac_address)
         ]
+
+    def _simulator_recording(self) -> set[str]:
+        feature = simulator_feature(self.hass, self.config_entry)
+        return set() if feature is None else set(feature.recorders)
 
     async def async_step_simulator_off(
         self, user_input: dict[str, Any] | None = None
@@ -784,7 +793,15 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
     async def _async_simulator_done(
         self, devices: dict[str, dict[str, Any]]
     ) -> config_entries.ConfigFlowResult:
-        self._pending[CONF_SIMULATOR] = devices
+        # A heater the account no longer lists keeps its options: they
+        # are what finds its recorded history to delete, and what it
+        # starts from if it comes back.
+        gone = {
+            mac_address: options
+            for mac_address, options in self._simulator_existing.items()
+            if mac_address not in devices
+        }
+        self._pending[CONF_SIMULATOR] = {**gone, **devices}
         return await self._async_after_simulator()
 
     async def async_step_simulator_without(

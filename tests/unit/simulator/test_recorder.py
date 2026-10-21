@@ -18,14 +18,24 @@ from custom_components.nwp500.simulator import recorder as recorder_module
 from custom_components.nwp500.simulator.recorder import (
     MAX_BUFFERED,
     HistoryRecorder,
+    Stored,
+    UnwrittenError,
+    append,
     delete,
+    maintain,
     stored,
-    write,
 )
 
 from .conftest import MAC, status_dict
 
 DAY = date(2026, 10, 21)
+
+
+def write(
+    directory: str, lines: list[tuple[date, str]], today: date, keep_days: int
+) -> Stored:
+    append(directory, lines)
+    return maintain(directory, today, keep_days)
 
 
 def _lines(directory: Path, name: str) -> list[str]:
@@ -145,7 +155,11 @@ async def test_lines_are_kept_while_the_disk_refuses_them(
     coordinator.listeners[0](status_dict())
 
     with patch.object(
-        recorder_module, "write", side_effect=OSError("read-only")
+        recorder_module,
+        "append",
+        side_effect=lambda _d, lines: (_ for _ in ()).throw(
+            UnwrittenError(OSError("read-only"), lines)
+        ),
     ):
         await recorder.async_flush()
         await recorder.async_flush()
@@ -210,3 +224,124 @@ async def test_deleting_drops_the_lines_held_too(hass: HomeAssistant, clock):
 
     assert not Path(recorder.directory).exists()
     assert recorder.as_document()["days"] == 0
+
+
+def test_a_failed_append_leaves_its_day_as_it_was(tmp_path: Path):
+    write(str(tmp_path), [(DAY, "a")], DAY, 60)
+    later = DAY + timedelta(days=1)
+    real_open = open
+
+    def failing_open(path, mode="r", *args, **kwargs):
+        f = real_open(path, mode, *args, **kwargs)
+        if str(path).endswith(later.isoformat() + ".jsonl"):
+            f.write("partial")
+            f.close()
+            raise OSError("disk full")
+        return f
+
+    with (
+        patch("builtins.open", failing_open),
+        pytest.raises(UnwrittenError) as raised,
+    ):
+        append(str(tmp_path), [(DAY, "b"), (later, "c"), (later, "d")])
+
+    # The first day went in; the failed one is cut back, and only its
+    # lines are to be written again.
+    assert raised.value.lines == [(later, "c"), (later, "d")]
+    assert _lines(tmp_path, "2026-10-21.jsonl") == ["a", "b"]
+    assert not (tmp_path / "2026-10-22.jsonl").exists()
+
+
+def test_a_failed_compression_keeps_the_day_once(tmp_path: Path):
+    write(str(tmp_path), [(DAY, "a")], DAY + timedelta(days=1), 60)
+    write(str(tmp_path), [(DAY, "b")], DAY, 60)
+    tomorrow = DAY + timedelta(days=1)
+
+    with (
+        patch.object(
+            recorder_module.os, "replace", side_effect=OSError("no space")
+        ),
+        pytest.raises(OSError, match="no space"),
+    ):
+        maintain(str(tmp_path), tomorrow, 60)
+
+    assert sorted(os.listdir(tmp_path)) == [
+        "2026-10-21.jsonl",
+        "2026-10-21.jsonl.gz",
+    ]
+    maintain(str(tmp_path), tomorrow, 60)
+    assert _lines(tmp_path, "2026-10-21.jsonl.gz") == ["a", "b"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_compression_does_not_write_the_lines_again(
+    hass: HomeAssistant, clock
+):
+    coordinator = _Coordinator()
+    recorder = HistoryRecorder(hass, coordinator, MAC, 60, clock=clock)  # type: ignore[arg-type]
+    recorder.async_start()
+    await hass.async_block_till_done()
+    coordinator.listeners[0](status_dict())
+
+    with patch.object(
+        recorder_module, "maintain", side_effect=OSError("no space")
+    ):
+        await recorder.async_flush()
+
+    assert recorder.error == "no space"
+    assert recorder.as_document()["held"] == 0
+    await recorder.async_stop()
+    assert recorder.error is None
+    assert len(_lines(Path(recorder.directory), "2026-10-21.jsonl")) == 1
+
+
+@pytest.mark.asyncio
+async def test_lines_kept_after_a_failure_count_what_they_drop(
+    hass: HomeAssistant, clock
+):
+    coordinator = _Coordinator()
+    recorder = HistoryRecorder(hass, coordinator, MAC, 60, clock=clock)  # type: ignore[arg-type]
+    recorder._unsubs.append(  # noqa: SLF001
+        coordinator.async_add_raw_status_listener(MAC, recorder._on_status)  # noqa: SLF001
+    )
+    payload = status_dict()
+    for _ in range(MAX_BUFFERED):
+        coordinator.listeners[0](payload)
+
+    def fail(_directory, lines):
+        # Statuses arrive while the write is under way.
+        for _ in range(3):
+            hass.loop.call_soon_threadsafe(coordinator.listeners[0], payload)
+        raise UnwrittenError(OSError("read-only"), lines)
+
+    with patch.object(recorder_module, "append", side_effect=fail):
+        await recorder.async_flush()
+        await hass.async_block_till_done()
+
+    document = recorder.as_document()
+    assert document["held"] == MAX_BUFFERED
+    assert document["recorded"] == MAX_BUFFERED + 3
+    assert document["dropped"] == 3
+    for unsub in recorder._unsubs:  # noqa: SLF001
+        unsub()
+
+
+@pytest.mark.asyncio
+async def test_home_assistant_stopping_writes_what_is_held(
+    hass: HomeAssistant, clock, caplog
+):
+    from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
+
+    coordinator = _Coordinator()
+    recorder = HistoryRecorder(hass, coordinator, MAC, 60, clock=clock)  # type: ignore[arg-type]
+    recorder.async_start()
+    await hass.async_block_till_done()
+    coordinator.listeners[0](status_dict())
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
+    await hass.async_block_till_done()
+
+    assert len(_lines(Path(recorder.directory), "2026-10-21.jsonl")) == 1
+    # Stopping after it does not remove the listener twice.
+    await recorder.async_stop()
+    assert "Unable to remove" not in caplog.text

@@ -17,6 +17,7 @@ the file is a time no status arrived.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gzip
 import logging
 import os
@@ -26,7 +27,8 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
@@ -69,26 +71,61 @@ def _day_of(name: str) -> date | None:
     return None
 
 
-def write(
-    directory: str,
-    lines: list[tuple[date, str]],
-    today: date,
-    keep_days: int,
-) -> Stored:
-    """Append `lines` to their days' files.
+class UnwrittenError(OSError):
+    """An append failed; `lines` were not written, the others were."""
 
-    Then compress the finished days and delete the expired ones, and
-    return what is stored. Runs in an executor.
+    def __init__(self, err: OSError, lines: list[tuple[date, str]]) -> None:
+        super().__init__(*err.args)
+        self.lines = lines
+
+
+def append(directory: str, lines: list[tuple[date, str]]) -> None:
+    """Append `lines` to their days' files. Runs in an executor.
+
+    Each day's lines go in whole or not at all: a failed append is cut
+    back to the file's size before it, and raises `UnwrittenError` with that
+    day's lines and the days after it, so a retry writes each line once.
     """
-    if lines:
+    if not lines:
+        return
+    by_day: dict[date, list[str]] = {}
+    for line_day, text in lines:
+        by_day.setdefault(line_day, []).append(text)
+    days = sorted(by_day)
+    try:
         os.makedirs(directory, exist_ok=True)
-        by_day: dict[date, list[str]] = {}
-        for line_day, text in lines:
-            by_day.setdefault(line_day, []).append(text)
-        for line_day, texts in sorted(by_day.items()):
-            path = os.path.join(directory, line_day.isoformat() + _SUFFIX)
+    except OSError as err:
+        raise UnwrittenError(err, lines) from err
+    for index, line_day in enumerate(days):
+        path = os.path.join(directory, line_day.isoformat() + _SUFFIX)
+        unwritten = [
+            (day, text) for day in days[index:] for text in by_day[day]
+        ]
+        try:
+            size: int | None = os.path.getsize(path)
+        except FileNotFoundError:
+            size = None
+        except OSError as err:
+            raise UnwrittenError(err, unwritten) from err
+        try:
             with open(path, "a", encoding="utf-8") as out:
-                out.write("".join(text + "\n" for text in texts))
+                out.write("".join(text + "\n" for text in by_day[line_day]))
+        except OSError as err:
+            with contextlib.suppress(OSError):
+                if size is None:
+                    os.remove(path)
+                else:
+                    os.truncate(path, size)
+            raise UnwrittenError(err, unwritten) from err
+
+
+def maintain(directory: str, today: date, keep_days: int) -> Stored:
+    """Compress the finished days and delete the expired ones.
+
+    Returns what is then stored. Runs in an executor. A failure leaves
+    each day's lines in one place or the other, never both, so it can be
+    run again.
+    """
     if not os.path.isdir(directory):
         return Stored()
     oldest = today - timedelta(days=keep_days - 1)
@@ -100,15 +137,35 @@ def write(
         if day < oldest:
             os.remove(path)
         elif name.endswith(_SUFFIX) and day < today:
-            # A finished day. Appending a gzip member keeps a day whose
-            # compressed file exists already (a late line) readable whole.
-            with (
-                open(path, "rb") as src,
-                gzip.open(path[: -len(_SUFFIX)] + _GZ_SUFFIX, "ab") as dst,
-            ):
-                shutil.copyfileobj(src, dst)
-            os.remove(path)
+            _compress(path)
     return stored(directory)
+
+
+def _compress(path: str) -> None:
+    """Move a finished day's lines into its compressed file.
+
+    The compressed file is rebuilt beside it and swapped in whole, then
+    the plain file is removed. A day whose compressed file exists already
+    (a late line) keeps it, with the lines as one more gzip member, which
+    reads back as one stream.
+    """
+    target = path[: -len(_SUFFIX)] + _GZ_SUFFIX
+    partial = target + ".partial"
+    try:
+        with open(partial, "wb") as out:
+            with (
+                contextlib.suppress(FileNotFoundError),
+                open(target, "rb") as old,
+            ):
+                shutil.copyfileobj(old, out)
+            with open(path, "rb") as src, gzip.open(out, "wb") as member:
+                shutil.copyfileobj(src, member)
+        os.replace(partial, target)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(partial)
+        raise
+    os.remove(path)
 
 
 def stored(directory: str) -> Stored:
@@ -183,6 +240,9 @@ class HistoryRecorder:
                 self.hass, self._on_interval, FLUSH_INTERVAL
             )
         )
+        # Home Assistant does not unload its entries when it stops: write
+        # what is held with its own final writes.
+        self._unsubs.append(self._listen_for_final_write())
         # Compress and prune what an earlier run left.
         self.hass.async_create_task(self.async_flush())
 
@@ -192,6 +252,25 @@ class HistoryRecorder:
             unsub()
         self._unsubs.clear()
         await self.async_flush()
+
+    def _listen_for_final_write(self) -> Callable[[], None]:
+        fired = False
+
+        async def on_final_write(_event: Event) -> None:
+            nonlocal fired
+            fired = True
+            await self.async_flush()
+
+        remove = self.hass.bus.async_listen_once(
+            EVENT_HOMEASSISTANT_FINAL_WRITE, on_final_write
+        )
+
+        def unsub() -> None:
+            # A listener that has fired is gone already.
+            if not fired:
+                remove()
+
+        return unsub
 
     @callback
     def _on_status(self, payload: dict[str, Any]) -> None:
@@ -208,6 +287,10 @@ class HistoryRecorder:
         raw = {k: v for k, v in payload.items() if k != "macAddress"}
         self._buffer.append((at.date(), history_line(at, raw)))
         self.recorded += 1
+        self._bound()
+
+    def _bound(self) -> None:
+        """Drop the oldest lines held beyond `MAX_BUFFERED`, counting them."""
         if len(self._buffer) > MAX_BUFFERED:
             excess = len(self._buffer) - MAX_BUFFERED
             del self._buffer[:excess]
@@ -223,20 +306,26 @@ class HistoryRecorder:
             lines, self._buffer = self._buffer, []
             today = self._clock().astimezone(UTC).date()
             try:
+                await self.hass.async_add_executor_job(
+                    append, self.directory, lines
+                )
+            except UnwrittenError as err:
+                # Kept for the next try, in their order before the lines
+                # that arrived meanwhile, within the bound.
+                self._buffer = err.lines + self._buffer
+                self._bound()
+                self._failed(err)
+                return
+            if lines:
+                self.last_written = self._clock()
+            try:
                 self.stored = await self.hass.async_add_executor_job(
-                    write, self.directory, lines, today, self.keep_days
+                    maintain, self.directory, today, self.keep_days
                 )
             except OSError as err:
-                if self.error is None:
-                    _LOGGER.warning(
-                        "Cannot write the recorded history of %s to %s: %s",
-                        self.mac_address,
-                        self.directory,
-                        err,
-                    )
-                self.error = str(err)
-                # Kept for the next try, newest last, within the bound.
-                self._buffer = (lines + self._buffer)[-MAX_BUFFERED:]
+                # The lines are written; compressing or pruning is tried
+                # again with the next write.
+                self._failed(err)
                 return
             if self.error is not None:
                 _LOGGER.info(
@@ -244,8 +333,16 @@ class HistoryRecorder:
                     self.mac_address,
                 )
             self.error = None
-            if lines:
-                self.last_written = self._clock()
+
+    def _failed(self, err: OSError) -> None:
+        if self.error is None:
+            _LOGGER.warning(
+                "Cannot write the recorded history of %s to %s: %s",
+                self.mac_address,
+                self.directory,
+                err,
+            )
+        self.error = str(err)
 
     async def async_delete(self) -> None:
         """Delete the history recorded so far, with the lines held."""

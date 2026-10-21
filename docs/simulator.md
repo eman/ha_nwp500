@@ -84,7 +84,7 @@ history to start from.
   `nwp500/history/`, one folder per heater and one file per day (UTC). The
   files go into Home Assistant's backups.
 - **When it is written.** Every 15 minutes, to spare SD cards, and when the
-  integration stops or reloads.
+  integration reloads or Home Assistant stops.
 - **How big.** The day in progress is plain text, up to about 10 MB at the
   default 30-second interval. Once the day is over, its file is compressed,
   to well under 1 MB.

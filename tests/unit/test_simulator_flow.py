@@ -605,10 +605,7 @@ async def test_a_heater_still_recording_drops_what_it_holds_on_delete(
             "simulator": {MAC: {"record_history": True, "history_days": 60}},
         },
     )
-    recorder = MagicMock(async_delete=AsyncMock())
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "simulator": MagicMock(recorders={MAC: recorder})
-    }
+    recorder = _recording(hass, entry)
     with packages():
         result = await hass.config_entries.options.async_init(entry.entry_id)
         result = await hass.config_entries.options.async_configure(
@@ -622,3 +619,74 @@ async def test_a_heater_still_recording_drops_what_it_holds_on_delete(
     recorder.async_delete.assert_awaited_once()
     # The recorder deletes it; the flow leaves the directory to it.
     assert directory.exists()
+
+
+def _recording(hass: HomeAssistant, entry: MockConfigEntry) -> MagicMock:
+    """A simulator running for the entry, its heater recording."""
+    recorder = MagicMock(async_delete=AsyncMock())
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "simulator": MagicMock(recorders={MAC: recorder})
+    }
+    return recorder
+
+
+@pytest.mark.asyncio
+async def test_a_heater_recording_offers_deletion_before_it_writes(
+    hass: HomeAssistant, enable_custom_integrations, tmp_path: Path
+):
+    """Nothing on disk yet, but its recorder holds lines."""
+    hass.config.config_dir = str(tmp_path)
+    entry = _loaded_entry(
+        hass,
+        {
+            "simulator_enabled": True,
+            "simulator": {MAC: {"record_history": True, "history_days": 60}},
+        },
+    )
+    recorder = _recording(hass, entry)
+    with packages():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"scan_interval": 30, "simulator_enabled": True}
+        )
+        assert "delete_history" in _fields(result)
+        hass.config_entries.options.async_abort(result["flow_id"])
+
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"scan_interval": 30, "simulator_enabled": False}
+        )
+        assert result["step_id"] == "simulator_off"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"delete_history": True}
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    recorder.async_delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_heater_no_longer_listed_keeps_its_options(
+    hass: HomeAssistant, enable_custom_integrations, tmp_path: Path
+):
+    """They are what finds its history to delete later."""
+    hass.config.config_dir = str(tmp_path)
+    gone = {"record_history": True, "history_days": 60}
+    entry = _loaded_entry(
+        hass,
+        {"simulator_enabled": True, "simulator": {MAC: {}, MAC2: gone}},
+    )
+    with packages():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"scan_interval": 30, "simulator_enabled": True}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"air_entity": "sensor.garage_air"}
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options["simulator"] == {
+        MAC: {"air_entity": "sensor.garage_air"},
+        MAC2: gone,
+    }
