@@ -15,8 +15,11 @@
   touching the heater. Turning it on installs numpy, pandas and scipy if
   Home Assistant lacks them, with a progress step; with it off none of them
   is installed or loaded, and a test holds set-up to what it was before.
-  A Repairs issue reports a simulator that cannot start. See
-  `docs/simulator.md`.
+  It starts after the heater's own entities, so the water heater never
+  waits for its packages. A Repairs issue reports a simulator that cannot
+  start, and why: packages missing, an install that failed (retried after a
+  restart), or another error (retried on a reload). Turning it off removes
+  its sensors and what it stored. See `docs/simulator.md`.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
   start or the entry's reload. The heartbeat alone does not show a reload.

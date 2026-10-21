@@ -18,7 +18,11 @@ The simulator is optional, and off unless you turn it on.
   **Set up the hot water simulator** or **Skip for now**. Skipping sets the
   integration up exactly as it was before the simulator existed.
 - **Later**, open the integration's options and turn **Hot water simulator**
-  on or off.
+  on or off. It can be turned on only while the integration is running,
+  since its water heaters are known only then.
+
+Either way, you then choose the sensors beside each water heater (see
+[Inputs](#inputs)). Saving the options again lets you change or clear them.
 
 The simulator needs numpy, pandas and scipy. When you turn it on, the
 integration checks for them and installs any that are missing, showing
@@ -36,8 +40,12 @@ simulator:
 - **If Home Assistant is set not to install packages** (`skip_pip`),
   install them yourself, then try again.
 - **After a failed install**, Home Assistant won't try again until it
-  restarts, so restart it first. Repairs says which of these applies when
-  the simulator can't start.
+  restarts, so restart it first.
+
+If the simulator is on but can't start, Repairs says why: the packages are
+missing, their install failed (restart Home Assistant), or something else
+went wrong (the log has it; reload the integration to try again). The rest
+of the integration runs either way.
 
 Turning the simulator off removes its sensors and the little it stores.
 
@@ -80,9 +88,11 @@ Simulated heating also has the next heating interval's start (`starts_at`, none 
 
 `reasons`, `defaults_used` and `notes` are not recorded in history.
 
-The sensors are unavailable while the heater isn't reporting and before its
-details have arrived. In Standby nothing heats: Simulated heating says
-`disabled` and the energy is 0.
+The sensors appear once the simulator is running, which can take a few
+minutes while its packages install. They are unavailable while the heater
+isn't reporting, before its details have arrived, and when a simulation
+fails (the log says why, once). In Standby nothing heats: Simulated heating
+says `disabled` and the energy is 0.
 
 The simulation runs again when the heater reports, at most once a minute,
 and every five minutes in any case.
@@ -90,15 +100,16 @@ and every five minutes in any case.
 ## The `nwp500.simulate` action
 
 `nwp500.simulate` returns a simulation from now and changes nothing on the
-heater. It needs the simulator turned on.
+heater. It needs the simulator running, and refuses to answer while the
+heater is in Standby.
 
 | Field | Meaning |
 |---|---|
 | `device_id` or `entity_id` | The water heater |
 | `hours` | How far ahead, 1 to 168. Default 24 |
-| `writes` | Setpoint or mode changes to try. Each has `at` (when), and `temperature` (in Home Assistant's unit), `mode` (`heat_pump`, `electric`, `energy_saver` or `high_demand`), or both. A change into Vacation or Power Off isn't modelled |
+| `writes` | Setpoint or mode changes to try. Each has `at` (when, within the hours simulated), and `temperature` (in Home Assistant's unit, 104.9-149.9 °F or 40.5-65.5 °C), `mode` (`heat_pump`, `electric`, `energy_saver` or `high_demand`), or both. A change into Vacation or Power Off isn't modelled |
 | `include_points` | Also return the tank's path. Default off |
-| `resolution_minutes` | With the path, keep one point every this many minutes |
+| `resolution_minutes` | With the path, keep one point every this many minutes, 1 to 60 |
 
 ```yaml
 action: nwp500.simulate
@@ -119,8 +130,11 @@ gallons, named under `units`). Its fields:
 - `writes`: setpoint writes and reservation firings, as they would land.
 - `mode_writes`: mode writes, as they would land.
 - `modes`: the mode over time.
-- `points`: the tank's path, only when asked for.
-- `summary`: the same answer the sensors give, over the hours asked for.
+- `points`: the tank's path, only when asked for. Unthinned, it comes with
+  `delivery`, the delivered water's temperature at each point.
+- `summary`: the same answer the sensors give, over the hours asked for:
+  `state`, `starts_at`, `ready_at`, `source`, `energy_kwh` (the next
+  heating) and `energy_total_kwh`.
 - `reasons`, `defaults_used` and `notes`.
 
 A time without a time zone is taken in Home Assistant's.

@@ -246,7 +246,8 @@ ahead, and can try setpoint and mode changes first without touching the
 heater.
 
 Turning it on installs numpy, pandas and scipy if Home Assistant does not
-already have them; with it off, none of them is installed or loaded. The
+already have them; with it off, none of them is installed or loaded, and
+the integration works as it did before. Turning it off removes its sensors. The
 answers come from physics with the default parameters for the tank's size,
 and run short on long recoveries. An air temperature sensor beside the
 heater helps most. See [docs/simulator.md](docs/simulator.md).
