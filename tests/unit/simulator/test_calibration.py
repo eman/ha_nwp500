@@ -706,3 +706,48 @@ def test_a_damaged_compressed_day_is_a_gap(tmp_path: Path, caplog):
 
     assert len(readings) >= 2
     assert "is not read" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_a_recorder_that_fails_leaves_the_statuses(
+    hass: HomeAssistant,
+    hass_storage,
+    entry,
+    coordinator,
+    raw_listeners,
+    config_dir,
+    recorder_running,
+):
+    _register(
+        hass,
+        "diagnostic_last_response",
+        "tank_upper_temperature",
+        "tank_lower_temperature",
+    )
+    first = datetime.now(UTC) - timedelta(days=1)
+    directory = Path(simulator_history_dir(str(config_dir), MAC))
+    _write_day(directory, first.date().isoformat(), 5, first, gz=True)
+    feature = await _started(hass, entry, coordinator)
+    done, terms = _fake_done(fitted=True)
+
+    async def broken(*_: Any) -> None:
+        raise RuntimeError("database is locked")
+
+    with (
+        patch.object(calibration_module, "first_change", broken),
+        patch.object(calibration_module, "run_calibration", return_value=done),
+        patch.object(calibration_module, "report", return_value=terms),
+        patch.object(
+            calibration_module, "record_inputs", AsyncMock(return_value=None)
+        ),
+    ):
+        report = await feature.async_calibrate(MAC)
+        assert report is not None and report.source == "statuses"
+
+        # And with no statuses either, a failed run that says why.
+        for path in directory.iterdir():
+            path.unlink()
+        report = await feature.async_calibrate(MAC)
+    assert report is not None and report.failures == 1
+    assert report.error is not None and "database is locked" in report.error
+    await async_unload_simulator(hass, entry)

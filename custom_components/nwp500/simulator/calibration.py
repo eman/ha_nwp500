@@ -411,21 +411,28 @@ async def async_calibrate(
             # From when all it needs are recorded: the last of their
             # histories to begin.
             since = started - timedelta(days=ENTITY_HISTORY_DAYS)
-            firsts = [
-                await first_change(hass, entity_id, since, started)
-                for entity_id in (
-                    entities.heard,
-                    entities.upper,
-                    entities.lower,
-                )
-            ]
-            if None in firsts:
-                unrecorded = (
-                    "Home Assistant's recorder has no history of its last "
-                    "response time and tank temperatures"
-                )
+            try:
+                firsts = [
+                    await first_change(hass, entity_id, since, started)
+                    for entity_id in (
+                        entities.heard,
+                        entities.upper,
+                        entities.lower,
+                    )
+                ]
+            except Exception as err:
+                # The recorder's history is left out, and the statuses, if
+                # any, are fitted.
+                _LOGGER.warning("The recorder's history is not read: %s", err)
+                unrecorded = f"Home Assistant's recorder is not read ({err})"
             else:
-                entities_from = max(t for t in firsts if t is not None)
+                if None in firsts:
+                    unrecorded = (
+                        "Home Assistant's recorder has no history of its "
+                        "last response time and tank temperatures"
+                    )
+                else:
+                    entities_from = max(t for t in firsts if t is not None)
     # The history that reaches further back first; the statuses, the finer
     # record, when both reach as far. The other if the first fails.
     sources: list[tuple[datetime, str]] = []
