@@ -405,3 +405,25 @@ def test_the_service_schema_takes_a_write():
     (write,) = data["writes"]
     assert write["temperature"] == 120.0
     assert write["at"].hour == 14
+
+
+@pytest.mark.asyncio
+async def test_removing_the_entry_deletes_its_recorded_history(
+    hass: HomeAssistant, hass_storage, tmp_path
+):
+    hass.config.config_dir = str(tmp_path)
+    directory = tmp_path / "nwp500" / "history" / "aabbccddeeff"
+    directory.mkdir(parents=True)
+    (directory / "2026-10-20.jsonl.gz").write_bytes(b"x")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        options={
+            "simulator_enabled": False,
+            "simulator": {MAC: {"record_history": True}},
+        },
+    )
+    entry.add_to_hass(hass)
+
+    await async_remove_entry(hass, entry)
+
+    assert not directory.exists()

@@ -7,6 +7,7 @@ import asyncio
 import contextlib
 import importlib
 import logging
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
@@ -51,6 +52,7 @@ from nwp500.exceptions import Nwp500Error
 from . import energy_report, schedule_state
 from .const import (
     CONF_CONTROL_ENABLED,
+    CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
     CONTROL_UNIQUE_ID_MARKER,
     DATA_CONTROL,
@@ -75,6 +77,7 @@ from .const import (
     control_storage_key,
     simulator_enabled,
     simulator_feature,
+    simulator_history_dir,
     simulator_started_signal,
     simulator_storage_key,
 )
@@ -1398,6 +1401,21 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         await _async_remove_control_leftovers(hass, entry.entry_id)
     if _simulator_was_on(entry):
         await _async_remove_simulator_leftovers(hass, entry.entry_id)
+        # Its recorded history goes with the entry.
+        await hass.async_add_executor_job(
+            _delete_simulator_history,
+            hass.config.config_dir,
+            list(entry.options.get(CONF_SIMULATOR) or {}),
+        )
+
+
+def _delete_simulator_history(
+    config_dir: str, mac_addresses: list[str]
+) -> None:
+    for mac_address in mac_addresses:
+        shutil.rmtree(
+            simulator_history_dir(config_dir, mac_address), ignore_errors=True
+        )
 
 
 def _simulator_was_on(entry: ConfigEntry) -> bool:

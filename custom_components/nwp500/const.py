@@ -1,5 +1,6 @@
 """Constants for the Navien NWP500 integration."""
 
+import os
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 from homeassistant.components.water_heater import (
@@ -1467,3 +1468,22 @@ def simulator_feature(hass: Any, entry: Any) -> Any | None:
     Typed loosely for the same reason as `control_feature`.
     """
     return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_SIMULATOR)
+
+
+# The simulator's history recording: a heater's raw statuses,
+# for its calibration. Per heater, in CONF_SIMULATOR's options.
+CONF_SIMULATOR_RECORD: Final = "record_history"
+CONF_SIMULATOR_HISTORY_DAYS: Final = "history_days"
+DEFAULT_SIMULATOR_HISTORY_DAYS: Final = 60
+MIN_SIMULATOR_HISTORY_DAYS: Final = 7
+MAX_SIMULATOR_HISTORY_DAYS: Final = 365
+
+# Where the recordings are kept, under Home Assistant's configuration
+# directory, so they go into its backups.
+SIMULATOR_HISTORY_DIR: Final = (DOMAIN, "history")
+
+
+def simulator_history_dir(config_dir: str, mac_address: str) -> str:
+    """The directory of one heater's recorded history."""
+    slug = mac_address.replace(":", "").lower()
+    return os.path.join(config_dir, *SIMULATOR_HISTORY_DIR, slug)

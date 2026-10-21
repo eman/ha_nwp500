@@ -20,7 +20,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
 
 from ..const import (
+    CONF_SIMULATOR_HISTORY_DAYS,
+    CONF_SIMULATOR_RECORD,
     DATA_SIMULATOR,
+    DEFAULT_SIMULATOR_HISTORY_DAYS,
     DOMAIN,
     simulator_device_options,
     simulator_storage_key,
@@ -29,6 +32,7 @@ from ..const import (
 # Imported with the package, in the import executor, rather than on the
 # first call of the service, in the event loop.
 from . import service as service
+from .recorder import HistoryRecorder
 from .runner import HeatingHistory, SimulatorRunner
 from .sensor import create_simulator_sensors
 
@@ -57,6 +61,8 @@ class SimulatorFeature:
         self.entry = entry
         self.coordinator = coordinator
         self.runners: dict[str, SimulatorRunner] = {}
+        # The heaters whose history is recorded: each is opted in on its own.
+        self.recorders: dict[str, HistoryRecorder] = {}
         self._removed = False
         self._store = Store[dict[str, Any]](
             hass, STORAGE_VERSION, simulator_storage_key(entry.entry_id)
@@ -77,20 +83,45 @@ class SimulatorFeature:
             )
             self.runners[mac_address] = runner
             runner.async_start()
+            if runner.options.get(CONF_SIMULATOR_RECORD) is True:
+                recorder = HistoryRecorder(
+                    self.hass,
+                    self.coordinator,
+                    mac_address,
+                    int(
+                        runner.options.get(
+                            CONF_SIMULATOR_HISTORY_DAYS,
+                            DEFAULT_SIMULATOR_HISTORY_DAYS,
+                        )
+                    ),
+                )
+                self.recorders[mac_address] = recorder
+                recorder.async_start()
 
     async def async_stop(self) -> None:
         """Stop the runners and save what they saw."""
         for runner in self.runners.values():
             runner.async_stop()
+        await self._async_stop_recorders()
         if not self._removed:
             await self._store.async_save(self._document())
 
     async def async_remove(self) -> None:
-        """Stop, and remove what the simulator stored and created."""
+        """Stop, and remove what the simulator stored and created.
+
+        A recorded history is kept: it is deleted only when the owner says
+        so (the options flow) or with the entry.
+        """
         self._removed = True
         for runner in self.runners.values():
             runner.async_stop()
+        await self._async_stop_recorders()
         await self._store.async_remove()
+
+    async def _async_stop_recorders(self) -> None:
+        for recorder in self.recorders.values():
+            await recorder.async_stop()
+        self.recorders.clear()
 
     @callback
     def _schedule_save(self) -> None:

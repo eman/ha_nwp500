@@ -37,11 +37,17 @@
         "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. More about the inputs: {guide_url}",
         "data": {
           "air_entity": "Air temperature beside the heater",
-          "humidity_entity": "Humidity beside the heater"
+          "humidity_entity": "Humidity beside the heater",
+          "record_history": "Record the heater's history",
+          "history_days": "Days of history to keep",
+          "delete_history": "Delete the history recorded so far"
         },
         "data_description": {
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
-          "humidity_entity": "A humidity sensor in the same room as the heater."
+          "humidity_entity": "A humidity sensor in the same room as the heater.",
+          "record_history": "Optional. Keeps each status the heater reports, so that a later version can fit the simulator to this heater. It is stored in Home Assistant's configuration folder, under nwp500/history, and goes into its backups. The day in progress takes up to about 10 MB; each finished day is compressed to well under 1 MB.",
+          "history_days": "Older days are deleted.",
+          "delete_history": "Deletes this heater's recorded history when you save."
         }
       },
       "simulator_install": {
@@ -117,11 +123,17 @@
         "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. More about the inputs: {guide_url}",
         "data": {
           "air_entity": "Air temperature beside the heater",
-          "humidity_entity": "Humidity beside the heater"
+          "humidity_entity": "Humidity beside the heater",
+          "record_history": "Record the heater's history",
+          "history_days": "Days of history to keep",
+          "delete_history": "Delete the history recorded so far"
         },
         "data_description": {
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
-          "humidity_entity": "A humidity sensor in the same room as the heater."
+          "humidity_entity": "A humidity sensor in the same room as the heater.",
+          "record_history": "Optional. Keeps each status the heater reports, so that a later version can fit the simulator to this heater. It is stored in Home Assistant's configuration folder, under nwp500/history, and goes into its backups. The day in progress takes up to about 10 MB; each finished day is compressed to well under 1 MB.",
+          "history_days": "Older days are deleted.",
+          "delete_history": "Deletes this heater's recorded history when you save."
         }
       },
       "simulator_install": {
@@ -141,6 +153,16 @@
         "menu_options": {
           "simulator_retry": "Try again",
           "simulator_without": "Leave the simulator off"
+        }
+      },
+      "simulator_off": {
+        "title": "Turn off the hot water simulator",
+        "description": "The simulator's sensors are removed. Its recorded heater history is kept unless you delete it here, so a later version can still use it. More: {guide_url}",
+        "data": {
+          "delete_history": "Delete the recorded heater history"
+        },
+        "data_description": {
+          "delete_history": "Deletes the history recorded for every water heater of this integration."
         }
       }
     },
