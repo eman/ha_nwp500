@@ -45,6 +45,7 @@ from .ha_client import InProcessClient
 if TYPE_CHECKING:
     from nwp500.models import DeviceFeature, DeviceStatus
     from nwp500.sim.engine import HeatingInterval
+    from nwp500.sim.params import HeaterParams
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
 
@@ -205,14 +206,17 @@ def _parse(text: Any) -> datetime | None:
 
 
 def heater_reading(
-    status: DeviceStatus, feature: DeviceFeature
+    status: DeviceStatus,
+    feature: DeviceFeature,
+    params: HeaterParams | None = None,
 ) -> HeaterReading:
     """The heater as `compose` takes it.
 
     Its air is its own sensor's reading only while the compressor runs,
     when the fan draws the room's air past it; idle, the sensor reads the
     cabinet, several degrees warm, so the air is left to the simulator's
-    default, which the answer names.
+    default, which the answer names. Its parameters are `params`, its
+    calibration, or the defaults for its tank's size.
     """
     reading = sa.location_air_reading(status)
     air = math.nan if reading is None else sa.to_sim_temperature(reading)
@@ -220,7 +224,7 @@ def heater_reading(
         state=sa.heater_state(status),
         settings=sa.settings(status),
         environment=Environment(ambient_f=air),
-        params=sa.params(feature),
+        params=sa.params(feature) if params is None else params,
         status=status,
         feature=feature,
     )
@@ -340,6 +344,8 @@ class SimulatorRunner:
         self.history = history
         self._save_history = save_history
         self.answer: Answer | None = None
+        #: The heater's calibrated parameters; None for the defaults.
+        self.params: HeaterParams | None = None
         self.last_duration_s: float | None = None
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -424,6 +430,12 @@ class SimulatorRunner:
     def _on_interval(self, _now: datetime) -> None:
         self.hass.async_create_task(self._debouncer.async_call())
 
+    @callback
+    def async_set_params(self, params: HeaterParams | None) -> None:
+        """Walk with `params` from the next run on (None: the defaults)."""
+        self.params = params
+        self.hass.async_create_task(self._debouncer.async_call())
+
     async def async_inputs(
         self,
         *,
@@ -446,7 +458,7 @@ class SimulatorRunner:
         if status.dhw_operation_setting == DhwOperationSetting.STANDBY:
             # The library has no settings for Standby: nothing heats.
             return WAIT_STANDBY
-        reading = heater_reading(status, feature)
+        reading = heater_reading(status, feature, self.params)
         schedules, reasons = heater_schedules(
             status,
             self.coordinator.reservation_schedules.get(self.mac_address),

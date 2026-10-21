@@ -14,10 +14,17 @@ heater's reports (`runner.py`); the entities read its answer
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
+
+from nwp500.sim.params import (
+    HeaterParams,
+    params_from_document,
+    params_to_document,
+)
 
 from ..const import (
     CONF_SIMULATOR_HISTORY_DAYS,
@@ -63,6 +70,9 @@ class SimulatorFeature:
         self.runners: dict[str, SimulatorRunner] = {}
         # The heaters whose history is recorded: each is opted in on its own.
         self.recorders: dict[str, HistoryRecorder] = {}
+        # Each heater's last calibration, as stored: its parameters and
+        # when they were fitted (`async_set_calibration`).
+        self.calibrations: dict[str, dict[str, Any]] = {}
         self._removed = False
         self._store = Store[dict[str, Any]](
             hass, STORAGE_VERSION, simulator_storage_key(entry.entry_id)
@@ -72,6 +82,7 @@ class SimulatorFeature:
         """Start a runner for each heater."""
         stored = await self._store.async_load() or {}
         histories = stored.get("history") or {}
+        calibrations = stored.get("calibration") or {}
         for mac_address in self.coordinator.data or {}:
             runner = SimulatorRunner(
                 self.hass,
@@ -82,6 +93,11 @@ class SimulatorFeature:
                 self._schedule_save,
             )
             self.runners[mac_address] = runner
+            if (
+                params := _stored_params(calibrations.get(mac_address))
+            ) is not None:
+                self.calibrations[mac_address] = calibrations[mac_address]
+                runner.params = params
             runner.async_start()
             if runner.options.get(CONF_SIMULATOR_RECORD) is True:
                 recorder = HistoryRecorder(
@@ -129,13 +145,40 @@ class SimulatorFeature:
             return
         self._store.async_delay_save(self._document, SAVE_DELAY_S)
 
+    @callback
+    def async_set_calibration(
+        self, mac_address: str, params: HeaterParams, fitted_at: datetime
+    ) -> None:
+        """Walk the heater with `params` from now on, and keep them."""
+        runner = self.runners.get(mac_address)
+        if runner is None:
+            return
+        self.calibrations[mac_address] = {
+            "params": params_to_document(params),
+            "fitted_at": fitted_at.isoformat(),
+        }
+        runner.async_set_params(params)
+        self._schedule_save()
+
     def _document(self) -> dict[str, Any]:
         return {
             "history": {
                 mac: runner.history.as_document()
                 for mac, runner in self.runners.items()
-            }
+            },
+            "calibration": dict(self.calibrations),
         }
+
+
+def _stored_params(doc: Any) -> HeaterParams | None:
+    """A stored calibration's parameters; None for none, or unreadable."""
+    if not isinstance(doc, dict) or not isinstance(doc.get("params"), dict):
+        return None
+    try:
+        return params_from_document(doc["params"])
+    except (KeyError, TypeError, ValueError) as err:
+        _LOGGER.warning("A stored calibration is not read: %s", err)
+        return None
 
 
 async def async_setup_simulator(
