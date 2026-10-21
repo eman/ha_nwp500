@@ -293,6 +293,10 @@ def _simulator(feature: Any) -> dict[str, Any]:
                 "history": runner.history.as_document(),
                 "last_duration_s": runner.last_duration_s,
                 "answer": None if answer is None else answer.as_document(),
+                "recording": None
+                if (recorder := feature.recorders.get(runner.mac_address))
+                is None
+                else recorder.as_document(),
             }
         )
     return {"devices": devices}

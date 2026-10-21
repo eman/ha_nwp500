@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -33,7 +34,7 @@ from custom_components.nwp500.simulator.sensor import (
 )
 from custom_components.nwp500.simulator.service import UNITS, async_simulate
 
-from .conftest import MAC, make_status
+from .conftest import MAC, make_status, status_dict
 
 ON, OFF = 2, 1
 
@@ -513,3 +514,54 @@ def test_heating_cut_short_by_a_mode_change_has_no_ready_time():
         [interval(0, 10, "target"), interval(90, 120, "target")]
     ) == (t0 + timedelta(minutes=10))
     assert _ready_at([]) is None
+
+
+@pytest.mark.asyncio
+async def test_a_heater_set_to_record_has_its_history_recorded(
+    hass: HomeAssistant, hass_storage, entry, coordinator, config_dir
+):
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            CONF_SIMULATOR_ENABLED: True,
+            CONF_SIMULATOR: {MAC: {"record_history": True, "history_days": 14}},
+        },
+    )
+    listeners: list = []
+    coordinator.async_add_raw_status_listener = MagicMock(
+        side_effect=lambda mac, listener: (
+            listeners.append(listener) or (lambda: listeners.remove(listener))
+        )
+    )
+    from custom_components.nwp500.diagnostics import _simulator
+
+    feature = await started(hass, entry, coordinator)
+
+    recorder = feature.recorders[MAC]
+    assert recorder.keep_days == 14
+    (listener,) = listeners
+    listener(status_dict())
+    (device,) = _simulator(feature)["devices"]
+    assert device["recording"]["recorded"] == 1
+    assert device["recording"]["keep_days"] == 14
+
+    await async_unload_simulator(hass, entry)
+    assert listeners == []
+    (day,) = os.listdir(config_dir / "nwp500" / "history" / "aabbccddeeff")
+    assert day.endswith(".jsonl")
+
+
+@pytest.mark.asyncio
+async def test_a_heater_not_set_to_record_records_nothing(
+    hass: HomeAssistant, hass_storage, entry, coordinator, config_dir
+):
+    feature = await started(hass, entry, coordinator)
+
+    assert feature.recorders == {}
+    coordinator.async_add_raw_status_listener.assert_not_called()
+    from custom_components.nwp500.diagnostics import _simulator
+
+    (device,) = _simulator(feature)["devices"]
+    assert device["recording"] is None
+    await async_unload_simulator(hass, entry)
+    assert not (config_dir / "nwp500").exists()

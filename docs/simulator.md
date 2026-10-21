@@ -48,6 +48,8 @@ went wrong (the log has it; reload the integration to try again). The rest
 of the integration runs either way.
 
 Turning the simulator off removes its sensors and the little it stores.
+A [recorded history](#recording-the-heaters-history) is kept unless you
+choose to delete it on the same page.
 
 ## Inputs
 
@@ -68,6 +70,43 @@ draws the room's air past it.
 The simulator also reads, from the integration itself, the tank's
 temperatures, the mode and setpoint, the heater's reservation schedule and
 its time-of-use schedule.
+
+## Recording the heater's history
+
+Each heater's form also offers **Record the heater's history**, off unless
+you turn it on. A later version will use the recording to fit the
+simulator to your heater, so turning it on now gives that version weeks of
+history to start from.
+
+- **What is kept.** Each status the heater reports, as it reported it, and
+  when it arrived. The heater's address is left out.
+- **Where.** In Home Assistant's configuration folder, under
+  `nwp500/history/`, one folder per heater and one file per day (UTC). The
+  files go into Home Assistant's backups.
+- **When it is written.** Every 15 minutes, to spare SD cards, and when the
+  integration reloads or Home Assistant stops.
+- **How big.** The day in progress is plain text, up to about 10 MB at the
+  default 30-second interval. Once the day is over, its file is compressed,
+  to well under 1 MB.
+- **How long.** **Days of history to keep**, 60 unless you change it
+  (7 to 365). Older days are deleted.
+
+Compressing and deleting old days happen while the heater records. A
+history no longer recorded, because its recording or the simulator was
+turned off, stays as it was left until you delete it.
+- **How often.** As often as the integration asks the heater for its
+  status: the **Scan interval** option, 30 seconds unless you changed it.
+  A longer interval records less detail.
+
+Nothing is filled in: a stretch with no file, or no lines, is a time
+nothing arrived, such as an outage or a restart.
+
+Turning the recording off stops it and keeps what was recorded. To delete
+it, tick **Delete the history recorded so far** on the heater's form, or
+**Delete the recorded heater history** when you turn the simulator off.
+Removing the integration deletes it too. The diagnostics show, per heater,
+how many days are stored and their size, when the last status arrived, and
+the longest wait between two since the integration started.
 
 ## Sensors
 
@@ -156,10 +195,9 @@ size. Expect:
 
 These are planned, in this order:
 
-1. Recording the heater's reports, as a separate opt-in, so the simulator
-   can be fitted to your heater.
-2. Fitting it: the heat pump's terms from your recordings and the air sensor,
+1. Fitting it to your heater: the heat pump's terms from the
+   [recorded history](#recording-the-heaters-history) and the air sensor,
    and the air beside the heater from a weather forecast.
-3. Hot water use, from a water meter and an inlet temperature probe:
+2. Hot water use, from a water meter and an inlet temperature probe:
    deliverable volume, showers and bath readiness.
-4. Services a scheduler can plan with.
+3. Services a scheduler can plan with.

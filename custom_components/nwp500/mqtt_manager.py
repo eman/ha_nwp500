@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Final
 
 from nwp500.exceptions import DeviceCapabilityError, InvalidCredentialsError
+from nwp500.mqtt.utils import get_response_data
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -120,6 +121,8 @@ class NWP500MqttManager:
         on_reconnected: Callable[[], None] | None = None,
         on_reconnection_failed: Callable[[int], None] | None = None,
         ha_instance_id: str | None = None,
+        on_raw_status: Callable[[str, dict[str, Any]], None] | None = None,
+        wants_raw_status: Callable[[str], bool] | None = None,
     ) -> None:
         """Initialize the MQTT manager."""
         self.loop = hass_loop
@@ -138,6 +141,14 @@ class NWP500MqttManager:
 
         self._on_reconnection_failed_callback = on_reconnection_failed
         self.unit_system = unit_system
+
+        # Raw status payloads, as the device sent them, for a heater whose
+        # history is being recorded. Subscribed per device only while
+        # `wants_raw_status` says so; the MACs with a subscription on the
+        # current client.
+        self._on_raw_status_callback = on_raw_status
+        self._wants_raw_status = wants_raw_status
+        self._raw_status_subscribed: set[str] = set()
 
         # Connection tracking
         self.connected_since: float | None = None
@@ -406,6 +417,7 @@ class NWP500MqttManager:
             finally:
                 self.mqtt_client = None
                 self.connected_since = None
+                self._raw_status_subscribed.clear()
 
     async def subscribe_device(self, device: Device) -> None:
         """Subscribe to device updates."""
@@ -473,6 +485,55 @@ class NWP500MqttManager:
                 mac_address,
                 err,
             )
+        if self._wants_raw_status is not None and self._wants_raw_status(
+            mac_address
+        ):
+            await self.subscribe_raw_status(device)
+
+    async def subscribe_raw_status(self, device: Device) -> None:
+        """Pass on the device's raw status payloads (`on_raw_status`).
+
+        The payload is the status as the device sent it, which a parsed
+        `DeviceStatus` does not dump back to. The handler joins the
+        device's existing subscription, so the broker sees nothing new,
+        and stays until the client is replaced.
+        """
+        mac_address = device.device_info.mac_address
+        if (
+            not self.mqtt_client
+            or self._on_raw_status_callback is None
+            or mac_address in self._raw_status_subscribed
+        ):
+            return
+        # Marked before the await: a second call while the subscription is
+        # under way (a reconnect's resubscribe, a recorder starting) would
+        # otherwise add a second handler, and every status twice.
+        self._raw_status_subscribed.add(mac_address)
+        try:
+            await self.mqtt_client.subscribe_device(
+                device,
+                lambda _topic, message: self._on_raw_message(
+                    mac_address, message
+                ),
+            )
+        except Exception as err:
+            self._raw_status_subscribed.discard(mac_address)
+            _LOGGER.warning(
+                "Failed to subscribe to raw statuses of %s: %s",
+                mac_address,
+                err,
+            )
+
+    def _on_raw_message(
+        self, mac_address: str, message: dict[str, Any]
+    ) -> None:
+        """Pass on a message from the device if it carries a status."""
+        try:
+            data = get_response_data(message, "status")
+            if isinstance(data, dict) and self._on_raw_status_callback:
+                self._on_raw_status_callback(mac_address, data)
+        except Exception as err:
+            _LOGGER.error("Error handling a raw status: %s", err)
 
     async def start_periodic_requests(self, device: Device) -> None:
         """Start periodic status requests."""

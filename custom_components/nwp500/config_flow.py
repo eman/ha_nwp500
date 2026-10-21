@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import os
+import shutil
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -28,7 +30,9 @@ from .const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_AIR_ENTITY,
     CONF_SIMULATOR_ENABLED,
+    CONF_SIMULATOR_HISTORY_DAYS,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
+    CONF_SIMULATOR_RECORD,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
@@ -38,11 +42,16 @@ from .const import (
     DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SIMULATOR_HISTORY_DAYS,
     DOMAIN,
     MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
     MAX_SCAN_INTERVAL,
+    MAX_SIMULATOR_HISTORY_DAYS,
     MIN_SCAN_INTERVAL,
+    MIN_SIMULATOR_HISTORY_DAYS,
     control_follows_plan,
+    simulator_feature,
+    simulator_history_dir,
 )
 from .simulator_deps import (
     REASON_INSTALL_FAILED,
@@ -99,33 +108,84 @@ SIMULATOR_GUIDE_URL = (
 )
 
 
-def _simulator_device_schema() -> vol.Schema:
-    """The simulator's form for one heater: the sensors beside it."""
-    return vol.Schema(
-        {
-            vol.Optional(CONF_SIMULATOR_AIR_ENTITY): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="sensor", device_class="temperature"
-                )
-            ),
-            vol.Optional(
-                CONF_SIMULATOR_HUMIDITY_ENTITY
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="sensor", device_class="humidity"
-                )
-            ),
-        }
-    )
+# The form field that deletes a heater's recorded history. Not an option:
+# it is acted on when the form is saved, and never stored.
+DELETE_HISTORY = "delete_history"
+
+
+def _history_exists(config_dir: str, mac_address: str) -> bool:
+    """Whether a heater has recorded history. Runs in an executor."""
+    directory = simulator_history_dir(config_dir, mac_address)
+    return os.path.isdir(directory) and bool(os.listdir(directory))
+
+
+def _delete_history(config_dir: str, mac_addresses: list[str]) -> None:
+    """Delete heaters' recorded history. Runs in an executor."""
+    for mac_address in mac_addresses:
+        shutil.rmtree(
+            simulator_history_dir(config_dir, mac_address), ignore_errors=True
+        )
+
+
+def _simulator_device_schema(*, has_history: bool) -> vol.Schema:
+    """The simulator's form for one heater.
+
+    The sensors beside it, whether to record its history, for how long,
+    and, once it has some, whether to delete it.
+    """
+    fields: dict[Any, Any] = {
+        vol.Optional(CONF_SIMULATOR_AIR_ENTITY): selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain="sensor", device_class="temperature"
+            )
+        ),
+        vol.Optional(CONF_SIMULATOR_HUMIDITY_ENTITY): selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain="sensor", device_class="humidity"
+            )
+        ),
+        vol.Optional(
+            CONF_SIMULATOR_RECORD, default=False
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_SIMULATOR_HISTORY_DAYS,
+            default=DEFAULT_SIMULATOR_HISTORY_DAYS,
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=MIN_SIMULATOR_HISTORY_DAYS,
+                max=MAX_SIMULATOR_HISTORY_DAYS,
+                step=1,
+                mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement="days",
+            )
+        ),
+    }
+    if has_history:
+        fields[vol.Optional(DELETE_HISTORY, default=False)] = (
+            selector.BooleanSelector()
+        )
+    return vol.Schema(fields)
 
 
 def _simulator_device_options(user_input: dict[str, Any]) -> dict[str, Any]:
-    """A heater's stored options: the sensors chosen, nothing for none."""
-    return {
+    """A heater's stored options.
+
+    The sensors chosen, nothing for none, and the recording's, only when
+    it is on.
+    """
+    options = {
         key: user_input[key]
         for key in (CONF_SIMULATOR_AIR_ENTITY, CONF_SIMULATOR_HUMIDITY_ENTITY)
         if user_input.get(key)
     }
+    if user_input.get(CONF_SIMULATOR_RECORD) is True:
+        options[CONF_SIMULATOR_RECORD] = True
+        options[CONF_SIMULATOR_HISTORY_DAYS] = int(
+            user_input.get(
+                CONF_SIMULATOR_HISTORY_DAYS, DEFAULT_SIMULATOR_HISTORY_DAYS
+            )
+        )
+    return options
 
 
 class _SimulatorSteps:
@@ -149,6 +209,9 @@ class _SimulatorSteps:
         self._simulator_existing = {}
         self._simulator_answers: dict[str, dict[str, Any]] = {}
         self._simulator_index = 0
+        # The heaters whose recorded history is to be deleted, once the
+        # flow is saved (`_async_delete_history`).
+        self._simulator_delete: set[str] = set()
         self._deps: DepsResult | None = None
         self._install_task: asyncio.Task[DepsResult] | None = None
 
@@ -156,6 +219,41 @@ class _SimulatorSteps:
         self, devices: dict[str, dict[str, Any]]
     ) -> config_entries.ConfigFlowResult:
         raise NotImplementedError
+
+    def _simulator_recording(self) -> set[str]:
+        """The heaters recording now, whose history may not be on disk yet."""
+        return set()
+
+    async def _async_has_history(self, mac_address: str) -> bool:
+        return mac_address in self._simulator_recording() or (
+            await self.hass.async_add_executor_job(
+                _history_exists, self.hass.config.config_dir, mac_address
+            )
+        )
+
+    async def _async_delete_history(self, feature: Any = None) -> None:
+        """Delete the history the owner asked to, as the flow is saved.
+
+        A heater still recording drops the lines it holds as well, so its
+        next write, when the entry reloads, does not bring the day back.
+        """
+        recorders = {} if feature is None else feature.recorders
+        rest = []
+        for mac_address in sorted(self._simulator_delete):
+            if (recorder := recorders.get(mac_address)) is not None:
+                # Only a heater whose form was saved with recording on
+                # records on; switching the simulator off answers no form.
+                answer = self._simulator_answers.get(mac_address, {})
+                await recorder.async_delete(
+                    stop=answer.get(CONF_SIMULATOR_RECORD) is not True
+                )
+            else:
+                rest.append(mac_address)
+        if rest:
+            await self.hass.async_add_executor_job(
+                _delete_history, self.hass.config.config_dir, rest
+            )
+        self._simulator_delete.clear()
 
     async def async_step_simulator_setup(
         self, user_input: dict[str, Any] | None = None
@@ -246,6 +344,10 @@ class _SimulatorSteps:
         """The sensors beside one heater, each optional."""
         mac_address, name = self._simulator_devices[self._simulator_index]
         if user_input is not None:
+            if user_input.get(DELETE_HISTORY):
+                self._simulator_delete.add(mac_address)
+            else:
+                self._simulator_delete.discard(mac_address)
             self._simulator_answers[mac_address] = _simulator_device_options(
                 user_input
             )
@@ -256,7 +358,9 @@ class _SimulatorSteps:
         return self.async_show_form(  # type: ignore[attr-defined,no-any-return]
             step_id="simulator_device",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
-                _simulator_device_schema(),
+                _simulator_device_schema(
+                    has_history=await self._async_has_history(mac_address)
+                ),
                 self._simulator_existing.get(mac_address, {}),
             ),
             description_placeholders={
@@ -346,6 +450,7 @@ class ConfigFlow(_SimulatorSteps, config_entries.ConfigFlow, domain=DOMAIN):  # 
     async def _async_simulator_done(
         self, devices: dict[str, dict[str, Any]]
     ) -> config_entries.ConfigFlowResult:
+        await self._async_delete_history()
         return self.async_create_entry(
             title=self._title,
             data=self._user_input,
@@ -578,6 +683,8 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
     def __init__(self) -> None:
         """Hold the answers while the next page is shown."""
         self._pending: dict[str, Any] = {}
+        # The heaters with recorded history, while switching it off.
+        self._recorded: list[str] = []
         self._simulator_init()
 
     async def async_step_init(
@@ -612,9 +719,48 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
                     self._deps = DepsResult(ok=True)
                 if self._simulator_devices:
                     return await self.async_step_simulator_setup()
+            elif options.get(CONF_SIMULATOR_ENABLED) is True:
+                # Switched off: its recorded history stays unless the
+                # owner says to delete it.
+                recorded = await self._async_recorded_heaters()
+                if recorded:
+                    self._recorded = recorded
+                    return await self.async_step_simulator_off()
             return await self._async_after_simulator()
 
         return self._init_form()
+
+    async def _async_recorded_heaters(self) -> list[str]:
+        known = self.config_entry.options.get(CONF_SIMULATOR) or {}
+        return [
+            mac_address
+            for mac_address in known
+            if await self._async_has_history(mac_address)
+        ]
+
+    def _simulator_recording(self) -> set[str]:
+        feature = simulator_feature(self.hass, self.config_entry)
+        return set() if feature is None else set(feature.recorders)
+
+    async def async_step_simulator_off(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """The simulator is being switched off: keep its history, or not."""
+        if user_input is not None:
+            if user_input.get(DELETE_HISTORY):
+                self._simulator_delete.update(self._recorded)
+            return await self._async_after_simulator()
+        return self.async_show_form(
+            step_id="simulator_off",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        DELETE_HISTORY, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            description_placeholders={"guide_url": SIMULATOR_GUIDE_URL},
+        )
 
     def _init_form(
         self, errors: dict[str, str] | None = None
@@ -652,7 +798,15 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
     async def _async_simulator_done(
         self, devices: dict[str, dict[str, Any]]
     ) -> config_entries.ConfigFlowResult:
-        self._pending[CONF_SIMULATOR] = devices
+        # A heater the account no longer lists keeps its options: they
+        # are what finds its recorded history to delete, and what it
+        # starts from if it comes back.
+        gone = {
+            mac_address: options
+            for mac_address, options in self._simulator_existing.items()
+            if mac_address not in devices
+        }
+        self._pending[CONF_SIMULATOR] = {**gone, **devices}
         return await self._async_after_simulator()
 
     async def async_step_simulator_without(
@@ -670,6 +824,9 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
     ) -> config_entries.ConfigFlowResult:
         if self._pending.get(CONF_CONTROL_ENABLED):
             return await self.async_step_external_control()
+        await self._async_delete_history(
+            simulator_feature(self.hass, self.config_entry)
+        )
         return self.async_create_entry(
             title="", data={**self.config_entry.options, **self._pending}
         )
@@ -691,6 +848,9 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
                     **self._pending,
                     **_normalise_control_input(user_input),
                 }
+                await self._async_delete_history(
+                    simulator_feature(self.hass, self.config_entry)
+                )
                 return self.async_create_entry(title="", data=data)
 
         suggested = _control_suggested_values(options)

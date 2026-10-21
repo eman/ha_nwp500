@@ -69,3 +69,13 @@ def coordinator(mock_device) -> MagicMock:
     coordinator.async_add_listener = MagicMock(side_effect=add_listener)
     coordinator.listeners = listeners
     return coordinator
+
+
+@pytest.fixture(autouse=True)
+def config_dir(hass: Any, tmp_path: Path) -> Path:
+    """Home Assistant's configuration directory, private to the test.
+
+    The recorded history is written under it.
+    """
+    hass.config.config_dir = str(tmp_path)
+    return tmp_path
