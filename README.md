@@ -21,6 +21,7 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
   - [Operation Modes](#operation-modes)
   - [Sensors & Entities](#sensors--entities)
   - [Reservation Scheduling](#reservation-scheduling)
+  - [Hot Water Simulator](#hot-water-simulator)
 - [Automation Examples](#automation-examples)
 - [Library Version](#library-version)
 - [License](#license)
@@ -43,6 +44,10 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
   into the heater's own schedule, so the heater keeps following it if Home
   Assistant is down. See
   [docs/external-control.md](docs/external-control.md).
+- **Hot water simulator** — Optional. Models the tank from what the heater
+  reports: whether it is heating, when it will next be fully heated, and
+  the electricity it is likely to use over the next day. See
+  [docs/simulator.md](docs/simulator.md).
 
 ## Installation
 
@@ -87,6 +92,8 @@ If your HACS index is out of date, either refresh it (**HACS** > **⋮** > **Upd
 1. Go to **Settings** > **Devices & Services** > **Add Integration**.
 2. Search for "Navien NWP500".
 3. Enter your **NaviLink** email and password.
+4. Choose whether to set up the [hot water simulator](#hot-water-simulator),
+   or skip it. You can turn it on or off later in the integration's options.
 
 ## Usage Guide
 
@@ -221,6 +228,28 @@ years:
   been dealt with. The app shows this only to installer accounts.
 - `nwp500.set_vacation_duration` changes the vacation day count without
   entering vacation mode; `nwp500.set_vacation_days` enters it.
+
+### Hot Water Simulator
+
+Optional, and off unless you turn it on, at setup or later in the
+integration's options. It runs the heater simulator from
+[nwp500-python](https://github.com/eman/nwp500-python) inside Home
+Assistant, from what the heater reports, and keeps three sensors up to date:
+
+- **Simulated heating**: heating, will heat (within the next 24 hours), not
+  heating today, or heating off.
+- **Simulated hot water ready**: when the tank will next be fully heated.
+- **Simulated energy, next 24 hours**: the electricity it is likely to use.
+
+`nwp500.simulate` returns a simulation from now on request, up to a week
+ahead, and can try setpoint and mode changes first without touching the
+heater.
+
+Turning it on installs numpy, pandas and scipy if Home Assistant does not
+already have them; with it off, none of them is installed or loaded. The
+answers come from physics with the default parameters for the tank's size,
+and run short on long recoveries. An air temperature sensor beside the
+heater helps most. See [docs/simulator.md](docs/simulator.md).
 
 ## Automation Examples
 

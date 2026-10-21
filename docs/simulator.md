@@ -1,0 +1,143 @@
+# Hot water simulator
+
+The hot water simulator models your water heater's tank from what the heater
+reports. It answers three questions, kept up to date as sensors:
+
+- Is the tank heating now, or will it heat within the next 24 hours?
+- When will the tank next be fully heated?
+- How much electricity is the heater likely to use over the next 24 hours?
+
+It runs the simulator from [nwp500-python](https://github.com/eman/nwp500-python)
+(`nwp500.sim`) inside Home Assistant.
+
+## Turning it on, or not
+
+The simulator is optional, and off unless you turn it on.
+
+- **When you add the integration**, after you sign in, you choose either
+  **Set up the hot water simulator** or **Skip for now**. Skipping sets the
+  integration up exactly as it was before the simulator existed.
+- **Later**, open the integration's options and turn **Hot water simulator**
+  on or off.
+
+The simulator needs numpy, pandas and scipy. When you turn it on, the
+integration checks for them and installs any that are missing, showing
+progress while it does. Home Assistant OS and the container image already
+include them, so usually there is nothing to install. With the simulator
+off, none of them is installed or loaded.
+
+If the packages can't be installed, you can try again or go on without the
+simulator. If Home Assistant is set not to install packages (`skip_pip`),
+install them yourself first. After a failed install, Home Assistant won't
+try again until it restarts.
+
+Turning the simulator off removes its sensors and the little it stores.
+
+## Inputs
+
+For each water heater you can choose two sensors. Both are optional:
+
+| Input | Used for | Without it |
+|---|---|---|
+| Air temperature beside the heater | How fast the heat pump heats: it takes its heat from this air | The heater's own reading while the heat pump runs; otherwise 65 °F (18 °C), and `reasons` says `ambient_defaulted` |
+| Humidity beside the heater | The heat pump's output | 50% |
+
+A reading older than an hour is not used.
+
+Don't choose the heater's own ambient temperature sensor as the air sensor.
+While the heat pump is off, it reads the cabinet, several degrees warm. The
+simulator uses that reading only while the heat pump runs, when the fan
+draws the room's air past it.
+
+The simulator also reads, from the integration itself, the tank's
+temperatures, the mode and setpoint, the heater's reservation schedule and
+its time-of-use schedule.
+
+## Sensors
+
+| Sensor | State |
+|---|---|
+| Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
+| Simulated hot water ready | When the tank will next be fully heated: the end of the heating it is in, or of the next one. Unknown when it won't heat within 24 hours |
+| Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
+
+Each sensor has these attributes:
+
+- `model` is the engine the answer comes from: `physics`.
+- `computed_at` is when the answer was computed.
+- `reasons` lists why the answer may be less than it seems, such as `no_heat_book`, `ambient_defaulted` or `reservations_unknown`.
+- `defaults_used` lists each default the answer used, as `name=value`.
+- `notes` says what the air and humidity rest on.
+
+Simulated heating also has the next heating interval's start (`starts_at`), its `source` (compressor or element), `cause`, `trigger`, `energy_kwh`, `tou_capped` and `confidence`.
+
+`reasons`, `defaults_used` and `notes` are not recorded in history.
+
+The sensors are unavailable while the heater isn't reporting, before its
+details have arrived, and in Standby, which the simulator doesn't model.
+
+The simulation runs again when the heater reports, at most once a minute,
+and every five minutes in any case.
+
+## The `nwp500.simulate` action
+
+`nwp500.simulate` returns a simulation from now and changes nothing on the
+heater. It needs the simulator turned on.
+
+| Field | Meaning |
+|---|---|
+| `device_id` or `entity_id` | The water heater |
+| `hours` | How far ahead, 1 to 168. Default 24 |
+| `writes` | Setpoint or mode changes to try. Each has `at` (when), and `temperature` (in Home Assistant's unit), `mode`, or both |
+| `include_points` | Also return the tank's path. Default off |
+| `resolution_minutes` | With the path, keep one point every this many minutes |
+
+```yaml
+action: nwp500.simulate
+data:
+  entity_id: water_heater.heater
+  hours: 12
+  writes:
+    - at: "2026-10-21T14:00:00"
+      temperature: 130
+      mode: heat_pump
+response_variable: simulation
+```
+
+The response is the library's result document, in its units (°F, Wh, US
+gallons, named under `units`). Its fields:
+
+- `heating`: each heating interval, with its start and cause, end, source, target and energy.
+- `writes`: setpoint writes and reservation firings, as they would land.
+- `mode_writes`: mode writes, as they would land.
+- `modes`: the mode over time.
+- `points`: the tank's path, only when asked for.
+- `summary`: the same answer the sensors give, over the hours asked for.
+- `reasons`, `defaults_used` and `notes`.
+
+A time without a time zone is taken in Home Assistant's.
+
+## Accuracy
+
+These answers come from physics with the default parameters for the tank's
+size. Expect:
+
+- **Long recoveries run short.** Physics alone says a long recovery ends
+  sooner than it does. At one installation, recoveries with more than three
+  hours to go ended about three quarters of an hour later than physics said.
+- **The air matters most.** Without an air sensor, the answer rests on a
+  default air temperature whenever the heat pump is off.
+- **No hot water use is modelled yet.** The simulator doesn't know when
+  water is drawn, so it can't say how many showers the tank holds.
+
+## Planned
+
+These are planned, in this order:
+
+1. Recording the heater's reports, as a separate opt-in, so the simulator
+   can be fitted to your heater.
+2. Fitting it: the heat pump's terms from your recordings and the air sensor,
+   and the air beside the heater from a weather forecast.
+3. Hot water use, from a water meter and an inlet temperature probe:
+   deliverable volume, showers and bath readiness.
+4. Services a scheduler can plan with.
