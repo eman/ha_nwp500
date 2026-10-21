@@ -692,11 +692,11 @@ set_simulator_calibration:
   name: Set simulator calibration
   description: >-
     Give the hot water simulator parameters fitted elsewhere, such as from a
-    history kept outside Home Assistant, as a parameters document from
+    longer history kept outside Home Assistant, as a parameters document from
     nwp500-python's calibration. The simulator uses them from now on, and
-    the weekly calibration refits them from a week later. Changes nothing on
-    the heater. Needs the hot water simulator turned on in the integration's
-    options.
+    the weekly calibration leaves them be; Calibrate simulator refits them.
+    Changes nothing on the heater. Needs the hot water simulator turned on in
+    the integration's options.
   fields:
     device_id:
       name: Device

@@ -47,7 +47,8 @@
   Weeks of history with quiet nights and full recoveries are needed before
   most terms fit. `nwp500.set_simulator_calibration` gives a heater
   parameters fitted elsewhere, such as from a longer history kept outside
-  Home Assistant; the weekly run refits them from a week later.
+  Home Assistant; the weekly run leaves them be, and the button refits
+  them.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
   start or the entry's reload. The heartbeat alone does not show a reload.

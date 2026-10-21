@@ -253,7 +253,7 @@ fitted to the heater from its history: Home Assistant's recorder of the
 heater's own sensors, or the heater's statuses where you turn on
 **Record the heater's history** (kept in the configuration folder, under
 `nwp500/history/`). `nwp500.set_simulator_calibration` loads a fit made
-elsewhere. The answers come from physics, with the default parameters for
+elsewhere, on a longer history; the weekly run leaves it be. The answers come from physics, with the default parameters for
 the tank's size until it is fitted, and run short on long recoveries. An
 air temperature sensor beside the heater helps most. See
 [docs/simulator.md](docs/simulator.md).

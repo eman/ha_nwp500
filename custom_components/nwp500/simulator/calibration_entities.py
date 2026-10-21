@@ -76,7 +76,12 @@ class SimulatorCalibrationSensor(NWP500CalibrationEntity, SensorEntity):  # type
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """The last run: what each term came to, and why one was kept."""
         report = self.feature.reports.get(self.mac_address)
-        attributes: dict[str, Any] = {"running": self.running}
+        calibration = self.feature.calibrations.get(self.mac_address) or {}
+        attributes: dict[str, Any] = {
+            "running": self.running,
+            # Loaded parameters are not refitted weekly.
+            "loaded": calibration.get("source") == "loaded",
+        }
         if report is None:
             return attributes
         doc = report.as_document()

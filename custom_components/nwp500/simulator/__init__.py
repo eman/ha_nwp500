@@ -122,6 +122,7 @@ class SimulatorFeature:
                 self.calibrations[mac_address] = {
                     "params": stored_calibration["params"],
                     "fitted_at": stored_calibration.get("fitted_at"),
+                    "source": stored_calibration.get("source"),
                 }
                 runner.params = params
             if report := CalibrationReport.from_document(
@@ -222,6 +223,12 @@ class SimulatorFeature:
     async def _async_calibrate_due(self) -> None:
         now = dt_util.utcnow()
         for mac_address in list(self.runners):
+            # Parameters fitted elsewhere, on a longer history than Home
+            # Assistant keeps, are refitted only when the owner asks.
+            if self.calibrations.get(mac_address, {}).get("source") == (
+                SOURCE_LOADED
+            ):
+                continue
             if due(self.reports.get(mac_address), now):
                 await self.async_calibrate(mac_address)
 
@@ -258,13 +265,15 @@ class SimulatorFeature:
     ) -> None:
         """Walk the heater with `params` fitted elsewhere, and keep them.
 
-        Reported as a run that fitted them, so the weekly run refits them
-        from a week on.
+        The weekly run leaves them be: they come from a longer history
+        than Home Assistant keeps. Calibrate simulator refits them.
         """
         async with self._calibration_lock:
             if mac_address not in self.runners or self._removed:
                 return
-            self.async_set_calibration(mac_address, params, fitted_at)
+            self.async_set_calibration(
+                mac_address, params, fitted_at, source=SOURCE_LOADED
+            )
             report = CalibrationReport(
                 at=dt_util.utcnow(),
                 duration_s=0.0,
@@ -316,15 +325,23 @@ class SimulatorFeature:
 
     @callback
     def async_set_calibration(
-        self, mac_address: str, params: HeaterParams, fitted_at: datetime
+        self,
+        mac_address: str,
+        params: HeaterParams,
+        fitted_at: datetime,
+        source: str | None = None,
     ) -> None:
-        """Walk the heater with `params` from now on, and keep them."""
+        """Walk the heater with `params` from now on, and keep them.
+
+        `source` is `loaded` for parameters fitted elsewhere.
+        """
         runner = self.runners.get(mac_address)
         if runner is None:
             return
         self.calibrations[mac_address] = {
             "params": params_to_document(params),
             "fitted_at": fitted_at.isoformat(),
+            "source": source,
         }
         runner.async_set_params(params)
         self._schedule_save()

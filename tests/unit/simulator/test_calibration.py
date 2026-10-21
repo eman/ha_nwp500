@@ -590,4 +590,25 @@ async def test_a_fit_made_elsewhere_is_loaded(
     with pytest.raises(ServiceValidationError) as raised:
         await async_set_calibration(hass, feature, MAC, {"tank": 1}, None)
     assert raised.value.translation_key == "simulator_parameters_invalid"
+
+    sensor = SimulatorCalibrationSensor(feature, MAC, "calibration")
+    assert sensor.extra_state_attributes["loaded"] is True
+
+    # The night leaves them be, even once a run would be due; the button
+    # refits them.
+    feature.reports[MAC] = replace(report, at=report.at - timedelta(days=30))
+    calibrate = AsyncMock()
+    with patch.object(feature, "async_calibrate", calibrate):
+        feature._on_night(T0)  # noqa: SLF001
+        await hass.async_block_till_done()
+        calibrate.assert_not_awaited()
+        feature.async_request_calibration(MAC)
+        await hass.async_block_till_done()
+        calibrate.assert_awaited_once_with(MAC)
+
+    # And they stay loaded across a restart.
+    await async_unload_simulator(hass, entry)
+    feature = await _started(hass, entry, coordinator)
+    assert feature.runners[MAC].params == params
+    assert feature.calibrations[MAC]["source"] == "loaded"
     await async_unload_simulator(hass, entry)

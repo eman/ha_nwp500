@@ -168,7 +168,10 @@ and full heat pump recoveries.
 parameters fitted outside Home Assistant, such as from a longer history
 kept elsewhere, as nwp500-python's calibration writes them
 (`params_to_document`), with an optional `fitted_at`. The simulator walks
-with them from then on, and the weekly run refits them from a week later.
+with them from then on. The weekly run leaves them be, since they come
+from a longer history than Home Assistant keeps; pressing **Calibrate
+simulator** refits them on Home Assistant's own history. The sensor's
+`loaded` attribute says which.
 In **Developer tools → Actions**, paste the document as `parameters`:
 
 ```yaml
