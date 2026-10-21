@@ -25,6 +25,10 @@ from ..const import (
     simulator_device_options,
     simulator_storage_key,
 )
+
+# Imported with the package, in the import executor, rather than on the
+# first call of the service, in the event loop.
+from . import service as service
 from .runner import HeatingHistory, SimulatorRunner
 from .sensor import create_simulator_sensors
 

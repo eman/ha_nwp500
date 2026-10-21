@@ -19,7 +19,8 @@ from homeassistant.const import (
     UnitOfPower,
     UnitOfTime,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -28,7 +29,9 @@ from .const import (
     INSTALLER_DIAGNOSTICS_SENSORS,
     SENSOR_CONFIGS,
     control_feature,
+    simulator_enabled,
     simulator_feature,
+    simulator_started_signal,
 )
 from .coordinator import (
     NWP500ConfigEntry,
@@ -284,13 +287,29 @@ async def async_setup_entry(
 
     async_add_entities(entities, True)
 
-    # The hot water simulator's sensors, when it is on. Added on their own,
-    # with no update before adding: their state comes from the simulator's
-    # runner, not from a coordinator refresh.
-    if (simulator := simulator_feature(hass, config_entry)) is not None:
-        from .simulator.sensor import create_simulator_sensors
+    # The hot water simulator's sensors, once it runs: it starts after the
+    # platforms, in the background. Added on their own, with no update
+    # before adding: their state comes from the simulator's runner, not
+    # from a coordinator refresh. The import is inside: nothing of the
+    # simulator loads while it is off, and by the signal it is loaded.
+    if simulator_enabled(config_entry):
 
-        async_add_entities(create_simulator_sensors(simulator))
+        @callback
+        def _add_simulator_sensors() -> None:
+            simulator = simulator_feature(hass, config_entry)
+            if simulator is None:
+                return
+            from .simulator.sensor import create_simulator_sensors
+
+            async_add_entities(create_simulator_sensors(simulator))
+
+        config_entry.async_on_unload(
+            async_dispatcher_connect(
+                hass,
+                simulator_started_signal(config_entry.entry_id),
+                _add_simulator_sensors,
+            )
+        )
 
     def _add_recirculation_sensors_when_supported() -> None:
         """Create the schedule sensor for a device whose features came late.

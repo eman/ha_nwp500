@@ -201,11 +201,8 @@ async def test_a_failed_install_can_be_skipped(
         )
         result = await _through_progress(hass, result)
         assert result["type"] is FlowResultType.MENU
-        assert result["step_id"] == "simulator_deps_failed"
-        assert result["description_placeholders"] == {
-            "missing": "scipy>=1.11.0",
-            "reason": "install_failed",
-        }
+        assert result["step_id"] == "simulator_install_failed"
+        assert result["description_placeholders"]["packages"] == "scipy"
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"], {"next_step_id": "simulator_without"}
@@ -226,7 +223,7 @@ async def test_a_failed_install_can_be_retried(
             result["flow_id"], {"next_step_id": "simulator_setup"}
         )
         result = await _through_progress(hass, result)
-        assert result["step_id"] == "simulator_deps_failed"
+        assert result["step_id"] == "simulator_packages_missing"
         install.return_value = DepsResult(ok=True)
 
         result = await hass.config_entries.flow.async_configure(
@@ -415,7 +412,7 @@ async def test_options_leave_the_simulator_off_when_it_cannot_be_installed(
             result["flow_id"], {"scan_interval": 30, "simulator_enabled": True}
         )
         result = await _options_through_progress(hass, result)
-        assert result["step_id"] == "simulator_deps_failed"
+        assert result["step_id"] == "simulator_packages_missing"
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {"next_step_id": "simulator_without"}
         )
@@ -436,3 +433,47 @@ async def _options_through_progress(hass: HomeAssistant, result: dict) -> dict:
             result["flow_id"]
         )
     return result
+
+
+@pytest.mark.asyncio
+async def test_options_cannot_switch_it_on_before_the_entry_loads(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    entry = _loaded_entry(hass, {"scan_interval": 30})
+    entry.runtime_data = MagicMock(data={})
+    with packages():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"scan_interval": 30, "simulator_enabled": True}
+        )
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "init"
+    assert result["errors"] == {"simulator_enabled": "simulator_not_loaded"}
+    assert entry.options == {"scan_interval": 30}
+
+
+@pytest.mark.asyncio
+async def test_options_with_it_on_do_not_check_its_packages_again(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    """A missing package must not lead to the menu that switches it off."""
+    entry = _loaded_entry(
+        hass,
+        {
+            "simulator_enabled": True,
+            "simulator": {MAC: {"air_entity": "sensor.garage_air"}},
+        },
+    )
+    with packages(missing=("scipy>=1.11.0",)):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"scan_interval": 45, "simulator_enabled": True}
+        )
+        assert result["step_id"] == "simulator_device"
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"air_entity": "sensor.garage_air"}
+        )
+
+    assert entry.options["scan_interval"] == 45
+    assert entry.options["simulator_enabled"] is True

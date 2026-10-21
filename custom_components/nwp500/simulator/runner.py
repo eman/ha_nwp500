@@ -26,6 +26,7 @@ from homeassistant.util import dt as dt_util
 
 from nwp500 import sim
 from nwp500 import sim_adapters as sa
+from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
 from nwp500.sim.engine import SimulationError
 from nwp500.sim.inputs import (
@@ -419,12 +420,10 @@ class SimulatorRunner:
         feature = self.coordinator.device_features.get(self.mac_address)
         if feature is None:
             return WAIT_FEATURE
-        try:
-            reading = heater_reading(status, feature)
-        except ValueError:
-            # Standby (operation setting 0), which the simulator does not
-            # model.
+        if status.dhw_operation_setting == DhwOperationSetting.STANDBY:
+            # The library has no settings for Standby: nothing heats.
             return WAIT_STANDBY
+        reading = heater_reading(status, feature)
         schedules, reasons = heater_schedules(
             status,
             self.coordinator.reservation_schedules.get(self.mac_address),
@@ -464,8 +463,25 @@ class SimulatorRunner:
     async def _async_run(self) -> None:
         if self._closed:
             return
-        inputs = await self.async_inputs()
         now = dt_util.utcnow()
+        try:
+            inputs = await self.async_inputs()
+        except ValueError as err:
+            # The library refused what the heater reported, such as a
+            # schedule entry it cannot read.
+            self._fail(now, err, ())
+            return
+        if inputs == WAIT_STANDBY:
+            # Nothing heats in Standby: an answer, not a wait.
+            self._publish(
+                Answer(
+                    computed_at=now,
+                    state=STATE_DISABLED,
+                    energy_total_kwh=0.0,
+                    reasons=(WAIT_STANDBY,),
+                )
+            )
+            return
         if isinstance(inputs, str):
             self._publish(Answer(computed_at=now, waiting=inputs))
             return
@@ -475,16 +491,7 @@ class SimulatorRunner:
                 sim.simulate, inputs.scenario, inputs.params
             )
         except (SimulationError, ValueError) as err:
-            if self._failure != str(err):
-                _LOGGER.warning(
-                    "The hot water simulation for %s failed: %s",
-                    self.mac_address,
-                    err,
-                )
-            self._failure = str(err)
-            self._publish(
-                Answer(computed_at=now, error=FAILED, notes=inputs.notes)
-            )
+            self._fail(now, err, inputs.notes)
             return
         if self._stopped():
             # Stopped while the walk ran: the answer is no one's.
@@ -496,6 +503,20 @@ class SimulatorRunner:
             self._failure = None
         self.last_duration_s = (dt_util.utcnow() - started).total_seconds()
         self._publish(answer_from(result, inputs))
+
+    @callback
+    def _fail(
+        self, now: datetime, err: Exception, notes: tuple[str, ...]
+    ) -> None:
+        """Publish a failed answer; log a failure once, not every walk."""
+        if self._failure != str(err):
+            _LOGGER.warning(
+                "The hot water simulation for %s failed: %s",
+                self.mac_address,
+                err,
+            )
+        self._failure = str(err)
+        self._publish(Answer(computed_at=now, error=FAILED, notes=notes))
 
     @callback
     def _publish(self, answer: Answer) -> None:

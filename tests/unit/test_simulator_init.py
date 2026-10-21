@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 from unittest.mock import AsyncMock, MagicMock, call, patch
@@ -76,6 +77,18 @@ def _entry(options: dict) -> MagicMock:
     return entry
 
 
+def _capture_background(entry: MagicMock) -> list:
+    """The coroutines set-up starts in the background, not yet run."""
+    started: list = []
+
+    def create(hass, target, name):
+        started.append(target)
+        return MagicMock()
+
+    entry.async_create_background_task = MagicMock(side_effect=create)
+    return started
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("options", [{}, {"simulator_enabled": False}])
 async def test_setup_with_the_simulator_off_imports_nothing_of_it(options):
@@ -85,11 +98,16 @@ async def test_setup_with_the_simulator_off_imports_nothing_of_it(options):
     """
     mock_hass = _hass_for_setup()
     mock_entry = _entry(options)
+    started = _capture_background(mock_entry)
 
     with (
         patch.dict(sys.modules, dict.fromkeys(_HEAVY)),
         patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
         patch("custom_components.nwp500.ir") as issues,
+        patch(
+            "custom_components.nwp500._async_remove_simulator_leftovers",
+            AsyncMock(),
+        ) as remove,
     ):
         cls.return_value.async_config_entry_first_refresh = AsyncMock()
 
@@ -101,8 +119,14 @@ async def test_setup_with_the_simulator_off_imports_nothing_of_it(options):
     assert mock_hass.data[DOMAIN][mock_entry.entry_id] == {
         "platforms": _PLATFORMS
     }
-    if not options:
-        # Never switched on: not even its Repairs issue is looked up.
+    assert started == []
+    if options:
+        # Switched off: what it left goes, even if no reload removed it.
+        remove.assert_awaited_once_with(mock_hass, mock_entry.entry_id)
+    else:
+        # Never switched on: nothing of it is touched, not even its
+        # Repairs issue.
+        remove.assert_not_awaited()
         looked_up = issues.async_get.return_value.async_get_issue.call_args_list
         assert (
             call(DOMAIN, "simulator_start_failed_test_entry") not in looked_up
@@ -111,9 +135,10 @@ async def test_setup_with_the_simulator_off_imports_nothing_of_it(options):
 
 @needs_sim
 @pytest.mark.asyncio
-async def test_the_simulator_starts_when_it_is_on():
+async def test_the_simulator_starts_after_the_platforms_in_the_background():
     mock_hass = _hass_for_setup()
     mock_entry = _entry({"simulator_enabled": True})
+    started = _capture_background(mock_entry)
 
     with (
         patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
@@ -126,39 +151,65 @@ async def test_the_simulator_starts_when_it_is_on():
             new=AsyncMock(),
         ) as setup,
         patch("custom_components.nwp500.ir") as issues,
+        patch("custom_components.nwp500.async_dispatcher_send") as send,
     ):
         cls.return_value.async_config_entry_first_refresh = AsyncMock()
         assert await async_setup_entry(mock_hass, mock_entry) is True
+
+        # Set-up is done, and the heater's platforms are forwarded, before
+        # the simulator has started.
+        mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
+            mock_entry, _PLATFORMS
+        )
+        setup.assert_not_awaited()
+        (start,) = started
+        await start
 
     setup.assert_awaited_once_with(mock_hass, mock_entry, cls.return_value)
     issues.async_create_issue.assert_not_called()
     issues.async_delete_issue.assert_any_call(
         mock_hass, DOMAIN, f"simulator_start_failed_{mock_entry.entry_id}"
     )
-    # It adds no platforms of its own.
-    mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
-        mock_entry, _PLATFORMS
+    send.assert_called_once_with(
+        mock_hass, f"nwp500_simulator_started_{mock_entry.entry_id}"
     )
 
 
 @needs_sim
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("deps", "error", "reason"),
+    ("deps", "error", "key", "placeholders"),
     [
         (
             DepsResult(ok=False, reason="missing", missing=("scipy>=1.11.0",)),
             None,
-            "missing: scipy>=1.11.0",
+            "simulator_packages_missing",
+            {"packages": "scipy"},
         ),
-        (DepsResult(ok=True), RuntimeError("boom"), "RuntimeError"),
+        (
+            DepsResult(
+                ok=False,
+                reason="install_failed",
+                missing=("pandas>=2.0.0", "scipy>=1.11.0"),
+            ),
+            None,
+            "simulator_install_failed",
+            {"packages": "pandas, scipy"},
+        ),
+        (
+            DepsResult(ok=True),
+            RuntimeError("boom"),
+            "simulator_start_failed",
+            {"reason": "RuntimeError"},
+        ),
     ],
 )
 async def test_a_simulator_that_cannot_start_is_reported_in_repairs(
-    deps, error, reason
+    deps, error, key, placeholders
 ):
     mock_hass = _hass_for_setup()
     mock_entry = _entry({"simulator_enabled": True})
+    started = _capture_background(mock_entry)
 
     with (
         patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
@@ -171,18 +222,46 @@ async def test_a_simulator_that_cannot_start_is_reported_in_repairs(
             new=AsyncMock(side_effect=error),
         ),
         patch("custom_components.nwp500.ir") as issues,
+        patch("custom_components.nwp500.async_dispatcher_send") as send,
     ):
         cls.return_value.async_config_entry_first_refresh = AsyncMock()
         assert await async_setup_entry(mock_hass, mock_entry) is True
+        (start,) = started
+        await start
 
     issues.async_create_issue.assert_called_once()
     args, kwargs = issues.async_create_issue.call_args
     assert args[1:] == (DOMAIN, f"simulator_start_failed_{mock_entry.entry_id}")
-    assert kwargs["translation_key"] == "simulator_start_failed"
-    assert kwargs["translation_placeholders"] == {"reason": reason}
-    mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
-        mock_entry, _PLATFORMS
-    )
+    assert kwargs["translation_key"] == key
+    assert kwargs["translation_placeholders"] == placeholders
+    send.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_unload_stops_a_simulator_still_starting(hass: HomeAssistant):
+    from custom_components.nwp500 import async_unload_entry
+
+    never = asyncio.Event()
+
+    async def starting() -> None:
+        await never.wait()
+
+    start = hass.async_create_task(starting())
+    await asyncio.sleep(0)
+    mock_entry = _entry({"simulator_enabled": True})
+    mock_entry.runtime_data.async_shutdown = AsyncMock()
+    hass.data[DOMAIN] = {
+        mock_entry.entry_id: {"platforms": _PLATFORMS, "simulator_start": start}
+    }
+
+    with patch.object(
+        hass.config_entries,
+        "async_unload_platforms",
+        AsyncMock(return_value=True),
+    ):
+        assert await async_unload_entry(hass, mock_entry) is True
+
+    assert start.cancelled()
 
 
 async def _leftovers(

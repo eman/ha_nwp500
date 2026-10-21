@@ -13,7 +13,7 @@ from homeassistant.const import UnitOfEnergy
 from homeassistant.core import callback
 
 from ..entity import NWP500Entity
-from .runner import HEATING_STATES, Answer, SimulatorRunner
+from .runner import HEATING_STATES, STATE_HEATING, Answer, SimulatorRunner
 
 if TYPE_CHECKING:
     from . import SimulatorFeature
@@ -22,8 +22,16 @@ if TYPE_CHECKING:
 # recoveries; the attribute says so to whoever reads the answer.
 MODEL = "physics"
 
-# Long and changing with every walk: kept off the recorder.
+# Long: kept off the recorder.
 _UNRECORDED = frozenset({"reasons", "defaults_used", "notes"})
+
+# The energies, to a tenth of a kWh: a walk a minute moves them by Wh, and
+# each change is a row in the recorder.
+_KWH_DIGITS = 1
+
+
+def _kwh(value: float | None) -> float | None:
+    return None if value is None else round(value, _KWH_DIGITS)
 
 
 def _minute(at: datetime | None) -> datetime | None:
@@ -75,12 +83,14 @@ class NWP500SimulatorEntity(NWP500Entity):
         self.async_write_ha_state()
 
     def _common_attributes(self) -> dict[str, Any]:
+        # Nothing here changes from one walk to the next unless the answer
+        # does, so an unchanged answer writes no new state; when it was
+        # computed is in the diagnostics.
         answer = self.answer
         if answer is None:
             return {"model": MODEL}
         return {
             "model": MODEL,
-            "computed_at": answer.computed_at.isoformat(),
             "reasons": list(answer.reasons),
             "defaults_used": list(answer.defaults_used),
             "notes": list(answer.notes),
@@ -107,14 +117,15 @@ class SimulatorHeatingSensor(NWP500SimulatorEntity, SensorEntity):  # type: igno
         attributes = self._common_attributes()
         if answer is None or not answer.ok:
             return attributes
-        start = _minute(answer.start)
+        # Heating now, the interval "starts" at each walk's start: not news.
+        start = None if answer.state == STATE_HEATING else _minute(answer.start)
         return {
             **attributes,
             "starts_at": None if start is None else start.isoformat(),
             "source": answer.source,
             "cause": answer.cause,
             "trigger": answer.trigger,
-            "energy_kwh": answer.energy_kwh,
+            "energy_kwh": _kwh(answer.energy_kwh),
             "tou_capped": answer.capped,
             "confidence": answer.confidence,
         }
@@ -151,14 +162,14 @@ class SimulatorEnergySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignor
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-    _attr_suggested_display_precision = 2
+    _attr_suggested_display_precision = _KWH_DIGITS
     _attr_icon = "mdi:lightning-bolt-outline"
 
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """The kWh over the next 24 hours; unknown when unpriced."""
         answer = self.answer
-        return None if answer is None else answer.energy_total_kwh
+        return None if answer is None else _kwh(answer.energy_total_kwh)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

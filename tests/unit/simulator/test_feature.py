@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
@@ -148,7 +148,8 @@ async def test_sensors_report_the_answer(
     assert ready.native_value == answer.end.replace(second=0, microsecond=0)
 
     energy = by_type[SimulatorEnergySensor]
-    assert energy.native_value == answer.energy_total_kwh
+    assert answer.energy_total_kwh is not None
+    assert energy.native_value == round(answer.energy_total_kwh, 1)
     assert energy.state_class is None
 
     await async_unload_simulator(hass, entry)
@@ -338,4 +339,120 @@ async def test_a_write_outside_the_walk_is_refused(
             resolution_minutes=None,
         )
     assert err.value.translation_key == "simulator_write_outside"
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_answer_leaves_the_attributes_alone(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    """A walk a minute must not write a state a minute."""
+    feature = await started(hass, entry, coordinator)
+    runner = feature.runners[MAC]
+    sensors = create_simulator_sensors(feature)
+    before = [(s.native_value, s.extra_state_attributes) for s in sensors]
+
+    await runner._async_run()  # noqa: SLF001
+
+    after = [(s.native_value, s.extra_state_attributes) for s in sensors]
+    assert after == before
+    assert all("computed_at" not in a for _, a in after)
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_heating_now_has_no_start(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    coordinator.data[MAC]["status"] = make_status(compUse=ON)
+    feature = await started(hass, entry, coordinator)
+    heating = next(
+        s
+        for s in create_simulator_sensors(feature)
+        if isinstance(s, SimulatorHeatingSensor)
+    )
+
+    assert heating.native_value == "heating"
+    assert heating.extra_state_attributes["starts_at"] is None
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_the_service_refuses_a_setpoint_it_cannot_run(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    feature = await started(hass, entry, coordinator)
+    at = dt_util.utcnow() + timedelta(minutes=10)
+
+    with pytest.raises(ServiceValidationError) as err:
+        await async_simulate(
+            hass,
+            feature.runners[MAC],
+            hours=1,
+            writes=[{"at": at, "temperature": 200.0}],
+            include_points=False,
+            resolution_minutes=None,
+        )
+
+    assert err.value.translation_key == "simulator_setpoint_out_of_range"
+    # In Home Assistant's unit, Celsius here.
+    assert err.value.translation_placeholders["temperature"] == "200.0 °C"
+    assert err.value.translation_placeholders["max"].endswith("°C")
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_the_service_says_standby(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    feature = await started(hass, entry, coordinator)
+    coordinator.data[MAC]["status"] = make_status(dhwOperationSetting=0)
+
+    with pytest.raises(ServiceValidationError) as err:
+        await async_simulate(
+            hass,
+            feature.runners[MAC],
+            hours=1,
+            writes=[],
+            include_points=False,
+            resolution_minutes=None,
+        )
+
+    assert err.value.translation_key == "simulator_standby"
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.nwp500 import sensor as sensor_platform
+    from custom_components.nwp500.const import simulator_started_signal
+
+    entry.runtime_data = coordinator
+    coordinator.data[MAC]["device"].device_info.mac_address = MAC
+    added: list[list] = []
+    with (
+        patch.object(sensor_platform, "SENSOR_CONFIGS", {}),
+        patch.object(sensor_platform, "INSTALLER_DIAGNOSTICS_SENSORS", {}),
+    ):
+        coordinator.supports_recirculation_schedule = MagicMock(
+            return_value=False
+        )
+        await sensor_platform.async_setup_entry(
+            hass, entry, lambda entities, *a: added.append(list(entities))
+        )
+    before = len(added)
+
+    await started(hass, entry, coordinator)
+    async_dispatcher_send(hass, simulator_started_signal(entry.entry_id))
+
+    assert len(added) == before + 1
+    assert {type(s) for s in added[-1]} == {
+        SimulatorHeatingSensor,
+        SimulatorHotWaterReadySensor,
+        SimulatorEnergySensor,
+    }
     await async_unload_simulator(hass, entry)

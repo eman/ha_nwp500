@@ -44,7 +44,15 @@ from .const import (
     MIN_SCAN_INTERVAL,
     control_follows_plan,
 )
-from .simulator_deps import DepsResult, async_ensure, async_missing
+from .simulator_deps import (
+    REASON_INSTALL_FAILED,
+    REASON_MISSING,
+    SIMULATOR_REQUIREMENTS,
+    DepsResult,
+    async_ensure,
+    async_missing,
+    package_names,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -158,7 +166,9 @@ class _SimulatorSteps:
                 return await self.async_step_simulator_install()
             self._deps = DepsResult(ok=True)
         if not self._deps.ok:
-            return await self.async_step_simulator_deps_failed()
+            if self._deps.reason == REASON_MISSING:
+                return await self.async_step_simulator_packages_missing()
+            return await self.async_step_simulator_install_failed()
         self._simulator_index = 0
         self._simulator_answers = {}
         return await self.async_step_simulator_device()
@@ -182,25 +192,40 @@ class _SimulatorSteps:
             self._deps = task.result()
         except Exception:  # noqa: BLE001 - Config flow must not crash UI
             _LOGGER.exception("Installing the simulator's packages failed")
-            self._deps = DepsResult(ok=False, reason="install_failed")
+            self._deps = DepsResult(
+                ok=False,
+                reason=REASON_INSTALL_FAILED,
+                missing=SIMULATOR_REQUIREMENTS,
+            )
         self._install_task = None
         return self.async_show_progress_done(  # type: ignore[attr-defined,no-any-return]
             next_step_id="simulator_setup"
         )
 
-    async def async_step_simulator_deps_failed(
-        self, user_input: dict[str, Any] | None = None
+    def _deps_failed_menu(
+        self, step_id: str
     ) -> config_entries.ConfigFlowResult:
-        """The packages could not be had: try again, or go on without."""
         deps = self._deps or DepsResult(ok=False)
         return self.async_show_menu(  # type: ignore[attr-defined,no-any-return]
-            step_id="simulator_deps_failed",
+            step_id=step_id,
             menu_options=["simulator_retry", "simulator_without"],
             description_placeholders={
-                "missing": ", ".join(deps.missing) or "-",
-                "reason": deps.reason or "-",
+                "packages": package_names(deps.missing),
+                "guide_url": SIMULATOR_GUIDE_URL,
             },
         )
+
+    async def async_step_simulator_packages_missing(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Missing, and Home Assistant installs nothing: say so."""
+        return self._deps_failed_menu("simulator_packages_missing")
+
+    async def async_step_simulator_install_failed(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """The install failed: try again, or go on without."""
+        return self._deps_failed_menu("simulator_install_failed")
 
     async def async_step_simulator_retry(
         self, user_input: dict[str, Any] | None = None
@@ -568,15 +593,34 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
                     # feature stored (spec section 1.1.4).
                     self._pending.pop(key, None)
             if self._pending.get(CONF_SIMULATOR_ENABLED):
+                already_on = options.get(CONF_SIMULATOR_ENABLED) is True
                 self._simulator_devices = _entry_devices(self.config_entry)
                 self._simulator_existing = dict(
                     options.get(CONF_SIMULATOR) or {}
                 )
+                if not self._simulator_devices and not already_on:
+                    # Its heaters are known only once the integration is
+                    # loaded; switched on now, the simulator would start
+                    # without the sensors beside them, and would install
+                    # its packages with nothing on screen.
+                    return self._init_form(
+                        errors={CONF_SIMULATOR_ENABLED: "simulator_not_loaded"}
+                    )
+                if already_on:
+                    # Already running, or reported in Repairs: changing
+                    # another option does not check its packages again.
+                    self._deps = DepsResult(ok=True)
                 if self._simulator_devices:
                     return await self.async_step_simulator_setup()
             return await self._async_after_simulator()
 
+        return self._init_form()
+
+    def _init_form(
+        self, errors: dict[str, str] | None = None
+    ) -> config_entries.ConfigFlowResult:
         return self.async_show_form(
+            errors=errors,
             step_id="init",
             data_schema=vol.Schema(
                 {

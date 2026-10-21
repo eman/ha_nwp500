@@ -125,3 +125,45 @@ async def test_an_install_that_leaves_them_missing_failed(hass: HomeAssistant):
     assert not result.ok
     assert result.reason == REASON_INSTALL_FAILED
     assert result.missing == ALL
+
+
+@pytest.mark.asyncio
+async def test_a_caller_cancelled_mid_install_leaves_one_install_running(
+    hass: HomeAssistant,
+):
+    """A flow closed during the install must not let a second pip start."""
+    import asyncio
+
+    hass.config.skip_pip = False
+    release = asyncio.Event()
+    calls = 0
+
+    async def install(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        await release.wait()
+
+    with (
+        patch.object(simulator_deps, "_missing", side_effect=[ALL, ()]),
+        patch.object(simulator_deps, "async_process_requirements", install),
+    ):
+        first = hass.async_create_task(async_ensure(hass))
+        await asyncio.sleep(0)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+
+        second = hass.async_create_task(async_ensure(hass))
+        await asyncio.sleep(0)
+        release.set()
+        result = await second
+
+    assert calls == 1
+    assert result.ok
+
+
+def test_package_names_are_for_people():
+    from custom_components.nwp500.simulator_deps import package_names
+
+    assert package_names(ALL[1:]) == "pandas, scipy"
+    assert package_names(()) == "-"

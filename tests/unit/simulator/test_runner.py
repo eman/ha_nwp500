@@ -309,3 +309,37 @@ async def test_the_ready_time_is_the_end_of_a_finished_heating(
     assert first.stop != "horizon"
 
     assert answer_from(result, inputs).end == first.end
+
+
+@pytest.mark.asyncio
+async def test_standby_is_an_answer_that_nothing_heats(
+    hass: HomeAssistant, coordinator
+):
+    coordinator.data[MAC]["status"] = make_status(dhwOperationSetting=0)
+    r = runner(hass, coordinator)
+
+    await r._async_run()  # noqa: SLF001
+
+    assert r.answer is not None and r.answer.ok
+    assert r.answer.state == STATE_DISABLED
+    assert r.answer.energy_total_kwh == 0.0
+    assert r.answer.end is None
+
+
+@pytest.mark.asyncio
+async def test_a_scenario_the_library_refuses_is_a_failed_answer(
+    hass: HomeAssistant, coordinator, caplog
+):
+    from custom_components.nwp500.simulator.runner import FAILED
+
+    bad = dict(RESERVATIONS)
+    bad["reservation"] = [{**RESERVATIONS["reservation"][0], "hour": 25}]
+    coordinator.reservation_schedules = {MAC: bad}
+    r = runner(hass, coordinator)
+
+    await r._async_run()  # noqa: SLF001
+    await r._async_run()  # noqa: SLF001
+
+    assert r.answer is not None and r.answer.error == FAILED
+    assert not r.answer.ok
+    assert caplog.text.count("The hot water simulation for") == 1

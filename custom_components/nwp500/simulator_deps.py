@@ -17,6 +17,7 @@ can use it with the simulator off.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import logging
 from dataclasses import dataclass
@@ -48,9 +49,19 @@ _MODULES: dict[str, str] = {
     "scipy>=1.11.0": "scipy",
 }
 
+# The install in progress, shared: a flow closed during it, or set-up
+# cancelled, must not cancel pip, or the next attempt would run a second pip
+# into the same packages while the first is still writing them.
+_DATA_INSTALL = f"{DOMAIN}_simulator_install"
+
 # Why the packages are not there.
 REASON_MISSING = "missing"
 REASON_INSTALL_FAILED = "install_failed"
+
+
+def package_names(requirements: tuple[str, ...]) -> str:
+    """The packages of `requirements`, for people: "pandas, scipy"."""
+    return ", ".join(_MODULES[r] for r in requirements) or "-"
 
 
 @dataclass(frozen=True)
@@ -85,10 +96,20 @@ async def async_missing(hass: HomeAssistant) -> tuple[str, ...]:
 async def async_ensure(hass: HomeAssistant) -> DepsResult:
     """Make the simulator's packages available, installing them if needed.
 
-    On Home Assistant OS and the container image they are already in the
-    image, so this only checks. Home Assistant remembers a failed install
-    until it restarts, so a second try in the same run fails at once.
+    Every caller shares one install, and cancelling a caller leaves it
+    running. Home Assistant remembers a failed install until it restarts,
+    so a second try in the same run fails at once.
     """
+    task: asyncio.Task[DepsResult] | None = hass.data.get(_DATA_INSTALL)
+    if task is None or task.done():
+        task = hass.async_create_background_task(
+            _async_ensure(hass), "nwp500 simulator packages"
+        )
+        hass.data[_DATA_INSTALL] = task
+    return await asyncio.shield(task)
+
+
+async def _async_ensure(hass: HomeAssistant) -> DepsResult:
     missing = await async_missing(hass)
     if not missing:
         return DepsResult(ok=True)

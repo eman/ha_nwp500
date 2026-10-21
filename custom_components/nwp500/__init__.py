@@ -3,6 +3,8 @@
 Requires Home Assistant 2026.3+ (Python 3.14).
 """
 
+import asyncio
+import contextlib
 import importlib
 import logging
 from pathlib import Path
@@ -39,6 +41,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
@@ -53,10 +56,13 @@ from .const import (
     DATA_CONTROL,
     DATA_PLATFORMS,
     DATA_SIMULATOR,
+    DATA_SIMULATOR_START,
     DEFAULT_TEMPERATURE_C,
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
     ISSUE_CONTROL_START_FAILED,
+    ISSUE_SIMULATOR_INSTALL_FAILED,
+    ISSUE_SIMULATOR_PACKAGES_MISSING,
     ISSUE_SIMULATOR_START_FAILED,
     MAX_TEMPERATURE_C,
     MAX_TEMPERATURE_F,
@@ -70,6 +76,7 @@ from .const import (
     control_storage_key,
     simulator_enabled,
     simulator_feature,
+    simulator_started_signal,
     simulator_storage_key,
 )
 from .coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
@@ -1248,33 +1255,8 @@ async def async_setup_entry(
         # Switched off after it failed to start: nothing is left to fix.
         ir.async_delete_issue(hass, DOMAIN, start_failed_issue)
 
-    # The hot water simulator is optional too, and adds no platforms: its
-    # sensors join the sensor platform. It starts before the platforms are
-    # forwarded so that platform finds it.
-    simulator_issue = f"{ISSUE_SIMULATOR_START_FAILED}_{entry.entry_id}"
-    if simulator_enabled(entry):
-        if (reason := await _async_start_simulator(hass, entry)) is None:
-            ir.async_delete_issue(hass, DOMAIN, simulator_issue)
-        else:
-            ir.async_create_issue(
-                hass,
-                DOMAIN,
-                simulator_issue,
-                is_fixable=False,
-                severity=ir.IssueSeverity.ERROR,
-                translation_key=ISSUE_SIMULATOR_START_FAILED,
-                translation_placeholders={"reason": reason},
-            )
-    elif _simulator_was_on(entry) and ir.async_get(hass).async_get_issue(
-        DOMAIN, simulator_issue
-    ):
-        # Switched off after it failed to start. An entry that never had
-        # the simulator touches nothing of it.
-        ir.async_delete_issue(hass, DOMAIN, simulator_issue)
-
-    hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})[
-        DATA_PLATFORMS
-    ] = platforms
+    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
+    entry_data[DATA_PLATFORMS] = platforms
 
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
 
@@ -1284,31 +1266,80 @@ async def async_setup_entry(
     # Register services (only once)
     await _async_setup_services(hass)
 
+    # The hot water simulator is optional too, and adds no platforms: its
+    # sensors join the sensor platform once it runs. It starts after the
+    # heater's platforms, in the background: installing its packages can
+    # take minutes, and the water heater must not wait for it.
+    if simulator_enabled(entry):
+        entry_data[DATA_SIMULATOR_START] = entry.async_create_background_task(
+            hass,
+            _async_start_simulator_and_report(hass, entry),
+            f"{DOMAIN} simulator start",
+        )
+    elif _simulator_was_on(entry):
+        # Switched off while the entry was not loaded, so no reload removed
+        # what it left. An entry that never had the simulator touches
+        # nothing of it.
+        await _async_remove_simulator_leftovers(hass, entry.entry_id)
+
     return True
+
+
+async def _async_start_simulator_and_report(
+    hass: HomeAssistant, entry: NWP500ConfigEntry
+) -> None:
+    """Start the simulator, and say in Repairs whether it could."""
+    issue_id = f"{ISSUE_SIMULATOR_START_FAILED}_{entry.entry_id}"
+    failure = await _async_start_simulator(hass, entry)
+    if failure is None:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        async_dispatcher_send(hass, simulator_started_signal(entry.entry_id))
+        return
+    translation_key, placeholders = failure
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key=translation_key,
+        translation_placeholders=placeholders,
+    )
 
 
 async def _async_start_simulator(
     hass: HomeAssistant, entry: NWP500ConfigEntry
-) -> str | None:
-    """Start the hot water simulator; return why it did not, or None.
+) -> tuple[str, dict[str, str]] | None:
+    """Start the hot water simulator.
+
+    Returns None once it runs, or else the Repairs issue's translation key
+    and placeholders that say why it does not.
 
     Its packages are checked (and installed if Home Assistant may) first,
     and the package is imported in the import executor: it imports numpy
     and pandas, which take most of a second.
     """
-    from .simulator_deps import async_ensure
+    from .simulator_deps import REASON_MISSING, async_ensure, package_names
 
     try:
         deps = await async_ensure(hass)
         if not deps.ok:
+            packages = package_names(deps.missing)
             _LOGGER.error(
-                "The hot water simulator could not start: %s is %s",
-                ", ".join(deps.missing),
-                "not installed"
-                if deps.reason == "missing"
-                else "not installable now (restart Home Assistant to retry)",
+                "The hot water simulator could not start: %s %s",
+                packages,
+                "is not installed, and Home Assistant is set not to install "
+                "packages"
+                if deps.reason == REASON_MISSING
+                else "could not be installed (restart Home Assistant to "
+                "try again)",
             )
-            return f"{deps.reason}: {', '.join(deps.missing)}"
+            return (
+                ISSUE_SIMULATOR_PACKAGES_MISSING
+                if deps.reason == REASON_MISSING
+                else ISSUE_SIMULATOR_INSTALL_FAILED,
+                {"packages": packages},
+            )
         module = await hass.async_add_import_executor_job(
             importlib.import_module, f"{__name__}.simulator"
         )
@@ -1320,7 +1351,7 @@ async def _async_start_simulator(
             "The hot water simulator could not start; the integration runs "
             "without it"
         )
-        return type(err).__name__
+        return ISSUE_SIMULATOR_START_FAILED, {"reason": type(err).__name__}
     return None
 
 
@@ -1545,6 +1576,12 @@ async def async_unload_entry(
         entry.entry_id, {}
     )
     platforms = entry_data.get(DATA_PLATFORMS, PLATFORMS)
+    # A simulator still starting stops starting; its packages' install, if
+    # one runs, goes on (simulator_deps).
+    if (start := entry_data.pop(DATA_SIMULATOR_START, None)) is not None:
+        start.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await start
     if unload_ok := await hass.config_entries.async_unload_platforms(
         entry, platforms
     ):

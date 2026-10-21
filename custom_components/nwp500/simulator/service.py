@@ -19,11 +19,15 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 
 from nwp500 import sim
 from nwp500.sim import codec
-from nwp500.sim.engine import SimulationError
+from nwp500.sim.engine import (
+    HEATER_SETPOINT_MAX_F,
+    HEATER_SETPOINT_MIN_F,
+    SimulationError,
+)
 from nwp500.sim.inputs import Commands, Write
 
 from ..const import DOMAIN, MODE_TO_DHW_ID
-from .runner import answer_from
+from .runner import WAIT_STANDBY, answer_from
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -43,20 +47,43 @@ def _writes(
 ) -> tuple[Write, ...]:
     """The caller's writes, their temperatures in Home Assistant's unit."""
     unit = hass.config.units.temperature_unit
+
+    def shown(fahrenheit: float) -> str:
+        value = TemperatureConverter.convert(
+            fahrenheit, UnitOfTemperature.FAHRENHEIT, unit
+        )
+        return f"{value:.1f} {unit}"
+
     out: list[Write] = []
     for write in writes:
-        temperature = write.get("temperature")
+        raw = write.get("temperature")
+        temperature = None if raw is None else float(raw)
         mode = write.get("mode")
+        setpoint_f = (
+            None
+            if temperature is None
+            else TemperatureConverter.convert(
+                temperature, unit, UnitOfTemperature.FAHRENHEIT
+            )
+        )
+        if setpoint_f is not None and not (
+            HEATER_SETPOINT_MIN_F - 1e-6
+            <= setpoint_f
+            <= HEATER_SETPOINT_MAX_F + 1e-6
+        ):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_setpoint_out_of_range",
+                translation_placeholders={
+                    "temperature": f"{temperature:.1f} {unit}",
+                    "min": shown(HEATER_SETPOINT_MIN_F),
+                    "max": shown(HEATER_SETPOINT_MAX_F),
+                },
+            )
         out.append(
             Write(
                 at=dt_util.as_utc(write["at"]),
-                setpoint_f=(
-                    None
-                    if temperature is None
-                    else TemperatureConverter.convert(
-                        float(temperature), unit, UnitOfTemperature.FAHRENHEIT
-                    )
-                ),
+                setpoint_f=setpoint_f,
                 mode=None if mode is None else MODE_TO_DHW_ID[mode],
             )
         )
@@ -117,6 +144,10 @@ async def async_simulate(
     except ValueError as err:
         # The scenario refused what the checks above let through.
         raise ServiceValidationError(str(err)) from err
+    if inputs == WAIT_STANDBY:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN, translation_key="simulator_standby"
+        )
     if isinstance(inputs, str):
         raise ServiceValidationError(
             translation_domain=DOMAIN,

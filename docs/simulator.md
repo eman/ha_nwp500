@@ -22,14 +22,22 @@ The simulator is optional, and off unless you turn it on.
 
 The simulator needs numpy, pandas and scipy. When you turn it on, the
 integration checks for them and installs any that are missing, showing
-progress while it does. Home Assistant OS and the container image already
-include them, so usually there is nothing to install. With the simulator
-off, none of them is installed or loaded.
+progress while it does. Home Assistant already includes numpy; pandas and
+scipy are usually installed then, which can take a few minutes on slower
+hardware. With the simulator off, none of them is installed or loaded.
+
+After a Home Assistant update the packages may need installing again. The
+simulator then starts once they are installed; the water heater itself
+doesn't wait for it.
 
 If the packages can't be installed, you can try again or go on without the
-simulator. If Home Assistant is set not to install packages (`skip_pip`),
-install them yourself first. After a failed install, Home Assistant won't
-try again until it restarts.
+simulator:
+
+- **If Home Assistant is set not to install packages** (`skip_pip`),
+  install them yourself, then try again.
+- **After a failed install**, Home Assistant won't try again until it
+  restarts, so restart it first. Repairs says which of these applies when
+  the simulator can't start.
 
 Turning the simulator off removes its sensors and the little it stores.
 
@@ -57,24 +65,24 @@ its time-of-use schedule.
 
 | Sensor | State |
 |---|---|
-| Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
+| Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation, powered off or Standby) |
 | Simulated hot water ready | When the tank will next be fully heated: the end of the heating it is in, or of the next one. Unknown when it won't heat, or won't finish heating, within 24 hours |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 
 Each sensor has these attributes:
 
 - `model` is the engine the answer comes from: `physics`.
-- `computed_at` is when the answer was computed.
 - `reasons` lists why the answer may be less than it seems, such as `no_heat_book`, `ambient_defaulted` or `reservations_unknown`.
 - `defaults_used` lists each default the answer used, as `name=value`.
 - `notes` says what the air and humidity rest on.
 
-Simulated heating also has the next heating interval's start (`starts_at`), its `source` (compressor or element), `cause`, `trigger`, `energy_kwh`, `tou_capped` and `confidence`.
+Simulated heating also has the next heating interval's start (`starts_at`, none while it is heating), its `source` (compressor or element), `cause`, `trigger`, `energy_kwh`, `tou_capped` and `confidence`. Energies are to a tenth of a kWh, so an answer that hasn't changed adds nothing to history.
 
 `reasons`, `defaults_used` and `notes` are not recorded in history.
 
-The sensors are unavailable while the heater isn't reporting, before its
-details have arrived, and in Standby, which the simulator doesn't model.
+The sensors are unavailable while the heater isn't reporting and before its
+details have arrived. In Standby nothing heats: Simulated heating says
+`disabled` and the energy is 0.
 
 The simulation runs again when the heater reports, at most once a minute,
 and every five minutes in any case.

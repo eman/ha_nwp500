@@ -44,16 +44,24 @@
           "humidity_entity": "A humidity sensor in the same room as the heater."
         }
       },
-      "simulator_deps_failed": {
-        "title": "The simulator can't be installed",
-        "description": "The simulator's packages ({missing}) are not available ({reason}). If Home Assistant is set not to install packages, install them yourself and try again. If an install failed, Home Assistant won't try again until it restarts.",
+      "simulator_install": {
+        "title": "Hot water simulator"
+      },
+      "simulator_packages_missing": {
+        "title": "The simulator's packages aren't installed",
+        "description": "The simulator needs {packages}, and Home Assistant is set not to install packages. Install them in Home Assistant's Python environment yourself, then try again. More: {guide_url}",
         "menu_options": {
           "simulator_retry": "Try again",
           "simulator_without": "Set up without the simulator"
         }
       },
-      "simulator_install": {
-        "title": "Hot water simulator"
+      "simulator_install_failed": {
+        "title": "The simulator's packages couldn't be installed",
+        "description": "{packages} could not be installed. Check the Home Assistant log for why. Home Assistant won't try the install again until it restarts: restart it, then try again, or go on without the simulator for now. More: {guide_url}",
+        "menu_options": {
+          "simulator_retry": "Try again",
+          "simulator_without": "Set up without the simulator"
+        }
       }
     },
     "error": {
@@ -116,20 +124,29 @@
           "humidity_entity": "A humidity sensor in the same room as the heater."
         }
       },
-      "simulator_deps_failed": {
-        "title": "The simulator can't be installed",
-        "description": "The simulator's packages ({missing}) are not available ({reason}). If Home Assistant is set not to install packages, install them yourself and try again. If an install failed, Home Assistant won't try again until it restarts.",
+      "simulator_install": {
+        "title": "Hot water simulator"
+      },
+      "simulator_packages_missing": {
+        "title": "The simulator's packages aren't installed",
+        "description": "The simulator needs {packages}, and Home Assistant is set not to install packages. Install them in Home Assistant's Python environment yourself, then try again. More: {guide_url}",
         "menu_options": {
           "simulator_retry": "Try again",
           "simulator_without": "Leave the simulator off"
         }
       },
-      "simulator_install": {
-        "title": "Hot water simulator"
+      "simulator_install_failed": {
+        "title": "The simulator's packages couldn't be installed",
+        "description": "{packages} could not be installed. Check the Home Assistant log for why. Home Assistant won't try the install again until it restarts: restart it, then try again, or go on without the simulator for now. More: {guide_url}",
+        "menu_options": {
+          "simulator_retry": "Try again",
+          "simulator_without": "Leave the simulator off"
+        }
       }
     },
     "error": {
-      "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit."
+      "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit.",
+      "simulator_not_loaded": "The integration isn't running, so its water heaters aren't known yet. Turn the simulator on once the integration has loaded."
     },
     "progress": {
       "simulator_install": "Installing the simulator's packages (numpy, pandas, scipy). This can take a few minutes on slower hardware."
@@ -1147,13 +1164,19 @@
       "message": "The device did not receive the command ({command}). Check the Home Assistant log for the reason."
     },
     "simulator_not_enabled": {
-      "message": "The hot water simulator is off for this water heater. Turn it on in the integration's options."
+      "message": "The hot water simulator isn't running for this water heater. Turn it on in the integration's options; if it is on, Repairs says why it couldn't start."
     },
     "simulator_no_answer": {
       "message": "The simulator has no answer for this water heater yet ({reason})."
     },
     "simulator_write_outside": {
       "message": "The change at {at} is outside the simulation, which runs from {start} to {until}."
+    },
+    "simulator_standby": {
+      "message": "The water heater is in Standby, which the simulator doesn't model: nothing heats."
+    },
+    "simulator_setpoint_out_of_range": {
+      "message": "The temperature {temperature} is outside what the simulator runs, {min} to {max}."
     }
   },
   "selector": {
@@ -1173,6 +1196,14 @@
     "simulator_start_failed": {
       "title": "The hot water simulator couldn't start",
       "description": "The NWP500 integration is running without the hot water simulator ({reason}). The Home Assistant log has the details. Reload the integration to try again, or turn the simulator off in its options."
+    },
+    "simulator_packages_missing": {
+      "title": "The hot water simulator's packages aren't installed",
+      "description": "The NWP500 integration is running without the hot water simulator: it needs {packages}, and Home Assistant is set not to install packages. Install them in Home Assistant's Python environment, then reload the integration; or turn the simulator off in its options."
+    },
+    "simulator_install_failed": {
+      "title": "The hot water simulator's packages couldn't be installed",
+      "description": "The NWP500 integration is running without the hot water simulator: {packages} could not be installed. The Home Assistant log has the reason. Home Assistant tries the install again only after a restart: restart Home Assistant, or turn the simulator off in the integration's options."
     }
   }
 }

@@ -1419,11 +1419,18 @@ CONF_SIMULATOR: Final = "simulator"
 CONF_SIMULATOR_AIR_ENTITY: Final = "air_entity"
 CONF_SIMULATOR_HUMIDITY_ENTITY: Final = "humidity_entity"
 
-# Key into hass.data[DOMAIN][entry_id].
+# Keys into hass.data[DOMAIN][entry_id]: the running simulator, and the
+# task starting it.
 DATA_SIMULATOR: Final = "simulator"
+DATA_SIMULATOR_START: Final = "simulator_start"
 
 # The Repairs issue raised while the simulator is on but failed to start.
+# One issue, worded by why: its packages are missing and Home Assistant
+# installs none, their install failed (retried only after a restart), or
+# anything else (retried on a reload).
 ISSUE_SIMULATOR_START_FAILED: Final = "simulator_start_failed"
+ISSUE_SIMULATOR_PACKAGES_MISSING: Final = "simulator_packages_missing"
+ISSUE_SIMULATOR_INSTALL_FAILED: Final = "simulator_install_failed"
 
 # What the simulator leaves behind, known here so the off path can remove
 # it without importing the simulator.
@@ -1433,6 +1440,11 @@ SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
 def simulator_storage_key(entry_id: str) -> str:
     """The storage key of an entry's simulator state."""
     return f"{DOMAIN}.simulator.{entry_id}"
+
+
+def simulator_started_signal(entry_id: str) -> str:
+    """The dispatcher signal sent once an entry's simulator runs."""
+    return f"{DOMAIN}_simulator_started_{entry_id}"
 
 
 def simulator_enabled(entry: Any) -> bool:

@@ -242,6 +242,7 @@ async def test_async_setup_entry_skips_service_registration_if_exists():
 async def test_async_unload_entry_cleanup():
     """Test unload entry performs proper cleanup."""
     mock_hass = MagicMock()
+    mock_hass.data = {}
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
@@ -265,6 +266,7 @@ async def test_async_unload_entry_cleanup():
 async def test_async_unload_entry_removes_services_when_last():
     """Test unload removes services when last entry is unloaded."""
     mock_hass = MagicMock()
+    mock_hass.data = {}
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
@@ -289,6 +291,7 @@ async def test_async_unload_entry_keeps_services_for_another_entry():
     from homeassistant.config_entries import ConfigEntryState
 
     mock_hass = MagicMock()
+    mock_hass.data = {}
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
     mock_entry.runtime_data.async_shutdown = AsyncMock()
