@@ -245,6 +245,13 @@ async def test_a_fit_is_applied_reported_and_kept(
     assert attributes["terms"][0]["value"] == "6.5"
     assert attributes["running"] is False
 
+    # The next run refits the fit: a term it can't fit keeps this one's.
+    run, rep = _patched(*_fake_done(fitted=False))
+    with run as run_mock, rep:
+        await feature.async_calibrate(MAC)
+    assert run_mock.call_args.args[1] == done.calibration.params
+    assert runner.params == done.calibration.params
+
     await async_unload_simulator(hass, entry)
     feature = await _started(hass, entry, coordinator)
     assert feature.runners[MAC].params == done.calibration.params

@@ -241,7 +241,9 @@ async def async_calibrate(
             # record_inputs reports what it could not read in its notes;
             # anything else leaves the air out, as with no sensor.
             _LOGGER.debug("The air's history is not read: %s", err)
-    base = sa.params(feature)
+    # Refit what the heater runs on: a term this history can't fit keeps
+    # an earlier fit's value rather than going back to the defaults.
+    base = runner.params if runner.params is not None else sa.params(feature)
     try:
         done = await hass.async_add_executor_job(
             run_calibration, [path for _, path in days], base, record
