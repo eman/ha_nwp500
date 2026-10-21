@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Final
 from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import instance_id as ha_instance_id
 from homeassistant.helpers.update_coordinator import (
@@ -206,6 +206,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # and every device reaches the refresh cycle on the same update.
         # Run as tasks instead, at most one per device.
         self._schedule_refresh_tasks: dict[str, asyncio.Task[None]] = {}
+        # Listeners for a device's raw status payloads, keyed by MAC: the
+        # simulator's history recorder. None registered, nothing subscribes.
+        self._raw_status_listeners: dict[
+            str, list[Callable[[dict[str, Any]], None]]
+        ] = {}
         # Track periodic re-reads of the REST device list, which carries the
         # cloud-recorded fault and descaling window (see
         # _async_refresh_device_metadata).
@@ -955,6 +960,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 on_reconnected=_on_mqtt_reconnected,
                 on_reconnection_failed=_on_mqtt_reconnection_failed,
                 ha_instance_id=ha_id,
+                on_raw_status=self._on_raw_status,
+                wants_raw_status=self._wants_raw_status,
             )
 
             # Connect to MQTT
@@ -1429,6 +1436,55 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug(
                 "Initial TOU read failed for %s: %s", mac_address, err
             )
+
+    @callback
+    def async_add_raw_status_listener(
+        self, mac_address: str, listener: Callable[[dict[str, Any]], None]
+    ) -> Callable[[], None]:
+        """Call `listener` with each raw status payload from a device.
+
+        The payload is the status as the device sent it. The device's raw
+        statuses are subscribed with the first listener; the subscription
+        then stays until the MQTT client is replaced.
+        """
+        listeners = self._raw_status_listeners.setdefault(mac_address, [])
+        listeners.append(listener)
+        device = next(
+            (
+                d
+                for d in self.devices
+                if d.device_info.mac_address == mac_address
+            ),
+            None,
+        )
+        if self.mqtt_manager is not None and device is not None:
+            self.hass.async_create_task(
+                self.mqtt_manager.subscribe_raw_status(device)
+            )
+
+        @callback
+        def remove() -> None:
+            if listener in listeners:
+                listeners.remove(listener)
+
+        return remove
+
+    def _wants_raw_status(self, mac_address: str) -> bool:
+        return bool(self._raw_status_listeners.get(mac_address))
+
+    def _on_raw_status(self, mac_address: str, payload: dict[str, Any]) -> None:
+        self.hass.loop.call_soon_threadsafe(
+            self._handle_raw_status_in_loop, mac_address, payload
+        )
+
+    def _handle_raw_status_in_loop(
+        self, mac_address: str, payload: dict[str, Any]
+    ) -> None:
+        for listener in list(self._raw_status_listeners.get(mac_address, ())):
+            try:
+                listener(payload)
+            except Exception:
+                _LOGGER.exception("Error handling a raw status")
 
     def _on_device_status_update(
         self, mac_address: str, status: DeviceStatus
