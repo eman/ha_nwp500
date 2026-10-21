@@ -296,6 +296,7 @@ async def test_options_switch_the_simulator_on(
             {"scan_interval": 30, "simulator_enabled": True},
         )
         assert result["step_id"] == "simulator_device"
+        assert result["last_step"] is True
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {"air_entity": "sensor.garage_air"}
         )
@@ -378,6 +379,8 @@ async def test_options_go_on_to_external_control(
                 "simulator_enabled": True,
             },
         )
+        # The external control page comes after it.
+        assert result["last_step"] is False
         result = await hass.config_entries.options.async_configure(
             result["flow_id"], {"air_entity": "sensor.garage_air"}
         )
