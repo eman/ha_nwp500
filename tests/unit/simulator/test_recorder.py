@@ -386,3 +386,51 @@ async def test_deleting_for_good_takes_nothing_more(hass: HomeAssistant, clock):
     await recorder.async_stop()
 
     assert not Path(recorder.directory).exists()
+
+
+async def test_a_cancelled_flush_finishes_before_the_next_starts(
+    hass: HomeAssistant, clock
+):
+    """A cancelled flush ends its write before the next write starts.
+
+    Such as a calibration's, cancelled on unload.
+    """
+    import asyncio
+    import threading
+
+    coordinator = _Coordinator()
+    recorder = HistoryRecorder(hass, coordinator, MAC, 60, clock=clock)  # type: ignore[arg-type]
+    recorder.async_start()
+    await hass.async_block_till_done()
+    coordinator.listeners[0](status_dict())
+    entered, release = threading.Event(), threading.Event()
+    active, most = 0, 0
+    guard = threading.Lock()
+    real = recorder_module.append
+
+    def slow_append(directory: str, lines: Any) -> None:
+        nonlocal active, most
+        with guard:
+            active += 1
+            most = max(most, active)
+        entered.set()
+        release.wait(5)
+        try:
+            real(directory, lines)
+        finally:
+            with guard:
+                active -= 1
+
+    with patch.object(recorder_module, "append", slow_append):
+        first = hass.async_create_task(recorder.async_flush())
+        await hass.async_add_executor_job(entered.wait, 5)
+        first.cancel()
+        stop = hass.async_create_task(recorder.async_stop())
+        await asyncio.sleep(0)
+        release.set()
+        await stop
+        with pytest.raises(asyncio.CancelledError):
+            await first
+
+    assert most == 1
+    assert recorder.as_document()["days"] == 1

@@ -75,9 +75,8 @@ its time-of-use schedule.
 ## Recording the heater's history
 
 Each heater's form also offers **Record the heater's history**, off unless
-you turn it on. A later version will use the recording to fit the
-simulator to your heater, so turning it on now gives that version weeks of
-history to start from.
+you turn it on. The recording is the finest history the simulator can be
+[fitted](#fitting-it-to-your-heater) to.
 
 - **What is kept.** Each status the heater reports, as it reported it, and
   when it arrived. The heater's address is left out.
@@ -109,6 +108,68 @@ it, tick **Delete the history recorded so far** on the heater's form, or
 Removing the integration deletes it too. The diagnostics show, per heater,
 how many days are stored and their size, when the last status arrived, and
 the longest wait between two since the integration started.
+
+## Fitting it to your heater
+
+Once a week, at 03:30, the simulator refits its terms to each heater from
+the heater's history, and again whenever you press the heater's
+**Calibrate simulator** button. One heater is fitted at a time, in the
+background; on a small machine, weeks of history take minutes.
+
+**Where the history comes from.** One of two, whichever reaches further
+back:
+
+- the [recorded history](#recording-the-heaters-history), each status as
+  the heater reported it;
+- Home Assistant's recorder, which keeps the changes of the heater's own
+  sensors, 10 days unless you set its `purge_keep_days` (at most 60 days
+  are read). It needs the **Last MQTT response**, **Tank upper temperature**
+  and **Tank lower temperature** sensors enabled and recorded. More are used when they are
+  enabled: the compressor and elements, heat source, DHW in use, operation
+  mode, error code, current power, energy to setpoint, the heat pump's
+  lower off temperature setting, the ambient temperature, and
+  **Anti-Legionella cycle running**, without which those cycles are not
+  left out of the fit.
+
+The recording is the finer of the two, and is used once it reaches as far
+back as the recorder's history of the tank; if one fails, the other is
+fitted. On an account with several heaters only the recording is used:
+the Last MQTT response sensor is the account's, so the recorder's history
+can't say when each heater was heard from. The air and humidity sensors' history comes from the
+recorder.
+
+**The air matters.** Without an air sensor, the standby loss is not fitted.
+The heat pump's terms need the air too: the air sensor's, or else the
+heater's own **Ambient temperature** reading while the compressor runs,
+which the recorded statuses carry but the entities' history has only when
+that sensor is enabled (it is off by default). With neither, no recovery
+can be fitted.
+
+**What changes.** A run refits what the heater runs on: its last fit, or
+the defaults for its tank's size. A term this history can't fit keeps its
+value. A first fit replaces the defaults, and the simulator walks the
+heater with it from then on, across restarts. A later run is a check: it
+reports what it would change but leaves the earlier fit in place, since
+nothing yet shows a fit on the recorder's few days no worse than one on a
+longer history. A run that fits nothing, or fails, leaves the heater as it
+was.
+
+**The Simulator calibration sensor**, under the heater's diagnostics, is
+when the simulator was last fitted, and unknown while it runs on the
+defaults. Its attributes describe the last run:
+
+- `source`: `statuses` or `entities`;
+- `applied`: whether the run's fit replaced the heater's parameters;
+- `terms`: each term's `value`, what it was fitted `from`, its `error`,
+  whether it was `fitted`, and `why` not;
+- `statuses` (the statuses or changes read), `gaps`, `air` (how the air
+  was given), `duration_s`, `error`, `notes` and `running`.
+
+`terms` and `notes` are not recorded in history. Three runs in a row that
+fit nothing raise a Repairs issue, cleared by the next fit.
+
+A fit needs weeks of history with quiet nights, when no water is drawn,
+and full heat pump recoveries.
 
 ## Sensors
 
@@ -182,8 +243,9 @@ A time without a time zone is taken in Home Assistant's.
 
 ## Accuracy
 
-These answers come from physics with the default parameters for the tank's
-size. Expect:
+These answers come from physics, with the default parameters for the
+tank's size until the simulator is [fitted](#fitting-it-to-your-heater) to
+the heater. Expect:
 
 - **Long recoveries run short.** Physics alone says a long recovery ends
   sooner than it does. At one installation, recoveries with more than three
@@ -197,9 +259,8 @@ size. Expect:
 
 These are planned, in this order:
 
-1. Fitting it to your heater: the heat pump's terms from the
-   [recorded history](#recording-the-heaters-history) and the air sensor,
-   and the air beside the heater from a weather forecast.
+1. The air beside the heater from a weather forecast, fitted to the air
+   sensor's history.
 2. Hot water use, from a water meter and an inlet temperature probe:
    deliverable volume, showers and bath readiness.
 3. Services a scheduler can plan with.

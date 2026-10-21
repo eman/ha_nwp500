@@ -157,9 +157,9 @@ async def test_the_simulator_starts_after_the_platforms_in_the_background():
         assert await async_setup_entry(mock_hass, mock_entry) is True
 
         # Set-up is done, and the heater's platforms are forwarded, before
-        # the simulator has started.
+        # the simulator has started; with the buttons, for its calibration.
         mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
-            mock_entry, _PLATFORMS
+            mock_entry, [*_PLATFORMS, Platform.BUTTON]
         )
         setup.assert_not_awaited()
         (start,) = started
@@ -289,6 +289,15 @@ async def _leftovers(
         translation_key="simulator_start_failed",
         translation_placeholders={"reason": "x"},
     )
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"simulator_calibration_failing_{entry.entry_id}_aabbccddeeff",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="simulator_calibration_failing",
+        translation_placeholders={"device": "x", "runs": "3", "reason": "x"},
+    )
     return simulated, other
 
 
@@ -309,6 +318,9 @@ async def test_switching_it_off_removes_what_it_left(
     assert simulator_storage_key(entry.entry_id) not in hass_storage
     assert not ir.async_get(hass).async_get_issue(
         DOMAIN, f"simulator_start_failed_{entry.entry_id}"
+    )
+    assert not ir.async_get(hass).async_get_issue(
+        DOMAIN, f"simulator_calibration_failing_{entry.entry_id}_aabbccddeeff"
     )
 
 

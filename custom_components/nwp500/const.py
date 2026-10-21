@@ -1432,6 +1432,16 @@ DATA_SIMULATOR_START: Final = "simulator_start"
 ISSUE_SIMULATOR_START_FAILED: Final = "simulator_start_failed"
 ISSUE_SIMULATOR_PACKAGES_MISSING: Final = "simulator_packages_missing"
 ISSUE_SIMULATOR_INSTALL_FAILED: Final = "simulator_install_failed"
+# A heater's calibration fitted nothing, or failed, run after run. One
+# issue per heater: `simulator_calibration_issue_id`.
+ISSUE_SIMULATOR_CALIBRATION_FAILING: Final = "simulator_calibration_failing"
+
+
+def simulator_calibration_issue_id(entry_id: str, mac_address: str) -> str:
+    """The Repairs issue of one heater's failing calibration."""
+    slug = mac_address.replace(":", "").lower()
+    return f"{ISSUE_SIMULATOR_CALIBRATION_FAILING}_{entry_id}_{slug}"
+
 
 # What the simulator leaves behind, known here so the off path can remove
 # it without importing the simulator.

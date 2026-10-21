@@ -288,8 +288,10 @@ def _simulator(feature: Any) -> dict[str, Any]:
             {
                 "device_name": device.device_info.device_name,
                 "options": dict(runner.options),
-                # Calibrated parameters come in a later version.
-                "params": "default",
+                "params": "default"
+                if (calibration := feature.calibrations.get(runner.mac_address))
+                is None
+                else {"calibrated": calibration["fitted_at"]},
                 "history": runner.history.as_document(),
                 "last_duration_s": runner.last_duration_s,
                 "answer": None if answer is None else answer.as_document(),

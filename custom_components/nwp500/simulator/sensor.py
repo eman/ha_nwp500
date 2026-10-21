@@ -13,6 +13,7 @@ from homeassistant.const import UnitOfEnergy
 from homeassistant.core import callback
 
 from ..entity import NWP500Entity
+from .calibration_entities import create_calibration_sensors
 from .runner import HEATING_STATES, STATE_HEATING, Answer, SimulatorRunner
 
 if TYPE_CHECKING:
@@ -178,8 +179,11 @@ class SimulatorEnergySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignor
 
 
 def create_simulator_sensors(feature: SimulatorFeature) -> list[SensorEntity]:
-    """The sensors for each heater the simulator runs for."""
-    entities: list[SensorEntity] = []
+    """The sensors for each heater the simulator runs for.
+
+    And each one's calibration sensor.
+    """
+    entities: list[SensorEntity] = create_calibration_sensors(feature)
     for runner in feature.runners.values():
         entities.extend(
             [
