@@ -144,15 +144,19 @@ can be fitted.
 
 **What changes.** A run refits what the heater runs on: its last fit, or
 the defaults for its tank's size. A term this history can't fit keeps its
-value. The simulator walks the heater with the result from then on, and
-keeps it across restarts. A run that fits nothing, or fails, leaves the
-heater as it was.
+value. A first fit replaces the defaults, and the simulator walks the
+heater with it from then on, across restarts. A later run is a check: it
+reports what it would change but leaves the earlier fit in place, since
+nothing yet shows a fit on the recorder's few days no worse than one on a
+longer history. A run that fits nothing, or fails, leaves the heater as it
+was.
 
 **The Simulator calibration sensor**, under the heater's diagnostics, is
 when the simulator was last fitted, and unknown while it runs on the
 defaults. Its attributes describe the last run:
 
-- `source`: `statuses`, `entities`, or `loaded` (see below);
+- `source`: `statuses` or `entities`;
+- `applied`: whether the run's fit replaced the heater's parameters;
 - `terms`: each term's `value`, what it was fitted `from`, its `error`,
   whether it was `fitted`, and `why` not;
 - `statuses` (the statuses or changes read), `gaps`, `air` (how the air
@@ -163,23 +167,6 @@ fit nothing raise a Repairs issue, cleared by the next fit.
 
 A fit needs weeks of history with quiet nights, when no water is drawn,
 and full heat pump recoveries.
-
-**A fit made elsewhere.** `nwp500.set_simulator_calibration` gives a heater
-parameters fitted outside Home Assistant, such as from a longer history
-kept elsewhere, as nwp500-python's calibration writes them
-(`params_to_document`), with an optional `fitted_at`. The simulator walks
-with them from then on. The weekly run leaves them be, since they come
-from a longer history than Home Assistant keeps; pressing **Calibrate
-simulator** refits them on Home Assistant's own history. The sensor's
-`loaded` attribute says which.
-In **Developer tools → Actions**, paste the document as `parameters`:
-
-```yaml
-action: nwp500.set_simulator_calibration
-data:
-  device_id: <your water heater's device>
-  parameters: {"schema": "heater-params/1", "tank": {...}, ...}
-```
 
 ## Sensors
 

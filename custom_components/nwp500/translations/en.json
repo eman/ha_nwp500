@@ -1182,28 +1182,6 @@
           "description": "With the path included, keep one point every this many minutes (1 to 60)."
         }
       }
-    },
-    "set_simulator_calibration": {
-      "name": "Set simulator calibration",
-      "description": "Give the hot water simulator parameters fitted elsewhere, such as from a longer history kept outside Home Assistant, as a parameters document from nwp500-python's calibration. The simulator uses them from now on, and the weekly calibration leaves them be; Calibrate simulator refits them. Changes nothing on the heater. Needs the hot water simulator turned on in the integration's options.",
-      "fields": {
-        "device_id": {
-          "name": "Device",
-          "description": "The target NWP500 water heater device"
-        },
-        "entity_id": {
-          "name": "Entity",
-          "description": "The entity ID of the water heater (alternative to Device ID)"
-        },
-        "parameters": {
-          "name": "Parameters",
-          "description": "The parameters document, as nwp500-python writes it (params_to_document)."
-        },
-        "fitted_at": {
-          "name": "Fitted at",
-          "description": "When the parameters were fitted. Defaults to now."
-        }
-      }
     }
   },
   "exceptions": {
@@ -1227,9 +1205,6 @@
     },
     "simulator_setpoint_out_of_range": {
       "message": "The temperature {temperature} is outside what the simulator runs, {min} to {max}."
-    },
-    "simulator_parameters_invalid": {
-      "message": "These aren't simulator parameters: {reason}"
     }
   },
   "selector": {

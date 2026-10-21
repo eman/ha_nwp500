@@ -1,12 +1,9 @@
-"""The simulator's services.
+"""`nwp500.simulate`: walk a heater's scenario on request.
 
-`nwp500.simulate` walks a heater's scenario on request: the one the
-entities' answer comes from, over the hours asked for, with any setpoint
-and mode writes the caller wants to try. The answer is the library's
-result document, in its units (°F, Wh, US gallons), named under `units`.
-
-`nwp500.set_simulator_calibration` gives a heater parameters fitted
-elsewhere, such as from a history kept outside Home Assistant.
+The scenario is the one the entities' answer comes from, over the hours
+asked for, with any setpoint and mode writes the caller wants to try. The
+answer is the library's result document, in its units (°F, Wh, US
+gallons), named under `units`.
 """
 
 from __future__ import annotations
@@ -28,7 +25,6 @@ from nwp500.sim.engine import (
     SimulationError,
 )
 from nwp500.sim.inputs import Commands, Write
-from nwp500.sim.params import params_from_document
 
 from ..const import DOMAIN, MODE_TO_DHW_ID
 from .runner import WAIT_STANDBY, answer_from
@@ -36,7 +32,6 @@ from .runner import WAIT_STANDBY, answer_from
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-    from . import SimulatorFeature
     from .runner import SimulatorRunner
 
 # The units of the result document.
@@ -188,27 +183,3 @@ async def async_simulate(
     document["units"] = dict(UNITS)
     document["model"] = "physics"
     return document
-
-
-async def async_set_calibration(
-    hass: HomeAssistant,
-    feature: SimulatorFeature,
-    mac_address: str,
-    document: dict[str, Any],
-    fitted_at: datetime | None,
-) -> None:
-    """Walk the heater with the parameters in `document` from now on.
-
-    A parameters document, as the library writes it (`params_to_document`);
-    the weekly calibration refits them from then on.
-    """
-    try:
-        params = params_from_document(document)
-    except (TypeError, ValueError) as err:
-        raise ServiceValidationError(
-            translation_domain=DOMAIN,
-            translation_key="simulator_parameters_invalid",
-            translation_placeholders={"reason": str(err)},
-        ) from err
-    when = dt_util.utcnow() if fitted_at is None else dt_util.as_utc(fitted_at)
-    await feature.async_load_calibration(mac_address, params, when)

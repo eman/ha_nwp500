@@ -124,7 +124,6 @@ SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
 SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
 SERVICE_GET_ENERGY_USAGE = "get_energy_usage"
 SERVICE_SIMULATE = "simulate"
-SERVICE_SET_SIMULATOR_CALIBRATION = "set_simulator_calibration"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -141,8 +140,6 @@ ATTR_WRITES = "writes"
 ATTR_AT = "at"
 ATTR_INCLUDE_POINTS = "include_points"
 ATTR_RESOLUTION_MINUTES = "resolution_minutes"
-ATTR_PARAMETERS = "parameters"
-ATTR_FITTED_AT = "fitted_at"
 
 # Valid days of the week
 VALID_DAYS = [
@@ -442,18 +439,6 @@ SIMULATE_WRITE_MODES: Final = (
 # A week: the simulator's answers grow less certain further out, and a
 # week's walk already takes most of a second.
 MAX_SIMULATE_HOURS = 168
-
-SERVICE_SET_SIMULATOR_CALIBRATION_SCHEMA = vol.All(
-    vol.Schema(
-        {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
-            vol.Required(ATTR_PARAMETERS): dict,
-            vol.Optional(ATTR_FITTED_AT): cv.datetime,
-        }
-    ),
-    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
-)
 
 SERVICE_SIMULATE_SCHEMA = vol.All(
     vol.Schema(
@@ -948,28 +933,6 @@ class NWP500ServiceHandler:
             writes=call.data[ATTR_WRITES],
             include_points=call.data[ATTR_INCLUDE_POINTS],
             resolution_minutes=call.data.get(ATTR_RESOLUTION_MINUTES),
-        )
-
-    async def async_set_simulator_calibration(self, call: ServiceCall) -> None:
-        """Handle the set_simulator_calibration service call.
-
-        Registered whether or not the simulator is on, as `simulate` is.
-        """
-        coordinator, mac_address = await self._get_coordinator_and_mac(call)
-        feature = simulator_feature(self.hass, coordinator.entry)
-        if feature is None or mac_address not in feature.runners:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="simulator_not_enabled",
-            )
-        from .simulator.service import async_set_calibration
-
-        await async_set_calibration(
-            self.hass,
-            feature,
-            mac_address,
-            call.data[ATTR_PARAMETERS],
-            call.data.get(ATTR_FITTED_AT),
         )
 
     async def async_get_energy_usage(
@@ -1613,11 +1576,6 @@ _SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
         SERVICE_SIMULATE,
         "async_simulate",
         SERVICE_SIMULATE_SCHEMA,
-    ),
-    (
-        SERVICE_SET_SIMULATOR_CALIBRATION,
-        "async_set_simulator_calibration",
-        SERVICE_SET_SIMULATOR_CALIBRATION_SCHEMA,
     ),
 )
 

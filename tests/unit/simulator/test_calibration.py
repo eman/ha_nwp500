@@ -11,11 +11,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from nwp500 import sim, status_history
-from nwp500.sim.params import params_to_document
 from nwp500.sim_calibrate import CalibrationInputError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -47,7 +45,6 @@ from custom_components.nwp500.simulator.calibration_entities import (
     create_calibration_buttons,
     create_calibration_sensors,
 )
-from custom_components.nwp500.simulator.service import async_set_calibration
 
 from .conftest import MAC, status_dict
 
@@ -232,7 +229,7 @@ async def test_a_fit_is_applied_reported_and_kept(
     ):
         report = await feature.async_calibrate(MAC)
 
-    assert report is not None and report.fitted
+    assert report is not None and report.fitted and report.applied
     assert report.statuses == 1234
     assert report.terms[0]["name"] == "Standby loss"
     assert runner.params == done.calibration.params
@@ -258,6 +255,22 @@ async def test_a_fit_is_applied_reported_and_kept(
         await feature.async_calibrate(MAC)
     assert run_mock.call_args.args[1] == done.calibration.params
     assert runner.params == done.calibration.params
+
+    # And a refit that fits something is reported, not applied: nothing
+    # shows it no worse than the fit it would replace.
+    better = replace(
+        done.calibration.params,
+        loss=replace(done.calibration.params.loss, ua_btu_hr_f=9.9),
+    )
+    refit, refit_terms = _fake_done(fitted=True)
+    refit.calibration.params = better
+    run, rep = _patched(refit, refit_terms)
+    with run, rep:
+        report = await feature.async_calibrate(MAC)
+    assert report is not None and report.fitted and not report.applied
+    assert report.failures == 0
+    assert runner.params == done.calibration.params
+    assert sensor.extra_state_attributes["applied"] is False
 
     await async_unload_simulator(hass, entry)
     feature = await _started(hass, entry, coordinator)
@@ -566,49 +579,4 @@ async def test_the_statuses_are_fitted_once_they_reach_as_far_back(
     recorder_running.keep_days = 4
     report = await calibrate()
     assert report is not None and report.source == "statuses"
-    await async_unload_simulator(hass, entry)
-
-
-@pytest.mark.asyncio
-async def test_a_fit_made_elsewhere_is_loaded(
-    hass: HomeAssistant, hass_storage, entry, coordinator, raw_listeners
-):
-    feature = await _started(hass, entry, coordinator)
-    params, _ = _fake_done(fitted=True)
-    params = params.calibration.params
-
-    await async_set_calibration(
-        hass, feature, MAC, params_to_document(params), T0
-    )
-
-    assert feature.runners[MAC].params == params
-    assert feature.calibrations[MAC]["fitted_at"] == T0.isoformat()
-    report = feature.reports[MAC]
-    assert report.source == "loaded" and report.fitted
-    assert not due(report, report.at + timedelta(days=6))
-
-    with pytest.raises(ServiceValidationError) as raised:
-        await async_set_calibration(hass, feature, MAC, {"tank": 1}, None)
-    assert raised.value.translation_key == "simulator_parameters_invalid"
-
-    sensor = SimulatorCalibrationSensor(feature, MAC, "calibration")
-    assert sensor.extra_state_attributes["loaded"] is True
-
-    # The night leaves them be, even once a run would be due; the button
-    # refits them.
-    feature.reports[MAC] = replace(report, at=report.at - timedelta(days=30))
-    calibrate = AsyncMock()
-    with patch.object(feature, "async_calibrate", calibrate):
-        feature._on_night(T0)  # noqa: SLF001
-        await hass.async_block_till_done()
-        calibrate.assert_not_awaited()
-        feature.async_request_calibration(MAC)
-        await hass.async_block_till_done()
-        calibrate.assert_awaited_once_with(MAC)
-
-    # And they stay loaded across a restart.
-    await async_unload_simulator(hass, entry)
-    feature = await _started(hass, entry, coordinator)
-    assert feature.runners[MAC].params == params
-    assert feature.calibrations[MAC]["source"] == "loaded"
     await async_unload_simulator(hass, entry)

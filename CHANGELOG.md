@@ -39,16 +39,13 @@
   as far back, Home Assistant's recorder of the heater's own sensors (the
   last response time and the tank temperatures are needed). The air and
   humidity sensors' history comes from the recorder. A term the history
-  cannot fit keeps its last value. The simulator walks
-  the heater with the fitted terms from then on, and they are kept across
-  restarts. The **Simulator calibration** sensor shows when it was last
+  cannot fit keeps its last value. A first fit replaces the defaults, and
+  the simulator walks the heater with it from then on, across restarts; a
+  later run reports what it would change and keeps the earlier fit. The **Simulator calibration** sensor shows when it was last
   fitted, and its attributes show each term's value and why a term was not
   fitted. Three runs in a row that fit nothing raise a Repairs issue.
   Weeks of history with quiet nights and full recoveries are needed before
-  most terms fit. `nwp500.set_simulator_calibration` gives a heater
-  parameters fitted elsewhere, such as from a longer history kept outside
-  Home Assistant; the weekly run leaves them be, and the button refits
-  them.
+  most terms fit.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
   start or the entry's reload. The heartbeat alone does not show a reload.

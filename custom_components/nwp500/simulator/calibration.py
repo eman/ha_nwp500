@@ -17,9 +17,10 @@ same span (`sim_home_assistant.record_inputs`). The fit runs in an
 executor: on a small machine, weeks of history take minutes.
 
 A run refits what the heater runs on, its last fit or else the defaults
-for its tank's size, and the result replaces it only when the run fitted
-something; a run that fitted nothing, or failed, is reported and the
-heater keeps what it had.
+for its tank's size. A fit replaces the defaults; an earlier fit is kept,
+and the run reports what it would change, until a refit can be shown no
+worse than the fit it would replace. A run that fitted nothing, or
+failed, is reported and the heater keeps what it had.
 """
 
 from __future__ import annotations
@@ -85,8 +86,6 @@ ENTITY_HISTORY_DAYS = 60
 #: Where the history came from.
 SOURCE_STATUSES = "statuses"
 SOURCE_ENTITIES = "entities"
-#: Parameters fitted elsewhere (`nwp500.set_simulator_calibration`).
-SOURCE_LOADED = "loaded"
 
 #: The heater's own entities, by their role in `HeaterEntities`: each
 #: one's platform and unique ID after the heater's address. Only `heard`
@@ -230,9 +229,12 @@ class CalibrationReport:
     air: str | None = None
     #: Runs in a row, up to this one, that fitted nothing or failed.
     failures: int = 0
-    #: The history fitted, `statuses` or `entities`, or `loaded` for
-    #: parameters fitted elsewhere; None when none was.
+    #: The history fitted, `statuses` or `entities`; None when none was.
     source: str | None = None
+    #: Whether the run's fit replaced the heater's parameters. A refit of
+    #: an earlier fit is not applied: nothing yet shows it no worse on
+    #: the history the earlier fit came from, which can be far longer.
+    applied: bool = False
 
     def as_document(self) -> dict[str, Any]:
         """For the store, diagnostics and the sensor's attributes."""
@@ -248,6 +250,7 @@ class CalibrationReport:
             "air": self.air,
             "failures": self.failures,
             "source": self.source,
+            "applied": self.applied,
         }
 
     @classmethod
@@ -269,6 +272,7 @@ class CalibrationReport:
                 air=doc.get("air"),
                 failures=int(doc.get("failures") or 0),
                 source=doc.get("source"),
+                applied=bool(doc.get("applied")),
             )
         except KeyError, TypeError, ValueError:
             return None
@@ -304,7 +308,8 @@ async def async_calibrate(
     """Refit one heater from its history; report what was found.
 
     `recorder` is the heater's status recording, if it has one. `apply`
-    takes the fitted parameters when the run fitted anything.
+    takes the fitted parameters when the run fitted anything over the
+    defaults.
     """
     hass = runner.hass
     started = clock()
@@ -398,7 +403,9 @@ async def async_calibrate(
         return failed(f"{type(err).__name__}: {err}")
     terms = _terms(done)
     fitted = any(term["fitted"] for term in terms)
-    if fitted:
+    # Over the defaults only: see `CalibrationReport.applied`.
+    applied = fitted and runner.params is None
+    if applied:
         apply(done.calibration.params, started)
     _LOGGER.info(
         "Calibrated the simulator for %s on %d %s: %d of %d terms fitted",
@@ -419,6 +426,7 @@ async def async_calibrate(
         air=done.air,
         failures=0 if fitted else failures + 1,
         source=source,
+        applied=applied,
     )
 
 
@@ -428,7 +436,6 @@ __all__ = [
     "FAILURES_REPORTED",
     "ENTITY_HISTORY_DAYS",
     "SOURCE_ENTITIES",
-    "SOURCE_LOADED",
     "SOURCE_STATUSES",
     "CalibrationReport",
     "async_calibrate",
