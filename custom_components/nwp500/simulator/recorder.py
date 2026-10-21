@@ -319,7 +319,15 @@ class HistoryRecorder:
         self.hass.async_create_task(self.async_flush())
 
     async def async_flush(self) -> None:
-        """Write the lines held, then compress and prune."""
+        """Write the lines held, then compress and prune.
+
+        Shielded: a caller cancelled mid-write, such as a calibration on
+        unload, leaves the write to finish under the lock, so no other
+        write of the same files starts before it ends.
+        """
+        await asyncio.shield(self._async_flush())
+
+    async def _async_flush(self) -> None:
         async with self._lock:
             lines, self._buffer = self._buffer, []
             today = self._clock().astimezone(UTC).date()

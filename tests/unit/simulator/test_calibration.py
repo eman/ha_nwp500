@@ -477,7 +477,14 @@ def recorder_running(hass: HomeAssistant):
     recorder = MagicMock(entity_filter=None)
     recorder.first = datetime.now(UTC) - timedelta(days=10)
 
-    async def first_change(*_: Any) -> datetime | None:
+    recorder.heard_first = None
+
+    async def first_change(
+        _hass: Any, entity_id: str, *_: Any
+    ) -> datetime | None:
+        # The response time from as far back as the tank, unless told.
+        if "last_response" in entity_id and recorder.heard_first is not None:
+            return recorder.heard_first
         return recorder.first
 
     with (
@@ -593,6 +600,12 @@ async def test_the_statuses_are_fitted_once_they_reach_as_far_back(
     recorder_running.first = None
     report = await calibrate()
     assert report is not None and report.source == "statuses"
+    # Ten days of the tank, but the response time only from the last hour:
+    # the entities' history starts there, and the statuses reach further.
+    recorder_running.first = datetime.now(UTC) - timedelta(days=10)
+    recorder_running.heard_first = datetime.now(UTC) - timedelta(hours=1)
+    report = await calibrate()
+    assert report is not None and report.source == "statuses"
     await async_unload_simulator(hass, entry)
 
 
@@ -678,3 +691,18 @@ async def test_an_account_with_several_heaters_fits_only_statuses(
     assert report.error is not None
     assert "several" in report.error
     await async_unload_simulator(hass, entry)
+
+
+def test_a_damaged_compressed_day_is_a_gap(tmp_path: Path, caplog):
+    _write_day(tmp_path, "2026-10-20", 3, T0, gz=True)
+    raw = (tmp_path / "2026-10-20.jsonl.gz").read_bytes()
+    # The DEFLATE stream broken past its header.
+    (tmp_path / "2026-10-20.jsonl.gz").write_bytes(
+        raw[:12] + bytes(b ^ 0xFF for b in raw[12:40]) + raw[40:]
+    )
+    _write_day(tmp_path, "2026-10-21", 2, T0 + timedelta(days=1), gz=False)
+
+    readings = list(recorded([path for _, path in day_files(str(tmp_path))]))
+
+    assert len(readings) >= 2
+    assert "is not read" in caplog.text

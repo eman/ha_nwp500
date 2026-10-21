@@ -29,6 +29,7 @@ import gzip
 import logging
 import os
 import time
+import zlib
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
@@ -151,7 +152,7 @@ def recorded(paths: Sequence[str]) -> Iterator[tuple[datetime, DeviceStatus]]:
         try:
             with _open(path) as f:
                 yield from status_history.iter_read(f)
-        except (OSError, EOFError, ValueError) as err:
+        except (OSError, EOFError, ValueError, zlib.error) as err:
             _LOGGER.warning("Part of %s is not read: %s", path, err)
 
 
@@ -407,14 +408,24 @@ async def async_calibrate(
             + ("s" if len(missing) > 1 else "")
         )
         if entities is not None:
-            entities_from = await first_change(
-                hass,
-                entities.upper,
-                started - timedelta(days=ENTITY_HISTORY_DAYS),
-                started,
-            )
-            if entities_from is None:
-                unrecorded = "Home Assistant's recorder has no tank history"
+            # From when all it needs are recorded: the last of their
+            # histories to begin.
+            since = started - timedelta(days=ENTITY_HISTORY_DAYS)
+            firsts = [
+                await first_change(hass, entity_id, since, started)
+                for entity_id in (
+                    entities.heard,
+                    entities.upper,
+                    entities.lower,
+                )
+            ]
+            if None in firsts:
+                unrecorded = (
+                    "Home Assistant's recorder has no history of its last "
+                    "response time and tank temperatures"
+                )
+            else:
+                entities_from = max(t for t in firsts if t is not None)
     # The history that reaches further back first; the statuses, the finer
     # record, when both reach as far. The other if the first fails.
     sources: list[tuple[datetime, str]] = []
