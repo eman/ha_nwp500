@@ -63,6 +63,7 @@ from .const import (
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
     ISSUE_CONTROL_START_FAILED,
+    ISSUE_SIMULATOR_CALIBRATION_FAILING,
     ISSUE_SIMULATOR_INSTALL_FAILED,
     ISSUE_SIMULATOR_PACKAGES_MISSING,
     ISSUE_SIMULATOR_START_FAILED,
@@ -1266,6 +1267,11 @@ async def async_setup_entry(
         # Switched off after it failed to start: nothing is left to fix.
         ir.async_delete_issue(hass, DOMAIN, start_failed_issue)
 
+    # The simulator's calibration button: the simulator itself starts after
+    # the platforms, and its buttons are added when it has.
+    if simulator_enabled(entry) and Platform.BUTTON not in platforms:
+        platforms.append(Platform.BUTTON)
+
     entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
     entry_data[DATA_PLATFORMS] = platforms
 
@@ -1443,6 +1449,10 @@ async def _async_remove_simulator_leftovers(
     ir.async_delete_issue(
         hass, DOMAIN, f"{ISSUE_SIMULATOR_START_FAILED}_{entry_id}"
     )
+    calibration = f"{ISSUE_SIMULATOR_CALIBRATION_FAILING}_{entry_id}_"
+    for domain, issue_id in list(ir.async_get(hass).issues):
+        if domain == DOMAIN and issue_id.startswith(calibration):
+            ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
 def _control_was_on(entry: ConfigEntry) -> bool:

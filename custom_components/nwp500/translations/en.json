@@ -705,6 +705,9 @@
       },
       "simulator_energy_next_24h": {
         "name": "Simulated energy, next 24 hours"
+      },
+      "simulator_calibration": {
+        "name": "Simulator calibration"
       }
     },
     "binary_sensor": {
@@ -851,6 +854,9 @@
     "button": {
       "control_disable": {
         "name": "Stop external control"
+      },
+      "simulator_calibrate": {
+        "name": "Calibrate simulator"
       }
     }
   },
@@ -1226,6 +1232,10 @@
     "simulator_install_failed": {
       "title": "The hot water simulator's packages couldn't be installed",
       "description": "The NWP500 integration is running without the hot water simulator: {packages} could not be installed. The Home Assistant log has the reason. Home Assistant tries the install again only after a restart: restart Home Assistant, or turn the simulator off in the integration's options."
+    },
+    "simulator_calibration_failing": {
+      "title": "The hot water simulator can't be fitted to {device}",
+      "description": "The last {runs} calibrations of the hot water simulator for {device} fitted nothing ({reason}), so it still runs on the default parameters for the tank's size, or on its last good fit. A calibration needs weeks of recorded history with quiet nights and full heat pump recoveries, and an air temperature sensor beside the heater for the standby loss. The Simulator calibration sensor's attributes say what each term lacked. This clears when a calibration fits something."
     }
   }
 }
