@@ -622,3 +622,67 @@ get_energy_usage:
       required: false
       selector:
         object:
+
+simulate:
+  name: Simulate
+  description: >-
+    Simulate the water heater from now, as the hot water simulator sees it,
+    and return the result: each heating interval, the setpoint and mode
+    writes as they would land, and the electricity used. Optionally try
+    setpoint or mode changes first. Changes nothing on the heater. Needs the
+    hot water simulator turned on in the integration's options.
+  fields:
+    device_id:
+      name: Device
+      description: The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    hours:
+      name: Hours
+      description: How far ahead to simulate, 1 to 168 hours. Defaults to 24.
+      required: false
+      default: 24
+      selector:
+        number:
+          min: 1
+          max: 168
+          mode: box
+    writes:
+      name: Changes to try
+      description: >-
+        Setpoint or mode changes to simulate, each with `at` (when), and
+        `temperature` (in Home Assistant's unit), `mode`, or both. Modes:
+        heat_pump, electric, energy_saver, high_demand, vacation, power_off.
+      required: false
+      selector:
+        object:
+    include_points:
+      name: Include the tank's path
+      description: >-
+        Also return the tank's temperatures along the way. Off by default:
+        the path is long.
+      required: false
+      default: false
+      selector:
+        boolean:
+    resolution_minutes:
+      name: Path resolution
+      description: >-
+        With the path included, keep one point every this many minutes (1 to
+        60).
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 60
+          mode: box

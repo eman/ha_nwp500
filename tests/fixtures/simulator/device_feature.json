@@ -1,0 +1,22 @@
+{
+  "controlTypeCode": 1,
+  "controllerSerialNumber": "ABC123",
+  "controllerSwCode": 33556241,
+  "controllerSwVersion": 184877056,
+  "countryCode": 3,
+  "dhwTemperatureMax": 131,
+  "dhwTemperatureMin": 70,
+  "dhwTemperatureSettingUse": 2,
+  "freezeProtectionTempMax": 20,
+  "freezeProtectionTempMin": 12,
+  "modelTypeCode": 240,
+  "panelSwCode": 0,
+  "panelSwVersion": 0,
+  "recircModelTypeCode": 0,
+  "recircSwVersion": 0,
+  "recircTemperatureMax": 131,
+  "recircTemperatureMin": 70,
+  "volumeCode": 2,
+  "wifiSwCode": 268435985,
+  "wifiSwVersion": 34013184
+}

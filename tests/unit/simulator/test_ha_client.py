@@ -1,0 +1,133 @@
+"""The in-process client against the library's REST client.
+
+Both read the same states: the REST client from what Home Assistant's
+`/api/states/<entity>` would answer, the in-process one from the state
+machine. The environment they give must be the same.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Any
+
+import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
+from homeassistant.util.json import json_loads
+from nwp500.sim_home_assistant import (
+    Entities,
+    HomeAssistantClient,
+    HomeAssistantEnvironment,
+    HomeAssistantError,
+)
+
+from custom_components.nwp500.simulator.ha_client import InProcessClient
+
+
+class _Response:
+    def __init__(self, status: int, body: Any) -> None:
+        self.status = status
+        self._body = body
+
+    async def __aenter__(self) -> _Response:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        return None
+
+    async def json(self) -> Any:
+        return self._body
+
+    async def text(self) -> str:
+        return str(self._body)
+
+
+class _Session:
+    """What aiohttp would get from Home Assistant's REST API."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+
+    def request(self, method: str, url: str, **kw: Any) -> _Response:
+        entity = url.rsplit("/api/states/", 1)[1]
+        state = self.hass.states.get(entity)
+        if state is None:
+            return _Response(404, {"message": "Entity not found."})
+        return _Response(200, json_loads(state.as_dict_json))
+
+
+async def _environments(
+    hass: HomeAssistant, entities: Entities, *, at: Any = None
+) -> tuple[Any, Any, list[str], list[str]]:
+    start = at or dt_util.utcnow().replace(microsecond=0)
+    until = start + timedelta(hours=24)
+    rest = HomeAssistantEnvironment(
+        HomeAssistantClient("http://ha", "token", session=_Session(hass)),
+        entities,
+        start=start,
+        until=until,
+        now=start,
+    )
+    local = HomeAssistantEnvironment(
+        InProcessClient(hass),  # type: ignore[arg-type]
+        entities,
+        start=start,
+        until=until,
+        now=start,
+    )
+    return await rest.read(), await local.read(), rest.notes, local.notes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("air", "unit"),
+    [("15.5", "°C"), ("60.1", "°F"), ("unavailable", "°C"), ("x", "°F")],
+)
+async def test_both_clients_read_the_same_air_and_humidity(
+    hass: HomeAssistant, air: str, unit: str
+):
+    hass.states.async_set("sensor.air", air, {"unit_of_measurement": unit})
+    hass.states.async_set("sensor.rh", "41", {"unit_of_measurement": "%"})
+
+    rest, local, rest_notes, local_notes = await _environments(
+        hass, Entities(air="sensor.air", humidity="sensor.rh")
+    )
+
+    assert local == rest
+    assert local_notes == rest_notes
+
+
+@pytest.mark.asyncio
+async def test_both_clients_treat_a_missing_entity_alike(hass: HomeAssistant):
+    rest, local, rest_notes, local_notes = await _environments(
+        hass, Entities(air="sensor.nowhere")
+    )
+
+    assert local == rest
+    # The notes give each client's own error.
+    assert [note.split(" (")[0] for note in local_notes] == [
+        note.split(" (")[0] for note in rest_notes
+    ]
+
+
+@pytest.mark.asyncio
+async def test_both_clients_treat_a_stale_reading_alike(hass: HomeAssistant):
+    hass.states.async_set("sensor.air", "15.5", {"unit_of_measurement": "°C"})
+    later = dt_util.utcnow() + timedelta(hours=3)
+
+    rest, local, rest_notes, local_notes = await _environments(
+        hass, Entities(air="sensor.air"), at=later
+    )
+
+    assert local == rest
+    assert local_notes == rest_notes
+
+
+@pytest.mark.asyncio
+async def test_history_and_forecasts_are_not_read_yet(hass: HomeAssistant):
+    client = InProcessClient(hass)
+    now = dt_util.utcnow()
+    with pytest.raises(HomeAssistantError):
+        await client.read_history(["sensor.air"], now, now)
+    with pytest.raises(HomeAssistantError):
+        await client.forecast("weather.home")

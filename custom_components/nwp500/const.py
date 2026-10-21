@@ -1407,3 +1407,51 @@ def control_feature(hass: Any, entry: Any) -> Any | None:
     subpackage, and naming it here would import that package on every path.
     """
     return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_CONTROL)
+
+
+# The hot water simulator (nwp500-python's `nwp500.sim`). Like external
+# control, it is optional: its option keys live here because the config and
+# options flows are shared code, and everything else is in the `simulator`
+# subpackage, imported only when the simulator is on.
+CONF_SIMULATOR_ENABLED: Final = "simulator_enabled"
+# Per device, keyed by MAC: {"<mac>": {"air_entity": ..., ...}}.
+CONF_SIMULATOR: Final = "simulator"
+CONF_SIMULATOR_AIR_ENTITY: Final = "air_entity"
+CONF_SIMULATOR_HUMIDITY_ENTITY: Final = "humidity_entity"
+
+# Key into hass.data[DOMAIN][entry_id].
+DATA_SIMULATOR: Final = "simulator"
+
+# The Repairs issue raised while the simulator is on but failed to start.
+ISSUE_SIMULATOR_START_FAILED: Final = "simulator_start_failed"
+
+# What the simulator leaves behind, known here so the off path can remove
+# it without importing the simulator.
+SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
+
+
+def simulator_storage_key(entry_id: str) -> str:
+    """The storage key of an entry's simulator state."""
+    return f"{DOMAIN}.simulator.{entry_id}"
+
+
+def simulator_enabled(entry: Any) -> bool:
+    """Whether the hot water simulator is switched on for an entry.
+
+    Only the boolean True counts, as for external control.
+    """
+    return entry.options.get(CONF_SIMULATOR_ENABLED, False) is True
+
+
+def simulator_device_options(entry: Any, mac_address: str) -> dict[str, Any]:
+    """The simulator's options for one heater."""
+    devices = entry.options.get(CONF_SIMULATOR) or {}
+    return dict(devices.get(mac_address) or {})
+
+
+def simulator_feature(hass: Any, entry: Any) -> Any | None:
+    """Return the running simulator for an entry, or None.
+
+    Typed loosely for the same reason as `control_feature`.
+    """
+    return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_SIMULATOR)

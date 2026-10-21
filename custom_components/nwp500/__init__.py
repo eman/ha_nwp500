@@ -3,6 +3,7 @@
 Requires Home Assistant 2026.3+ (Python 3.14).
 """
 
+import importlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
@@ -29,7 +30,11 @@ from homeassistant.core import (
     ServiceResponse,
     SupportsResponse,
 )
-from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
+from homeassistant.exceptions import (
+    ConfigEntryNotReady,
+    HomeAssistantError,
+    ServiceValidationError,
+)
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -43,21 +48,29 @@ from nwp500.exceptions import Nwp500Error
 from . import energy_report, schedule_state
 from .const import (
     CONF_CONTROL_ENABLED,
+    CONF_SIMULATOR_ENABLED,
     CONTROL_UNIQUE_ID_MARKER,
     DATA_CONTROL,
     DATA_PLATFORMS,
+    DATA_SIMULATOR,
     DEFAULT_TEMPERATURE_C,
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
     ISSUE_CONTROL_START_FAILED,
+    ISSUE_SIMULATOR_START_FAILED,
     MAX_TEMPERATURE_C,
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
+    MODE_TO_DHW_ID,
     RESERVATION_MODE_IDS,
+    SIMULATOR_UNIQUE_ID_MARKER,
     control_enabled,
     control_feature,
     control_storage_key,
+    simulator_enabled,
+    simulator_feature,
+    simulator_storage_key,
 )
 from .coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
 
@@ -100,6 +113,7 @@ SERVICE_RESET_CONDENSER_FAULT = "reset_condenser_fault"
 SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
 SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
 SERVICE_GET_ENERGY_USAGE = "get_energy_usage"
+SERVICE_SIMULATE = "simulate"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -112,6 +126,10 @@ ATTR_RECIRCULATION_MODE = "mode"
 ATTR_TEMPERATURE = "temperature"
 ATTR_RESERVATIONS = "reservations"
 ATTR_PERIODS = "periods"
+ATTR_WRITES = "writes"
+ATTR_AT = "at"
+ATTR_INCLUDE_POINTS = "include_points"
+ATTR_RESOLUTION_MINUTES = "resolution_minutes"
 
 # Valid days of the week
 VALID_DAYS = [
@@ -389,6 +407,54 @@ SERVICE_GET_ENERGY_USAGE_SCHEMA = vol.All(
     ),
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
     _one_energy_period,
+)
+
+
+def _writes_something(write: dict[str, Any]) -> dict[str, Any]:
+    """A simulated write sets a temperature, a mode, or both."""
+    if ATTR_TEMPERATURE not in write and ATTR_OP_MODE not in write:
+        raise vol.Invalid("a write sets a temperature, a mode, or both")
+    return write
+
+
+# A week: the simulator's answers grow less certain further out, and a
+# week's walk already takes most of a second.
+MAX_SIMULATE_HOURS = 168
+
+SERVICE_SIMULATE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_HOURS, default=24): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=MAX_SIMULATE_HOURS)
+            ),
+            vol.Optional(ATTR_WRITES, default=[]): vol.All(
+                cv.ensure_list,
+                [
+                    vol.All(
+                        vol.Schema(
+                            {
+                                vol.Required(ATTR_AT): cv.datetime,
+                                vol.Optional(ATTR_TEMPERATURE): vol.Coerce(
+                                    float
+                                ),
+                                vol.Optional(ATTR_OP_MODE): vol.In(
+                                    list(MODE_TO_DHW_ID)
+                                ),
+                            }
+                        ),
+                        _writes_something,
+                    )
+                ],
+            ),
+            vol.Optional(ATTR_INCLUDE_POINTS, default=False): cv.boolean,
+            vol.Optional(ATTR_RESOLUTION_MINUTES): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=60)
+            ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
 SERVICE_SET_AIR_FILTER_LIFE_SCHEMA = vol.All(
@@ -824,6 +890,32 @@ class NWP500ServiceHandler:
         if not success:
             raise HomeAssistantError("Failed to request TOU settings")
 
+    async def async_simulate(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the simulate service call.
+
+        Registered whether or not the simulator is on, so that calling it
+        with the simulator off says so rather than "unknown action"; the
+        simulator's own code is reached only through a running feature.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        feature = simulator_feature(self.hass, coordinator.entry)
+        runner = None if feature is None else feature.runners.get(mac_address)
+        if runner is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_not_enabled",
+            )
+        from .simulator.service import async_simulate
+
+        return await async_simulate(
+            self.hass,
+            runner,
+            hours=call.data[ATTR_HOURS],
+            writes=call.data[ATTR_WRITES],
+            include_points=call.data[ATTR_INCLUDE_POINTS],
+            resolution_minutes=call.data.get(ATTR_RESOLUTION_MINUTES),
+        )
+
     async def async_get_energy_usage(
         self, call: ServiceCall
     ) -> ServiceResponse:
@@ -1155,6 +1247,31 @@ async def async_setup_entry(
     elif ir.async_get(hass).async_get_issue(DOMAIN, start_failed_issue):
         # Switched off after it failed to start: nothing is left to fix.
         ir.async_delete_issue(hass, DOMAIN, start_failed_issue)
+
+    # The hot water simulator is optional too, and adds no platforms: its
+    # sensors join the sensor platform. It starts before the platforms are
+    # forwarded so that platform finds it.
+    simulator_issue = f"{ISSUE_SIMULATOR_START_FAILED}_{entry.entry_id}"
+    if simulator_enabled(entry):
+        if (reason := await _async_start_simulator(hass, entry)) is None:
+            ir.async_delete_issue(hass, DOMAIN, simulator_issue)
+        else:
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                simulator_issue,
+                is_fixable=False,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key=ISSUE_SIMULATOR_START_FAILED,
+                translation_placeholders={"reason": reason},
+            )
+    elif _simulator_was_on(entry) and ir.async_get(hass).async_get_issue(
+        DOMAIN, simulator_issue
+    ):
+        # Switched off after it failed to start. An entry that never had
+        # the simulator touches nothing of it.
+        ir.async_delete_issue(hass, DOMAIN, simulator_issue)
+
     hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})[
         DATA_PLATFORMS
     ] = platforms
@@ -1168,6 +1285,43 @@ async def async_setup_entry(
     await _async_setup_services(hass)
 
     return True
+
+
+async def _async_start_simulator(
+    hass: HomeAssistant, entry: NWP500ConfigEntry
+) -> str | None:
+    """Start the hot water simulator; return why it did not, or None.
+
+    Its packages are checked (and installed if Home Assistant may) first,
+    and the package is imported in the import executor: it imports numpy
+    and pandas, which take most of a second.
+    """
+    from .simulator_deps import async_ensure
+
+    try:
+        deps = await async_ensure(hass)
+        if not deps.ok:
+            _LOGGER.error(
+                "The hot water simulator could not start: %s is %s",
+                ", ".join(deps.missing),
+                "not installed"
+                if deps.reason == "missing"
+                else "not installable now (restart Home Assistant to retry)",
+            )
+            return f"{deps.reason}: {', '.join(deps.missing)}"
+        module = await hass.async_add_import_executor_job(
+            importlib.import_module, f"{__name__}.simulator"
+        )
+        await module.async_setup_simulator(hass, entry, entry.runtime_data)
+    except Exception as err:
+        # Optional, like external control: the rest of the integration
+        # runs without it.
+        _LOGGER.exception(
+            "The hot water simulator could not start; the integration runs "
+            "without it"
+        )
+        return type(err).__name__
+    return None
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -1186,6 +1340,12 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     ):
         # It failed to start, so nothing ran to remove it (#189).
         await _async_remove_control_leftovers(hass, entry.entry_id)
+    if _simulator_was_on(entry) and not simulator_enabled(entry):
+        # Switching the simulator off removes its sensors and what it
+        # stored, whether or not it was running.
+        if (simulator := simulator_feature(hass, entry)) is not None:
+            await simulator.async_remove()
+        await _async_remove_simulator_leftovers(hass, entry.entry_id)
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -1197,6 +1357,35 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """
     if _control_was_on(entry):
         await _async_remove_control_leftovers(hass, entry.entry_id)
+    if _simulator_was_on(entry):
+        await _async_remove_simulator_leftovers(hass, entry.entry_id)
+
+
+def _simulator_was_on(entry: ConfigEntry) -> bool:
+    """Whether the simulator was ever switched on for this entry.
+
+    As for external control, the option is stored only once it has been.
+    """
+    return CONF_SIMULATOR_ENABLED in entry.options
+
+
+async def _async_remove_simulator_leftovers(
+    hass: HomeAssistant, entry_id: str
+) -> None:
+    """The simulator's entities, stored state and Repairs issue."""
+    registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
+        if (
+            entity_entry.platform == DOMAIN
+            and SIMULATOR_UNIQUE_ID_MARKER in entity_entry.unique_id
+        ):
+            registry.async_remove(entity_entry.entity_id)
+    await Store[dict[str, Any]](
+        hass, 1, simulator_storage_key(entry_id)
+    ).async_remove()
+    ir.async_delete_issue(
+        hass, DOMAIN, f"{ISSUE_SIMULATOR_START_FAILED}_{entry_id}"
+    )
 
 
 def _control_was_on(entry: ConfigEntry) -> bool:
@@ -1230,7 +1419,7 @@ async def _async_remove_control_leftovers(
 # Services that answer the caller instead of acting on the device. Home
 # Assistant refuses to return data from a service not registered this way.
 _RESPONSE_SERVICES: Final[frozenset[str]] = frozenset(
-    {SERVICE_GET_ENERGY_USAGE}
+    {SERVICE_GET_ENERGY_USAGE, SERVICE_SIMULATE}
 )
 
 # (service name, handler attribute, schema). One table drives both
@@ -1316,6 +1505,11 @@ _SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
         "async_trigger_recirculation",
         SERVICE_DEVICE_OR_ENTITY_SCHEMA,
     ),
+    (
+        SERVICE_SIMULATE,
+        "async_simulate",
+        SERVICE_SIMULATE_SCHEMA,
+    ),
 )
 
 
@@ -1358,6 +1552,10 @@ async def async_unload_entry(
             from .control import async_unload_control
 
             await async_unload_control(hass, entry)
+        if DATA_SIMULATOR in entry_data:
+            from .simulator import async_unload_simulator
+
+            await async_unload_simulator(hass, entry)
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
         await entry.runtime_data.async_shutdown()
 

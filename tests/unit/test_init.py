@@ -190,8 +190,8 @@ async def test_async_setup_entry_registers_services():
 
         await async_setup_entry(mock_hass, mock_entry)
 
-        # Verify all 16 services were registered
-        assert mock_hass.services.async_register.call_count == 16
+        # Verify all 17 services were registered
+        assert mock_hass.services.async_register.call_count == 17
 
         # Get all service names that were registered
         registered_services = [
@@ -210,6 +210,7 @@ async def test_async_setup_entry_registers_services():
         assert SERVICE_RESET_AIR_FILTER in registered_services
         assert SERVICE_SET_RECIRCULATION_MODE in registered_services
         assert SERVICE_TRIGGER_RECIRCULATION in registered_services
+        assert "simulate" in registered_services
 
 
 @pytest.mark.asyncio
@@ -279,7 +280,7 @@ async def test_async_unload_entry_removes_services_when_last():
     await async_unload_entry(mock_hass, mock_entry)
 
     # All 16 services should be removed
-    assert mock_hass.services.async_remove.call_count == 16
+    assert mock_hass.services.async_remove.call_count == 17
 
 
 @pytest.mark.asyncio

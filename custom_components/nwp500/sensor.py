@@ -28,6 +28,7 @@ from .const import (
     INSTALLER_DIAGNOSTICS_SENSORS,
     SENSOR_CONFIGS,
     control_feature,
+    simulator_feature,
 )
 from .coordinator import (
     NWP500ConfigEntry,
@@ -282,6 +283,14 @@ async def async_setup_entry(
         entities.extend(create_control_sensors(feature))
 
     async_add_entities(entities, True)
+
+    # The hot water simulator's sensors, when it is on. Added on their own,
+    # with no update before adding: their state comes from the simulator's
+    # runner, not from a coordinator refresh.
+    if (simulator := simulator_feature(hass, config_entry)) is not None:
+        from .simulator.sensor import create_simulator_sensors
+
+        async_add_entities(create_simulator_sensors(simulator))
 
     def _add_recirculation_sensors_when_supported() -> None:
         """Create the schedule sensor for a device whose features came late.
