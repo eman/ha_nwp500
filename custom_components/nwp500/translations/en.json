@@ -1182,6 +1182,28 @@
           "description": "With the path included, keep one point every this many minutes (1 to 60)."
         }
       }
+    },
+    "set_simulator_calibration": {
+      "name": "Set simulator calibration",
+      "description": "Give the hot water simulator parameters fitted elsewhere, such as from a history kept outside Home Assistant, as a parameters document from nwp500-python's calibration. The simulator uses them from now on, and the weekly calibration refits them from a week later. Changes nothing on the heater. Needs the hot water simulator turned on in the integration's options.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
+        },
+        "parameters": {
+          "name": "Parameters",
+          "description": "The parameters document, as nwp500-python writes it (params_to_document)."
+        },
+        "fitted_at": {
+          "name": "Fitted at",
+          "description": "When the parameters were fitted. Defaults to now."
+        }
+      }
     }
   },
   "exceptions": {
@@ -1205,6 +1227,9 @@
     },
     "simulator_setpoint_out_of_range": {
       "message": "The temperature {temperature} is outside what the simulator runs, {min} to {max}."
+    },
+    "simulator_parameters_invalid": {
+      "message": "These aren't simulator parameters: {reason}"
     }
   },
   "selector": {
@@ -1235,7 +1260,7 @@
     },
     "simulator_calibration_failing": {
       "title": "The hot water simulator can't be fitted to {device}",
-      "description": "The last {runs} calibrations of the hot water simulator for {device} fitted nothing ({reason}), so it still runs on the default parameters for the tank's size, or on its last good fit. A calibration needs weeks of recorded history with quiet nights and full heat pump recoveries, and an air temperature sensor beside the heater for the standby loss. The Simulator calibration sensor's attributes say what each term lacked. This clears when a calibration fits something."
+      "description": "The last {runs} calibrations of the hot water simulator for {device} fitted nothing ({reason}), so it still runs on the default parameters for the tank's size, or on its last good fit. A calibration needs weeks of history with quiet nights and full heat pump recoveries: the heater's recorded history, or Home Assistant's recorder keeping the heater's Last MQTT response and tank temperature sensors; and an air temperature sensor beside the heater for the standby loss. The Simulator calibration sensor's attributes say what each term lacked. This clears when a calibration fits something."
     }
   }
 }

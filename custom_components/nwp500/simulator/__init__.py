@@ -48,6 +48,7 @@ from . import service as service
 from .calibration import (
     CALIBRATE_AT,
     FAILURES_REPORTED,
+    SOURCE_LOADED,
     CalibrationReport,
     async_calibrate,
     due,
@@ -86,7 +87,7 @@ class SimulatorFeature:
         # Each heater's last calibration, as stored: its parameters and
         # when they were fitted (`async_set_calibration`).
         self.calibrations: dict[str, dict[str, Any]] = {}
-        # Each recording heater's last calibration run, fitted or not.
+        # Each heater's last calibration run, fitted or not.
         self.reports: dict[str, CalibrationReport] = {}
         #: The heater being calibrated now, if any: one at a time.
         self.calibrating: str | None = None
@@ -142,7 +143,7 @@ class SimulatorFeature:
                 )
                 self.recorders[mac_address] = recorder
                 recorder.async_start()
-        if self.recorders:
+        if self.runners:
             self._unsubs.append(
                 async_track_time_change(
                     self.hass,
@@ -202,8 +203,8 @@ class SimulatorFeature:
 
     @callback
     def async_request_calibration(self, mac_address: str) -> None:
-        """Calibrate a recording heater now, in the background."""
-        if mac_address not in self.recorders:
+        """Calibrate a heater now, in the background."""
+        if mac_address not in self.runners:
             return
         self._spawn(self.async_calibrate(mac_address))
 
@@ -220,25 +221,24 @@ class SimulatorFeature:
 
     async def _async_calibrate_due(self) -> None:
         now = dt_util.utcnow()
-        for mac_address in list(self.recorders):
+        for mac_address in list(self.runners):
             if due(self.reports.get(mac_address), now):
                 await self.async_calibrate(mac_address)
 
     async def async_calibrate(
         self, mac_address: str
     ) -> CalibrationReport | None:
-        """Calibrate one recording heater, after any other's calibration."""
+        """Calibrate one heater, after any other's calibration."""
         async with self._calibration_lock:
             runner = self.runners.get(mac_address)
-            recorder = self.recorders.get(mac_address)
-            if runner is None or recorder is None or self._removed:
+            if runner is None or self._removed:
                 return None
             self.calibrating = mac_address
             self._notify()
             try:
                 report = await async_calibrate(
                     runner,
-                    recorder,
+                    self.recorders.get(mac_address),
                     self.reports.get(mac_address),
                     lambda params, at: self.async_set_calibration(
                         mac_address, params, at
@@ -252,6 +252,29 @@ class SimulatorFeature:
             self._schedule_save()
             self._notify()
             return report
+
+    async def async_load_calibration(
+        self, mac_address: str, params: HeaterParams, fitted_at: datetime
+    ) -> None:
+        """Walk the heater with `params` fitted elsewhere, and keep them.
+
+        Reported as a run that fitted them, so the weekly run refits them
+        from a week on.
+        """
+        async with self._calibration_lock:
+            if mac_address not in self.runners or self._removed:
+                return
+            self.async_set_calibration(mac_address, params, fitted_at)
+            report = CalibrationReport(
+                at=dt_util.utcnow(),
+                duration_s=0.0,
+                fitted=True,
+                source=SOURCE_LOADED,
+            )
+            self.reports[mac_address] = report
+            self._report_issue(mac_address, report)
+            self._schedule_save()
+            self._notify()
 
     def _report_issue(
         self, mac_address: str, report: CalibrationReport

@@ -11,8 +11,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from nwp500 import sim, status_history
+from nwp500.sim.params import params_to_document
 from nwp500.sim_calibrate import CalibrationInputError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -34,13 +37,17 @@ from custom_components.nwp500.simulator.calibration import (
     CalibrationReport,
     day_files,
     due,
+    heater_entities,
     recorded,
     run_calibration,
 )
 from custom_components.nwp500.simulator.calibration_entities import (
     SimulatorCalibrateButton,
     SimulatorCalibrationSensor,
+    create_calibration_buttons,
+    create_calibration_sensors,
 )
+from custom_components.nwp500.simulator.service import async_set_calibration
 
 from .conftest import MAC, status_dict
 
@@ -314,7 +321,10 @@ async def test_a_run_without_history_or_features_says_why(
 
     report = await feature.async_calibrate(MAC)
     assert report is not None
-    assert report.error == "no history is recorded yet"
+    assert report.error == (
+        "no history: the heater's history is not recorded, and Home "
+        "Assistant's recorder is not running"
+    )
     assert report.failures == 1
 
     coordinator.device_features = {}
@@ -395,9 +405,70 @@ async def test_the_button_calibrates_now_and_waits_while_it_runs(
     await async_unload_simulator(hass, entry)
 
 
+def _register(hass: HomeAssistant, *keys: str, disabled: str = "") -> None:
+    registry = er.async_get(hass)
+    for key in keys:
+        platform = "binary_sensor" if key.endswith("_use") else "sensor"
+        registry.async_get_or_create(
+            platform,
+            DOMAIN,
+            f"{MAC}_{key}",
+            disabled_by=(
+                er.RegistryEntryDisabler.INTEGRATION
+                if key == disabled
+                else None
+            ),
+        )
+
+
+def test_the_heaters_entities_are_found_by_unique_id(hass: HomeAssistant):
+    _register(
+        hass,
+        "diagnostic_last_response",
+        "tank_upper_temperature",
+        "tank_lower_temperature",
+        "comp_use",
+        "ambient_temperature",
+        disabled="ambient_temperature",
+    )
+    recorder = MagicMock(entity_filter=lambda e: e != "binary_sensor.comp")
+    with patch.object(
+        calibration_module, "get_instance", return_value=recorder
+    ):
+        entities, missing = heater_entities(hass, MAC)
+
+    assert missing == []
+    assert entities is not None
+    assert entities.heard.startswith("sensor.")
+    assert entities.upper != entities.lower
+    # Recorded, and enabled.
+    assert entities.compressor is not None
+    assert entities.ambient is None
+
+    recorder.entity_filter = lambda e: e != entities.heard
+    with patch.object(
+        calibration_module, "get_instance", return_value=recorder
+    ):
+        assert heater_entities(hass, MAC) == (
+            None,
+            ["diagnostic_last_response"],
+        )
+
+
+@pytest.fixture
+def recorder_running(hass: HomeAssistant):
+    hass.config.components.add("recorder")
+    recorder = MagicMock(keep_days=10, entity_filter=None)
+    with patch.object(
+        calibration_module, "get_instance", return_value=recorder
+    ):
+        yield recorder
+    hass.config.components.remove("recorder")
+
+
 @pytest.mark.asyncio
-async def test_a_heater_not_recording_has_no_calibration(
-    hass: HomeAssistant, hass_storage, coordinator
+async def test_a_heater_not_recording_is_fitted_on_its_entities(
+    hass: HomeAssistant, hass_storage, coordinator, recorder_running
 ):
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -405,14 +476,118 @@ async def test_a_heater_not_recording_has_no_calibration(
         options={CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: {MAC: {}}},
     )
     entry.add_to_hass(hass)
+    _register(
+        hass,
+        "diagnostic_last_response",
+        "tank_upper_temperature",
+        "tank_lower_temperature",
+    )
     feature = await _started(hass, entry, coordinator)
+    assert MAC not in feature.recorders
+    assert len(create_calibration_sensors(feature)) == 1
+    assert len(create_calibration_buttons(feature)) == 1
 
-    from custom_components.nwp500.simulator.calibration_entities import (
-        create_calibration_buttons,
-        create_calibration_sensors,
+    done, terms = _fake_done(fitted=True)
+    history = MagicMock()
+    with (
+        patch.object(
+            calibration_module,
+            "read_heater_history",
+            AsyncMock(return_value=history),
+        ) as read,
+        patch.object(
+            calibration_module, "run_change_calibration", return_value=done
+        ) as run,
+        patch.object(calibration_module, "report", return_value=terms),
+    ):
+        report = await feature.async_calibrate(MAC)
+
+    assert report is not None and report.fitted
+    assert report.source == "entities"
+    _client, entities, start, end = read.call_args.args
+    assert entities.upper == er.async_get(hass).async_get_entity_id(
+        "sensor", DOMAIN, f"{MAC}_tank_upper_temperature"
+    )
+    # The recorder's ten days.
+    assert end - start == timedelta(days=10)
+    assert run.call_args.args[:2] == (history, sim.default_params())
+    assert feature.runners[MAC].params == done.calibration.params
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_the_statuses_are_fitted_once_they_reach_as_far_back(
+    hass: HomeAssistant,
+    hass_storage,
+    entry,
+    coordinator,
+    raw_listeners,
+    config_dir,
+    recorder_running,
+):
+    _register(
+        hass,
+        "diagnostic_last_response",
+        "tank_upper_temperature",
+        "tank_lower_temperature",
+    )
+    # Four days recorded, today among them.
+    first = datetime.now(UTC) - timedelta(days=3)
+    directory = Path(simulator_history_dir(str(config_dir), MAC))
+    _write_day(directory, first.date().isoformat(), 5, first, gz=True)
+    feature = await _started(hass, entry, coordinator)
+    done, terms = _fake_done(fitted=True)
+
+    async def calibrate() -> Any:
+        with (
+            patch.object(
+                calibration_module,
+                "read_heater_history",
+                AsyncMock(return_value=MagicMock()),
+            ),
+            patch.object(
+                calibration_module, "run_change_calibration", return_value=done
+            ),
+            patch.object(
+                calibration_module, "run_calibration", return_value=done
+            ),
+            patch.object(calibration_module, "report", return_value=terms),
+            patch.object(
+                calibration_module,
+                "record_inputs",
+                AsyncMock(return_value=None),
+            ),
+        ):
+            return await feature.async_calibrate(MAC)
+
+    # The recorder keeps ten days: its history reaches further back.
+    report = await calibrate()
+    assert report is not None and report.source == "entities"
+    recorder_running.keep_days = 4
+    report = await calibrate()
+    assert report is not None and report.source == "statuses"
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_a_fit_made_elsewhere_is_loaded(
+    hass: HomeAssistant, hass_storage, entry, coordinator, raw_listeners
+):
+    feature = await _started(hass, entry, coordinator)
+    params, _ = _fake_done(fitted=True)
+    params = params.calibration.params
+
+    await async_set_calibration(
+        hass, feature, MAC, params_to_document(params), T0
     )
 
-    assert create_calibration_sensors(feature) == []
-    assert create_calibration_buttons(feature) == []
-    assert await feature.async_calibrate(MAC) is None
+    assert feature.runners[MAC].params == params
+    assert feature.calibrations[MAC]["fitted_at"] == T0.isoformat()
+    report = feature.reports[MAC]
+    assert report.source == "loaded" and report.fitted
+    assert not due(report, report.at + timedelta(days=6))
+
+    with pytest.raises(ServiceValidationError) as raised:
+        await async_set_calibration(hass, feature, MAC, {"tank": 1}, None)
+    assert raised.value.translation_key == "simulator_parameters_invalid"
     await async_unload_simulator(hass, entry)

@@ -1,14 +1,23 @@
-"""Fitting the simulator to a heater, from its recorded history.
+"""Fitting the simulator to a heater, from its history.
 
-A heater whose history is recorded (`recorder.py`) is calibrated once a
-week, at night, and when the owner asks. The day files are read one
-status at a time (`status_history.iter_read`), and the air beside the
-heater and its humidity come from Home Assistant's recorder over the same
-span (`sim_home_assistant.record_inputs`). The library refits the
-defaults for the heater's tank size (`sim_calibrate.calibrate`), in an
+Each heater is calibrated once a week, at night, and when the owner asks,
+from one of two histories:
+
+- the statuses it reported, where its history is recorded (`recorder.py`):
+  the day files are read one status at a time (`status_history.iter_read`)
+  and fitted by `sim_calibrate.calibrate`;
+- the changes of its own entities, as Home Assistant's recorder keeps
+  them (`sim_home_assistant.read_heater_history`, a day at a time), fitted
+  by `sim_calibrate.calibrate_changes`.
+
+The statuses are the finer record, and are used once they reach as far
+back as the recorder does; before then, the entities' longer history is.
+The air beside the heater and its humidity come from the recorder over the
+same span (`sim_home_assistant.record_inputs`). The fit runs in an
 executor: on a small machine, weeks of history take minutes.
 
-The fitted parameters replace the heater's last only when the run fitted
+A run refits what the heater runs on, its last fit or else the defaults
+for its tank's size, and the result replaces it only when the run fitted
 something; a run that fitted nothing, or failed, is reported and the
 heater keeps what it had.
 """
@@ -25,6 +34,8 @@ from datetime import UTC, date, datetime, timedelta
 from datetime import time as dt_time
 from typing import TYPE_CHECKING, Any, TextIO, cast
 
+from homeassistant.components.recorder import get_instance
+from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from nwp500 import sim_adapters as sa
@@ -33,16 +44,29 @@ from nwp500.sim_calibrate import (
     Calibrated,
     CalibrationInputError,
     calibrate,
+    calibrate_changes,
     report,
 )
-from nwp500.sim_home_assistant import HomeAssistantError, record_inputs
+from nwp500.sim_home_assistant import (
+    HeaterEntities,
+    HomeAssistantError,
+    read_heater_history,
+    record_inputs,
+)
 
+from ..const import DOMAIN
 from .ha_client import InProcessClient
 
 if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
     from nwp500.models import DeviceStatus
     from nwp500.sim.params import HeaterParams
-    from nwp500.sim_home_assistant import HomeAssistantClient, RecordInputs
+    from nwp500.sim_home_assistant import (
+        HeaterHistory,
+        HomeAssistantClient,
+        RecordInputs,
+    )
 
     from .recorder import HistoryRecorder
     from .runner import SimulatorRunner
@@ -54,6 +78,37 @@ CALIBRATE_EVERY = timedelta(days=7)
 CALIBRATE_AT = dt_time(3, 30)
 #: Runs in a row that fit nothing, or failed, before Repairs says so.
 FAILURES_REPORTED = 3
+#: At most this much of the entities' history is read: the recorder can
+#: keep a year, and a year of a heater's changes is millions of rows.
+ENTITY_HISTORY_DAYS = 60
+
+#: Where the history came from.
+SOURCE_STATUSES = "statuses"
+SOURCE_ENTITIES = "entities"
+#: Parameters fitted elsewhere (`nwp500.set_simulator_calibration`).
+SOURCE_LOADED = "loaded"
+
+#: The heater's own entities, by their role in `HeaterEntities`: each
+#: one's platform and unique ID after the heater's address. Only `heard`
+#: and the probes are needed.
+_HEATER_ENTITIES: dict[str, tuple[str, str]] = {
+    "heard": ("sensor", "diagnostic_last_response"),
+    "upper": ("sensor", "tank_upper_temperature"),
+    "lower": ("sensor", "tank_lower_temperature"),
+    "compressor": ("binary_sensor", "comp_use"),
+    "upper_element": ("binary_sensor", "heat_upper_use"),
+    "lower_element": ("binary_sensor", "heat_lower_use"),
+    "heat_source": ("sensor", "current_heat_use"),
+    "dhw_in_use": ("binary_sensor", "dhw_use"),
+    "target": ("sensor", "hp_lower_off_temp_setting"),
+    "operation_mode": ("sensor", "operation_mode"),
+    "anti_legionella": ("binary_sensor", "anti_legionella_operation_busy"),
+    "error_code": ("sensor", "error_code"),
+    "power": ("sensor", "current_inst_power"),
+    "energy_to_setpoint": ("sensor", "energy_to_setpoint"),
+    "ambient": ("sensor", "ambient_temperature"),
+}
+_REQUIRED = ("heard", "upper", "lower")
 
 _SUFFIX = ".jsonl"
 _GZ_SUFFIX = ".jsonl.gz"
@@ -107,6 +162,54 @@ def run_calibration(
     return calibrate(recorded(paths), params=base, record=record)
 
 
+def run_change_calibration(
+    history: HeaterHistory, base: HeaterParams, record: RecordInputs | None
+) -> Calibrated:
+    """The library's calibration of `base` on the heater's entity changes.
+
+    Runs in an executor.
+    """
+    return calibrate_changes(
+        history.rows,
+        history.observed,
+        params=base,
+        record=record,
+        notes=history.notes,
+    )
+
+
+def heater_entities(
+    hass: HomeAssistant, mac_address: str
+) -> tuple[HeaterEntities | None, list[str]]:
+    """The heater's own entities whose history the recorder keeps.
+
+    None when one it needs is disabled or not recorded; with the names of
+    those it needs that are missing.
+    """
+    registry = er.async_get(hass)
+    recorder = get_instance(hass)
+    keeps = getattr(recorder, "entity_filter", None)
+    found: dict[str, str] = {}
+    for role, (platform, key) in _HEATER_ENTITIES.items():
+        entity_id = registry.async_get_entity_id(
+            platform, DOMAIN, f"{mac_address}_{key}"
+        )
+        if entity_id is None:
+            continue
+        entry = registry.async_get(entity_id)
+        if entry is None or entry.disabled:
+            continue
+        if keeps is not None and not keeps(entity_id):
+            continue
+        found[role] = entity_id
+    missing = [
+        _HEATER_ENTITIES[role][1] for role in _REQUIRED if role not in found
+    ]
+    if missing:
+        return None, missing
+    return HeaterEntities(**found), []
+
+
 @dataclass
 class CalibrationReport:
     """What the last run of a heater's calibration found, as stored."""
@@ -127,6 +230,9 @@ class CalibrationReport:
     air: str | None = None
     #: Runs in a row, up to this one, that fitted nothing or failed.
     failures: int = 0
+    #: The history fitted, `statuses` or `entities`, or `loaded` for
+    #: parameters fitted elsewhere; None when none was.
+    source: str | None = None
 
     def as_document(self) -> dict[str, Any]:
         """For the store, diagnostics and the sensor's attributes."""
@@ -141,6 +247,7 @@ class CalibrationReport:
             "gaps": self.gaps,
             "air": self.air,
             "failures": self.failures,
+            "source": self.source,
         }
 
     @classmethod
@@ -161,6 +268,7 @@ class CalibrationReport:
                 gaps=int(doc.get("gaps") or 0),
                 air=doc.get("air"),
                 failures=int(doc.get("failures") or 0),
+                source=doc.get("source"),
             )
         except KeyError, TypeError, ValueError:
             return None
@@ -188,14 +296,15 @@ def due(last: CalibrationReport | None, now: datetime) -> bool:
 
 async def async_calibrate(
     runner: SimulatorRunner,
-    recorder: HistoryRecorder,
+    recorder: HistoryRecorder | None,
     last: CalibrationReport | None,
     apply: Callable[[HeaterParams, datetime], None],
     clock: Callable[[], datetime] = dt_util.utcnow,
 ) -> CalibrationReport:
-    """Refit one heater from its recorded history; report what was found.
+    """Refit one heater from its history; report what was found.
 
-    `apply` takes the fitted parameters when the run fitted anything.
+    `recorder` is the heater's status recording, if it has one. `apply`
+    takes the fitted parameters when the run fitted anything.
     """
     hass = runner.hass
     started = clock()
@@ -219,21 +328,46 @@ async def async_calibrate(
     feature = runner.coordinator.device_features.get(runner.mac_address)
     if feature is None:
         return failed("the heater's features are not read yet")
-    # Today's statuses too.
-    await recorder.async_flush()
-    days = await hass.async_add_executor_job(day_files, recorder.directory)
-    if not days:
-        return failed("no history is recorded yet")
-    start = datetime.combine(days[0][0], dt_time(0), tzinfo=UTC)
+    days: list[tuple[date, str]] = []
+    if recorder is not None:
+        # Today's statuses too.
+        await recorder.async_flush()
+        days = await hass.async_add_executor_job(day_files, recorder.directory)
+    entities: HeaterEntities | None = None
+    missing: list[str] = []
+    keep_days = 0
+    if "recorder" in hass.config.components:
+        entities, missing = heater_entities(hass, runner.mac_address)
+        keep_days = min(get_instance(hass).keep_days, ENTITY_HISTORY_DAYS)
+    recorded_days = (started.date() - days[0][0]).days + 1 if days else 0
+    if days and (entities is None or recorded_days >= keep_days):
+        source = SOURCE_STATUSES
+        start = datetime.combine(days[0][0], dt_time(0), tzinfo=UTC)
+    elif entities is not None:
+        source = SOURCE_ENTITIES
+        start = started - timedelta(days=keep_days)
+    elif "recorder" not in hass.config.components:
+        return failed(
+            "no history: the heater's history is not recorded, and Home "
+            "Assistant's recorder is not running"
+        )
+    else:
+        return failed(
+            "no history: the heater's history is not recorded, and Home "
+            "Assistant's recorder does not keep its "
+            + ", ".join(missing)
+            + " sensor"
+            + ("s" if len(missing) > 1 else "")
+        )
+    # The in-process client answers the calls the library's REST client
+    # would.
+    client = cast("HomeAssistantClient", InProcessClient(hass))
     record = None
-    entities = runner.entities
-    if entities.air is not None or entities.humidity is not None:
+    if runner.entities.air is not None or runner.entities.humidity is not None:
         try:
             record = await record_inputs(
-                # The in-process client answers the calls the library's
-                # REST client would.
-                cast("HomeAssistantClient", InProcessClient(hass)),
-                entities,
+                client,
+                runner.entities,
                 start,
                 started,
             )
@@ -245,10 +379,19 @@ async def async_calibrate(
     # an earlier fit's value rather than going back to the defaults.
     base = runner.params if runner.params is not None else sa.params(feature)
     try:
-        done = await hass.async_add_executor_job(
-            run_calibration, [path for _, path in days], base, record
-        )
-    except CalibrationInputError as err:
+        # Entities are chosen only when there are some.
+        if source == SOURCE_STATUSES or entities is None:
+            done = await hass.async_add_executor_job(
+                run_calibration, [path for _, path in days], base, record
+            )
+        else:
+            history = await read_heater_history(
+                client, entities, start, started
+            )
+            done = await hass.async_add_executor_job(
+                run_change_calibration, history, base, record
+            )
+    except (HomeAssistantError, CalibrationInputError) as err:
         return failed(str(err))
     except Exception as err:
         _LOGGER.exception("The simulator's calibration failed")
@@ -258,9 +401,10 @@ async def async_calibrate(
     if fitted:
         apply(done.calibration.params, started)
     _LOGGER.info(
-        "Calibrated the simulator for %s on %d statuses: %d of %d terms fitted",
+        "Calibrated the simulator for %s on %d %s: %d of %d terms fitted",
         runner.mac_address,
         done.n_statuses,
+        "statuses" if source == SOURCE_STATUSES else "entity changes",
         sum(term["fitted"] for term in terms),
         len(terms),
     )
@@ -274,6 +418,7 @@ async def async_calibrate(
         gaps=done.n_gaps,
         air=done.air,
         failures=0 if fitted else failures + 1,
+        source=source,
     )
 
 
@@ -281,10 +426,16 @@ __all__ = [
     "CALIBRATE_AT",
     "CALIBRATE_EVERY",
     "FAILURES_REPORTED",
+    "ENTITY_HISTORY_DAYS",
+    "SOURCE_ENTITIES",
+    "SOURCE_LOADED",
+    "SOURCE_STATUSES",
     "CalibrationReport",
     "async_calibrate",
     "day_files",
     "due",
+    "heater_entities",
     "recorded",
     "run_calibration",
+    "run_change_calibration",
 ]

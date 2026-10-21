@@ -1,4 +1,4 @@
-"""The simulator's calibration, for each heater whose history is recorded.
+"""The simulator's calibration, for each heater.
 
 A diagnostic sensor says when the heater was last fitted and what each
 term came to; a button calibrates it now.
@@ -88,6 +88,7 @@ class SimulatorCalibrationSensor(NWP500CalibrationEntity, SensorEntity):  # type
             "statuses": doc["statuses"],
             "gaps": doc["gaps"],
             "air": doc["air"],
+            "source": doc["source"],
             "duration_s": doc["duration_s"],
             "terms": doc["terms"],
             "notes": doc["notes"],
@@ -114,18 +115,18 @@ class SimulatorCalibrateButton(NWP500CalibrationEntity, ButtonEntity):  # type: 
 def create_calibration_sensors(
     feature: SimulatorFeature,
 ) -> list[SensorEntity]:
-    """A calibration sensor for each heater whose history is recorded."""
+    """A calibration sensor for each heater."""
     return [
         SimulatorCalibrationSensor(feature, mac_address, "calibration")
-        for mac_address in feature.recorders
+        for mac_address in feature.runners
     ]
 
 
 def create_calibration_buttons(
     feature: SimulatorFeature,
 ) -> list[ButtonEntity]:
-    """A calibrate button for each heater whose history is recorded."""
+    """A calibrate button for each heater."""
     return [
         SimulatorCalibrateButton(feature, mac_address, "calibrate")
-        for mac_address in feature.recorders
+        for mac_address in feature.runners
     ]

@@ -32,18 +32,22 @@
   or the simulator off keeps what was recorded; the options flow deletes it
   only when asked, and removing the integration deletes it. The
   diagnostics show the days stored, their size and the longest gap.
-- **Fitting the simulator to the heater.** A heater whose history is
-  recorded is calibrated from it once a week, at night, and when its
-  **Calibrate simulator** button is pressed, one heater at a time. The
-  library refits the simulator's terms from the recorded statuses, with
-  the air and humidity sensors' history from Home Assistant's recorder; a
-  term the history cannot fit keeps its last value. The simulator walks
+- **Fitting the simulator to the heater.** Each heater is calibrated once
+  a week, at night, and when its **Calibrate simulator** button is
+  pressed, one heater at a time. The library refits the simulator's terms
+  from the heater's history: its recorded statuses, or, until those reach
+  as far back, Home Assistant's recorder of the heater's own sensors (the
+  last response time and the tank temperatures are needed). The air and
+  humidity sensors' history comes from the recorder. A term the history
+  cannot fit keeps its last value. The simulator walks
   the heater with the fitted terms from then on, and they are kept across
   restarts. The **Simulator calibration** sensor shows when it was last
   fitted, and its attributes show each term's value and why a term was not
   fitted. Three runs in a row that fit nothing raise a Repairs issue.
   Weeks of history with quiet nights and full recoveries are needed before
-  most terms fit.
+  most terms fit. `nwp500.set_simulator_calibration` gives a heater
+  parameters fitted elsewhere, such as from a longer history kept outside
+  Home Assistant; the weekly run refits them from a week later.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
   start or the entry's reload. The heartbeat alone does not show a reload.

@@ -181,7 +181,7 @@ class SimulatorEnergySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignor
 def create_simulator_sensors(feature: SimulatorFeature) -> list[SensorEntity]:
     """The sensors for each heater the simulator runs for.
 
-    And a calibration sensor for each whose history is recorded.
+    And each one's calibration sensor.
     """
     entities: list[SensorEntity] = create_calibration_sensors(feature)
     for runner in feature.runners.values():

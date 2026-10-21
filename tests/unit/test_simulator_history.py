@@ -20,6 +20,8 @@ from pytest_homeassistant_custom_component.components.recorder.common import (
 # The simulator's packages; without them (tox -e py314-nosim), skipped.
 pytest.importorskip("pandas")
 
+from nwp500 import sim  # noqa: E402
+from nwp500.sim_calibrate import report  # noqa: E402
 from nwp500.sim_home_assistant import (  # noqa: E402
     Entities,
     HeaterEntities,
@@ -29,6 +31,9 @@ from nwp500.sim_home_assistant import (  # noqa: E402
     record_inputs,
 )
 
+from custom_components.nwp500.simulator.calibration import (  # noqa: E402
+    run_change_calibration,
+)
 from custom_components.nwp500.simulator.ha_client import (  # noqa: E402
     InProcessClient,
 )
@@ -173,6 +178,11 @@ async def test_both_clients_read_the_same_heater_history(
     assert local.notes == remote.notes
     assert local.rows == remote.rows
     assert local.observed
+
+    # And through the library's fit, which a quarter hour cannot inform.
+    done = run_change_calibration(local, sim.default_params(), None)
+    assert done.n_statuses > 0
+    assert not any(term.fitted for term in report(done))
 
 
 @pytest.mark.asyncio

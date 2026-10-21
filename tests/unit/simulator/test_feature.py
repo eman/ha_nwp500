@@ -26,8 +26,12 @@ from custom_components.nwp500.simulator import (
     async_unload_simulator,
     create_simulator_sensors,
 )
+from custom_components.nwp500.simulator.calibration_entities import (
+    SimulatorCalibrationSensor,
+)
 from custom_components.nwp500.simulator.runner import Answer
 from custom_components.nwp500.simulator.sensor import (
+    NWP500SimulatorEntity,
     SimulatorEnergySensor,
     SimulatorHeatingSensor,
     SimulatorHotWaterReadySensor,
@@ -166,7 +170,10 @@ async def test_sensors_are_unavailable_without_an_answer(
 
     runner.answer = Answer(computed_at=dt_util.utcnow(), waiting="standby")
 
-    assert not any(sensor.available for sensor in sensors)
+    # The calibration sensor reports the fit, not the answer.
+    answers = [s for s in sensors if isinstance(s, NWP500SimulatorEntity)]
+    assert len(answers) == 3
+    assert not any(sensor.available for sensor in answers)
     await async_unload_simulator(hass, entry)
 
 
@@ -452,6 +459,7 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
 
     assert len(added) == before + 1
     assert {type(s) for s in added[-1]} == {
+        SimulatorCalibrationSensor,
         SimulatorHeatingSensor,
         SimulatorHotWaterReadySensor,
         SimulatorEnergySensor,

@@ -65,21 +65,12 @@ class InProcessClient:
             return History({}, {})
         if "recorder" not in self._hass.config.components:
             raise HomeAssistantError("the recorder is not running")
-        doc = await get_instance(self._hass).async_add_executor_job(
-            _history_document,
+        return await get_instance(self._hass).async_add_executor_job(
+            _history,
             self._hass,
             start.astimezone(UTC),
             end.astimezone(UTC),
             names,
-        )
-        outages = parse_outages(doc, end)
-        units = parse_units(doc)
-        states = parse_states(doc)
-        return History(
-            history_for(doc, names),
-            {n: outages.get(n, []) for n in names},
-            {n: units.get(n, []) for n in names},
-            {n: states.get(n, []) for n in names},
         )
 
     async def forecast(self, entity: str) -> tuple[list[Reading], str | None]:
@@ -111,3 +102,23 @@ def _history_document(
         no_attributes=False,
     )
     return json_loads(json_bytes(list(states.values())))
+
+
+def _history(
+    hass: HomeAssistant, start: datetime, end: datetime, names: list[str]
+) -> History:
+    """`_history_document`, parsed. Runs in the recorder's executor.
+
+    A day of a heater's history is tens of thousands of rows: parsed here,
+    not in the event loop.
+    """
+    doc = _history_document(hass, start, end, names)
+    outages = parse_outages(doc, end)
+    units = parse_units(doc)
+    states = parse_states(doc)
+    return History(
+        history_for(doc, names),
+        {n: outages.get(n, []) for n in names},
+        {n: units.get(n, []) for n in names},
+        {n: states.get(n, []) for n in names},
+    )

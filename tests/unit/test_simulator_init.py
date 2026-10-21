@@ -351,7 +351,12 @@ async def test_removing_the_entry_removes_its_storage(
 
 
 @pytest.mark.asyncio
-async def test_the_service_says_when_the_simulator_is_off(hass: HomeAssistant):
+@pytest.mark.parametrize(
+    "service", ["async_simulate", "async_set_simulator_calibration"]
+)
+async def test_the_service_says_when_the_simulator_is_off(
+    hass: HomeAssistant, service: str
+):
     handler = NWP500ServiceHandler(hass)
     coordinator = MagicMock()
     coordinator.entry = MockConfigEntry(domain=DOMAIN, entry_id="e1")
@@ -366,7 +371,7 @@ async def test_the_service_says_when_the_simulator_is_off(hass: HomeAssistant):
         patch.dict(sys.modules, dict.fromkeys(_HEAVY)),
         pytest.raises(ServiceValidationError) as err,
     ):
-        await handler.async_simulate(call)
+        await getattr(handler, service)(call)
 
     assert err.value.translation_key == "simulator_not_enabled"
 
