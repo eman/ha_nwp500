@@ -66,7 +66,7 @@ its time-of-use schedule.
 | Sensor | State |
 |---|---|
 | Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation, powered off or Standby) |
-| Simulated hot water ready | When the tank will next be fully heated: the end of the heating it is in, or of the next one. Unknown when it won't heat, or won't finish heating, within 24 hours |
+| Simulated hot water ready | When the tank will next be fully heated: the end of the heating it is in, or of the next one, including heating that goes straight on in another mode or zone. Unknown when it won't heat, or won't finish heating, within 24 hours, or when a mode change cuts it short |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 
 Each sensor has these attributes:
@@ -96,7 +96,7 @@ heater. It needs the simulator turned on.
 |---|---|
 | `device_id` or `entity_id` | The water heater |
 | `hours` | How far ahead, 1 to 168. Default 24 |
-| `writes` | Setpoint or mode changes to try. Each has `at` (when), and `temperature` (in Home Assistant's unit), `mode`, or both |
+| `writes` | Setpoint or mode changes to try. Each has `at` (when), and `temperature` (in Home Assistant's unit), `mode` (`heat_pump`, `electric`, `energy_saver` or `high_demand`), or both. A change into Vacation or Power Off isn't modelled |
 | `include_points` | Also return the tank's path. Default off |
 | `resolution_minutes` | With the path, keep one point every this many minutes |
 

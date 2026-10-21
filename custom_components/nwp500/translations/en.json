@@ -1143,7 +1143,7 @@
         },
         "writes": {
           "name": "Changes to try",
-          "description": "Setpoint or mode changes to simulate, each with `at` (when), and `temperature` (in Home Assistant's unit), `mode`, or both. Modes: heat_pump, electric, energy_saver, high_demand, vacation, power_off."
+          "description": "Setpoint or mode changes to simulate, each with `at` (when), and `temperature` (in Home Assistant's unit), `mode`, or both. Modes: heat_pump, electric, energy_saver or high_demand; the simulator doesn't model a change into Vacation or Power Off."
         },
         "include_points": {
           "name": "Include the tank's path",

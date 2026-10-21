@@ -376,6 +376,9 @@ def test_the_service_schema_fills_its_defaults():
         {"hours": 0},
         {"writes": [{"at": "2026-10-21T14:00:00"}]},
         {"writes": [{"at": "2026-10-21T14:00:00", "mode": "turbo"}]},
+        # Not modelled: the simulator would drop the write whole.
+        {"writes": [{"at": "2026-10-21T14:00:00", "mode": "vacation"}]},
+        {"writes": [{"at": "2026-10-21T14:00:00", "mode": "power_off"}]},
         {"writes": [{"temperature": 120}]},
         {"resolution_minutes": 0},
     ],

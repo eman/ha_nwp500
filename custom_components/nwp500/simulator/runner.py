@@ -14,7 +14,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
@@ -44,6 +44,7 @@ from .ha_client import InProcessClient
 
 if TYPE_CHECKING:
     from nwp500.models import DeviceFeature, DeviceStatus
+    from nwp500.sim.engine import HeatingInterval
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
 
@@ -257,6 +258,30 @@ def heater_schedules(
     )
 
 
+# Heating that starts within this of the last one's end goes on from it:
+# the elements' upper zone then their lower, or a mode change handing the
+# compressor's heating to the elements.
+_HANDOFF = timedelta(minutes=1)
+# Why a heating stops short of done: the walk ended, or the mode changed.
+_UNFINISHED = frozenset({"horizon", "mode"})
+
+
+def _ready_at(heating: Sequence[HeatingInterval]) -> datetime | None:
+    """When the next heating is done.
+
+    The end of the last interval in an unbroken run from the first, unless
+    that one stopped short.
+    """
+    if not heating:
+        return None
+    last = heating[0]
+    for interval in heating[1:]:
+        if interval.start.at > last.end + _HANDOFF:
+            break
+        last = interval
+    return None if last.stop in _UNFINISHED else last.end
+
+
 def answer_from(result: SimulationResult, inputs: Inputs) -> Answer:
     """The entities' answer from a walk."""
     scenario = inputs.scenario
@@ -272,14 +297,12 @@ def answer_from(result: SimulationResult, inputs: Inputs) -> Answer:
     else:
         heating_state = STATE_IDLE
     total = result.input_wh
-    # A heating still going when the walk ends stops at the walk's end,
-    # not at its target: when it finishes is not known.
-    finished = first is not None and first.stop != "horizon"
+    ready = _ready_at(result.heating)
     return Answer(
         computed_at=scenario.start,
         state=heating_state,
         start=None if first is None else first.start.at,
-        end=first.end if first is not None and finished else None,
+        end=ready,
         source=None if first is None else first.source,
         cause=None if first is None else first.start.cause,
         trigger=None if first is None else first.start.trigger,

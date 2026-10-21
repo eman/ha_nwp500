@@ -456,3 +456,60 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
         SimulatorEnergySensor,
     }
     await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_heating_handed_on_in_another_mode_is_ready_when_it_ends(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    """A change to Electric hands the compressor's heating on.
+
+    Ready is when the elements finish, not the change.
+    """
+    coordinator.data[MAC]["status"] = make_status(compUse=ON)
+    feature = await started(hass, entry, coordinator)
+    at = dt_util.utcnow().replace(microsecond=0) + timedelta(minutes=10)
+
+    document = await async_simulate(
+        hass,
+        feature.runners[MAC],
+        hours=6,
+        writes=[{"at": at, "mode": "electric"}],
+        include_points=False,
+        resolution_minutes=None,
+    )
+
+    heating = document["heating"]
+    assert heating[0]["stop"] == "mode"
+    assert heating[1]["source"] == "element"
+    ready = datetime.fromisoformat(document["summary"]["ready_at"])
+    assert ready > datetime.fromisoformat(heating[0]["end"])
+    assert ready == datetime.fromisoformat(heating[-1]["end"])
+    await async_unload_simulator(hass, entry)
+
+
+def test_heating_cut_short_by_a_mode_change_has_no_ready_time():
+    from types import SimpleNamespace
+
+    from custom_components.nwp500.simulator.runner import _ready_at
+
+    t0 = datetime(2026, 10, 21, 12, tzinfo=UTC)
+
+    def interval(start: int, end: int, stop: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            start=SimpleNamespace(at=t0 + timedelta(minutes=start)),
+            end=t0 + timedelta(minutes=end),
+            stop=stop,
+        )
+
+    # Into a mode that does not heat: nothing goes on from it.
+    assert _ready_at([interval(0, 10, "mode")]) is None
+    # A later, separate heating is not part of it.
+    assert (
+        _ready_at([interval(0, 10, "mode"), interval(90, 120, "target")])
+        is None
+    )
+    assert _ready_at(
+        [interval(0, 10, "target"), interval(90, 120, "target")]
+    ) == (t0 + timedelta(minutes=10))
+    assert _ready_at([]) is None
