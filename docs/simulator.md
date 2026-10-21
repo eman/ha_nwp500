@@ -60,7 +60,8 @@ For each water heater you can choose two sensors. Both are optional:
 | Air temperature beside the heater | How fast the heat pump heats: it takes its heat from this air | The heater's own reading while the heat pump runs; otherwise 65 °F (18 °C), and `reasons` says `ambient_defaulted` |
 | Humidity beside the heater | The heat pump's output | 50% |
 
-A reading older than an hour is not used.
+A sensor that has not reported for an hour is not used. One that keeps
+reporting the same value is.
 
 Don't choose the heater's own ambient temperature sensor as the air sensor.
 While the heat pump is off, it reads the cabinet, several degrees warm. The

@@ -225,6 +225,20 @@ def test_changelog_updates_an_existing_unreleased_bullet(tmp_path):
     assert "Upgraded to 9.5.0" in unreleased
 
 
+def test_changelog_keeps_the_full_stop_after_the_version(tmp_path):
+    path = tmp_path / "CHANGELOG.md"
+    path.write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Changed\n"
+        "- **Library Dependency: nwp500-python**: Upgraded to 9.5.0. What the\n"
+        "  integration did before is kept.\n\n"
+        "## [0.18.0] - 2026-08-05\n"
+    )
+
+    update.update_changelog(path, "nwp500-python", "9.5.1")
+
+    assert "Upgraded to 9.5.1. What the" in path.read_text()
+
+
 def test_changelog_does_not_match_a_released_bullet(tmp_path):
     """The same bullet text appears in every past release.
 

@@ -131,3 +131,26 @@ async def test_history_and_forecasts_are_not_read_yet(hass: HomeAssistant):
         await client.read_history(["sensor.air"], now, now)
     with pytest.raises(HomeAssistantError):
         await client.forecast("weather.home")
+
+
+@pytest.mark.asyncio
+async def test_a_sensor_reporting_the_same_value_stays_fresh(
+    hass: HomeAssistant, freezer
+):
+    """Dated by its last report, not its last change (nwp500-python 9.5.1)."""
+    hass.states.async_set("sensor.air", "15.5", {"unit_of_measurement": "°C"})
+    freezer.tick(timedelta(hours=3))
+    hass.states.async_set("sensor.air", "15.5", {"unit_of_measurement": "°C"})
+    state = hass.states.get("sensor.air")
+    assert state is not None
+    assert state.last_reported - state.last_updated >= timedelta(hours=3)
+
+    rest, local, rest_notes, local_notes = await _environments(
+        hass,
+        Entities(air="sensor.air"),
+        at=dt_util.utcnow().replace(microsecond=0),
+    )
+
+    assert local == rest
+    assert local_notes == rest_notes
+    assert not [note for note in local_notes if "stale" in note]

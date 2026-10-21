@@ -70,7 +70,7 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.5.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.5.1. What the
   integration did before is kept; the library's corrections change these:
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
@@ -115,6 +115,10 @@
     rejected; its operation shows as unknown.
   - Expired AWS credentials are renewed with the access token before the
     password, so a changed password is noticed later than before.
+  - **The simulator dates a sensor by its last report** (9.5.1), not its
+    last change, so an air or humidity sensor that keeps reporting the same
+    value stays in use. One that has not reported for an hour is still
+    left out.
 - **Library Dependency: nwp500-python**: Upgraded to 9.4.3. The library
   now checks every reservation entry before a list write, against the
   setpoint range the heater reports, instead of sending it for the heater

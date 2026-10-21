@@ -92,7 +92,8 @@ def update_changelog(path: Path, package: str, new: str) -> bool:
         # Replace the version that follows, on this line or the next, with
         # or without a markdown link around it.
         updated = re.sub(
-            rf"({re.escape(marker)})\s*\[?[\d.]+\]?"
+            # The version's dots only: a full stop after it stays.
+            rf"({re.escape(marker)})\s*\[?\d+(?:\.\d+)*\]?"
             r"(\([^)]*\))?",
             rf"\g<1> {new}",
             section,
