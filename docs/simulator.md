@@ -133,7 +133,14 @@ back:
 
 The recording is the finer of the two, and is used once it reaches as far
 back as the recorder. The air and humidity sensors' history comes from the
-recorder. Without an air sensor, the standby loss is not fitted.
+recorder.
+
+**The air matters.** Without an air sensor, the standby loss is not fitted.
+The heat pump's terms need the air too: the air sensor's, or else the
+heater's own **Ambient temperature** reading while the compressor runs,
+which the recorded statuses carry but the entities' history has only when
+that sensor is enabled (it is off by default). With neither, no recovery
+can be fitted.
 
 **What changes.** A run refits what the heater runs on: its last fit, or
 the defaults for its tank's size. A term this history can't fit keeps its
