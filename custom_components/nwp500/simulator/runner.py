@@ -271,11 +271,14 @@ def answer_from(result: SimulationResult, inputs: Inputs) -> Answer:
     else:
         heating_state = STATE_IDLE
     total = result.input_wh
+    # A heating still going when the walk ends stops at the walk's end,
+    # not at its target: when it finishes is not known.
+    finished = first is not None and first.stop != "horizon"
     return Answer(
         computed_at=scenario.start,
         state=heating_state,
         start=None if first is None else first.start.at,
-        end=None if first is None else first.end,
+        end=first.end if first is not None and finished else None,
         source=None if first is None else first.source,
         cause=None if first is None else first.start.cause,
         trigger=None if first is None else first.start.trigger,

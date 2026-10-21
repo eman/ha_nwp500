@@ -93,15 +93,30 @@ async def async_simulate(
     resolution_minutes: int | None,
 ) -> dict[str, Any]:
     """Walk the heater's scenario now for `hours`, with `writes`."""
+    start = dt_util.utcnow().replace(microsecond=0)
+    until = start + timedelta(hours=hours)
     try:
         commands = Commands(writes=_writes(hass, writes)) if writes else None
     except ValueError as err:
         raise ServiceValidationError(str(err)) from err
-    inputs = await runner.async_inputs(
-        start=dt_util.utcnow().replace(microsecond=0),
-        horizon=timedelta(hours=hours),
-        commands=commands,
-    )
+    for write in commands.writes if commands else ():
+        if not start <= write.at < until:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_write_outside",
+                translation_placeholders={
+                    "at": write.at.isoformat(),
+                    "start": start.isoformat(),
+                    "until": until.isoformat(),
+                },
+            )
+    try:
+        inputs = await runner.async_inputs(
+            start=start, horizon=timedelta(hours=hours), commands=commands
+        )
+    except ValueError as err:
+        # The scenario refused what the checks above let through.
+        raise ServiceValidationError(str(err)) from err
     if isinstance(inputs, str):
         raise ServiceValidationError(
             translation_domain=DOMAIN,

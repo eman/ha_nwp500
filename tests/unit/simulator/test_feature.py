@@ -294,3 +294,48 @@ async def test_diagnostics_show_the_simulator_without_macs(
     assert isinstance(device["answer"]["end"], str)
     assert MAC not in str(section)
     await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_a_heating_the_walk_cuts_off_has_no_ready_time(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    """It stops at the walk's end, not at its target."""
+    feature = await started(hass, entry, coordinator)
+    runner = feature.runners[MAC]
+
+    document = await async_simulate(
+        hass,
+        runner,
+        hours=1,
+        writes=[],
+        include_points=False,
+        resolution_minutes=None,
+    )
+
+    (heating,) = document["heating"]
+    assert heating["stop"] == "horizon"
+    assert document["summary"]["state"] == "scheduled"
+    assert document["summary"]["ready_at"] is None
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("offset", [timedelta(hours=-1), timedelta(hours=5)])
+async def test_a_write_outside_the_walk_is_refused(
+    hass: HomeAssistant, hass_storage, entry, coordinator, offset
+):
+    feature = await started(hass, entry, coordinator)
+    runner = feature.runners[MAC]
+
+    with pytest.raises(ServiceValidationError) as err:
+        await async_simulate(
+            hass,
+            runner,
+            hours=1,
+            writes=[{"at": dt_util.utcnow() + offset, "temperature": 50.0}],
+            include_points=False,
+            resolution_minutes=None,
+        )
+    assert err.value.translation_key == "simulator_write_outside"
+    await async_unload_simulator(hass, entry)

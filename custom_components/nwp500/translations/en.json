@@ -1151,6 +1151,9 @@
     },
     "simulator_no_answer": {
       "message": "The simulator has no answer for this water heater yet ({reason})."
+    },
+    "simulator_write_outside": {
+      "message": "The change at {at} is outside the simulation, which runs from {start} to {until}."
     }
   },
   "selector": {

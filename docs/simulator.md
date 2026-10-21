@@ -58,7 +58,7 @@ its time-of-use schedule.
 | Sensor | State |
 |---|---|
 | Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
-| Simulated hot water ready | When the tank will next be fully heated: the end of the heating it is in, or of the next one. Unknown when it won't heat within 24 hours |
+| Simulated hot water ready | When the tank will next be fully heated: the end of the heating it is in, or of the next one. Unknown when it won't heat, or won't finish heating, within 24 hours |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 
 Each sensor has these attributes:

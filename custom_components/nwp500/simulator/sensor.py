@@ -124,7 +124,7 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
     """When the tank next finishes heating.
 
     The end of the heating it is in, or of the next one within the day.
-    Unknown when none is.
+    Unknown when none is, or when it does not finish within the day.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP

@@ -294,3 +294,18 @@ async def test_a_failing_walk_is_logged_once_and_recovers(
         await r._async_run()  # noqa: SLF001
     assert r.answer is not None and r.answer.ok
     assert "runs again" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_the_ready_time_is_the_end_of_a_finished_heating(
+    hass: HomeAssistant, coordinator
+):
+    from nwp500 import sim
+
+    inputs = await runner(hass, coordinator).async_inputs()
+    assert isinstance(inputs, Inputs)
+    result = sim.simulate(inputs.scenario, inputs.params)
+    first = result.heating[0]
+    assert first.stop != "horizon"
+
+    assert answer_from(result, inputs).end == first.end
