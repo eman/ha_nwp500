@@ -20,6 +20,17 @@
   start, and why: packages missing, an install that failed (retried after a
   restart), or another error (retried on a reload). Turning it off removes
   its sensors and what it stored. See `docs/simulator.md`.
+- **Recording the heater's history, for the simulator.** Each heater's
+  simulator form offers **Record the heater's history**, off unless you
+  turn it on. It keeps each status the heater reports, as reported and
+  without the heater's address, so that a later version can fit the
+  simulator to the heater. It writes every 15 minutes, to one file per day
+  under `nwp500/history/` in Home Assistant's configuration folder, which
+  goes into backups. Each finished day is compressed, and days older than
+  the retention (60 days unless changed) are deleted. Turning the recording
+  or the simulator off keeps what was recorded; the options flow deletes it
+  only when asked, and removing the integration deletes it. The
+  diagnostics show the days stored, their size and the longest gap.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
   start or the entry's reload. The heartbeat alone does not show a reload.

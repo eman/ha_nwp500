@@ -247,7 +247,10 @@ heater.
 
 Turning it on installs numpy, pandas and scipy if Home Assistant does not
 already have them; with it off, none of them is installed or loaded, and
-the integration works as it did before. Turning it off removes its sensors. The
+the integration works as it did before. Turning it off removes its sensors.
+Each heater can also record its history, its statuses as reported, for a
+later version to fit the simulator to it; that is off unless you turn it on,
+and is kept in the configuration folder, under `nwp500/history/`. The
 answers come from physics with the default parameters for the tank's size,
 and run short on long recoveries. An air temperature sensor beside the
 heater helps most. See [docs/simulator.md](docs/simulator.md).
