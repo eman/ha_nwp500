@@ -190,8 +190,8 @@ async def test_async_setup_entry_registers_services():
 
         await async_setup_entry(mock_hass, mock_entry)
 
-        # Verify all 16 services were registered
-        assert mock_hass.services.async_register.call_count == 16
+        # Verify all 17 services were registered
+        assert mock_hass.services.async_register.call_count == 17
 
         # Get all service names that were registered
         registered_services = [
@@ -210,6 +210,7 @@ async def test_async_setup_entry_registers_services():
         assert SERVICE_RESET_AIR_FILTER in registered_services
         assert SERVICE_SET_RECIRCULATION_MODE in registered_services
         assert SERVICE_TRIGGER_RECIRCULATION in registered_services
+        assert "simulate" in registered_services
 
 
 @pytest.mark.asyncio
@@ -241,6 +242,7 @@ async def test_async_setup_entry_skips_service_registration_if_exists():
 async def test_async_unload_entry_cleanup():
     """Test unload entry performs proper cleanup."""
     mock_hass = MagicMock()
+    mock_hass.data = {}
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
@@ -264,6 +266,7 @@ async def test_async_unload_entry_cleanup():
 async def test_async_unload_entry_removes_services_when_last():
     """Test unload removes services when last entry is unloaded."""
     mock_hass = MagicMock()
+    mock_hass.data = {}
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
 
@@ -279,7 +282,7 @@ async def test_async_unload_entry_removes_services_when_last():
     await async_unload_entry(mock_hass, mock_entry)
 
     # All 16 services should be removed
-    assert mock_hass.services.async_remove.call_count == 16
+    assert mock_hass.services.async_remove.call_count == 17
 
 
 @pytest.mark.asyncio
@@ -288,6 +291,7 @@ async def test_async_unload_entry_keeps_services_for_another_entry():
     from homeassistant.config_entries import ConfigEntryState
 
     mock_hass = MagicMock()
+    mock_hass.data = {}
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
     mock_entry.runtime_data.async_shutdown = AsyncMock()

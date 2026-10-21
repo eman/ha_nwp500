@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
-from .const import control_feature
+from .const import control_feature, simulator_feature
 
 if TYPE_CHECKING:
     from .coordinator import NWP500ConfigEntry
@@ -224,6 +224,11 @@ async def async_get_config_entry_diagnostics(
             config_entry, feature
         )
 
+    # The hot water simulator, only while it runs.
+    simulator = simulator_feature(hass, config_entry)
+    if simulator is not None:
+        diagnostics_data["simulator"] = _simulator(simulator)
+
     # Redact credentials and MAC addresses before returning
     redacted: dict[str, Any] = _redact_macs(
         async_redact_data(diagnostics_data, _TO_REDACT)
@@ -267,3 +272,27 @@ def _external_control(config_entry: Any, feature: Any) -> dict[str, Any]:
         },
         "devices": devices,
     }
+
+
+def _simulator(feature: Any) -> dict[str, Any]:
+    """What the simulator reads and its latest answer, per heater.
+
+    By device name, not MAC: the redaction rewrites values, not keys.
+    Typed loosely, as for external control.
+    """
+    devices: list[dict[str, Any]] = []
+    for runner in feature.runners.values():
+        device = runner.coordinator.data[runner.mac_address]["device"]
+        answer = runner.answer
+        devices.append(
+            {
+                "device_name": device.device_info.device_name,
+                "options": dict(runner.options),
+                # Calibrated parameters come in a later version.
+                "params": "default",
+                "history": runner.history.as_document(),
+                "last_duration_s": runner.last_duration_s,
+                "answer": None if answer is None else answer.as_document(),
+            }
+        )
+    return {"devices": devices}

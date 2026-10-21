@@ -1,5 +1,6 @@
 """Config flow for Navien NWP500 integration."""
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,10 @@ from .const import (
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
     CONF_SCAN_INTERVAL,
+    CONF_SIMULATOR,
+    CONF_SIMULATOR_AIR_ENTITY,
+    CONF_SIMULATOR_ENABLED,
+    CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
@@ -38,6 +43,15 @@ from .const import (
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
     control_follows_plan,
+)
+from .simulator_deps import (
+    REASON_INSTALL_FAILED,
+    REASON_MISSING,
+    SIMULATOR_REQUIREMENTS,
+    DepsResult,
+    async_ensure,
+    async_missing,
+    package_names,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,7 +93,181 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,unused-ignore]
+# The user guide for the simulator, linked from its forms.
+SIMULATOR_GUIDE_URL = (
+    "https://github.com/eman/ha_nwp500/blob/main/docs/simulator.md"
+)
+
+
+def _simulator_device_schema() -> vol.Schema:
+    """The simulator's form for one heater: the sensors beside it."""
+    return vol.Schema(
+        {
+            vol.Optional(CONF_SIMULATOR_AIR_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="temperature"
+                )
+            ),
+            vol.Optional(
+                CONF_SIMULATOR_HUMIDITY_ENTITY
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="humidity"
+                )
+            ),
+        }
+    )
+
+
+def _simulator_device_options(user_input: dict[str, Any]) -> dict[str, Any]:
+    """A heater's stored options: the sensors chosen, nothing for none."""
+    return {
+        key: user_input[key]
+        for key in (CONF_SIMULATOR_AIR_ENTITY, CONF_SIMULATOR_HUMIDITY_ENTITY)
+        if user_input.get(key)
+    }
+
+
+class _SimulatorSteps:
+    """The simulator's steps, the same in the setup and options flows.
+
+    Its packages are checked first, and installed behind a progress
+    step when they are missing; then each heater gets a form for the
+    sensors beside it. The flow says what it does with the answers
+    (`_async_simulator_done`) and when the packages cannot be had
+    (`_async_simulator_without`).
+    """
+
+    hass: Any
+    # Set by the flow before the first step: (MAC, name) per heater.
+    _simulator_devices: list[tuple[str, str]]
+    # Each heater's options as they stand; the forms start from them.
+    _simulator_existing: dict[str, dict[str, Any]]
+
+    def _simulator_init(self) -> None:
+        self._simulator_devices = []
+        self._simulator_existing = {}
+        self._simulator_answers: dict[str, dict[str, Any]] = {}
+        self._simulator_index = 0
+        self._deps: DepsResult | None = None
+        self._install_task: asyncio.Task[DepsResult] | None = None
+
+    async def _async_simulator_done(
+        self, devices: dict[str, dict[str, Any]]
+    ) -> config_entries.ConfigFlowResult:
+        raise NotImplementedError
+
+    async def async_step_simulator_setup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Check the simulator's packages, then ask about each heater."""
+        if self._deps is None:
+            if await async_missing(self.hass):
+                return await self.async_step_simulator_install()
+            self._deps = DepsResult(ok=True)
+        if not self._deps.ok:
+            if self._deps.reason == REASON_MISSING:
+                return await self.async_step_simulator_packages_missing()
+            return await self.async_step_simulator_install_failed()
+        self._simulator_index = 0
+        self._simulator_answers = {}
+        return await self.async_step_simulator_device()
+
+    async def async_step_simulator_install(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Install the simulator's packages, showing progress."""
+        task = self._install_task
+        if task is None:
+            task = self._install_task = self.hass.async_create_task(
+                async_ensure(self.hass)
+            )
+        if not task.done():
+            return self.async_show_progress(  # type: ignore[attr-defined,no-any-return]
+                step_id="simulator_install",
+                progress_action="simulator_install",
+                progress_task=task,
+            )
+        try:
+            self._deps = task.result()
+        except Exception:  # noqa: BLE001 - Config flow must not crash UI
+            _LOGGER.exception("Installing the simulator's packages failed")
+            self._deps = DepsResult(
+                ok=False,
+                reason=REASON_INSTALL_FAILED,
+                missing=SIMULATOR_REQUIREMENTS,
+            )
+        self._install_task = None
+        return self.async_show_progress_done(  # type: ignore[attr-defined,no-any-return]
+            next_step_id="simulator_setup"
+        )
+
+    def _deps_failed_menu(
+        self, step_id: str
+    ) -> config_entries.ConfigFlowResult:
+        deps = self._deps or DepsResult(ok=False)
+        return self.async_show_menu(  # type: ignore[attr-defined,no-any-return]
+            step_id=step_id,
+            menu_options=["simulator_retry", "simulator_without"],
+            description_placeholders={
+                "packages": package_names(deps.missing),
+                "guide_url": SIMULATOR_GUIDE_URL,
+            },
+        )
+
+    async def async_step_simulator_packages_missing(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Missing, and Home Assistant installs nothing: say so."""
+        return self._deps_failed_menu("simulator_packages_missing")
+
+    async def async_step_simulator_install_failed(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """The install failed: try again, or go on without."""
+        return self._deps_failed_menu("simulator_install_failed")
+
+    async def async_step_simulator_retry(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Check the packages again."""
+        self._deps = None
+        return await self.async_step_simulator_setup()
+
+    async def async_step_simulator_without(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Go on without the simulator."""
+        raise NotImplementedError
+
+    async def async_step_simulator_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """The sensors beside one heater, each optional."""
+        mac_address, name = self._simulator_devices[self._simulator_index]
+        if user_input is not None:
+            self._simulator_answers[mac_address] = _simulator_device_options(
+                user_input
+            )
+            self._simulator_index += 1
+            if self._simulator_index < len(self._simulator_devices):
+                return await self.async_step_simulator_device()
+            return await self._async_simulator_done(self._simulator_answers)
+        return self.async_show_form(  # type: ignore[attr-defined,no-any-return]
+            step_id="simulator_device",
+            data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
+                _simulator_device_schema(),
+                self._simulator_existing.get(mac_address, {}),
+            ),
+            description_placeholders={
+                "device": name,
+                "guide_url": SIMULATOR_GUIDE_URL,
+            },
+            last_step=self._simulator_index + 1 >= len(self._simulator_devices),
+        )
+
+
+class ConfigFlow(_SimulatorSteps, config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,unused-ignore]
     """Handle a config flow for NWP500."""
 
     VERSION = 1
@@ -91,6 +279,10 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
     def __init__(self) -> None:
         """Initialize the config flow."""
         self._reauth_entry: config_entries.ConfigEntry | None = None
+        # The sign-in, held while the simulator is offered.
+        self._user_input: dict[str, Any] = {}
+        self._title = ""
+        self._simulator_init()
 
     @staticmethod
     @callback
@@ -120,12 +312,44 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: ignore[call
                 email = user_input[CONF_EMAIL].lower()
                 await self.async_set_unique_id(email)
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title=info["title"], data=user_input
-                )
+                self._user_input = user_input
+                self._title = info["title"]
+                self._simulator_devices = info["devices"]
+                return await self.async_step_simulator_menu()
 
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
+        )
+
+    async def async_step_simulator_menu(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Offer the hot water simulator, which can be skipped."""
+        return self.async_show_menu(
+            step_id="simulator_menu",
+            menu_options=["simulator_setup", "simulator_skip"],
+            description_placeholders={"guide_url": SIMULATOR_GUIDE_URL},
+        )
+
+    async def async_step_simulator_skip(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Without the simulator: the entry as before it existed."""
+        return self.async_create_entry(title=self._title, data=self._user_input)
+
+    async def async_step_simulator_without(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """The packages could not be had: set up without the simulator."""
+        return await self.async_step_simulator_skip()
+
+    async def _async_simulator_done(
+        self, devices: dict[str, dict[str, Any]]
+    ) -> config_entries.ConfigFlowResult:
+        return self.async_create_entry(
+            title=self._title,
+            data=self._user_input,
+            options={CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: devices},
         )
 
     async def async_step_reauth(
@@ -327,29 +551,76 @@ def _normalise_control_input(user_input: dict[str, Any]) -> dict[str, Any]:
     return stored
 
 
-class OptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for NWP500 integration."""
+def _entry_devices(entry: config_entries.ConfigEntry) -> list[tuple[str, str]]:
+    """(MAC, name) for each heater of a loaded entry."""
+    coordinator = getattr(entry, "runtime_data", None)
+    data = getattr(coordinator, "data", None) or {}
+    devices: list[tuple[str, str]] = []
+    for mac_address, device_data in data.items():
+        device = (
+            device_data.get("device") if isinstance(device_data, dict) else None
+        )
+        name = getattr(
+            getattr(device, "device_info", None), "device_name", None
+        )
+        devices.append((mac_address, name or mac_address))
+    return devices
+
+
+class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
+    """Handle options flow for NWP500 integration.
+
+    The first page's answers, and each feature's after it, are held in
+    `_pending` while the next page is shown; the entry's options are
+    written once, at the end.
+    """
 
     def __init__(self) -> None:
-        """Hold the first page's answers while the next is shown."""
-        self._init_input: dict[str, Any] = {}
+        """Hold the answers while the next page is shown."""
+        self._pending: dict[str, Any] = {}
+        self._simulator_init()
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Manage the options."""
         if user_input is not None:
-            self._init_input = user_input
-            if user_input.get(CONF_CONTROL_ENABLED):
-                return await self.async_step_external_control()
-            data = {**self.config_entry.options, **user_input}
-            if CONF_CONTROL_ENABLED not in self.config_entry.options:
-                # Never switched on: store what the release before the
-                # feature stored (spec section 1.1.4).
-                data.pop(CONF_CONTROL_ENABLED, None)
-            return self.async_create_entry(title="", data=data)
+            options = self.config_entry.options
+            self._pending = dict(user_input)
+            for key in (CONF_CONTROL_ENABLED, CONF_SIMULATOR_ENABLED):
+                if key not in options and not user_input.get(key):
+                    # Never switched on: store what the release before the
+                    # feature stored (spec section 1.1.4).
+                    self._pending.pop(key, None)
+            if self._pending.get(CONF_SIMULATOR_ENABLED):
+                already_on = options.get(CONF_SIMULATOR_ENABLED) is True
+                self._simulator_devices = _entry_devices(self.config_entry)
+                self._simulator_existing = dict(
+                    options.get(CONF_SIMULATOR) or {}
+                )
+                if not self._simulator_devices and not already_on:
+                    # Its heaters are known only once the integration is
+                    # loaded; switched on now, the simulator would start
+                    # without the sensors beside them, and would install
+                    # its packages with nothing on screen.
+                    return self._init_form(
+                        errors={CONF_SIMULATOR_ENABLED: "simulator_not_loaded"}
+                    )
+                if already_on:
+                    # Already running, or reported in Repairs: changing
+                    # another option does not check its packages again.
+                    self._deps = DepsResult(ok=True)
+                if self._simulator_devices:
+                    return await self.async_step_simulator_setup()
+            return await self._async_after_simulator()
 
+        return self._init_form()
+
+    def _init_form(
+        self, errors: dict[str, str] | None = None
+    ) -> config_entries.ConfigFlowResult:
         return self.async_show_form(
+            errors=errors,
             step_id="init",
             data_schema=vol.Schema(
                 {
@@ -368,8 +639,39 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                             CONF_CONTROL_ENABLED, False
                         ),
                     ): selector.BooleanSelector(),
+                    vol.Optional(
+                        CONF_SIMULATOR_ENABLED,
+                        default=self.config_entry.options.get(
+                            CONF_SIMULATOR_ENABLED, False
+                        ),
+                    ): selector.BooleanSelector(),
                 }
             ),
+        )
+
+    async def _async_simulator_done(
+        self, devices: dict[str, dict[str, Any]]
+    ) -> config_entries.ConfigFlowResult:
+        self._pending[CONF_SIMULATOR] = devices
+        return await self._async_after_simulator()
+
+    async def async_step_simulator_without(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """The packages could not be had: leave the simulator off."""
+        if CONF_SIMULATOR_ENABLED in self.config_entry.options:
+            self._pending[CONF_SIMULATOR_ENABLED] = False
+        else:
+            self._pending.pop(CONF_SIMULATOR_ENABLED, None)
+        return await self._async_after_simulator()
+
+    async def _async_after_simulator(
+        self,
+    ) -> config_entries.ConfigFlowResult:
+        if self._pending.get(CONF_CONTROL_ENABLED):
+            return await self.async_step_external_control()
+        return self.async_create_entry(
+            title="", data={**self.config_entry.options, **self._pending}
         )
 
     async def async_step_external_control(
@@ -386,7 +688,7 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
                     options.pop(key, None)
                 data = {
                     **options,
-                    **self._init_input,
+                    **self._pending,
                     **_normalise_control_input(user_input),
                 }
                 return self.async_create_entry(title="", data=data)
@@ -446,6 +748,13 @@ async def validate_input(
             # Get first device for title
             device = devices[0]
             device_name = device.device_info.device_name or "NWP500"
+            found = [
+                (
+                    d.device_info.mac_address,
+                    d.device_info.device_name or d.device_info.mac_address,
+                )
+                for d in devices
+            ]
 
     except CannotConnect, InvalidAuth:
         # Re-raise our own exceptions
@@ -473,7 +782,7 @@ async def validate_input(
         _LOGGER.error("Failed to authenticate with Navien: %s", err)
         raise CannotConnect from err
 
-    return {"title": f"Navien {device_name}"}
+    return {"title": f"Navien {device_name}", "devices": found}
 
 
 class CannotConnect(HomeAssistantError):  # noqa: N818

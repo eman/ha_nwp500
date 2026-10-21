@@ -23,6 +23,45 @@
           "email": "Email",
           "password": "Password"
         }
+      },
+      "simulator_menu": {
+        "title": "Hot water simulator",
+        "description": "The simulator models this water heater's tank from what the heater reports: whether it is heating, when the tank will next be fully heated, and the electricity it is likely to use over the next day. It is optional, and you can turn it on or off later in the integration's options. Turning it on installs numpy, pandas and scipy if Home Assistant does not already have them. More about it: {guide_url}",
+        "menu_options": {
+          "simulator_setup": "Set up the hot water simulator",
+          "simulator_skip": "Skip for now"
+        }
+      },
+      "simulator_device": {
+        "title": "Hot water simulator: {device}",
+        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. More about the inputs: {guide_url}",
+        "data": {
+          "air_entity": "Air temperature beside the heater",
+          "humidity_entity": "Humidity beside the heater"
+        },
+        "data_description": {
+          "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
+          "humidity_entity": "A humidity sensor in the same room as the heater."
+        }
+      },
+      "simulator_install": {
+        "title": "Hot water simulator"
+      },
+      "simulator_packages_missing": {
+        "title": "The simulator's packages aren't installed",
+        "description": "The simulator needs {packages}, and Home Assistant is set not to install packages. Install them in Home Assistant's Python environment yourself, then try again. More: {guide_url}",
+        "menu_options": {
+          "simulator_retry": "Try again",
+          "simulator_without": "Set up without the simulator"
+        }
+      },
+      "simulator_install_failed": {
+        "title": "The simulator's packages couldn't be installed",
+        "description": "{packages} could not be installed. Check the Home Assistant log for why. Home Assistant won't try the install again until it restarts: restart it, then try again, or go on without the simulator for now. More: {guide_url}",
+        "menu_options": {
+          "simulator_retry": "Try again",
+          "simulator_without": "Set up without the simulator"
+        }
       }
     },
     "error": {
@@ -36,6 +75,9 @@
       "reauth_failed": "Re-authentication failed. Please try removing and re-adding the integration.",
       "reconfigure_successful": "Reconfiguration successful",
       "wrong_account": "This is a different Navien account. Please sign in with the account this integration was set up for."
+    },
+    "progress": {
+      "simulator_install": "Installing the simulator's packages (numpy, pandas, scipy). This can take a few minutes on slower hardware."
     }
   },
   "options": {
@@ -45,11 +87,13 @@
         "description": "Configure advanced settings for your Navien NWP500 integration.",
         "data": {
           "scan_interval": "Update interval (seconds)",
-          "control_enabled": "External control"
+          "control_enabled": "External control",
+          "simulator_enabled": "Hot water simulator"
         },
         "data_description": {
           "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds.",
-          "control_enabled": "Optional, and off unless you turn it on. Lets a scheduler of your own, such as an automation or a Node-RED flow, set this water heater's temperature and mode over time. Leave it off if you don't have one."
+          "control_enabled": "Optional, and off unless you turn it on. Lets a scheduler of your own, such as an automation or a Node-RED flow, set this water heater's temperature and mode over time. Leave it off if you don't have one.",
+          "simulator_enabled": "Optional. Models the tank from what the heater reports: whether it is heating, when it will next be fully heated, and the electricity it is likely to use over the next day. Turning it on installs numpy, pandas and scipy if Home Assistant does not already have them. Turning it off removes its sensors."
         }
       },
       "external_control": {
@@ -67,10 +111,45 @@
           "control_reservation_entry_limit": "The most entries the heater's schedule may hold in total, your own included. External control uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32.",
           "control_reservation_entry_reserve": "Entries kept free for changes that must happen right away, such as a plan step that has already begun. Must be less than the schedule size limit."
         }
+      },
+      "simulator_device": {
+        "title": "Hot water simulator: {device}",
+        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. More about the inputs: {guide_url}",
+        "data": {
+          "air_entity": "Air temperature beside the heater",
+          "humidity_entity": "Humidity beside the heater"
+        },
+        "data_description": {
+          "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
+          "humidity_entity": "A humidity sensor in the same room as the heater."
+        }
+      },
+      "simulator_install": {
+        "title": "Hot water simulator"
+      },
+      "simulator_packages_missing": {
+        "title": "The simulator's packages aren't installed",
+        "description": "The simulator needs {packages}, and Home Assistant is set not to install packages. Install them in Home Assistant's Python environment yourself, then try again. More: {guide_url}",
+        "menu_options": {
+          "simulator_retry": "Try again",
+          "simulator_without": "Leave the simulator off"
+        }
+      },
+      "simulator_install_failed": {
+        "title": "The simulator's packages couldn't be installed",
+        "description": "{packages} could not be installed. Check the Home Assistant log for why. Home Assistant won't try the install again until it restarts: restart it, then try again, or go on without the simulator for now. More: {guide_url}",
+        "menu_options": {
+          "simulator_retry": "Try again",
+          "simulator_without": "Leave the simulator off"
+        }
       }
     },
     "error": {
-      "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit."
+      "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit.",
+      "simulator_not_loaded": "The integration isn't running, so its water heaters aren't known yet. Turn the simulator on once the integration has loaded."
+    },
+    "progress": {
+      "simulator_install": "Installing the simulator's packages (numpy, pandas, scipy). This can take a few minutes on slower hardware."
     }
   },
   "entity": {
@@ -589,6 +668,21 @@
             "name": "Preview only"
           }
         }
+      },
+      "simulator_heating": {
+        "name": "Simulated heating",
+        "state": {
+          "heating": "Heating",
+          "scheduled": "Will heat",
+          "idle": "Not heating today",
+          "disabled": "Heating off"
+        }
+      },
+      "simulator_hot_water_ready": {
+        "name": "Simulated hot water ready"
+      },
+      "simulator_energy_next_24h": {
+        "name": "Simulated energy, next 24 hours"
       }
     },
     "binary_sensor": {
@@ -1030,6 +1124,36 @@
           "description": "Whole years to report on, one total per month. Cannot be combined with Year or Months."
         }
       }
+    },
+    "simulate": {
+      "name": "Simulate",
+      "description": "Simulate the water heater from now, as the hot water simulator sees it, and return the result: each heating interval, the setpoint and mode writes as they would land, and the electricity used. Optionally try setpoint or mode changes first. Changes nothing on the heater. Needs the hot water simulator turned on in the integration's options.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
+        },
+        "hours": {
+          "name": "Hours",
+          "description": "How far ahead to simulate, 1 to 168 hours. Defaults to 24."
+        },
+        "writes": {
+          "name": "Changes to try",
+          "description": "Setpoint or mode changes to simulate, each with `at` (when), and `temperature` (in Home Assistant's unit), `mode`, or both. Modes: heat_pump, electric, energy_saver or high_demand; the simulator doesn't model a change into Vacation or Power Off."
+        },
+        "include_points": {
+          "name": "Include the tank's path",
+          "description": "Also return the tank's temperatures along the way. Off by default: the path is long."
+        },
+        "resolution_minutes": {
+          "name": "Path resolution",
+          "description": "With the path included, keep one point every this many minutes (1 to 60)."
+        }
+      }
     }
   },
   "exceptions": {
@@ -1038,6 +1162,21 @@
     },
     "command_failed": {
       "message": "The device did not receive the command ({command}). Check the Home Assistant log for the reason."
+    },
+    "simulator_not_enabled": {
+      "message": "The hot water simulator isn't running for this water heater. Turn it on in the integration's options; if it is on, Repairs says why it couldn't start."
+    },
+    "simulator_no_answer": {
+      "message": "The simulator has no answer for this water heater yet ({reason})."
+    },
+    "simulator_write_outside": {
+      "message": "The change at {at} is outside the simulation, which runs from {start} to {until}."
+    },
+    "simulator_standby": {
+      "message": "The water heater is in Standby, which the simulator doesn't model: nothing heats."
+    },
+    "simulator_setpoint_out_of_range": {
+      "message": "The temperature {temperature} is outside what the simulator runs, {min} to {max}."
     }
   },
   "selector": {
@@ -1053,6 +1192,18 @@
     "control_start_failed": {
       "title": "External control couldn't start",
       "description": "The NWP500 integration is running without external control, so nothing follows your scheduler's plan. The Home Assistant log has the reason. Reload the integration to try again, or turn external control off in its options."
+    },
+    "simulator_start_failed": {
+      "title": "The hot water simulator couldn't start",
+      "description": "The NWP500 integration is running without the hot water simulator ({reason}). The Home Assistant log has the details. Reload the integration to try again, or turn the simulator off in its options."
+    },
+    "simulator_packages_missing": {
+      "title": "The hot water simulator's packages aren't installed",
+      "description": "The NWP500 integration is running without the hot water simulator: it needs {packages}, and Home Assistant is set not to install packages. Install them in Home Assistant's Python environment, then reload the integration; or turn the simulator off in its options."
+    },
+    "simulator_install_failed": {
+      "title": "The hot water simulator's packages couldn't be installed",
+      "description": "The NWP500 integration is running without the hot water simulator: {packages} could not be installed. The Home Assistant log has the reason. Home Assistant tries the install again only after a restart: restart Home Assistant, or turn the simulator off in the integration's options."
     }
   }
 }

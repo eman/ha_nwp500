@@ -1,0 +1,191 @@
+"""The simulator's sensors: what the next day's simulation says."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, override
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+)
+from homeassistant.const import UnitOfEnergy
+from homeassistant.core import callback
+
+from ..entity import NWP500Entity
+from .runner import HEATING_STATES, STATE_HEATING, Answer, SimulatorRunner
+
+if TYPE_CHECKING:
+    from . import SimulatorFeature
+
+# The engine the answers come from. Physics alone runs short on long
+# recoveries; the attribute says so to whoever reads the answer.
+MODEL = "physics"
+
+# Long: kept off the recorder.
+_UNRECORDED = frozenset({"reasons", "defaults_used", "notes"})
+
+# The energies, to a tenth of a kWh: a walk a minute moves them by Wh, and
+# each change is a row in the recorder.
+_KWH_DIGITS = 1
+
+
+def _kwh(value: float | None) -> float | None:
+    return None if value is None else round(value, _KWH_DIGITS)
+
+
+def _minute(at: datetime | None) -> datetime | None:
+    """`at` to the minute.
+
+    A walk that moves it by seconds then writes no new state.
+    """
+    return None if at is None else at.replace(second=0, microsecond=0)
+
+
+class NWP500SimulatorEntity(NWP500Entity):
+    """An entity that reports a heater's simulation.
+
+    Available while the heater reports and the simulation has an answer.
+    """
+
+    _unrecorded_attributes = _UNRECORDED
+
+    def __init__(self, runner: SimulatorRunner, key: str) -> None:
+        """Bind to the heater's runner."""
+        device = runner.coordinator.data[runner.mac_address]["device"]
+        super().__init__(runner.coordinator, runner.mac_address, device)
+        self.runner = runner
+        self._attr_unique_id = f"{runner.mac_address}_simulator_{key}"
+        self._attr_translation_key = f"simulator_{key}"
+
+    @property
+    def answer(self) -> Answer | None:
+        """The runner's latest answer."""
+        return self.runner.answer
+
+    @property
+    @override
+    def available(self) -> bool:
+        """Whether the heater reports and the simulation has an answer."""
+        answer = self.answer
+        return answer is not None and answer.ok and super().available
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Follow the runner as well as the coordinator."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.runner.async_add_listener(self._handle_answer)
+        )
+
+    @callback
+    def _handle_answer(self) -> None:
+        self.async_write_ha_state()
+
+    def _common_attributes(self) -> dict[str, Any]:
+        # Nothing here changes from one walk to the next unless the answer
+        # does, so an unchanged answer writes no new state; when it was
+        # computed is in the diagnostics.
+        answer = self.answer
+        if answer is None:
+            return {"model": MODEL}
+        return {
+            "model": MODEL,
+            "reasons": list(answer.reasons),
+            "defaults_used": list(answer.defaults_used),
+            "notes": list(answer.notes),
+        }
+
+
+class SimulatorHeatingSensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """Whether the tank is heating, will heat within the day, or not."""
+
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = list(HEATING_STATES)
+    _attr_icon = "mdi:water-boiler"
+
+    @property
+    def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """heating, scheduled, idle or disabled."""
+        answer = self.answer
+        return None if answer is None else answer.state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The next heating interval, and what the answer rests on."""
+        answer = self.answer
+        attributes = self._common_attributes()
+        if answer is None or not answer.ok:
+            return attributes
+        # Heating now, the interval "starts" at each walk's start: not news.
+        start = None if answer.state == STATE_HEATING else _minute(answer.start)
+        return {
+            **attributes,
+            "starts_at": None if start is None else start.isoformat(),
+            "source": answer.source,
+            "cause": answer.cause,
+            "trigger": answer.trigger,
+            "energy_kwh": _kwh(answer.energy_kwh),
+            "tou_capped": answer.capped,
+            "confidence": answer.confidence,
+        }
+
+
+class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """When the tank next finishes heating.
+
+    The end of the heating it is in, or of the next one within the day.
+    Unknown when none is, or when it does not finish within the day.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:clock-check-outline"
+
+    @property
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The end of the next heating interval."""
+        answer = self.answer
+        return None if answer is None else _minute(answer.end)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """What the answer rests on."""
+        return self._common_attributes()
+
+
+class SimulatorEnergySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """The electricity the heater is expected to use over the next day.
+
+    A forecast, not a meter: it has no state class, so it never enters
+    long-term statistics or the energy dashboard.
+    """
+
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _attr_suggested_display_precision = _KWH_DIGITS
+    _attr_icon = "mdi:lightning-bolt-outline"
+
+    @property
+    def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The kWh over the next 24 hours; unknown when unpriced."""
+        answer = self.answer
+        return None if answer is None else _kwh(answer.energy_total_kwh)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """What the answer rests on."""
+        return self._common_attributes()
+
+
+def create_simulator_sensors(feature: SimulatorFeature) -> list[SensorEntity]:
+    """The sensors for each heater the simulator runs for."""
+    entities: list[SensorEntity] = []
+    for runner in feature.runners.values():
+        entities.extend(
+            [
+                SimulatorHeatingSensor(runner, "heating"),
+                SimulatorHotWaterReadySensor(runner, "hot_water_ready"),
+                SimulatorEnergySensor(runner, "energy_next_24h"),
+            ]
+        )
+    return entities

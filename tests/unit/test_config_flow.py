@@ -644,7 +644,7 @@ class TestExternalControlOptions:
 
         assert result["type"] == FlowResultType.FORM
         keys = {str(key) for key in result["data_schema"].schema}
-        assert keys == {"scan_interval", "control_enabled"}
+        assert keys == {"scan_interval", "control_enabled", "simulator_enabled"}
 
     @pytest.mark.asyncio
     async def test_toggle_off_keeps_the_other_options(
@@ -680,7 +680,7 @@ class TestExternalControlOptions:
         assert result["data"] == {"scan_interval": 45}
 
     def test_the_first_page_reads_as_the_release_did(self):
-        """Spec 1.1.4: its text is v0.21.1's; only the toggle is added."""
+        """Spec 1.1.4: its text is v0.21.1's; only the toggles are added."""
         import json
         from pathlib import Path as _Path
 
@@ -700,7 +700,11 @@ class TestExternalControlOptions:
                 "values provide faster updates but may increase server "
                 "load. Default: 30 seconds."
             )
-            assert set(init["data"]) == {"scan_interval", "control_enabled"}
+            assert set(init["data"]) == {
+                "scan_interval",
+                "control_enabled",
+                "simulator_enabled",
+            }
             # The toggle's help needs no knowledge of the feature.
             assert init["data"]["control_enabled"] == "External control"
             assert init["data_description"]["control_enabled"] == (
