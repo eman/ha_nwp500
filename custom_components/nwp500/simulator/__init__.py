@@ -127,6 +127,9 @@ class SimulatorFeature:
                 stored_calibration.get("report")
             ):
                 self.reports[mac_address] = report
+                # Repairs issues don't outlive a restart: the saved
+                # failures raise theirs again.
+                self._report_issue(mac_address, report)
             runner.async_start()
             if runner.options.get(CONF_SIMULATOR_RECORD) is True:
                 recorder = HistoryRecorder(

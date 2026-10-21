@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -195,6 +196,24 @@ async def test_both_clients_read_the_same_heater_history(
     done = run_change_calibration(local, sim.default_params(), None)
     assert done.n_statuses > 0
     assert not any(term.fitted for term in report(done))
+
+
+@pytest.mark.asyncio
+async def test_a_recorder_query_that_fails_is_a_history_not_read(
+    recorder_mock: Any, hass: HomeAssistant
+):
+    """A failed query is a history not read, which the caller can skip."""
+    now = dt_util.utcnow()
+    with (
+        patch(
+            "custom_components.nwp500.simulator.ha_client._history",
+            side_effect=RuntimeError("database is locked"),
+        ),
+        pytest.raises(HomeAssistantError, match="database is locked"),
+    ):
+        await InProcessClient(hass).read_history(
+            ["sensor.air"], now - timedelta(hours=1), now
+        )
 
 
 @pytest.mark.asyncio

@@ -319,6 +319,14 @@ async def test_runs_that_fit_nothing_keep_the_last_and_reach_repairs(
         "reason": "no term could be fitted",
     }
 
+    # Repairs issues don't outlive a restart: the saved failures raise it
+    # again as the simulator starts.
+    await async_unload_simulator(hass, entry)
+    ir.async_delete_issue(hass, DOMAIN, issue_id)
+    feature = await _started(hass, entry, coordinator)
+    runner = feature.runners[MAC]
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
     done, terms = _fake_done(fitted=True)
     run, rep = _patched(done, terms)
     with run, rep:

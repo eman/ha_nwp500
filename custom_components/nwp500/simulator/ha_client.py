@@ -65,13 +65,22 @@ class InProcessClient:
             return History({}, {})
         if "recorder" not in self._hass.config.components:
             raise HomeAssistantError("the recorder is not running")
-        return await get_instance(self._hass).async_add_executor_job(
-            _history,
-            self._hass,
-            start.astimezone(UTC),
-            end.astimezone(UTC),
-            names,
-        )
+        try:
+            return await get_instance(self._hass).async_add_executor_job(
+                _history,
+                self._hass,
+                start.astimezone(UTC),
+                end.astimezone(UTC),
+                names,
+            )
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            # As the REST client reports an answer it can't read: the
+            # caller can go on without the history.
+            raise HomeAssistantError(
+                f"the recorder's history is not read: {err}"
+            ) from err
 
     async def forecast(self, entity: str) -> tuple[list[Reading], str | None]:
         """Not used yet.
