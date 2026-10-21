@@ -224,6 +224,10 @@ class _SimulatorSteps:
         """The heaters recording now, whose history may not be on disk yet."""
         return set()
 
+    def _simulator_followed(self) -> bool:
+        """Whether another page follows the simulator's."""
+        return False
+
     async def _async_has_history(self, mac_address: str) -> bool:
         return mac_address in self._simulator_recording() or (
             await self.hass.async_add_executor_job(
@@ -367,7 +371,8 @@ class _SimulatorSteps:
                 "device": name,
                 "guide_url": SIMULATOR_GUIDE_URL,
             },
-            last_step=self._simulator_index + 1 >= len(self._simulator_devices),
+            last_step=self._simulator_index + 1 >= len(self._simulator_devices)
+            and not self._simulator_followed(),
         )
 
 
@@ -738,6 +743,9 @@ class OptionsFlowHandler(_SimulatorSteps, config_entries.OptionsFlow):
             if await self._async_has_history(mac_address)
         ]
 
+    def _simulator_followed(self) -> bool:
+        return bool(self._pending.get(CONF_CONTROL_ENABLED))
+
     def _simulator_recording(self) -> set[str]:
         feature = simulator_feature(self.hass, self.config_entry)
         return set() if feature is None else set(feature.recorders)
@@ -878,7 +886,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            'uv pip install "nwp500-python==9.5.0" "awsiotsdk==1.31.0"'
+            'uv pip install "nwp500-python==9.5.1" "awsiotsdk==1.31.0"'
         )
         raise CannotConnect("nwp500-python library not available")
 

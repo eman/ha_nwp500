@@ -60,7 +60,8 @@ For each water heater you can choose two sensors. Both are optional:
 | Air temperature beside the heater | How fast the heat pump heats: it takes its heat from this air | The heater's own reading while the heat pump runs; otherwise 65 °F (18 °C), and `reasons` says `ambient_defaulted` |
 | Humidity beside the heater | The heat pump's output | 50% |
 
-A reading older than an hour is not used.
+A sensor that has not reported for an hour is not used. One that keeps
+reporting the same value is.
 
 Don't choose the heater's own ambient temperature sensor as the air sensor.
 While the heat pump is off, it reads the cabinet, several degrees warm. The
@@ -85,18 +86,19 @@ history to start from.
   files go into Home Assistant's backups.
 - **When it is written.** Every 15 minutes, to spare SD cards, and when the
   integration reloads or Home Assistant stops.
-- **How big.** The day in progress is plain text, up to about 10 MB at the
-  default 30-second interval. Once the day is over, its file is compressed,
-  to well under 1 MB.
+- **How big.** The day in progress is plain text, about 20 MB by its end
+  for a heater reporting every 10 seconds or so. Once the day is over, its
+  file is compressed, to about 0.2 MB.
 - **How long.** **Days of history to keep**, 60 unless you change it
   (7 to 365). Older days are deleted.
 
 Compressing and deleting old days happen while the heater records. A
 history no longer recorded, because its recording or the simulator was
 turned off, stays as it was left until you delete it.
-- **How often.** As often as the integration asks the heater for its
-  status: the **Scan interval** option, 30 seconds unless you changed it.
-  A longer interval records less detail.
+- **How often.** Every status the heater sends, which is more often than
+  the **Scan interval** option asks for: the heater answers each request,
+  sometimes twice, and sends others between them. One heater sent about
+  one every 10 seconds, many of them unchanged from the one before.
 
 Nothing is filled in: a stretch with no file, or no lines, is a time
 nothing arrived, such as an outage or a restart.

@@ -7,7 +7,8 @@ one answers them in-process, from the state machine.
 
 A state is parsed by the library's own `parse_state`, from the same JSON
 the REST API returns for it (`State.as_dict_json`), so both clients date
-and convert a reading alike.
+and convert a reading alike: by its last report (`last_reported`), so a
+sensor that keeps reporting the same value stays fresh.
 """
 
 from __future__ import annotations

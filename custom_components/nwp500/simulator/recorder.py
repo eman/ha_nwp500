@@ -43,8 +43,8 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 FLUSH_INTERVAL = timedelta(minutes=15)
-# The most lines held while the files cannot be written: a day at one
-# status every 30 seconds. Older lines go first.
+# The most lines held while the files cannot be written: about eight hours
+# at one status every 10 seconds, about 7 MB. Older lines go first.
 MAX_BUFFERED = 2880
 
 _SUFFIX = ".jsonl"
