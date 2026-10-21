@@ -22,8 +22,10 @@ pytest.importorskip("pandas")
 
 from nwp500.sim_home_assistant import (  # noqa: E402
     Entities,
+    HeaterEntities,
     HomeAssistantClient,
     HomeAssistantError,
+    read_heater_history,
     record_inputs,
 )
 
@@ -98,6 +100,11 @@ async def test_both_clients_read_the_same_history(
     assert local.outages["sensor.air"]
     assert "°C" in (local.units or {})["sensor.air"]
     assert local.readings["sensor.nowhere"] == []
+    # Every row as written, the outage's too.
+    air_states = [state for _, state in (local.states or {})["sensor.air"]]
+    assert air_states[0] == "60.5"
+    assert "unavailable" in air_states
+    assert (local.states or {})["sensor.nowhere"] == []
 
 
 @pytest.mark.asyncio
@@ -114,6 +121,58 @@ async def test_both_clients_record_the_same_inputs(
 
     assert local == remote
     assert local.air
+
+
+@pytest.mark.asyncio
+async def test_both_clients_read_the_same_heater_history(
+    recorder_mock: Any, hass: HomeAssistant, hass_client: Any, freezer: Any
+):
+    """The heater's entities, as the entity-history calibration reads them."""
+    rest = await _rest(hass, hass_client)
+    start = dt_util.utcnow().replace(microsecond=0)
+    for minutes, upper, compressor in (
+        (0, "131.0", "off"),
+        (3, "130.8", "off"),
+        (6, "unavailable", "unavailable"),
+        (9, "130.4", "on"),
+        (12, "131.2", "on"),
+    ):
+        freezer.move_to(start + timedelta(minutes=minutes))
+        stamp = (start + timedelta(minutes=minutes)).isoformat()
+        hass.states.async_set(
+            "sensor.heard", stamp, {"device_class": "timestamp"}
+        )
+        hass.states.async_set(
+            "sensor.upper", upper, {"unit_of_measurement": "°F"}
+        )
+        hass.states.async_set(
+            "sensor.lower", "120.0", {"unit_of_measurement": "°F"}
+        )
+        hass.states.async_set("binary_sensor.compressor", compressor)
+    await async_wait_recording_done(hass)
+    end = start + timedelta(minutes=15)
+    entities = HeaterEntities(
+        heard="sensor.heard",
+        upper="sensor.upper",
+        lower="sensor.lower",
+        compressor="binary_sensor.compressor",
+    )
+
+    local = await read_heater_history(
+        InProcessClient(hass),  # type: ignore[arg-type]
+        entities,
+        start,
+        end,
+        window=timedelta(minutes=5),
+    )
+    remote = await read_heater_history(
+        rest, entities, start, end, window=timedelta(minutes=5)
+    )
+
+    assert local.observed == remote.observed
+    assert local.notes == remote.notes
+    assert local.rows == remote.rows
+    assert local.observed
 
 
 @pytest.mark.asyncio

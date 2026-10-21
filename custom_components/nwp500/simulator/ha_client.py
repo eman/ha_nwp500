@@ -33,6 +33,7 @@ from nwp500.sim_home_assistant import (
     history_for,
     parse_outages,
     parse_state,
+    parse_states,
     parse_units,
 )
 
@@ -57,7 +58,7 @@ class InProcessClient:
         """Each entity's changes from `start` to `end`.
 
         The first is the value in force at `start`; with each entity's
-        outages and units.
+        outages, units, and every row's state as written.
         """
         names = sorted(set(entities))
         if not names:
@@ -73,10 +74,12 @@ class InProcessClient:
         )
         outages = parse_outages(doc, end)
         units = parse_units(doc)
+        states = parse_states(doc)
         return History(
             history_for(doc, names),
             {n: outages.get(n, []) for n in names},
             {n: units.get(n, []) for n in names},
+            {n: states.get(n, []) for n in names},
         )
 
     async def forecast(self, entity: str) -> tuple[list[Reading], str | None]:
