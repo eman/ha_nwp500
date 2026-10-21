@@ -3,7 +3,8 @@
   "name": "Navien NWP500",
   "after_dependencies": [
     "frontend",
-    "http"
+    "http",
+    "recorder"
   ],
   "codeowners": [
     "@eman"

@@ -1,0 +1,126 @@
+"""The in-process client's history against Home Assistant's REST API.
+
+Kept apart from `tests/unit/simulator`, whose fixtures set Home Assistant
+up before the recorder can be.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Any
+
+import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.components.recorder.common import (
+    async_wait_recording_done,
+)
+
+# The simulator's packages; without them (tox -e py314-nosim), skipped.
+pytest.importorskip("pandas")
+
+from nwp500.sim_home_assistant import (  # noqa: E402
+    Entities,
+    HomeAssistantClient,
+    HomeAssistantError,
+    record_inputs,
+)
+
+from custom_components.nwp500.simulator.ha_client import (  # noqa: E402
+    InProcessClient,
+)
+
+
+class _Session:
+    """aiohttp's session, as the library's client uses it.
+
+    Onto the test client of Home Assistant's own HTTP API.
+    """
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    def request(self, method: str, url: str, **kw: Any) -> Any:
+        kw.pop("timeout", None)
+        kw.pop("allow_redirects", None)
+        # The test client carries a real token; the library's is a stand-in.
+        kw.pop("headers", None)
+        return self._client.request(method, url.split("://ha", 1)[1], **kw)
+
+
+async def _rest(hass: HomeAssistant, hass_client: Any) -> HomeAssistantClient:
+    assert await async_setup_component(hass, "api", {})
+    assert await async_setup_component(hass, "history", {})
+    return HomeAssistantClient(
+        "http://ha", "token", session=_Session(await hass_client())
+    )
+
+
+async def _record(hass: HomeAssistant, freezer: Any) -> tuple[Any, Any]:
+    """An air sensor's changes, an outage and a unit change; and their span.
+
+    Under half an hour, as the test client's access token lasts.
+    """
+    start = dt_util.utcnow().replace(microsecond=0)
+    freezer.move_to(start - timedelta(minutes=5))
+    hass.states.async_set("sensor.air", "60.5", {"unit_of_measurement": "°F"})
+    hass.states.async_set("sensor.rh", "41", {"unit_of_measurement": "%"})
+    for minutes, air, unit in (
+        (4, "61.0", "°F"),
+        (8, "unavailable", "°F"),
+        (12, "16.5", "°C"),
+        (16, "62.5", "°F"),
+        (20, "62.5", "°F"),
+    ):
+        freezer.move_to(start + timedelta(minutes=minutes))
+        hass.states.async_set("sensor.air", air, {"unit_of_measurement": unit})
+    freezer.move_to(start + timedelta(minutes=22))
+    hass.states.async_set("sensor.rh", "44", {"unit_of_measurement": "%"})
+    await async_wait_recording_done(hass)
+    return start, start + timedelta(minutes=25)
+
+
+@pytest.mark.asyncio
+async def test_both_clients_read_the_same_history(
+    recorder_mock: Any, hass: HomeAssistant, hass_client: Any, freezer: Any
+):
+    rest = await _rest(hass, hass_client)
+    start, end = await _record(hass, freezer)
+    names = ["sensor.air", "sensor.rh", "sensor.nowhere"]
+
+    local = await InProcessClient(hass).read_history(names, start, end)
+    remote = await rest.read_history(names, start, end)
+
+    assert local == remote
+    # The value in force at the start, the outage, and each unit.
+    assert local.readings["sensor.air"][0][1] == 60.5
+    assert local.outages["sensor.air"]
+    assert "°C" in (local.units or {})["sensor.air"]
+    assert local.readings["sensor.nowhere"] == []
+
+
+@pytest.mark.asyncio
+async def test_both_clients_record_the_same_inputs(
+    recorder_mock: Any, hass: HomeAssistant, hass_client: Any, freezer: Any
+):
+    """What the calibration reads, through the library's own reader."""
+    rest = await _rest(hass, hass_client)
+    start, end = await _record(hass, freezer)
+    entities = Entities(air="sensor.air", humidity="sensor.rh")
+
+    local = await record_inputs(InProcessClient(hass), entities, start, end)  # type: ignore[arg-type]
+    remote = await record_inputs(rest, entities, start, end)
+
+    assert local == remote
+    assert local.air
+
+
+@pytest.mark.asyncio
+async def test_history_needs_the_recorder(hass: HomeAssistant):
+    now = dt_util.utcnow()
+    client = InProcessClient(hass)
+
+    assert (await client.read_history([], now, now)).readings == {}
+    with pytest.raises(HomeAssistantError, match="recorder"):
+        await client.read_history(["sensor.air"], now, now)
