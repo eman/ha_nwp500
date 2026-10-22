@@ -1437,11 +1437,6 @@ ISSUE_SIMULATOR_INSTALL_FAILED: Final = "simulator_install_failed"
 SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
 
 
-def simulator_storage_key(entry_id: str) -> str:
-    """The storage key of an entry's simulator state."""
-    return f"{DOMAIN}.simulator.{entry_id}"
-
-
 def simulator_started_signal(entry_id: str) -> str:
     """The dispatcher signal sent once an entry's simulator runs."""
     return f"{DOMAIN}_simulator_started_{entry_id}"

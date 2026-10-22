@@ -18,10 +18,6 @@ from .runner import HEATING_STATES, STATE_HEATING, Answer, SimulatorRunner
 if TYPE_CHECKING:
     from . import SimulatorFeature
 
-# The engine the answers come from. Physics alone runs short on long
-# recoveries; the attribute says so to whoever reads the answer.
-MODEL = "physics"
-
 # Long: kept off the recorder.
 _UNRECORDED = frozenset({"reasons", "defaults_used", "notes"})
 
@@ -88,9 +84,8 @@ class NWP500SimulatorEntity(NWP500Entity):
         # computed is in the diagnostics.
         answer = self.answer
         if answer is None:
-            return {"model": MODEL}
+            return {}
         return {
-            "model": MODEL,
             "reasons": list(answer.reasons),
             "defaults_used": list(answer.defaults_used),
             "notes": list(answer.notes),
@@ -134,8 +129,9 @@ class SimulatorHeatingSensor(NWP500SimulatorEntity, SensorEntity):  # type: igno
 class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """When the tank next finishes heating.
 
-    The end of the heating it is in, or of the next one within the day.
-    Unknown when none is, or when it does not finish within the day.
+    The end of the heating it is in, or of the next one within the day,
+    as the library's `RecoveryResult.ready_at` gives it; `stop` says what
+    ended it. Unknown when there is none within the day.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -149,8 +145,12 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """What the answer rests on."""
-        return self._common_attributes()
+        """Why the heating ends, and what the answer rests on."""
+        attributes = self._common_attributes()
+        answer = self.answer
+        if answer is None or not answer.ok:
+            return attributes
+        return {**attributes, "stop": answer.stop}
 
 
 class SimulatorEnergySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

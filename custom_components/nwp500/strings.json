@@ -1148,10 +1148,6 @@
         "include_points": {
           "name": "Include the tank's path",
           "description": "Also return the tank's temperatures along the way. Off by default: the path is long."
-        },
-        "resolution_minutes": {
-          "name": "Path resolution",
-          "description": "With the path included, keep one point every this many minutes (1 to 60)."
         }
       }
     }
@@ -1174,9 +1170,6 @@
     },
     "simulator_standby": {
       "message": "The water heater is in Standby, which the simulator doesn't model: nothing heats."
-    },
-    "simulator_setpoint_out_of_range": {
-      "message": "The temperature {temperature} is outside what the simulator runs, {min} to {max}."
     }
   },
   "selector": {

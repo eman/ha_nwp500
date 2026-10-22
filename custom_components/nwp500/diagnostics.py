@@ -288,7 +288,6 @@ def _simulator(feature: Any) -> dict[str, Any]:
             {
                 "device_name": device.device_info.device_name,
                 "options": dict(runner.options),
-                "history": runner.history.as_document(),
                 "last_duration_s": runner.last_duration_s,
                 "answer": None if answer is None else answer.as_document(),
             }

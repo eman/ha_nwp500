@@ -676,14 +676,3 @@ simulate:
       default: false
       selector:
         boolean:
-    resolution_minutes:
-      name: Path resolution
-      description: >-
-        With the path included, keep one point every this many minutes (1 to
-        60).
-      required: false
-      selector:
-        number:
-          min: 1
-          max: 60
-          mode: box

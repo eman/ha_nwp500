@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import math
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -13,14 +12,12 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.nwp500.simulator.runner import (
     REASON_RESERVATIONS_UNKNOWN,
-    REASON_TOU_UNKNOWN,
     STATE_DISABLED,
     STATE_HEATING,
     STATE_SCHEDULED,
     WAIT_FEATURE,
     WAIT_STANDBY,
     WAIT_STATUS,
-    HeatingHistory,
     Inputs,
     SimulatorRunner,
     answer_from,
@@ -66,18 +63,18 @@ TOU = {
 def runner(
     hass: HomeAssistant, coordinator: MagicMock, **options: Any
 ) -> SimulatorRunner:
-    return SimulatorRunner(
-        hass, coordinator, MAC, options, HeatingHistory(), MagicMock()
-    )
+    return SimulatorRunner(hass, coordinator, MAC, options)
 
 
-def test_the_heaters_air_is_used_only_while_the_compressor_runs():
-    idle = heater_reading(make_status(compUse=OFF), make_feature())
-    assert math.isnan(idle.environment.ambient_f)
+def test_the_heater_is_read_as_the_librarys_live_source_reads_it():
+    from nwp500 import sim_adapters as sa
 
-    running = heater_reading(make_status(compUse=ON), make_feature())
-    # ambientTemperature 220 deci-°C is 22 °C.
-    assert running.environment.ambient_f == pytest.approx(71.6)
+    for compressor in (OFF, ON):
+        status = make_status(compUse=compressor)
+        reading = heater_reading(status, make_feature())
+        assert reading.environment == sa.environment(status)
+        assert reading.state == sa.heater_state(status)
+        assert reading.settings == sa.settings(status)
 
 
 def test_the_tank_size_comes_from_the_feature():
@@ -90,10 +87,13 @@ def test_schedules_not_read_yet_are_named():
     assert reasons == (REASON_RESERVATIONS_UNKNOWN,)
     assert schedules.reservations == ()
 
-    _, reasons = heater_schedules(
+    # TOU on with no periods read: the library says so itself.
+    schedules, reasons = heater_schedules(
         make_status(touStatus=True), RESERVATIONS, None
     )
-    assert reasons == (REASON_TOU_UNKNOWN,)
+    assert reasons == ()
+    assert schedules.tou_enabled is True
+    assert schedules.tou_periods == ()
 
 
 def test_schedules_are_read_from_the_stored_copies():
@@ -105,37 +105,6 @@ def test_schedules_are_read_from_the_stored_copies():
     assert schedules.reservations[0].hour == 6
     assert len(schedules.tou_periods) == 1
     assert schedules.tou_enabled is True
-
-
-def test_history_records_the_compressors_stop_and_the_last_heat():
-    history = HeatingHistory()
-    t0 = datetime(2026, 10, 20, 12, tzinfo=UTC)
-    t1 = t0 + timedelta(minutes=1)
-
-    assert history.observe(make_status(compUse=ON), t0) is True
-    assert history.heated_at == t0
-    assert history.compressor_stopped_at is None
-
-    assert history.observe(make_status(compUse=OFF), t1) is True
-    assert history.compressor_stopped_at == t1
-    assert history.heated_at == t0
-
-    assert history.observe(make_status(compUse=OFF), t1) is False
-
-
-def test_history_survives_storage():
-    t0 = datetime(2026, 10, 20, 12, tzinfo=UTC)
-    history = HeatingHistory(compressor_stopped_at=t0, heated_at=t0)
-
-    again = HeatingHistory.from_document(history.as_document())
-
-    assert again.compressor_stopped_at == t0
-    assert again.heated_at == t0
-    assert (
-        HeatingHistory.from_document({"heated_at": "nonsense"}).heated_at
-        is None
-    )
-    assert HeatingHistory.from_document(None).heated_at is None
 
 
 @pytest.mark.asyncio
@@ -156,6 +125,18 @@ async def test_no_scenario_without_the_feature(
 async def test_no_scenario_in_standby(hass: HomeAssistant, coordinator):
     coordinator.data[MAC]["status"] = make_status(dhwOperationSetting=0)
     assert await runner(hass, coordinator).async_inputs() == WAIT_STANDBY
+
+
+@pytest.mark.asyncio
+async def test_the_scenario_leaves_the_history_to_the_library(
+    hass: HomeAssistant, coordinator
+):
+    from nwp500.sim.inputs import History
+
+    inputs = await runner(hass, coordinator).async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    assert inputs.scenario.history == History()
 
 
 @pytest.mark.asyncio
@@ -183,11 +164,12 @@ async def test_a_stale_air_sensor_is_not_used(hass: HomeAssistant, coordinator):
     ).async_inputs(start=later)
 
     assert isinstance(inputs, Inputs)
-    assert math.isnan(inputs.scenario.environment.ambient_f)
+    # The heater's own reading, as `compose` takes it without another.
+    assert inputs.scenario.environment.ambient_f == pytest.approx(71.6)
 
 
 @pytest.mark.asyncio
-async def test_a_missing_air_sensor_leaves_the_default(
+async def test_a_missing_air_sensor_leaves_the_heaters_reading(
     hass: HomeAssistant, coordinator
 ):
     inputs = await runner(
@@ -195,7 +177,8 @@ async def test_a_missing_air_sensor_leaves_the_default(
     ).async_inputs()
 
     assert isinstance(inputs, Inputs)
-    assert math.isnan(inputs.scenario.environment.ambient_f)
+    # The heater's own reading, as `compose` takes it without another.
+    assert inputs.scenario.environment.ambient_f == pytest.approx(71.6)
 
 
 @pytest.mark.asyncio
@@ -297,7 +280,7 @@ async def test_a_failing_walk_is_logged_once_and_recovers(
 
 
 @pytest.mark.asyncio
-async def test_the_ready_time_is_the_end_of_a_finished_heating(
+async def test_the_ready_time_is_the_end_of_the_first_heating(
     hass: HomeAssistant, coordinator
 ):
     from nwp500 import sim
@@ -306,24 +289,22 @@ async def test_the_ready_time_is_the_end_of_a_finished_heating(
     assert isinstance(inputs, Inputs)
     result = sim.simulate(inputs.scenario, inputs.params)
     first = result.heating[0]
-    assert first.stop != "horizon"
 
-    assert answer_from(result, inputs).end == first.end
+    answer = answer_from(result, inputs)
+    assert answer.end == first.end
+    assert answer.stop == first.stop
 
 
 @pytest.mark.asyncio
-async def test_standby_is_an_answer_that_nothing_heats(
-    hass: HomeAssistant, coordinator
-):
+async def test_standby_has_no_answer(hass: HomeAssistant, coordinator):
+    # The library does not model Standby.
     coordinator.data[MAC]["status"] = make_status(dhwOperationSetting=0)
     r = runner(hass, coordinator)
 
     await r._async_run()  # noqa: SLF001
 
-    assert r.answer is not None and r.answer.ok
-    assert r.answer.state == STATE_DISABLED
-    assert r.answer.energy_total_kwh == 0.0
-    assert r.answer.end is None
+    assert r.answer is not None and not r.answer.ok
+    assert r.answer.waiting == WAIT_STANDBY
 
 
 @pytest.mark.asyncio

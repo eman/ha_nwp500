@@ -238,12 +238,13 @@ Assistant, from what the heater reports, and keeps three sensors up to date:
 
 - **Simulated heating**: heating, will heat (within the next 24 hours), not
   heating today, or heating off.
-- **Simulated hot water ready**: when the tank will next be fully heated.
+- **Simulated hot water ready**: when the tank's current or next heating
+  ends.
 - **Simulated energy, next 24 hours**: the electricity it is likely to use.
 
-`nwp500.simulate` returns a simulation from now on request, up to a week
-ahead, and can try setpoint and mode changes first without touching the
-heater.
+`nwp500.simulate` returns the library's simulation document from now on
+request, up to a week ahead, and can try setpoint and mode changes first
+without touching the heater.
 
 Turning it on installs numpy, pandas and scipy if Home Assistant does not
 already have them; with it off, none of them is installed or loaded, and

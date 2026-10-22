@@ -1,4 +1,4 @@
-"""The simulator feature: set-up, storage, removal, its sensors and service."""
+"""The simulator feature: set-up, removal, its sensors and service."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from custom_components.nwp500.const import (
     CONF_SIMULATOR_ENABLED,
     DATA_SIMULATOR,
     DOMAIN,
-    simulator_storage_key,
 )
 from custom_components.nwp500.simulator import (
     SimulatorFeature,
@@ -31,7 +30,7 @@ from custom_components.nwp500.simulator.sensor import (
     SimulatorHeatingSensor,
     SimulatorHotWaterReadySensor,
 )
-from custom_components.nwp500.simulator.service import UNITS, async_simulate
+from custom_components.nwp500.simulator.service import async_simulate
 
 from .conftest import MAC, make_status
 
@@ -82,41 +81,14 @@ async def test_unload_without_a_feature_is_a_no_op(hass: HomeAssistant, entry):
 
 
 @pytest.mark.asyncio
-async def test_the_heating_history_is_kept_across_restarts(
+async def test_the_simulator_stores_nothing(
     hass: HomeAssistant, hass_storage, entry, coordinator
 ):
-    coordinator.data[MAC]["status"] = make_status(compUse=ON)
-    feature = await started(hass, entry, coordinator)
-    coordinator.data[MAC]["status"] = make_status(compUse=OFF)
-    coordinator.data[MAC]["last_update"] = 2.0
-    for listener in list(coordinator.listeners):
-        listener()
-    stopped = feature.runners[MAC].history.compressor_stopped_at
-    assert stopped is not None
-
-    await async_unload_simulator(hass, entry)
-    assert simulator_storage_key(entry.entry_id) in hass_storage
-
-    feature = await started(hass, entry, coordinator)
-    assert feature.runners[MAC].history.compressor_stopped_at == stopped
-    await async_unload_simulator(hass, entry)
-
-
-@pytest.mark.asyncio
-async def test_removal_deletes_the_storage_and_nothing_saves_it_again(
-    hass: HomeAssistant, hass_storage, entry, coordinator
-):
-    feature = await started(hass, entry, coordinator)
-    await async_unload_simulator(hass, entry)
-    assert simulator_storage_key(entry.entry_id) in hass_storage
-
-    feature = await started(hass, entry, coordinator)
-    await feature.async_remove()
-    # The entry's reload then unloads it, which must not save it back.
+    await started(hass, entry, coordinator)
     await async_unload_simulator(hass, entry)
     await hass.async_block_till_done()
 
-    assert simulator_storage_key(entry.entry_id) not in hass_storage
+    assert not [key for key in hass_storage if "simulator" in key]
 
 
 @pytest.mark.asyncio
@@ -135,7 +107,7 @@ async def test_sensors_report_the_answer(
     assert heating.available
     assert heating.native_value == "scheduled"
     attributes = heating.extra_state_attributes
-    assert attributes["model"] == "physics"
+    assert "model" not in attributes
     assert attributes["source"] == "compressor"
     assert "no_heat_book" in attributes["reasons"]
     assert {"reasons", "defaults_used", "notes"} <= set(
@@ -146,6 +118,7 @@ async def test_sensors_report_the_answer(
     assert ready.device_class is SensorDeviceClass.TIMESTAMP
     assert answer.end is not None
     assert ready.native_value == answer.end.replace(second=0, microsecond=0)
+    assert ready.extra_state_attributes["stop"] == answer.stop
 
     energy = by_type[SimulatorEnergySensor]
     assert answer.energy_total_kwh is not None
@@ -182,14 +155,17 @@ async def test_the_service_walks_the_scenario(
         hours=6,
         writes=[],
         include_points=False,
-        resolution_minutes=None,
     )
 
     assert "points" not in document
-    assert document["units"] == UNITS
-    assert document["model"] == "physics"
-    assert document["summary"]["state"] == "scheduled"
+    assert "delivery" not in document
     assert document["heating"]
+    # The library's document, its reasons its own; the integration's
+    # notes on its inputs beside it.
+    assert {"summary", "units", "model"}.isdisjoint(document)
+    assert "reservations_unknown" not in document["reasons"]
+    assert document["inputs"]["reasons"] == ["reservations_unknown"]
+    assert isinstance(document["inputs"]["notes"], list)
     start = datetime.fromisoformat(document["start"])
     until = datetime.fromisoformat(document["until"])
     assert until - start == timedelta(hours=6)
@@ -197,34 +173,21 @@ async def test_the_service_walks_the_scenario(
 
 
 @pytest.mark.asyncio
-async def test_the_service_thins_the_path(
+async def test_the_service_returns_the_path_when_asked(
     hass: HomeAssistant, hass_storage, entry, coordinator
 ):
     feature = await started(hass, entry, coordinator)
-    runner = feature.runners[MAC]
 
-    full = await async_simulate(
+    document = await async_simulate(
         hass,
-        runner,
+        feature.runners[MAC],
         hours=2,
         writes=[],
         include_points=True,
-        resolution_minutes=None,
-    )
-    thin = await async_simulate(
-        hass,
-        runner,
-        hours=2,
-        writes=[],
-        include_points=True,
-        resolution_minutes=15,
     )
 
-    assert len(full["points"]) > len(thin["points"])
-    assert thin["points"][-1]["at"] == full["points"][-1]["at"]
-    instants = [datetime.fromisoformat(p["at"]) for p in thin["points"]]
-    gaps = [b - a for a, b in zip(instants[:-2], instants[1:-1], strict=True)]
-    assert gaps and min(gaps) >= timedelta(minutes=15)
+    assert document["points"]
+    assert "delivery" in document
     await async_unload_simulator(hass, entry)
 
 
@@ -243,7 +206,6 @@ async def test_the_service_tries_a_write(
         # In Home Assistant's unit, Celsius here: 122 °F.
         writes=[{"at": at, "temperature": 50.0, "mode": "heat_pump"}],
         include_points=False,
-        resolution_minutes=None,
     )
 
     landed = document["writes"] + document["mode_writes"]
@@ -268,7 +230,6 @@ async def test_the_service_says_when_there_is_no_scenario(
             hours=4,
             writes=[],
             include_points=False,
-            resolution_minutes=None,
         )
     assert err.value.translation_key == "simulator_no_answer"
     await async_unload_simulator(hass, entry)
@@ -297,7 +258,7 @@ async def test_diagnostics_show_the_simulator_without_macs(
 
 
 @pytest.mark.asyncio
-async def test_a_heating_the_walk_cuts_off_has_no_ready_time(
+async def test_a_heating_the_walk_cuts_off_stops_at_the_horizon(
     hass: HomeAssistant, hass_storage, entry, coordinator
 ):
     """It stops at the walk's end, not at its target."""
@@ -310,13 +271,10 @@ async def test_a_heating_the_walk_cuts_off_has_no_ready_time(
         hours=1,
         writes=[],
         include_points=False,
-        resolution_minutes=None,
     )
 
     (heating,) = document["heating"]
     assert heating["stop"] == "horizon"
-    assert document["summary"]["state"] == "scheduled"
-    assert document["summary"]["ready_at"] is None
     await async_unload_simulator(hass, entry)
 
 
@@ -335,7 +293,6 @@ async def test_a_write_outside_the_walk_is_refused(
             hours=1,
             writes=[{"at": dt_util.utcnow() + offset, "temperature": 50.0}],
             include_points=False,
-            resolution_minutes=None,
         )
     assert err.value.translation_key == "simulator_write_outside"
     await async_unload_simulator(hass, entry)
@@ -383,20 +340,16 @@ async def test_the_service_refuses_a_setpoint_it_cannot_run(
     feature = await started(hass, entry, coordinator)
     at = dt_util.utcnow() + timedelta(minutes=10)
 
-    with pytest.raises(ServiceValidationError) as err:
+    # The library's refusal, as the caller's error.
+    with pytest.raises(ServiceValidationError, match="°F"):
         await async_simulate(
             hass,
             feature.runners[MAC],
             hours=1,
             writes=[{"at": at, "temperature": 200.0}],
             include_points=False,
-            resolution_minutes=None,
         )
 
-    assert err.value.translation_key == "simulator_setpoint_out_of_range"
-    # In Home Assistant's unit, Celsius here.
-    assert err.value.translation_placeholders["temperature"] == "200.0 °C"
-    assert err.value.translation_placeholders["max"].endswith("°C")
     await async_unload_simulator(hass, entry)
 
 
@@ -414,7 +367,6 @@ async def test_the_service_says_standby(
             hours=1,
             writes=[],
             include_points=False,
-            resolution_minutes=None,
         )
 
     assert err.value.translation_key == "simulator_standby"
@@ -455,60 +407,3 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
         SimulatorEnergySensor,
     }
     await async_unload_simulator(hass, entry)
-
-
-@pytest.mark.asyncio
-async def test_heating_handed_on_in_another_mode_is_ready_when_it_ends(
-    hass: HomeAssistant, hass_storage, entry, coordinator
-):
-    """A change to Electric hands the compressor's heating on.
-
-    Ready is when the elements finish, not the change.
-    """
-    coordinator.data[MAC]["status"] = make_status(compUse=ON)
-    feature = await started(hass, entry, coordinator)
-    at = dt_util.utcnow().replace(microsecond=0) + timedelta(minutes=10)
-
-    document = await async_simulate(
-        hass,
-        feature.runners[MAC],
-        hours=6,
-        writes=[{"at": at, "mode": "electric"}],
-        include_points=False,
-        resolution_minutes=None,
-    )
-
-    heating = document["heating"]
-    assert heating[0]["stop"] == "mode"
-    assert heating[1]["source"] == "element"
-    ready = datetime.fromisoformat(document["summary"]["ready_at"])
-    assert ready > datetime.fromisoformat(heating[0]["end"])
-    assert ready == datetime.fromisoformat(heating[-1]["end"])
-    await async_unload_simulator(hass, entry)
-
-
-def test_heating_cut_short_by_a_mode_change_has_no_ready_time():
-    from types import SimpleNamespace
-
-    from custom_components.nwp500.simulator.runner import _ready_at
-
-    t0 = datetime(2026, 10, 21, 12, tzinfo=UTC)
-
-    def interval(start: int, end: int, stop: str) -> SimpleNamespace:
-        return SimpleNamespace(
-            start=SimpleNamespace(at=t0 + timedelta(minutes=start)),
-            end=t0 + timedelta(minutes=end),
-            stop=stop,
-        )
-
-    # Into a mode that does not heat: nothing goes on from it.
-    assert _ready_at([interval(0, 10, "mode")]) is None
-    # A later, separate heating is not part of it.
-    assert (
-        _ready_at([interval(0, 10, "mode"), interval(90, 120, "target")])
-        is None
-    )
-    assert _ready_at(
-        [interval(0, 10, "target"), interval(90, 120, "target")]
-    ) == (t0 + timedelta(minutes=10))
-    assert _ready_at([]) is None

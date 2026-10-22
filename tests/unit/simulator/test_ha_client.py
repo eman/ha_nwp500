@@ -11,14 +11,13 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from homeassistant.util.json import json_loads
 from nwp500.sim_home_assistant import (
     Entities,
     HomeAssistantClient,
     HomeAssistantEnvironment,
-    HomeAssistantError,
 )
 
 from custom_components.nwp500.simulator.ha_client import InProcessClient
@@ -146,59 +145,21 @@ async def test_a_sensor_reporting_the_same_value_stays_fresh(
     assert not [note for note in local_notes if "stale" in note]
 
 
-def _forecast_service(
-    hass: HomeAssistant, hours: list[dict[str, Any]]
-) -> list[ServiceCall]:
-    calls: list[ServiceCall] = []
-
-    async def handle(call: ServiceCall) -> dict[str, Any]:
-        # As the weather integration's entity service answers: by entity.
-        calls.append(call)
-        entities = call.data["entity_id"]
-        if isinstance(entities, str):
-            entities = [entities]
-        return {entity: {"forecast": hours} for entity in entities}
-
-    hass.services.async_register(
-        "weather",
-        "get_forecasts",
-        handle,
-        supports_response=SupportsResponse.ONLY,
-    )
-    return calls
-
-
 @pytest.mark.asyncio
-async def test_the_forecast_is_read_in_the_entitys_unit(hass: HomeAssistant):
-    hass.states.async_set(
-        "weather.home", "sunny", {"temperature": 10, "temperature_unit": "°C"}
-    )
-    at = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
-    calls = _forecast_service(
-        hass,
-        [
-            {
-                "datetime": (at + timedelta(hours=1)).isoformat(),
-                "temperature": 12,
-            },
-            {"datetime": at.isoformat(), "temperature": 11},
-        ],
-    )
-
-    hours, unit = await InProcessClient(hass).forecast("weather.home")
-
-    assert unit == "°C"
-    assert [v for _, v in hours] == [11, 12]
-    assert calls[0].data["type"] == "hourly"
-
-
-@pytest.mark.asyncio
-async def test_a_forecast_that_cannot_be_read_is_reported(hass: HomeAssistant):
+async def test_a_reading_read_before_its_next_report_stays_fresh(
+    hass: HomeAssistant, freezer
+):
+    """Home Assistant caches a state's JSON; a same-value report keeps it."""
+    hass.states.async_set("sensor.air", "15.5", {"unit_of_measurement": "°C"})
     client = InProcessClient(hass)
-    with pytest.raises(HomeAssistantError, match="does not exist"):
-        await client.forecast("weather.home")
+    first = await client.state("sensor.air")
 
-    # No service to answer: the weather integration isn't loaded.
-    hass.states.async_set("weather.home", "sunny", {"temperature_unit": "°F"})
-    with pytest.raises(HomeAssistantError, match="not read"):
-        await client.forecast("weather.home")
+    freezer.tick(timedelta(hours=3))
+    hass.states.async_set("sensor.air", "15.5", {"unit_of_measurement": "°C"})
+    state = hass.states.get("sensor.air")
+    assert state is not None
+
+    again = await client.state("sensor.air")
+
+    assert again.at == state.last_reported
+    assert again.at - first.at == timedelta(hours=3)
