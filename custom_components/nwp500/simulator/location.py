@@ -57,6 +57,10 @@ MIN_SPAN = timedelta(days=3)
 MIN_R = 0.5
 #: The share of the readings held out to judge a refit by, the latest.
 HELD_OUT = 0.2
+#: The outdoor air is known between two of its readings this close: a
+#: weather entity records a change, not each report, so a steady outdoor
+#: air leaves gaps. Further apart, what came between is unknown.
+OUTDOOR_GAP = timedelta(hours=3)
 
 #: How a run ended for the model.
 KEPT_BASE = "base"
@@ -183,17 +187,49 @@ def read_histories(
 
 
 def averaged(readings: Sequence[Reading]) -> list[Reading]:
-    """`readings` averaged per `BUCKET`, each at its bucket's middle."""
-    buckets: dict[int, list[float]] = {}
+    """`readings` averaged per `BUCKET`, each dated by its readings' mean.
+
+    Dated by the bucket's middle instead, a sensor that reports at the top
+    of each half hour would read a quarter of an hour late.
+    """
+    buckets: dict[int, list[Reading]] = {}
     width = BUCKET.total_seconds()
     for at, value in readings:
-        buckets.setdefault(int(at.timestamp() // width), []).append(value)
+        buckets.setdefault(int(at.timestamp() // width), []).append((at, value))
     return [
         (
-            datetime.fromtimestamp((key + 0.5) * width, UTC),
-            float(np.mean(values)),
+            datetime.fromtimestamp(
+                float(np.mean([at.timestamp() for at, _ in rows])), UTC
+            ),
+            float(np.mean([value for _, value in rows])),
         )
-        for key, values in sorted(buckets.items())
+        for _, rows in sorted(buckets.items())
+    ]
+
+
+def covered(
+    air: Sequence[Reading], outdoor: Sequence[Reading]
+) -> list[Reading]:
+    """The air's readings the outdoor air is known for, at every lag fitted.
+
+    Interpolated across a gap, or held past its ends, the outdoor air
+    would say nothing about the lag.
+    """
+    times = sorted(t for t, _ in outdoor)
+    if not times:
+        return []
+    reach = timedelta(hours=max(location_air.FIT_LAGS_H))
+    gaps = [
+        (a, b)
+        for a, b in zip(times, times[1:], strict=False)
+        if b - a > OUTDOOR_GAP
+    ]
+    return [
+        (t, v)
+        for t, v in air
+        if times[0] <= t - reach
+        and t <= times[-1]
+        and not any(a < t and t - reach < b for a, b in gaps)
     ]
 
 
@@ -222,12 +258,7 @@ def fit(
     Runs in an executor.
     """
     kept = KEPT_BASE if base is not None else None
-    air = averaged(readings)
-    # Only where the outdoor air is known: held past its ends, it would
-    # say nothing about the lag.
-    if outdoor:
-        first, last = min(t for t, _ in outdoor), max(t for t, _ in outdoor)
-        air = [(t, v) for t, v in air if first <= t <= last]
+    air = covered(averaged(readings), outdoor)
     if len(air) < MIN_READINGS or air[-1][0] - air[0][0] < MIN_SPAN:
         days = MIN_SPAN.total_seconds() / 86400
         return LocationFit(
@@ -289,6 +320,7 @@ __all__ = [
     "LocationFit",
     "async_fit_location",
     "averaged",
+    "covered",
     "fit",
     "model_from_document",
     "model_to_document",

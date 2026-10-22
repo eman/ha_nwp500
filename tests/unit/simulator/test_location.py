@@ -21,6 +21,7 @@ from custom_components.nwp500.simulator.location import (
     KEPT_BASE,
     KEPT_REFIT,
     averaged,
+    covered,
     fit,
     model_from_document,
     model_to_document,
@@ -113,7 +114,7 @@ def test_no_model_is_fitted_where_the_air_does_not_follow_the_outdoor_air():
     assert done.why is not None and "too loosely" in done.why
 
 
-def test_readings_are_averaged_per_half_hour():
+def test_readings_are_averaged_per_half_hour_when_they_were_taken():
     readings = [
         (T0 + timedelta(minutes=1), 60.0),
         (T0 + timedelta(minutes=2), 62.0),
@@ -121,8 +122,8 @@ def test_readings_are_averaged_per_half_hour():
     ]
 
     assert averaged(readings) == [
-        (T0 + timedelta(minutes=15), 61.0),
-        (T0 + timedelta(minutes=45), 70.0),
+        (T0 + timedelta(minutes=1, seconds=30), 61.0),
+        (T0 + timedelta(minutes=31), 70.0),
     ]
 
 
@@ -305,3 +306,29 @@ async def test_without_a_reading_to_anchor_to_nothing_is_projected(
 
     assert isinstance(inputs, Inputs)
     assert not any("projected" in n for n in inputs.notes)
+
+
+def test_only_air_the_outdoor_air_is_known_for_is_fitted():
+    """PR #238 review: two outdoor readings days apart are no history."""
+    outdoor = _outdoor()
+    air = _air(TRUE, outdoor)
+    sparse = [outdoor[0], outdoor[-1]]
+
+    assert covered(air, sparse) == []
+    done = fit(air, sparse, TRUE)
+    assert done.model == TRUE and done.kept == KEPT_BASE
+    assert done.why is not None and "too little history" in done.why
+
+    # A day's gap in the outdoor air leaves out the air it would explain.
+    gapped = [
+        r
+        for r in outdoor
+        if not T0 + timedelta(days=2) < r[0] < T0 + timedelta(days=3)
+    ]
+    kept = covered(air, gapped)
+    assert kept and all(
+        not T0 + timedelta(days=2) < t < T0 + timedelta(days=3, hours=6)
+        for t, _ in kept
+    )
+    # The first readings need the outdoor air from the longest lag before.
+    assert kept[0][0] >= T0 + timedelta(hours=6)

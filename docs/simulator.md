@@ -86,7 +86,9 @@ Choose a weather entity with an hourly forecast. Each
 heater follows the outdoor air: how much of the outdoor swing reaches it,
 how late, and the offset. It fits on the recorder's history of the air
 sensor and of the weather entity's temperature, at most 60 days, averaged
-per half hour; it needs at least 3 days of both. The simulator then
+per half hour. A half hour counts only where the outdoor air is known over
+the 6 hours before it, with no gap over 3 hours between its readings; it
+needs at least 72 of them, over at least 3 days. The simulator then
 projects the air over the day ahead from the hourly forecast, moved to pass
 through the air sensor's reading now.
 
