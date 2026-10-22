@@ -21,7 +21,7 @@ from custom_components.nwp500 import (
     async_remove_entry,
     async_setup_entry,
 )
-from custom_components.nwp500.const import DOMAIN, simulator_storage_key
+from custom_components.nwp500.const import DOMAIN
 from custom_components.nwp500.simulator_deps import DepsResult
 
 MAC = "AA:BB:CC:DD:EE:FF"
@@ -274,12 +274,6 @@ async def _leftovers(
     other = registry.async_get_or_create(
         "sensor", DOMAIN, f"{MAC}_tank_upper_temperature", config_entry=entry
     )
-    hass_storage[simulator_storage_key(entry.entry_id)] = {
-        "version": 1,
-        "minor_version": 1,
-        "key": simulator_storage_key(entry.entry_id),
-        "data": {"history": {}},
-    }
     ir.async_create_issue(
         hass,
         DOMAIN,
@@ -306,7 +300,6 @@ async def test_switching_it_off_removes_what_it_left(
     registry = er.async_get(hass)
     assert registry.async_get(simulated.entity_id) is None
     assert registry.async_get(other.entity_id) is not None
-    assert simulator_storage_key(entry.entry_id) not in hass_storage
     assert not ir.async_get(hass).async_get_issue(
         DOMAIN, f"simulator_start_failed_{entry.entry_id}"
     )
@@ -322,11 +315,10 @@ async def test_a_reload_with_it_on_keeps_it(hass: HomeAssistant, hass_storage):
         await async_reload_entry(hass, entry)
 
     assert er.async_get(hass).async_get(simulated.entity_id) is not None
-    assert simulator_storage_key(entry.entry_id) in hass_storage
 
 
 @pytest.mark.asyncio
-async def test_removing_the_entry_removes_its_storage(
+async def test_removing_the_entry_removes_its_repairs_issue(
     hass: HomeAssistant, hass_storage
 ):
     entry = MockConfigEntry(domain=DOMAIN, options={"simulator_enabled": True})
@@ -335,7 +327,9 @@ async def test_removing_the_entry_removes_its_storage(
 
     await async_remove_entry(hass, entry)
 
-    assert simulator_storage_key(entry.entry_id) not in hass_storage
+    assert not ir.async_get(hass).async_get_issue(
+        DOMAIN, f"simulator_start_failed_{entry.entry_id}"
+    )
 
 
 @pytest.mark.asyncio
@@ -376,11 +370,7 @@ def test_the_service_schema_fills_its_defaults():
         {"hours": 0},
         {"writes": [{"at": "2026-10-21T14:00:00"}]},
         {"writes": [{"at": "2026-10-21T14:00:00", "mode": "turbo"}]},
-        # Not modelled: the simulator would drop the write whole.
-        {"writes": [{"at": "2026-10-21T14:00:00", "mode": "vacation"}]},
-        {"writes": [{"at": "2026-10-21T14:00:00", "mode": "power_off"}]},
         {"writes": [{"temperature": 120}]},
-        {"resolution_minutes": 0},
     ],
 )
 def test_the_service_schema_refuses_what_cannot_be_simulated(data):

@@ -13,10 +13,8 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import math
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -28,14 +26,7 @@ from nwp500 import sim
 from nwp500 import sim_adapters as sa
 from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
-from nwp500.sim.engine import SimulationError
-from nwp500.sim.inputs import (
-    Commands,
-    Environment,
-    History,
-    Scenario,
-    Schedules,
-)
+from nwp500.sim.inputs import POWER_OFF, VACATION, Commands, Scenario, Schedules
 from nwp500.sim_home_assistant import Entities, HomeAssistantEnvironment
 from nwp500.sim_live import Given, HeaterReading, compose
 
@@ -44,7 +35,6 @@ from .ha_client import InProcessClient
 
 if TYPE_CHECKING:
     from nwp500.models import DeviceFeature, DeviceStatus
-    from nwp500.sim.engine import HeatingInterval
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
 
@@ -66,8 +56,8 @@ STATE_IDLE = "idle"
 STATE_DISABLED = "disabled"
 HEATING_STATES = (STATE_HEATING, STATE_SCHEDULED, STATE_IDLE, STATE_DISABLED)
 
-# The DHW operation settings in which nothing heats: Vacation, power off.
-_HEATING_DISABLED_MODES = frozenset({5, 6})
+# The modes in which nothing heats.
+_HEATING_DISABLED_MODES = frozenset({VACATION, POWER_OFF})
 
 # Why an answer is missing, when it is.
 WAIT_STATUS = "no_status"
@@ -75,9 +65,8 @@ WAIT_FEATURE = "no_feature_info"
 WAIT_STANDBY = "standby"
 FAILED = "simulation_failed"
 
-# Reasons the integration adds to the library's, about its own inputs.
+# A reason the integration adds to the library's, about its own inputs.
 REASON_RESERVATIONS_UNKNOWN = "reservations_unknown"
-REASON_TOU_UNKNOWN = "tou_unknown"
 
 
 @dataclass(frozen=True)
@@ -99,9 +88,10 @@ class Answer:
     computed_at: datetime
     #: One of HEATING_STATES, or None with `waiting` or `error` set.
     state: str | None = None
-    #: The next (or current) heating interval.
+    #: The next (or current) heating interval, and why it ends.
     start: datetime | None = None
     end: datetime | None = None
+    stop: str | None = None
     source: str | None = None
     cause: str | None = None
     trigger: str | None = None
@@ -132,76 +122,8 @@ class Answer:
         return doc
 
 
-def _instant(epoch: float | None) -> datetime | None:
-    return None if epoch is None else datetime.fromtimestamp(epoch, UTC)
-
-
-@dataclass
-class HeatingHistory:
-    """When the compressor last stopped and the tank last heated.
-
-    As the integration saw it from the heater's reports.
-    """
-
-    compressor_stopped_at: datetime | None = None
-    heated_at: datetime | None = None
-    _compressor_was_on: bool | None = field(default=None, repr=False)
-
-    def observe(self, status: DeviceStatus, at: datetime) -> bool:
-        """Take one report; return whether anything changed."""
-        compressor_on = bool(status.comp_use)
-        heating = (
-            compressor_on
-            or bool(status.heat_upper_use)
-            or bool(status.heat_lower_use)
-        )
-        changed = False
-        if self._compressor_was_on and not compressor_on:
-            self.compressor_stopped_at = at
-            changed = True
-        self._compressor_was_on = compressor_on
-        if heating:
-            self.heated_at = at
-            changed = True
-        return changed
-
-    def as_history(self) -> History:
-        """The simulator's history."""
-        return History(
-            compressor_stopped_at=self.compressor_stopped_at,
-            heated_at=self.heated_at,
-        )
-
-    def as_document(self) -> dict[str, str | None]:
-        """For storage."""
-        return {
-            "compressor_stopped_at": _iso(self.compressor_stopped_at),
-            "heated_at": _iso(self.heated_at),
-        }
-
-    @classmethod
-    def from_document(cls, doc: Any) -> HeatingHistory:
-        """The inverse of `as_document`; anything unreadable is unknown."""
-        if not isinstance(doc, dict):
-            return cls()
-        return cls(
-            compressor_stopped_at=_parse(doc.get("compressor_stopped_at")),
-            heated_at=_parse(doc.get("heated_at")),
-        )
-
-
 def _iso(at: datetime | None) -> str | None:
     return None if at is None else at.isoformat()
-
-
-def _parse(text: Any) -> datetime | None:
-    if not isinstance(text, str):
-        return None
-    try:
-        at = datetime.fromisoformat(text)
-    except ValueError:
-        return None
-    return at if at.tzinfo else at.replace(tzinfo=UTC)
 
 
 def heater_reading(
@@ -209,17 +131,13 @@ def heater_reading(
 ) -> HeaterReading:
     """The heater as `compose` takes it.
 
-    Its air is its own sensor's reading only while the compressor runs,
-    when the fan draws the room's air past it; idle, the sensor reads the
-    cabinet, several degrees warm, so the air is left to the simulator's
-    default, which the answer names.
+    Read as the library's live source reads it
+    (`nwp500.sim_live.LiveHeaterSource`).
     """
-    reading = sa.location_air_reading(status)
-    air = math.nan if reading is None else sa.to_sim_temperature(reading)
     return HeaterReading(
         state=sa.heater_state(status),
         settings=sa.settings(status),
-        environment=Environment(ambient_f=air),
+        environment=sa.environment(status),
         params=sa.params(feature),
         status=status,
         feature=feature,
@@ -243,10 +161,7 @@ def heater_schedules(
         schedule = ReservationSchedule.model_validate(reservations)
     periods: list[TOUPeriod] | None = None
     tou_enabled = bool(status.tou_status)
-    if tou is None:
-        if tou_enabled:
-            reasons.append(REASON_TOU_UNKNOWN)
-    else:
+    if tou is not None:
         periods = [
             TOUPeriod.model_validate(p) for p in tou.get("reservation") or []
         ]
@@ -256,30 +171,6 @@ def heater_schedules(
         ),
         tuple(reasons),
     )
-
-
-# Heating that starts within this of the last one's end goes on from it:
-# the elements' upper zone then their lower, or a mode change handing the
-# compressor's heating to the elements.
-_HANDOFF = timedelta(minutes=1)
-# Why a heating stops short of done: the walk ended, or the mode changed.
-_UNFINISHED = frozenset({"horizon", "mode"})
-
-
-def _ready_at(heating: Sequence[HeatingInterval]) -> datetime | None:
-    """When the next heating is done.
-
-    The end of the last interval in an unbroken run from the first, unless
-    that one stopped short.
-    """
-    if not heating:
-        return None
-    last = heating[0]
-    for interval in heating[1:]:
-        if interval.start.at > last.end + _HANDOFF:
-            break
-        last = interval
-    return None if last.stop in _UNFINISHED else last.end
 
 
 def answer_from(result: SimulationResult, inputs: Inputs) -> Answer:
@@ -297,12 +188,12 @@ def answer_from(result: SimulationResult, inputs: Inputs) -> Answer:
     else:
         heating_state = STATE_IDLE
     total = result.input_wh
-    ready = _ready_at(result.heating)
     return Answer(
         computed_at=scenario.start,
         state=heating_state,
         start=None if first is None else first.start.at,
-        end=ready,
+        end=None if first is None else first.end,
+        stop=None if first is None else first.stop,
         source=None if first is None else first.source,
         cause=None if first is None else first.start.cause,
         trigger=None if first is None else first.start.trigger,
@@ -329,16 +220,12 @@ class SimulatorRunner:
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
         options: dict[str, Any],
-        history: HeatingHistory,
-        save_history: Callable[[], None],
     ) -> None:
         """Set up; nothing runs until `async_start`."""
         self.hass = hass
         self.coordinator = coordinator
         self.mac_address = mac_address
         self.options = options
-        self.history = history
-        self._save_history = save_history
         self.answer: Answer | None = None
         self.last_duration_s: float | None = None
         self._listeners: list[CALLBACK_TYPE] = []
@@ -415,9 +302,6 @@ class SimulatorRunner:
         if last_update == self._seen_update:
             return
         self._seen_update = last_update
-        at = _instant(last_update) or dt_util.utcnow()
-        if self.history.observe(device_data["status"], at):
-            self._save_history()
         self.hass.async_create_task(self._debouncer.async_call())
 
     @callback
@@ -444,7 +328,7 @@ class SimulatorRunner:
         if feature is None:
             return WAIT_FEATURE
         if status.dhw_operation_setting == DhwOperationSetting.STANDBY:
-            # The library has no settings for Standby: nothing heats.
+            # The library does not model Standby.
             return WAIT_STANDBY
         reading = heater_reading(status, feature)
         schedules, reasons = heater_schedules(
@@ -464,6 +348,8 @@ class SimulatorRunner:
                 until=until,
                 now=start,
             )
+        # A one-shot read knows no history: `compose` leaves it unset and
+        # the result names the defaults it used.
         composed = await compose(
             start=start,
             horizon=horizon,
@@ -473,11 +359,8 @@ class SimulatorRunner:
             environment=environment,
             commands=commands,
         )
-        scenario = composed.scenario.model_copy(
-            update={"history": self.history.as_history()}
-        )
         return Inputs(
-            scenario=scenario,
+            scenario=composed.scenario,
             params=composed.params,
             reasons=reasons,
             notes=tuple(environment.notes) if environment else (),
@@ -489,21 +372,9 @@ class SimulatorRunner:
         now = dt_util.utcnow()
         try:
             inputs = await self.async_inputs()
-        except ValueError as err:
-            # The library refused what the heater reported, such as a
-            # schedule entry it cannot read.
+        except Exception as err:  # noqa: BLE001
+            # Such as the library refusing a schedule entry it cannot read.
             self._fail(now, err, ())
-            return
-        if inputs == WAIT_STANDBY:
-            # Nothing heats in Standby: an answer, not a wait.
-            self._publish(
-                Answer(
-                    computed_at=now,
-                    state=STATE_DISABLED,
-                    energy_total_kwh=0.0,
-                    reasons=(WAIT_STANDBY,),
-                )
-            )
             return
         if isinstance(inputs, str):
             self._publish(Answer(computed_at=now, waiting=inputs))
@@ -513,7 +384,9 @@ class SimulatorRunner:
             result = await self.hass.async_add_executor_job(
                 sim.simulate, inputs.scenario, inputs.params
             )
-        except (SimulationError, ValueError) as err:
+        except Exception as err:  # noqa: BLE001
+            # Whatever the library raised, the last answer is no longer
+            # current.
             self._fail(now, err, inputs.notes)
             return
         if self._stopped():

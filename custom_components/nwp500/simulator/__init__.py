@@ -14,33 +14,22 @@ heater's reports (`runner.py`); the entities read its answer
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.storage import Store
+from homeassistant.core import HomeAssistant
 
-from ..const import (
-    DATA_SIMULATOR,
-    DOMAIN,
-    simulator_device_options,
-    simulator_storage_key,
-)
+from ..const import DATA_SIMULATOR, DOMAIN, simulator_device_options
 
 # Imported with the package, in the import executor, rather than on the
 # first call of the service, in the event loop.
 from . import service as service
-from .runner import HeatingHistory, SimulatorRunner
+from .runner import SimulatorRunner
 from .sensor import create_simulator_sensors
 
 if TYPE_CHECKING:
     from ..coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-STORAGE_VERSION = 1
-# The heating history is saved at most this often, seconds: it changes on
-# every report while the tank heats.
-SAVE_DELAY_S = 60
 
 
 class SimulatorFeature:
@@ -57,54 +46,23 @@ class SimulatorFeature:
         self.entry = entry
         self.coordinator = coordinator
         self.runners: dict[str, SimulatorRunner] = {}
-        self._removed = False
-        self._store = Store[dict[str, Any]](
-            hass, STORAGE_VERSION, simulator_storage_key(entry.entry_id)
-        )
 
     async def async_start(self) -> None:
         """Start a runner for each heater."""
-        stored = await self._store.async_load() or {}
-        histories = stored.get("history") or {}
         for mac_address in self.coordinator.data or {}:
             runner = SimulatorRunner(
                 self.hass,
                 self.coordinator,
                 mac_address,
                 simulator_device_options(self.entry, mac_address),
-                HeatingHistory.from_document(histories.get(mac_address)),
-                self._schedule_save,
             )
             self.runners[mac_address] = runner
             runner.async_start()
 
     async def async_stop(self) -> None:
-        """Stop the runners and save what they saw."""
+        """Stop the runners."""
         for runner in self.runners.values():
             runner.async_stop()
-        if not self._removed:
-            await self._store.async_save(self._document())
-
-    async def async_remove(self) -> None:
-        """Stop, and remove what the simulator stored and created."""
-        self._removed = True
-        for runner in self.runners.values():
-            runner.async_stop()
-        await self._store.async_remove()
-
-    @callback
-    def _schedule_save(self) -> None:
-        if self._removed:
-            return
-        self._store.async_delay_save(self._document, SAVE_DELAY_S)
-
-    def _document(self) -> dict[str, Any]:
-        return {
-            "history": {
-                mac: runner.history.as_document()
-                for mac, runner in self.runners.items()
-            }
-        }
 
 
 async def async_setup_simulator(

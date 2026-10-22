@@ -68,6 +68,7 @@ from .const import (
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
+    MODE_TO_DHW_ID,
     RESERVATION_MODE_IDS,
     SIMULATOR_UNIQUE_ID_MARKER,
     control_enabled,
@@ -76,7 +77,6 @@ from .const import (
     simulator_enabled,
     simulator_feature,
     simulator_started_signal,
-    simulator_storage_key,
 )
 from .coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
 
@@ -135,7 +135,6 @@ ATTR_PERIODS = "periods"
 ATTR_WRITES = "writes"
 ATTR_AT = "at"
 ATTR_INCLUDE_POINTS = "include_points"
-ATTR_RESOLUTION_MINUTES = "resolution_minutes"
 
 # Valid days of the week
 VALID_DAYS = [
@@ -423,15 +422,6 @@ def _writes_something(write: dict[str, Any]) -> dict[str, Any]:
     return write
 
 
-# The modes a simulated write may set: the simulator has no rule for what
-# a write into Vacation or Power Off does, and would drop it whole.
-SIMULATE_WRITE_MODES: Final = (
-    "heat_pump",
-    "electric",
-    "energy_saver",
-    "high_demand",
-)
-
 # A week: the simulator's answers grow less certain further out, and a
 # week's walk already takes most of a second.
 MAX_SIMULATE_HOURS = 168
@@ -455,7 +445,7 @@ SERVICE_SIMULATE_SCHEMA = vol.All(
                                     float
                                 ),
                                 vol.Optional(ATTR_OP_MODE): vol.In(
-                                    list(SIMULATE_WRITE_MODES)
+                                    list(MODE_TO_DHW_ID)
                                 ),
                             }
                         ),
@@ -464,9 +454,6 @@ SERVICE_SIMULATE_SCHEMA = vol.All(
                 ],
             ),
             vol.Optional(ATTR_INCLUDE_POINTS, default=False): cv.boolean,
-            vol.Optional(ATTR_RESOLUTION_MINUTES): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=60)
-            ),
         }
     ),
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
@@ -928,7 +915,6 @@ class NWP500ServiceHandler:
             hours=call.data[ATTR_HOURS],
             writes=call.data[ATTR_WRITES],
             include_points=call.data[ATTR_INCLUDE_POINTS],
-            resolution_minutes=call.data.get(ATTR_RESOLUTION_MINUTES),
         )
 
     async def async_get_energy_usage(
@@ -1380,10 +1366,10 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         # It failed to start, so nothing ran to remove it (#189).
         await _async_remove_control_leftovers(hass, entry.entry_id)
     if _simulator_was_on(entry) and not simulator_enabled(entry):
-        # Switching the simulator off removes its sensors and what it
-        # stored, whether or not it was running.
+        # Switching the simulator off removes its sensors, whether or not
+        # it was running.
         if (simulator := simulator_feature(hass, entry)) is not None:
-            await simulator.async_remove()
+            await simulator.async_stop()
         await _async_remove_simulator_leftovers(hass, entry.entry_id)
     await hass.config_entries.async_reload(entry.entry_id)
 
@@ -1411,7 +1397,7 @@ def _simulator_was_on(entry: ConfigEntry) -> bool:
 async def _async_remove_simulator_leftovers(
     hass: HomeAssistant, entry_id: str
 ) -> None:
-    """The simulator's entities, stored state and Repairs issue."""
+    """The simulator's entities and Repairs issue."""
     registry = er.async_get(hass)
     for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
         if (
@@ -1419,9 +1405,6 @@ async def _async_remove_simulator_leftovers(
             and SIMULATOR_UNIQUE_ID_MARKER in entity_entry.unique_id
         ):
             registry.async_remove(entity_entry.entity_id)
-    await Store[dict[str, Any]](
-        hass, 1, simulator_storage_key(entry_id)
-    ).async_remove()
     ir.async_delete_issue(
         hass, DOMAIN, f"{ISSUE_SIMULATOR_START_FAILED}_{entry_id}"
     )

@@ -7,20 +7,21 @@
   now offers it after sign-in, with **Skip for now**, and the options can
   turn it on or off later. It runs nwp500-python's simulator inside Home
   Assistant, from what the heater reports, and keeps three sensors up to
-  date: whether the tank is heating or will heat within a day, when it will
-  next be fully heated, and the electricity it is likely to use over the
-  next day. An air temperature and a humidity sensor beside the heater are
-  optional inputs. `nwp500.simulate` returns a simulation on request, up to
-  a week ahead, and can try setpoint and mode changes first without
-  touching the heater. Turning it on installs numpy, pandas and scipy if
+  date: whether the tank is heating or will heat within a day, when its
+  current or next heating ends, and the electricity it is likely to use
+  over the next day. An air temperature and a humidity sensor beside the
+  heater are optional inputs. `nwp500.simulate` returns the library's
+  simulation document on request, up to a week ahead, and can try setpoint
+  and mode changes first without touching the heater. Turning it on installs numpy, pandas and scipy if
   Home Assistant lacks them, with a progress step; with it off none of them
   is installed or loaded, and a test holds set-up to what it was before.
   It starts after the heater's own entities, so the water heater never
   waits for its packages. A Repairs issue reports a simulator that cannot
   start, and why: packages missing, an install that failed (retried after a
   restart), or another error (retried on a reload). Turning it off removes
-  its sensors and what it stored. The heater's parameters are the
-  library's defaults for its tank's size. See `docs/simulator.md`.
+  its sensors; it stores nothing of its own. It maps Home Assistant's
+  entities to the library's inputs and publishes the library's answers:
+  the heater's parameters are the library's defaults for its tank's size. See `docs/simulator.md`.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
   start or the entry's reload. The heartbeat alone does not show a reload.
