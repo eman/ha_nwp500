@@ -1419,6 +1419,9 @@ CONF_SIMULATOR_ENABLED: Final = "simulator_enabled"
 CONF_SIMULATOR: Final = "simulator"
 CONF_SIMULATOR_AIR_ENTITY: Final = "air_entity"
 CONF_SIMULATOR_HUMIDITY_ENTITY: Final = "humidity_entity"
+# A weather entity with an hourly forecast: the air beside the heater is
+# projected from it, with an air sensor to fit and anchor the projection.
+CONF_SIMULATOR_WEATHER_ENTITY: Final = "weather_entity"
 
 # Keys into hass.data[DOMAIN][entry_id]: the running simulator, and the
 # task starting it.

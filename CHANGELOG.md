@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Added
+- **The simulator looks ahead at the air, from a weather forecast.** Each
+  heater's simulator form takes an optional weather entity with an hourly
+  forecast. With the air sensor, each calibration fits how the air beside
+  the heater follows the outdoor air (how much of its swing, how late, and
+  the offset) from the recorder's history of both, and the simulator then
+  projects the air over the day ahead from the forecast, anchored to the
+  air sensor's reading. A later fit replaces the model only when it does
+  better on the latest readings, held out of the refit; where the air
+  barely follows the weather, none is fitted. The Simulator calibration
+  sensor's `location_air` attribute, unrecorded, reports the model and how
+  it was judged. Forecasts are read at most every 30 minutes.
 - **Hot water simulator.** Optional, and off unless you turn it on: setup
   now offers it after sign-in, with **Skip for now**, and the options can
   turn it on or off later. It runs nwp500-python's simulator inside Home

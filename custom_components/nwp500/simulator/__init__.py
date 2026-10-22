@@ -52,11 +52,19 @@ from .calibration import (
     async_calibrate,
     due,
 )
+from .location import (
+    KEPT_REFIT,
+    async_fit_location,
+    model_from_document,
+    model_to_document,
+)
 from .recorder import HistoryRecorder
 from .runner import HeatingHistory, SimulatorRunner
 from .sensor import create_simulator_sensors
 
 if TYPE_CHECKING:
+    from nwp500.sim.location_air import LocationAirModel
+
     from ..coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,6 +96,9 @@ class SimulatorFeature:
         self.calibrations: dict[str, dict[str, Any]] = {}
         # Each heater's last calibration run, fitted or not.
         self.reports: dict[str, CalibrationReport] = {}
+        # Each heater's model of how the air beside it follows the outdoor
+        # air, and when it was fitted (`async_set_location_air`).
+        self.location_models: dict[str, dict[str, Any]] = {}
         #: The heater being calibrated now, if any: one at a time.
         self.calibrating: str | None = None
         self._calibration_lock = asyncio.Lock()
@@ -123,6 +134,17 @@ class SimulatorFeature:
                     "fitted_at": stored_calibration.get("fitted_at"),
                 }
                 runner.params = params
+            stored_location = stored_calibration.get("location_air")
+            if (
+                isinstance(stored_location, dict)
+                # Fitted to these inputs: another pair is another model.
+                and stored_location.get("air_entity") == runner.entities.air
+                and stored_location.get("weather_entity")
+                == runner.entities.weather
+                and (model := model_from_document(stored_location))
+            ):
+                self.location_models[mac_address] = dict(stored_location)
+                runner.location_air = model
             if report := CalibrationReport.from_document(
                 stored_calibration.get("report")
             ):
@@ -246,6 +268,15 @@ class SimulatorFeature:
                         mac_address, params, at
                     ),
                 )
+                location = await async_fit_location(
+                    self.hass, runner, report.at
+                )
+                if location is not None:
+                    report.location_air = location.as_document()
+                    if location.kept == KEPT_REFIT and location.model:
+                        self.async_set_location_air(
+                            mac_address, location.model, report.at
+                        )
             finally:
                 self.calibrating = None
                 self._notify()
@@ -311,10 +342,32 @@ class SimulatorFeature:
         runner.async_set_params(params)
         self._schedule_save()
 
+    @callback
+    def async_set_location_air(
+        self,
+        mac_address: str,
+        model: LocationAirModel,
+        fitted_at: datetime,
+    ) -> None:
+        """Project the heater's air by `model` from now on, and keep it."""
+        runner = self.runners.get(mac_address)
+        if runner is None:
+            return
+        self.location_models[mac_address] = {
+            **model_to_document(model),
+            "air_entity": runner.entities.air,
+            "weather_entity": runner.entities.weather,
+            "fitted_at": fitted_at.isoformat(),
+        }
+        runner.async_set_location_air(model)
+        self._schedule_save()
+
     def _document(self) -> dict[str, Any]:
         calibration: dict[str, dict[str, Any]] = {
             mac: dict(doc) for mac, doc in self.calibrations.items()
         }
+        for mac, doc in self.location_models.items():
+            calibration.setdefault(mac, {})["location_air"] = dict(doc)
         for mac, report in self.reports.items():
             calibration.setdefault(mac, {})["report"] = report.as_document()
         return {

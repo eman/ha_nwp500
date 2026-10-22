@@ -33,6 +33,7 @@ from .const import (
     CONF_SIMULATOR_HISTORY_DAYS,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_RECORD,
+    CONF_SIMULATOR_WEATHER_ENTITY,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
@@ -144,6 +145,16 @@ def _simulator_device_schema(*, has_history: bool) -> vol.Schema:
                 domain="sensor", device_class="humidity"
             )
         ),
+        vol.Optional(CONF_SIMULATOR_WEATHER_ENTITY): selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                filter={
+                    "domain": "weather",
+                    "supported_features": [
+                        "weather.WeatherEntityFeature.FORECAST_HOURLY"
+                    ],
+                }
+            )
+        ),
         vol.Optional(
             CONF_SIMULATOR_RECORD, default=False
         ): selector.BooleanSelector(),
@@ -175,7 +186,11 @@ def _simulator_device_options(user_input: dict[str, Any]) -> dict[str, Any]:
     """
     options = {
         key: user_input[key]
-        for key in (CONF_SIMULATOR_AIR_ENTITY, CONF_SIMULATOR_HUMIDITY_ENTITY)
+        for key in (
+            CONF_SIMULATOR_AIR_ENTITY,
+            CONF_SIMULATOR_HUMIDITY_ENTITY,
+            CONF_SIMULATOR_WEATHER_ENTITY,
+        )
         if user_input.get(key)
     }
     if user_input.get(CONF_SIMULATOR_RECORD) is True:

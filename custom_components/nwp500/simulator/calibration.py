@@ -288,6 +288,10 @@ class CalibrationReport:
     #: (`refit`), its error and the refit's on the evidence held out, and
     #: why. Empty for a first fit.
     judged: list[dict[str, Any]] = field(default_factory=list)
+    #: The air's projection from the weather forecast: the model in force
+    #: and how the run judged it (`location.LocationFit`); None with no
+    #: weather entity.
+    location_air: dict[str, Any] | None = None
 
     def as_document(self) -> dict[str, Any]:
         """For the store, diagnostics and the sensor's attributes."""
@@ -305,6 +309,7 @@ class CalibrationReport:
             "source": self.source,
             "applied": self.applied,
             "judged": self.judged,
+            "location_air": self.location_air,
         }
 
     @classmethod
@@ -328,6 +333,11 @@ class CalibrationReport:
                 source=doc.get("source"),
                 applied=bool(doc.get("applied")),
                 judged=list(doc.get("judged") or []),
+                location_air=(
+                    doc["location_air"]
+                    if isinstance(doc.get("location_air"), dict)
+                    else None
+                ),
             )
         except KeyError, TypeError, ValueError:
             return None

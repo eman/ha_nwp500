@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -228,3 +228,58 @@ async def test_history_needs_the_recorder(hass: HomeAssistant):
     assert (await client.read_history([], now, now)).readings == {}
     with pytest.raises(HomeAssistantError, match="recorder"):
         await client.read_history(["sensor.air"], now, now)
+
+
+@pytest.mark.asyncio
+async def test_the_airs_model_is_fitted_from_the_recorders_history(
+    recorder_mock: Any, hass: HomeAssistant, freezer: Any
+):
+    """The air follows the weather entity's outdoor air, two hours late."""
+    import math
+
+    from nwp500.sim.location_air import LocationAirModel
+    from nwp500.sim_home_assistant import Entities
+
+    from custom_components.nwp500.simulator.location import (
+        KEPT_REFIT,
+        async_fit_location,
+    )
+
+    true = LocationAirModel(0.5, timedelta(hours=2), 30.0)
+    start = dt_util.utcnow().replace(minute=0, second=0, microsecond=0)
+    outdoor = [
+        (
+            start + timedelta(minutes=30 * i),
+            55.0 + 15.0 * math.sin(2 * math.pi * i / 48),
+        )
+        for i in range(4 * 48 + 1)
+    ]
+    for (at, value), air in zip(
+        outdoor, true.at(outdoor, [at for at, _ in outdoor]), strict=True
+    ):
+        freezer.move_to(at)
+        hass.states.async_set(
+            "weather.home",
+            "sunny",
+            # In °C, as many weather entities report.
+            {
+                "temperature": round((value - 32) / 1.8, 2),
+                "temperature_unit": "°C",
+            },
+        )
+        hass.states.async_set(
+            "sensor.garage",
+            f"{air:.2f}",
+            {"unit_of_measurement": "°F"},
+        )
+    await async_wait_recording_done(hass)
+    runner = MagicMock()
+    runner.entities = Entities(air="sensor.garage", weather="weather.home")
+    runner.location_air = None
+
+    done = await async_fit_location(hass, runner, dt_util.utcnow())
+
+    assert done is not None and done.kept == KEPT_REFIT, done
+    assert done.model is not None
+    assert done.model.damping == pytest.approx(0.5, abs=0.05)
+    assert done.model.lag == timedelta(hours=2)

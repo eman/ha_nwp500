@@ -23,6 +23,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
+from homeassistant.util.json import json_loads
 
 from nwp500 import sim
 from nwp500 import sim_adapters as sa
@@ -36,15 +37,26 @@ from nwp500.sim.inputs import (
     Scenario,
     Schedules,
 )
-from nwp500.sim_home_assistant import Entities, HomeAssistantEnvironment
+from nwp500.sim_home_assistant import (
+    Entities,
+    HomeAssistantEnvironment,
+    fresh,
+    parse_state,
+    to_f,
+)
 from nwp500.sim_live import Given, HeaterReading, compose
 
-from ..const import CONF_SIMULATOR_AIR_ENTITY, CONF_SIMULATOR_HUMIDITY_ENTITY
-from .ha_client import InProcessClient
+from ..const import (
+    CONF_SIMULATOR_AIR_ENTITY,
+    CONF_SIMULATOR_HUMIDITY_ENTITY,
+    CONF_SIMULATOR_WEATHER_ENTITY,
+)
+from .ha_client import Forecasts, InProcessClient
 
 if TYPE_CHECKING:
     from nwp500.models import DeviceFeature, DeviceStatus
     from nwp500.sim.engine import HeatingInterval
+    from nwp500.sim.location_air import LocationAirModel
     from nwp500.sim.params import HeaterParams
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
@@ -346,6 +358,10 @@ class SimulatorRunner:
         self.answer: Answer | None = None
         #: The heater's calibrated parameters; None for the defaults.
         self.params: HeaterParams | None = None
+        #: How the air beside the heater follows the outdoor air, fitted
+        #: by calibration; None: the air is held at its reading.
+        self.location_air: LocationAirModel | None = None
+        self._forecasts: Forecasts = {}
         self.last_duration_s: float | None = None
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -366,6 +382,7 @@ class SimulatorRunner:
         return Entities(
             air=self.options.get(CONF_SIMULATOR_AIR_ENTITY),
             humidity=self.options.get(CONF_SIMULATOR_HUMIDITY_ENTITY),
+            weather=self.options.get(CONF_SIMULATOR_WEATHER_ENTITY),
         )
 
     @callback
@@ -436,6 +453,25 @@ class SimulatorRunner:
         self.params = params
         self.hass.async_create_task(self._debouncer.async_call())
 
+    def _anchorable(self, entity: str | None, now: datetime) -> bool:
+        """Whether `entity` has a fresh temperature to anchor the air to."""
+        if entity is None or (state := self.hass.states.get(entity)) is None:
+            return False
+        reading = parse_state(json_loads(state.as_dict_json))
+        if reading.value is None or not fresh(reading, now):
+            return False
+        try:
+            to_f(reading.value, reading.unit)
+        except ValueError:
+            return False
+        return True
+
+    @callback
+    def async_set_location_air(self, model: LocationAirModel | None) -> None:
+        """Project the air by `model` from the next run on (None: don't)."""
+        self.location_air = model
+        self.hass.async_create_task(self._debouncer.async_call())
+
     async def async_inputs(
         self,
         *,
@@ -470,11 +506,22 @@ class SimulatorRunner:
         entities = self.entities
         if entities.air is not None or entities.humidity is not None:
             environment = HomeAssistantEnvironment(
-                cast("HomeAssistantClient", InProcessClient(self.hass)),
+                cast(
+                    "HomeAssistantClient",
+                    InProcessClient(self.hass, self._forecasts),
+                ),
                 entities,
                 start=start,
                 until=until,
                 now=start,
+                # Without a reading to anchor to, a projection is only as
+                # good as the model's offset, which calibration doesn't
+                # judge: the air is then left as with no forecast.
+                location_air=(
+                    self.location_air
+                    if self._anchorable(entities.air, start)
+                    else None
+                ),
             )
         composed = await compose(
             start=start,
