@@ -16,11 +16,13 @@ The air beside the heater and its humidity come from the recorder over the
 same span (`sim_home_assistant.record_inputs`). The fit runs in an
 executor: on a small machine, weeks of history take minutes.
 
-A run refits what the heater runs on, its last fit or else the defaults
-for its tank's size. A fit replaces the defaults; an earlier fit is kept,
-and the run reports what it would change, until a refit can be shown no
-worse than the fit it would replace. A run that fitted nothing, or
-failed, is reported and the heater keeps what it had.
+A first run fits the defaults for the heater's tank size, and its fit
+replaces them. A later run refines the heater's fit without making it
+worse (`keep_better`): each group of terms is refitted with its latest
+evidence held out, and replaces the fit only if it scores better on that
+evidence; a group with too little evidence to judge keeps the fit. The
+heater's parameters change only when a group was replaced. A run that
+fitted nothing, or failed, is reported and the heater keeps what it had.
 """
 
 from __future__ import annotations
@@ -195,14 +197,22 @@ async def first_change(
 
 
 def run_calibration(
-    paths: Sequence[str], base: HeaterParams, record: RecordInputs | None
+    paths: Sequence[str],
+    base: HeaterParams,
+    record: RecordInputs | None,
+    keep_better: bool = False,
 ) -> Calibrated:
     """The library's calibration of `base` on `paths`. Runs in an executor."""
-    return calibrate(recorded(paths), params=base, record=record)
+    return calibrate(
+        recorded(paths), params=base, record=record, keep_better=keep_better
+    )
 
 
 def run_change_calibration(
-    history: HeaterHistory, base: HeaterParams, record: RecordInputs | None
+    history: HeaterHistory,
+    base: HeaterParams,
+    record: RecordInputs | None,
+    keep_better: bool = False,
 ) -> Calibrated:
     """The library's calibration of `base` on the heater's entity changes.
 
@@ -214,6 +224,7 @@ def run_change_calibration(
         params=base,
         record=record,
         notes=history.notes,
+        keep_better=keep_better,
     )
 
 
@@ -271,10 +282,12 @@ class CalibrationReport:
     failures: int = 0
     #: The history fitted, `statuses` or `entities`; None when none was.
     source: str | None = None
-    #: Whether the run's fit replaced the heater's parameters. A refit of
-    #: an earlier fit is not applied: nothing yet shows it no worse on
-    #: the history the earlier fit came from, which can be far longer.
+    #: Whether the run's fit replaced the heater's parameters.
     applied: bool = False
+    #: Refining a fit: each group of terms, kept (`base`) or replaced
+    #: (`refit`), its error and the refit's on the evidence held out, and
+    #: why. Empty for a first fit.
+    judged: list[dict[str, Any]] = field(default_factory=list)
 
     def as_document(self) -> dict[str, Any]:
         """For the store, diagnostics and the sensor's attributes."""
@@ -291,6 +304,7 @@ class CalibrationReport:
             "failures": self.failures,
             "source": self.source,
             "applied": self.applied,
+            "judged": self.judged,
         }
 
     @classmethod
@@ -313,6 +327,7 @@ class CalibrationReport:
                 failures=int(doc.get("failures") or 0),
                 source=doc.get("source"),
                 applied=bool(doc.get("applied")),
+                judged=list(doc.get("judged") or []),
             )
         except KeyError, TypeError, ValueError:
             return None
@@ -348,8 +363,7 @@ async def async_calibrate(
     """Refit one heater from its history; report what was found.
 
     `recorder` is the heater's status recording, if it has one. `apply`
-    takes the fitted parameters when the run fitted anything over the
-    defaults.
+    takes the parameters when the run fitted, or replaced, anything.
     """
     hass = runner.hass
     started = clock()
@@ -447,8 +461,11 @@ async def async_calibrate(
     # The in-process client answers the calls the library's REST client
     # would.
     client = cast("HomeAssistantClient", InProcessClient(hass))
-    # Refit what the heater runs on: a term this history can't fit keeps
-    # an earlier fit's value rather than going back to the defaults.
+    # Refine the heater's fit, where it has one: a group of terms is
+    # replaced only when its refit scores better on its latest evidence.
+    # Not the defaults: they are another heater's fit, kept wherever the
+    # evidence is too little to judge by.
+    refine = runner.params is not None
     base = runner.params if runner.params is not None else sa.params(feature)
     done: Calibrated | None = None
     errors: list[tuple[str, str]] = []
@@ -470,14 +487,18 @@ async def async_calibrate(
         try:
             if source == SOURCE_STATUSES or entities is None:
                 done = await hass.async_add_executor_job(
-                    run_calibration, [path for _, path in days], base, record
+                    run_calibration,
+                    [path for _, path in days],
+                    base,
+                    record,
+                    refine,
                 )
             else:
                 history = await read_heater_history(
                     client, entities, start, started
                 )
                 done = await hass.async_add_executor_job(
-                    run_change_calibration, history, base, record
+                    run_change_calibration, history, base, record, refine
                 )
             break
         except (HomeAssistantError, CalibrationInputError) as err:
@@ -490,11 +511,25 @@ async def async_calibrate(
             return failed(errors[0][1])
         return failed("; ".join(f"{s}: {e}" for s, e in errors))
     terms = _terms(done)
+    # Refining, a group kept is reported unfitted: a term fitted is one
+    # the run replaced.
     fitted = any(term["fitted"] for term in terms)
-    # Over the defaults only: see `CalibrationReport.applied`.
-    applied = fitted and runner.params is None
-    if applied:
+    if fitted:
         apply(done.calibration.params, started)
+    judged = [
+        {
+            "group": j.group,
+            "kept": j.kept,
+            "base_error": j.base_error,
+            "refit_error": j.refit_error,
+            "held_out": j.n_held,
+            "why": j.why,
+        }
+        for j in done.judged
+    ]
+    # A fit kept because it scored better is no failure; one kept for
+    # want of a refit is.
+    refitted = any(j.refit_error is not None for j in done.judged)
     _LOGGER.info(
         "Calibrated the simulator for %s on %d %s: %d of %d terms fitted",
         runner.mac_address,
@@ -512,9 +547,10 @@ async def async_calibrate(
         statuses=done.n_statuses,
         gaps=done.n_gaps,
         air=done.air,
-        failures=0 if fitted else failures + 1,
+        failures=0 if fitted or refitted else failures + 1,
         source=source,
-        applied=applied,
+        applied=fitted,
+        judged=judged,
     )
 
 

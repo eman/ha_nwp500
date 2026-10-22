@@ -196,6 +196,10 @@ async def test_both_clients_read_the_same_heater_history(
     done = run_change_calibration(local, sim.default_params(), None)
     assert done.n_statuses > 0
     assert not any(term.fitted for term in report(done))
+    # Refining a fit, every group is judged, and kept.
+    refined = run_change_calibration(local, sim.default_params(), None, True)
+    assert refined.judged
+    assert all(j.kept == "base" for j in refined.judged)
 
 
 @pytest.mark.asyncio

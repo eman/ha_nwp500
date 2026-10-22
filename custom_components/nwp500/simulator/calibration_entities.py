@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from . import SimulatorFeature
 
 # Long: kept off the recorder.
-_UNRECORDED = frozenset({"terms", "notes"})
+_UNRECORDED = frozenset({"terms", "notes", "judged"})
 
 
 class NWP500CalibrationEntity(NWP500Entity):
@@ -90,6 +90,7 @@ class SimulatorCalibrationSensor(NWP500CalibrationEntity, SensorEntity):  # type
             "air": doc["air"],
             "source": doc["source"],
             "applied": doc["applied"],
+            "judged": doc["judged"],
             "duration_s": doc["duration_s"],
             "terms": doc["terms"],
             "notes": doc["notes"],

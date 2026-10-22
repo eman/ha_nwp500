@@ -40,8 +40,10 @@
   last response time and the tank temperatures are needed). The air and
   humidity sensors' history comes from the recorder. A term the history
   cannot fit keeps its last value. A first fit replaces the defaults, and
-  the simulator walks the heater with it from then on, across restarts; a
-  later run reports what it would change and keeps the earlier fit. The **Simulator calibration** sensor shows when it was last
+  the simulator walks the heater with it from then on, across restarts. A
+  later run refines it without making it worse: each group of terms is
+  replaced only when its refit scores better on its latest evidence, held
+  out of the refit, and kept with fewer than 10 items to judge by. The **Simulator calibration** sensor shows when it was last
   fitted, and its attributes show each term's value and why a term was not
   fitted. Three runs in a row that fit nothing raise a Repairs issue.
   Weeks of history with quiet nights and full recoveries are needed before
@@ -84,7 +86,7 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.7.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.8.0. What the
   integration did before is kept; the library's corrections change these:
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
