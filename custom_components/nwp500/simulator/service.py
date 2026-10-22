@@ -130,9 +130,10 @@ async def _async_call(hass: HomeAssistant, call: Callable[[], Any]) -> Any:
     async with _LOCK:
         try:
             return await hass.async_add_executor_job(call)
-        except (SimulationError, ValueError) as err:
+        except (SimulationError, TypeError, ValueError) as err:
             # Such as a setpoint out of the heater's range: the library's
-            # message says which.
+            # message says which. nwp500-python 9.10.0 reads a null in a
+            # parameter's number and raises TypeError on it here.
             raise HomeAssistantError(
                 f"The simulator refused the scenario: {err}"
             ) from err
