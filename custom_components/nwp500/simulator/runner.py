@@ -650,6 +650,11 @@ class SimulatorRunner:
         if water is None or water.book is None:
             return None
         options = self.options
+        device_data = self._device_data()
+        status = None if device_data is None else device_data.get("status")
+        # A draw going on keeps the heat in the cold water it leaves
+        # withheld, as the heater says it is drawing.
+        drawing = bool(getattr(status, "dhw_use", False))
         try:
             readiness = await self.hass.async_add_executor_job(
                 functools.partial(
@@ -660,6 +665,7 @@ class SimulatorRunner:
                     bath_gal=options.get(CONF_SIMULATOR_BATH_GAL),
                     shower_gal=options.get(CONF_SIMULATOR_SHOWER_GAL),
                     inlet_measured=water.inlet_measured,
+                    drawing=drawing,
                 )
             )
         except (SimulationError, ValueError) as err:

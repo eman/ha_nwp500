@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -12,6 +13,7 @@ from homeassistant.util import dt as dt_util
 from nwp500 import sim
 from nwp500 import sim_adapters as sa
 from nwp500.sim.cold_supply import ColdSupply
+from nwp500.sim.defaults import SITE_CIRCULATION
 from nwp500.sim_home_assistant import HeaterHistory, WaterUse
 
 from custom_components.nwp500.simulator import water as water_module
@@ -106,6 +108,37 @@ async def test_the_tank_is_booked_from_the_meter_the_pump_and_the_probe(
 
 
 @pytest.mark.asyncio
+async def test_a_pump_run_since_the_full_tank_needs_the_loops_terms(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: unpriced, a run is booked as draws, its loss not."""
+    walker = runner(hass, coordinator, **METERED)
+    walker.params = sim.default_params()
+    assert walker.params.circulation is None
+    now = dt_util.utcnow()
+    book = _book()
+    anchored = now - timedelta(hours=book.anchor_age_h)
+    since = [(anchored + timedelta(minutes=1), anchored + timedelta(minutes=5))]
+    before = [(anchored - timedelta(hours=2), anchored - timedelta(hours=1))]
+
+    for runs, booked in ((since, False), (before, True), ([], True)):
+        reads, history, heaters, booking = _reads(_use(runs=runs), book)
+        with reads, history, heaters, booking:
+            got = await async_read_book(hass, walker, now)
+        assert (got.book is not None) is booked, runs
+        assert booked or any("not fitted" in n for n in got.notes)
+
+    # With the loop's terms, a run is booked.
+    walker.params = dataclasses.replace(
+        walker.params, circulation=SITE_CIRCULATION
+    )
+    reads, history, heaters, booking = _reads(_use(runs=since), book)
+    with reads, history, heaters, booking:
+        got = await async_read_book(hass, walker, now)
+    assert got.book is not None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("use", "book", "heaters", "why"),
     [
@@ -193,6 +226,31 @@ async def test_a_metered_heater_says_how_much_hot_water_it_holds(
         await walker._async_run()
         assert read.await_count == 2
     walker.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_a_draw_going_on_is_walked_as_one(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: the heater's own draw flag reaches readiness."""
+    # The device's booleans: 2 is on.
+    coordinator.data[next(iter(coordinator.data))]["status"] = make_status(
+        dhwUse=2
+    )
+    walker = runner(hass, coordinator, **METERED)
+    with (
+        _booked(),
+        patch(
+            "custom_components.nwp500.simulator.runner.sim.time_to_ready",
+            wraps=sim.time_to_ready,
+        ) as ready,
+    ):
+        walker.async_start()
+        await hass.async_block_till_done()
+    walker.async_stop()
+
+    assert ready.call_args.kwargs["drawing"] is True
+    assert walker.answer.readiness is not None  # type: ignore[union-attr]
 
 
 @pytest.mark.asyncio

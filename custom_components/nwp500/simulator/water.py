@@ -153,6 +153,16 @@ async def async_read_book(
             "no full tank, quiet after heating, in the last "
             f"{LOOKBACK.total_seconds() / 3600:g} hours to count from"
         )
+    anchored = now - timedelta(hours=book.anchor_age_h)
+    if params.circulation is None and any(
+        end > anchored for _, end in use.runs
+    ):
+        # Without the loop's terms a run's flow the meter reads is booked
+        # as draws, and the heat the loop loses is not booked at all.
+        return without(
+            "the circulation pump ran since the tank was last full, and its "
+            "loop's terms are not fitted"
+        )
     measured = False
     if use.cold is not None:
         book, measured = on_the_mains(book, use.cold)
