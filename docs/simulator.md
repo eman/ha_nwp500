@@ -139,7 +139,9 @@ The response has two parts:
   - `writes`: setpoint writes and reservation firings, as they would land.
   - `mode_writes`: mode writes, as they would land.
   - `modes`: the mode over time.
-  - `windows`: the time-of-use windows the heater keeps.
+  - `windows`: the scenario's hot water draw windows as the walk found
+    them. The integration gives the library none yet, so it is empty; it
+    says nothing about time-of-use windows.
   - `points` and `delivery`: the tank's path and the delivered water's
     temperature at each point. They are left out unless `include_points`
     is on: the path is long.
