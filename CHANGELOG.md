@@ -4,7 +4,9 @@
 
 ### Added
 - **How much hot water the tank holds.** Each heater's simulator form takes
-  a water meter (the volume each report adds, or a running total),
+  a water meter of the heater's supply (the volume each report adds, or a
+  running total; not a whole house's meter, whose cold water would be
+  booked as hot),
   optionally its flow rate, a cold supply temperature probe, a circulation
   pump's speed, and a bath's and a shower's size in your volume unit. With
   a meter, the simulator books the tank's heat from the recorder's last 72

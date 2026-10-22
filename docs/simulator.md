@@ -122,8 +122,11 @@ compressor and the elements put in.
 
 **The inputs.** All are sensors, chosen per heater:
 
-- **Water meter**, needed: a meter of the water drawn from the heater, or
-  of the whole house. Either the volume each report adds, or a running
+- **Water meter**, needed: a meter of the water the heater supplies, on
+  its cold inlet or its hot outlet. Every gallon it reads is booked as hot
+  water drawn, so a meter of the whole house's water, which also reads
+  toilets, the garden and the cold taps, would empty the tank on paper.
+  Either the volume each report adds, or a running
   total (a sensor whose state class is `total` or `total_increasing`);
   a reset of a running total is counted from its new value. It has to
   report at rest too: a meter silent for over an hour leaves no book.

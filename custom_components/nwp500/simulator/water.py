@@ -29,7 +29,7 @@ from nwp500 import sim_adapters as sa
 from nwp500.sim.book import Booked
 from nwp500.sim.cold_supply import on_the_mains
 from nwp500.sim.params import CirculationParams, HeaterParams
-from nwp500.sim_calibrate import CirculationFit, fit_circulation
+from nwp500.sim_calibrate import METER_LAG, CirculationFit, fit_circulation
 from nwp500.sim_home_assistant import (
     INLET_LOOKBACK,
     Entities,
@@ -95,6 +95,8 @@ async def _heater(
     hass: HomeAssistant, runner: SimulatorRunner
 ) -> tuple[HeaterEntities, HeaterParams] | str:
     """The heater's recorded entities and parameters, or why not."""
+    if "recorder" not in hass.config.components:
+        return "Home Assistant's recorder is not running"
     if len(runner.coordinator.data or {}) > 1:
         # The last response time is the account's, on its first heater: it
         # does not say when each heater was heard from.
@@ -178,6 +180,9 @@ async def async_read_book(
                     if terms is None
                     else sa.run_flow(use.runs, terms.flow_gpm)
                 ),
+                # A run's water the meter's reports either side of it
+                # carry, spread back over their intervals.
+                meter_lag=METER_LAG,
                 inlet=use.probe,
                 air=air,
             )

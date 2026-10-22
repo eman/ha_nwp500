@@ -13,7 +13,7 @@ from nwp500 import sim
 from nwp500 import sim_adapters as sa
 from nwp500.sim.cold_supply import ColdSupply
 from nwp500.sim.defaults import SITE_CIRCULATION
-from nwp500.sim_calibrate import CirculationFit
+from nwp500.sim_calibrate import METER_LAG, CirculationFit
 from nwp500.sim_home_assistant import HeaterHistory, WaterUse
 
 from custom_components.nwp500.simulator import water as water_module
@@ -45,6 +45,12 @@ METERED = {
     "inlet_entity": "sensor.inlet",
     "circulation_speed_entity": "sensor.pump",
 }
+
+
+@pytest.fixture(autouse=True)
+def recorder_running(hass: HomeAssistant) -> None:
+    """The recorder the history is read from, as the readers are patched."""
+    hass.config.components.add("recorder")
 
 
 def _book() -> Any:
@@ -167,6 +173,7 @@ async def test_a_pump_run_since_the_full_tank_needs_the_loops_terms(
     assert kwargs["circulation_flow"] == sa.run_flow(
         since, SITE_CIRCULATION.flow_gpm
     )
+    assert kwargs["meter_lag"] == METER_LAG
 
 
 def _fit(**changes: Any) -> CirculationFit:
@@ -447,3 +454,23 @@ async def test_the_hot_water_entities_report_the_book(
     assert attributes["bath_gal"] == 500.0
     assert attributes["margin_gal"] < 0
     walker.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_without_the_recorder_nothing_is_read(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: the recorder is asked for only when it runs."""
+    hass.config.components.remove("recorder")
+    walker = runner(hass, coordinator, **METERED)
+    reads, history, _, _ = _reads(_use(), None)
+    entities = patch.object(water_module, "heater_entities")
+    with reads, history, entities as found:
+        fit = await async_fit_circulation(hass, walker, dt_util.utcnow())
+        book = await async_read_book(hass, walker, dt_util.utcnow())
+
+    found.assert_not_called()
+    assert fit is not None and fit.params is None
+    assert "recorder is not running" in fit.why
+    assert book.book is None
+    assert any("recorder is not running" in n for n in book.notes)
