@@ -108,7 +108,7 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.8.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.9.0. What the
   integration did before is kept; the library's corrections change these:
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
@@ -149,6 +149,13 @@
     4 Off; the values sent are unchanged. The Recirculation operation mode
     sensor reads `ALWAYS_ON`, `WEEKLY`, `HOT_BUTTON_ONLY` and `OFF` (was
     `ALWAYS`, `BUTTON`, `SCHEDULE` and `TEMPERATURE`).
+  - **The simulator's standby model has a bottom loss (9.9.0).** A
+    stratified tank loses heat at the bottom, so its lower probe falls
+    faster than a mixed tank's. Calibration fits that loss and its gate
+    with the tank's UA, and the next weekly calibration (or Calibrate now)
+    brings them in, kept only where they do better on the held-out
+    windows. Parameters stored before carry no bottom loss and walk as
+    before.
   - A heater reporting the operation setting 0 (Standby) is no longer
     rejected; its operation shows as unknown.
   - Expired AWS credentials are renewed with the access token before the
