@@ -332,7 +332,7 @@ async def test_a_meter_that_went_silent_books_nothing(
     runner = MagicMock()
     runner.mac_address = "AA"
     runner.coordinator.data = {"AA": {}}
-    runner.params = sim.default_params()
+    runner.walk_params.return_value = sim.default_params()
     runner.entities = Entities()
     runner.water_entities = Entities(meter_volume="sensor.meter")
     # The heater heard throughout: the meter is what's missing.

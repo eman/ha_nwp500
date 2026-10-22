@@ -139,9 +139,13 @@ compressor and the elements put in.
   speed, in rpm. Its runs move water the meter may read and take heat from
   the tank; a long draw during one isn't read for the mains. A pump with
   no reading in force is unknown, and there's no book until it reads
-  again. Until its loop's terms are fitted, a run since the tank was last
-  full leaves no book either: the run's flow would be booked as draws and
-  its loss not at all.
+  again. Calibration fits the loop's terms from the last 14 days of the
+  meter, the pump's runs and the heater's history: the flow the meter
+  reads of a run, and the heat a run takes from the tank. A later fit
+  replaces them only when it books the latest runs no worse; they are kept
+  for this meter and pump, and fitted again for another. Until they are
+  fitted, a run since the tank was last full leaves no book: the run's
+  flow would be booked as draws and its loss not at all.
 - **Bath and shower sizes**: the hot water each takes.
 
 **Where it comes from.** Every 10 minutes the simulator reads the last 72

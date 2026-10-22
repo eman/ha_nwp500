@@ -62,9 +62,15 @@ from .location import (
 from .recorder import HistoryRecorder
 from .runner import HeatingHistory, SimulatorRunner
 from .sensor import create_simulator_sensors
+from .water import (
+    async_fit_circulation,
+    circulation_from_document,
+    circulation_to_document,
+)
 
 if TYPE_CHECKING:
     from nwp500.sim.location_air import LocationAirModel
+    from nwp500.sim.params import CirculationParams
 
     from ..coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
 
@@ -100,6 +106,9 @@ class SimulatorFeature:
         # Each heater's model of how the air beside it follows the outdoor
         # air, and when it was fitted (`async_set_location_air`).
         self.location_models: dict[str, dict[str, Any]] = {}
+        # Each heater's circulation loop's terms, and the meter and pump
+        # they were fitted from (`async_set_circulation`).
+        self.circulation_models: dict[str, dict[str, Any]] = {}
         #: The heater being calibrated now, if any: one at a time.
         self.calibrating: str | None = None
         self._calibration_lock = asyncio.Lock()
@@ -146,6 +155,22 @@ class SimulatorFeature:
             ):
                 self.location_models[mac_address] = dict(stored_location)
                 runner.location_air = model
+            stored_circulation = stored_calibration.get("circulation")
+            water = runner.water_entities
+            if (
+                isinstance(stored_circulation, dict)
+                # Fitted to this meter and pump: another is another loop.
+                and stored_circulation.get("meter_entity") == water.meter_volume
+                and stored_circulation.get("pump_entity")
+                == water.circulation_speed
+                and (
+                    terms := circulation_from_document(
+                        stored_circulation.get("terms")
+                    )
+                )
+            ):
+                self.circulation_models[mac_address] = dict(stored_circulation)
+                runner.circulation = terms
             if report := CalibrationReport.from_document(
                 stored_calibration.get("report")
             ):
@@ -278,6 +303,15 @@ class SimulatorFeature:
                         self.async_set_location_air(
                             mac_address, location.model, report.at
                         )
+                circulation = await async_fit_circulation(
+                    self.hass, runner, report.at
+                )
+                if circulation is not None:
+                    report.circulation = circulation.as_document()
+                    if circulation.kept == "refit" and circulation.params:
+                        self.async_set_circulation(
+                            mac_address, circulation.params, report.at
+                        )
             finally:
                 self.calibrating = None
                 self._notify()
@@ -363,12 +397,35 @@ class SimulatorFeature:
         runner.async_set_location_air(model)
         self._schedule_save()
 
+    @callback
+    def async_set_circulation(
+        self,
+        mac_address: str,
+        terms: CirculationParams,
+        fitted_at: datetime,
+    ) -> None:
+        """Book the heater's loop by `terms` from now on, and keep them."""
+        runner = self.runners.get(mac_address)
+        if runner is None:
+            return
+        water = runner.water_entities
+        self.circulation_models[mac_address] = {
+            "terms": circulation_to_document(terms),
+            "meter_entity": water.meter_volume,
+            "pump_entity": water.circulation_speed,
+            "fitted_at": fitted_at.isoformat(),
+        }
+        runner.async_set_circulation(terms)
+        self._schedule_save()
+
     def _document(self) -> dict[str, Any]:
         calibration: dict[str, dict[str, Any]] = {
             mac: dict(doc) for mac, doc in self.calibrations.items()
         }
         for mac, doc in self.location_models.items():
             calibration.setdefault(mac, {})["location_air"] = dict(doc)
+        for mac, doc in self.circulation_models.items():
+            calibration.setdefault(mac, {})["circulation"] = dict(doc)
         for mac, report in self.reports.items():
             calibration.setdefault(mac, {})["report"] = report.as_document()
         return {

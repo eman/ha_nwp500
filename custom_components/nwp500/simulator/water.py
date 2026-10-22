@@ -18,7 +18,8 @@ supply gives the mains the gallons are counted at (`on_the_mains`).
 from __future__ import annotations
 
 import functools
-from dataclasses import dataclass
+import math
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -27,9 +28,13 @@ from homeassistant.core import HomeAssistant
 from nwp500 import sim_adapters as sa
 from nwp500.sim.book import Booked
 from nwp500.sim.cold_supply import on_the_mains
+from nwp500.sim.params import CirculationParams, HeaterParams
+from nwp500.sim_calibrate import CirculationFit, fit_circulation
 from nwp500.sim_home_assistant import (
     INLET_LOOKBACK,
     Entities,
+    HeaterEntities,
+    HeaterHistory,
     HomeAssistantError,
     read_heater_history,
     read_water_use,
@@ -46,6 +51,9 @@ if TYPE_CHECKING:
 
 #: How often the book is read again.
 REFRESH = timedelta(minutes=10)
+#: The history the circulation loop's terms are fitted on: enough runs,
+#: and not a season's meter at ten seconds a reading.
+CIRCULATION_HISTORY = timedelta(days=14)
 #: How far back it reads: the book anchors within this, the mains' long
 #: draws are found within it.
 LOOKBACK = INLET_LOOKBACK
@@ -83,6 +91,46 @@ class WaterBook:
         }
 
 
+async def _heater(
+    hass: HomeAssistant, runner: SimulatorRunner
+) -> tuple[HeaterEntities, HeaterParams] | str:
+    """The heater's recorded entities and parameters, or why not."""
+    if len(runner.coordinator.data or {}) > 1:
+        # The last response time is the account's, on its first heater: it
+        # does not say when each heater was heard from.
+        return (
+            "Home Assistant's history does not say when each heater of an "
+            "account with several was heard from"
+        )
+    heater, missing = heater_entities(hass, runner.mac_address)
+    if heater is None:
+        return "Home Assistant's recorder does not keep the heater's " + (
+            ", ".join(missing)
+        )
+    feature = runner.coordinator.device_features.get(runner.mac_address)
+    if feature is None:
+        return "the heater's features are not read yet"
+    return heater, runner.walk_params(feature)
+
+
+async def _history(
+    client: HomeAssistantClient,
+    runner: SimulatorRunner,
+    heater: HeaterEntities,
+    start: datetime,
+    now: datetime,
+) -> tuple[HeaterHistory, list[tuple[datetime, float]]]:
+    """The heater's changes and the air beside it, from `start` to `now`."""
+    history = await read_heater_history(client, heater, start, now)
+    air: list[tuple[datetime, float]] = []
+    if runner.entities.air is not None:
+        record = await record_inputs(
+            client, Entities(air=runner.entities.air), start, now
+        )
+        air = record.air or []
+    return history, air
+
+
 async def async_read_book(
     hass: HomeAssistant, runner: SimulatorRunner, now: datetime
 ) -> WaterBook:
@@ -102,35 +150,17 @@ async def async_read_book(
         # A pump whose runs are unknown may have moved water the meter
         # counted: booked as draws, it would empty the tank on paper.
         return without("the circulation pump's runs are unknown")
-    if len(runner.coordinator.data or {}) > 1:
-        # The last response time is the account's, on its first heater: it
-        # does not say when each heater was heard from.
-        return without(
-            "Home Assistant's history does not say when each heater of an "
-            "account with several was heard from"
-        )
-    heater, missing = heater_entities(hass, runner.mac_address)
-    if heater is None:
-        return without(
-            "Home Assistant's recorder does not keep the heater's "
-            + ", ".join(missing)
-        )
-    feature = runner.coordinator.device_features.get(runner.mac_address)
-    if feature is None:
-        return without("the heater's features are not read yet")
-    params = runner.params if runner.params is not None else sa.params(feature)
-    start = now - LOOKBACK
+    found = await _heater(hass, runner)
+    if isinstance(found, str):
+        return without(found)
+    heater, params = found
     try:
-        history = await read_heater_history(client, heater, start, now)
-        air: list[tuple[datetime, float]] = []
-        if runner.entities.air is not None:
-            record = await record_inputs(
-                client, Entities(air=runner.entities.air), start, now
-            )
-            air = record.air or []
+        history, air = await _history(
+            client, runner, heater, now - LOOKBACK, now
+        )
     except HomeAssistantError as err:
         return without(f"the heater's history is not read ({err})")
-    # The book takes the simulator's own units, as the readers give them.
+    terms = params.circulation
     try:
         book = await hass.async_add_executor_job(
             functools.partial(
@@ -141,6 +171,13 @@ async def async_read_book(
                 at=now,
                 flow=use.flow,
                 circulation=use.runs,
+                # A run at its own flow: the meter's excess over it is a
+                # draw, not the loop's.
+                circulation_flow=(
+                    ()
+                    if terms is None
+                    else sa.run_flow(use.runs, terms.flow_gpm)
+                ),
                 inlet=use.probe,
                 air=air,
             )
@@ -153,9 +190,7 @@ async def async_read_book(
             f"{LOOKBACK.total_seconds() / 3600:g} hours to count from"
         )
     anchored = now - timedelta(hours=book.anchor_age_h)
-    if params.circulation is None and any(
-        end > anchored for _, end in use.runs
-    ):
+    if terms is None and any(end > anchored for _, end in use.runs):
         # Without the loop's terms a run's flow the meter reads is booked
         # as draws, and the heat the loop loses is not booked at all.
         return without(
@@ -168,4 +203,82 @@ async def async_read_book(
     return WaterBook(now, book, inlet_f, measured, tuple(notes))
 
 
-__all__ = ["LOOKBACK", "REFRESH", "WaterBook", "async_read_book"]
+async def async_fit_circulation(
+    hass: HomeAssistant, runner: SimulatorRunner, now: datetime
+) -> CirculationFit | None:
+    """Fit, or keep, the circulation loop's terms from the recorder.
+
+    From the meter, the pump's runs and the heater's own history over
+    `CIRCULATION_HISTORY`. None when the heater has no meter and pump to
+    fit them from.
+    """
+    entities = runner.water_entities
+    if entities.meter_volume is None or entities.circulation_speed is None:
+        return None
+    base = runner.circulation
+    kept = "base" if base is not None else None
+
+    def without(why: str) -> CirculationFit:
+        return CirculationFit(base, kept, 0, 0, None, why)
+
+    found = await _heater(hass, runner)
+    if isinstance(found, str):
+        return without(found)
+    heater, params = found
+    client = cast("HomeAssistantClient", InProcessClient(hass))
+    start = now - CIRCULATION_HISTORY
+    try:
+        use = await read_water_use(
+            client, entities, now=now, lookback=CIRCULATION_HISTORY
+        )
+        if use.runs is None:
+            return without("the circulation pump's runs are unknown")
+        history, air = await _history(client, runner, heater, start, now)
+    except HomeAssistantError as err:
+        return without(f"the history is not read ({err})")
+    try:
+        return await hass.async_add_executor_job(
+            functools.partial(
+                fit_circulation,
+                history.rows,
+                history.observed,
+                params,
+                flow=use.flow,
+                runs=use.runs,
+                inlet=use.probe,
+                air=air,
+            )
+        )
+    except ValueError as err:
+        return without(str(err))
+
+
+def circulation_to_document(terms: CirculationParams) -> dict[str, float]:
+    """For the store."""
+    return {key: float(value) for key, value in asdict(terms).items()}
+
+
+def circulation_from_document(doc: Any) -> CirculationParams | None:
+    """The inverse of `circulation_to_document`; None if unreadable."""
+    if not isinstance(doc, dict):
+        return None
+    try:
+        terms = CirculationParams(
+            **{f.name: float(doc[f.name]) for f in fields(CirculationParams)}
+        )
+    except KeyError, TypeError, ValueError:
+        return None
+    values = asdict(terms).values()
+    return terms if all(math.isfinite(v) for v in values) else None
+
+
+__all__ = [
+    "CIRCULATION_HISTORY",
+    "LOOKBACK",
+    "REFRESH",
+    "WaterBook",
+    "async_fit_circulation",
+    "async_read_book",
+    "circulation_from_document",
+    "circulation_to_document",
+]

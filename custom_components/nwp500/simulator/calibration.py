@@ -292,6 +292,9 @@ class CalibrationReport:
     #: and how the run judged it (`location.LocationFit`); None with no
     #: weather entity.
     location_air: dict[str, Any] | None = None
+    #: The circulation loop's terms: those in force and how the run
+    #: judged them (`CirculationFit`); None without a meter and a pump.
+    circulation: dict[str, Any] | None = None
 
     def as_document(self) -> dict[str, Any]:
         """For the store, diagnostics and the sensor's attributes."""
@@ -310,6 +313,7 @@ class CalibrationReport:
             "applied": self.applied,
             "judged": self.judged,
             "location_air": self.location_air,
+            "circulation": self.circulation,
         }
 
     @classmethod
@@ -336,6 +340,11 @@ class CalibrationReport:
                 location_air=(
                     doc["location_air"]
                     if isinstance(doc.get("location_air"), dict)
+                    else None
+                ),
+                circulation=(
+                    doc["circulation"]
+                    if isinstance(doc.get("circulation"), dict)
                     else None
                 ),
             )

@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from nwp500.models import DeviceFeature, DeviceStatus
     from nwp500.sim.engine import HeatingInterval
     from nwp500.sim.location_air import LocationAirModel
-    from nwp500.sim.params import HeaterParams
+    from nwp500.sim.params import CirculationParams, HeaterParams
     from nwp500.sim.ready import Readiness
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
@@ -423,6 +423,9 @@ class SimulatorRunner:
         self._forecasts: Forecasts = {}
         #: The heat book as last read, with a meter; None until then.
         self.water: WaterBook | None = None
+        #: The circulation loop's terms, fitted apart from the heater's
+        #: own (`water.async_fit_circulation`); None until they are.
+        self.circulation: CirculationParams | None = None
         self.last_duration_s: float | None = None
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -544,6 +547,24 @@ class SimulatorRunner:
             return False
         return True
 
+    def walk_params(self, feature: DeviceFeature) -> HeaterParams:
+        """The heater's parameters, with the loop's terms where fitted.
+
+        The heater's are its calibration's, or the defaults for its tank.
+        """
+        params = sa.params(feature) if self.params is None else self.params
+        if self.circulation is None:
+            return params
+        return dataclasses.replace(params, circulation=self.circulation)
+
+    @callback
+    def async_set_circulation(self, terms: CirculationParams | None) -> None:
+        """Book and walk the loop by `terms` from the next read on."""
+        self.circulation = terms
+        # Booked again with them, not in REFRESH.
+        self.water = None
+        self.hass.async_create_task(self._debouncer.async_call())
+
     @callback
     def async_set_location_air(self, model: LocationAirModel | None) -> None:
         """Project the air by `model` from the next run on (None: don't)."""
@@ -572,7 +593,7 @@ class SimulatorRunner:
         if status.dhw_operation_setting == DhwOperationSetting.STANDBY:
             # The library has no settings for Standby: nothing heats.
             return WAIT_STANDBY
-        reading = heater_reading(status, feature, self.params)
+        reading = heater_reading(status, feature, self.walk_params(feature))
         schedules, reasons = heater_schedules(
             status,
             self.coordinator.reservation_schedules.get(self.mac_address),
