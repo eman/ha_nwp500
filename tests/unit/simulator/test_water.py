@@ -118,8 +118,16 @@ async def test_the_tank_is_booked_from_the_meter_the_pump_and_the_probe(
             (MagicMock(), []),
             "silent",
         ),
+        # PR #239 review: unknown runs could be counted as draws.
+        (_use(runs=None), None, (MagicMock(), []), "runs are unknown"),
     ],
-    ids=["no-flow", "not-recorded", "no-anchor", "meter-silent"],
+    ids=[
+        "no-flow",
+        "not-recorded",
+        "no-anchor",
+        "meter-silent",
+        "pump-unknown",
+    ],
 )
 async def test_without_a_book_the_notes_say_why(
     hass: HomeAssistant, coordinator, use, book, heaters, why
