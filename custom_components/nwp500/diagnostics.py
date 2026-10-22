@@ -288,18 +288,9 @@ def _simulator(feature: Any) -> dict[str, Any]:
             {
                 "device_name": device.device_info.device_name,
                 "options": dict(runner.options),
-                "params": "default"
-                if (calibration := feature.calibrations.get(runner.mac_address))
-                is None
-                else {"calibrated": calibration["fitted_at"]},
-                "location_air": feature.location_models.get(runner.mac_address),
                 "history": runner.history.as_document(),
                 "last_duration_s": runner.last_duration_s,
                 "answer": None if answer is None else answer.as_document(),
-                "recording": None
-                if (recorder := feature.recorders.get(runner.mac_address))
-                is None
-                else recorder.as_document(),
             }
         )
     return {"devices": devices}

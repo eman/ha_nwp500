@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -26,19 +25,15 @@ from custom_components.nwp500.simulator import (
     async_unload_simulator,
     create_simulator_sensors,
 )
-from custom_components.nwp500.simulator.calibration_entities import (
-    SimulatorCalibrationSensor,
-)
 from custom_components.nwp500.simulator.runner import Answer
 from custom_components.nwp500.simulator.sensor import (
-    NWP500SimulatorEntity,
     SimulatorEnergySensor,
     SimulatorHeatingSensor,
     SimulatorHotWaterReadySensor,
 )
 from custom_components.nwp500.simulator.service import UNITS, async_simulate
 
-from .conftest import MAC, make_status, status_dict
+from .conftest import MAC, make_status
 
 ON, OFF = 2, 1
 
@@ -170,10 +165,7 @@ async def test_sensors_are_unavailable_without_an_answer(
 
     runner.answer = Answer(computed_at=dt_util.utcnow(), waiting="standby")
 
-    # The calibration sensor reports the fit, not the answer.
-    answers = [s for s in sensors if isinstance(s, NWP500SimulatorEntity)]
-    assert len(answers) == 3
-    assert not any(sensor.available for sensor in answers)
+    assert not any(sensor.available for sensor in sensors)
     await async_unload_simulator(hass, entry)
 
 
@@ -298,7 +290,6 @@ async def test_diagnostics_show_the_simulator_without_macs(
 
     (device,) = section["devices"]
     assert device["options"] == {"air_entity": "sensor.garage"}
-    assert device["params"] == "default"
     assert device["answer"]["state"] == "scheduled"
     assert isinstance(device["answer"]["end"], str)
     assert MAC not in str(section)
@@ -459,7 +450,6 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
 
     assert len(added) == before + 1
     assert {type(s) for s in added[-1]} == {
-        SimulatorCalibrationSensor,
         SimulatorHeatingSensor,
         SimulatorHotWaterReadySensor,
         SimulatorEnergySensor,
@@ -522,104 +512,3 @@ def test_heating_cut_short_by_a_mode_change_has_no_ready_time():
         [interval(0, 10, "target"), interval(90, 120, "target")]
     ) == (t0 + timedelta(minutes=10))
     assert _ready_at([]) is None
-
-
-@pytest.mark.asyncio
-async def test_a_heater_set_to_record_has_its_history_recorded(
-    hass: HomeAssistant, hass_storage, entry, coordinator, config_dir
-):
-    hass.config_entries.async_update_entry(
-        entry,
-        options={
-            CONF_SIMULATOR_ENABLED: True,
-            CONF_SIMULATOR: {MAC: {"record_history": True, "history_days": 14}},
-        },
-    )
-    listeners: list = []
-    coordinator.async_add_raw_status_listener = MagicMock(
-        side_effect=lambda mac, listener: (
-            listeners.append(listener) or (lambda: listeners.remove(listener))
-        )
-    )
-    from custom_components.nwp500.diagnostics import _simulator
-
-    feature = await started(hass, entry, coordinator)
-
-    recorder = feature.recorders[MAC]
-    assert recorder.keep_days == 14
-    (listener,) = listeners
-    listener(status_dict())
-    (device,) = _simulator(feature)["devices"]
-    assert device["recording"]["recorded"] == 1
-    assert device["recording"]["keep_days"] == 14
-
-    await async_unload_simulator(hass, entry)
-    assert listeners == []
-    (day,) = os.listdir(config_dir / "nwp500" / "history" / "aabbccddeeff")
-    assert day.endswith(".jsonl")
-
-
-@pytest.mark.asyncio
-async def test_a_heater_not_set_to_record_records_nothing(
-    hass: HomeAssistant, hass_storage, entry, coordinator, config_dir
-):
-    feature = await started(hass, entry, coordinator)
-
-    assert feature.recorders == {}
-    coordinator.async_add_raw_status_listener.assert_not_called()
-    from custom_components.nwp500.diagnostics import _simulator
-
-    (device,) = _simulator(feature)["devices"]
-    assert device["recording"] is None
-    await async_unload_simulator(hass, entry)
-    assert not (config_dir / "nwp500").exists()
-
-
-@pytest.mark.asyncio
-async def test_a_calibration_is_walked_with_and_kept_across_restarts(
-    hass: HomeAssistant, hass_storage, entry, coordinator
-):
-    from dataclasses import replace
-
-    from nwp500 import sim
-
-    from custom_components.nwp500.diagnostics import _simulator
-
-    feature = await started(hass, entry, coordinator)
-    runner = feature.runners[MAC]
-    base = sim.default_params()
-    fitted = replace(base, loss=replace(base.loss, ua_btu_hr_f=7.25))
-    fitted_at = datetime(2026, 10, 25, 3, 30, tzinfo=UTC)
-
-    feature.async_set_calibration(MAC, fitted, fitted_at)
-
-    inputs = await runner.async_inputs()
-    assert not isinstance(inputs, str)
-    assert inputs.params == fitted
-    (device,) = _simulator(feature)["devices"]
-    assert device["params"] == {"calibrated": fitted_at.isoformat()}
-
-    await async_unload_simulator(hass, entry)
-    feature = await started(hass, entry, coordinator)
-    assert feature.runners[MAC].params == fitted
-    await async_unload_simulator(hass, entry)
-
-
-@pytest.mark.asyncio
-async def test_an_unreadable_calibration_leaves_the_defaults(
-    hass: HomeAssistant, hass_storage, entry, coordinator, caplog
-):
-    key = simulator_storage_key(entry.entry_id)
-    hass_storage[key] = {
-        "version": 1,
-        "minor_version": 1,
-        "key": key,
-        "data": {"calibration": {MAC: {"params": {"tank": "nonsense"}}}},
-    }
-
-    feature = await started(hass, entry, coordinator)
-
-    assert feature.runners[MAC].params is None
-    assert feature.calibrations == {}
-    assert "A stored calibration is not read" in caplog.text
-    await async_unload_simulator(hass, entry)
