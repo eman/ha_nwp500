@@ -527,9 +527,16 @@ async def async_calibrate(
         }
         for j in done.judged
     ]
-    # A fit kept because it scored better is no failure; one kept for
-    # want of a refit is.
-    refitted = any(j.refit_error is not None for j in done.judged)
+    # A fit kept because it scored no worse is no failure; one kept for
+    # want of a refit, or over a refit rejected on another ground (the
+    # compressor's pinned on a bound, say), is.
+    kept_better = any(
+        j.kept == "base"
+        and j.base_error is not None
+        and j.refit_error is not None
+        and j.base_error <= j.refit_error
+        for j in done.judged
+    )
     _LOGGER.info(
         "Calibrated the simulator for %s on %d %s: %d of %d terms fitted",
         runner.mac_address,
@@ -547,7 +554,7 @@ async def async_calibrate(
         statuses=done.n_statuses,
         gaps=done.n_gaps,
         air=done.air,
-        failures=0 if fitted or refitted else failures + 1,
+        failures=0 if fitted or kept_better else failures + 1,
         source=source,
         applied=fitted,
         judged=judged,

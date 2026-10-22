@@ -283,6 +283,18 @@ async def test_a_fit_is_applied_reported_and_kept(
     ]
     assert sensor.extra_state_attributes["judged"][0]["kept"] == "base"
 
+    # A refit rejected on another ground, though it scored better (the
+    # compressor's, pinned on a bound), is a run that fitted nothing.
+    pinned, pinned_terms = _fake_done(fitted=False)
+    pinned.judged = (
+        Judged("compressor", "base", 40.0, 30.0, 2, "the refit hit a bound"),
+    )
+    run, rep = _patched(pinned, pinned_terms)
+    with run, rep:
+        report = await feature.async_calibrate(MAC)
+    assert report is not None and report.failures == 1
+    assert runner.params == done.calibration.params
+
     # A refit that scores better replaces the fit.
     better = replace(
         done.calibration.params,
