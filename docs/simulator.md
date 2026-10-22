@@ -4,7 +4,7 @@ The hot water simulator models your water heater's tank from what the heater
 reports. It answers three questions, kept up to date as sensors:
 
 - Is the tank heating now, or will it heat within the next 24 hours?
-- When will the tank next be fully heated?
+- When does the tank's current or next heating end?
 - How much electricity is the heater likely to use over the next 24 hours?
 
 It runs the simulator from [nwp500-python](https://github.com/eman/nwp500-python)
@@ -114,7 +114,7 @@ heater is in Standby.
 |---|---|
 | `device_id` or `entity_id` | The water heater |
 | `hours` | How far ahead, 1 to 168. Default 24 |
-| `writes` | Setpoint or mode changes to try. Each has `at` (when, within the hours simulated), and `temperature` (in Home Assistant's unit, 104.9-149.9 °F or 40.5-65.5 °C), `mode` (`heat_pump`, `electric`, `energy_saver` or `high_demand`), or both. A change into Vacation or Power Off isn't modelled |
+| `writes` | Setpoint or mode changes to try. Each has `at` (when, within the hours simulated), and `temperature` (in Home Assistant's unit, 104.9-149.9 °F or 40.5-65.5 °C), `mode` (`heat_pump`, `electric`, `energy_saver`, `high_demand`, `vacation` or `power_off`), or both. The library doesn't model a change into Vacation or Power Off: it leaves that write out and its `reasons` say `write_mode_not_modelled` |
 | `include_points` | Also return the tank's path. Default off |
 
 ```yaml
@@ -129,23 +129,29 @@ data:
 response_variable: simulation
 ```
 
-The response is the library's result document (`nwp500.sim.codec`),
-unchanged, in its units: °F, Wh and US gallons. Its fields:
+The response has two parts:
 
-- `heating`: each heating interval, with its start and cause, end, source, target and energy.
-- `writes`: setpoint writes and reservation firings, as they would land.
-- `mode_writes`: mode writes, as they would land.
-- `modes`: the mode over time.
-- `points` and `delivery`: the tank's path and the delivered water's
-  temperature at each point, only when asked for.
-- `reasons` and `defaults_used`, the library's own.
+- `result` is the library's result document (`nwp500.sim.codec`), in its
+  units: °F, Wh and US gallons. Its fields are `schema_version`, `start`,
+  `until`, and:
+  - `heating`: each heating interval, with its start and cause, end, stop,
+    source, target and energy.
+  - `writes`: setpoint writes and reservation firings, as they would land.
+  - `mode_writes`: mode writes, as they would land.
+  - `modes`: the mode over time.
+  - `windows`: the time-of-use windows the heater keeps.
+  - `points` and `delivery`: the tank's path and the delivered water's
+    temperature at each point. They are left out unless `include_points`
+    is on: the path is long.
+  - `reasons` and `defaults_used`, the library's own.
+- `inputs` holds the integration's notes on what it gave the library:
+  `reasons` (such as `reservations_unknown`, when the heater's reservation
+  schedule hasn't been read yet) and `notes` (what the air and humidity
+  rest on).
 
-Beside them, `inputs` holds the integration's notes on what it gave the
-library: `reasons` (such as `reservations_unknown`, when the heater's
-reservation schedule hasn't been read yet) and `notes` (what the air and
-humidity rest on).
-
-A setpoint the library can't run is refused with its own message.
+A write outside the hours simulated is refused as the caller's mistake. A
+scenario the library refuses, such as a setpoint out of the heater's range,
+fails with the library's message.
 
 A time without a time zone is taken in Home Assistant's.
 

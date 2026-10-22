@@ -2,9 +2,10 @@
 
 The scenario is the one the entities' answer comes from, over the hours
 asked for, with any setpoint and mode writes the caller wants to try. The
-answer is the library's result document (`nwp500.sim.codec`), unchanged,
-in its units (°F, Wh, US gallons); the integration's own notes on the
-inputs are beside it under `inputs`.
+answer is the library's result document (`nwp500.sim.codec`) under
+`result`, in its units (°F, Wh, US gallons), without the tank's path unless
+asked for; the integration's own notes on the inputs are beside it under
+`inputs`.
 """
 
 from __future__ import annotations
@@ -75,6 +76,8 @@ async def async_simulate(
         commands = Commands(writes=_writes(hass, writes)) if writes else None
     except ValueError as err:
         raise ServiceValidationError(str(err)) from err
+    # The caller's own mistake, told apart before the scenario is built:
+    # the scenario refuses it too, but as it refuses the heater's data.
     for write in commands.writes if commands else ():
         if not start <= write.at < until:
             raise ServiceValidationError(
@@ -91,7 +94,10 @@ async def async_simulate(
             start=start, horizon=timedelta(hours=hours), commands=commands
         )
     except ValueError as err:
-        raise ServiceValidationError(str(err)) from err
+        # The library refused what the heater reported.
+        raise HomeAssistantError(
+            f"The simulator can't use the heater's data: {err}"
+        ) from err
     if inputs == WAIT_STANDBY:
         raise ServiceValidationError(
             translation_domain=DOMAIN, translation_key="simulator_standby"
@@ -107,18 +113,20 @@ async def async_simulate(
             result = await hass.async_add_executor_job(
                 sim.simulate, inputs.scenario, inputs.params
             )
-        except ValueError as err:
-            # The library refused the scenario, such as a setpoint out of
-            # the heater's range.
-            raise ServiceValidationError(str(err)) from err
-        except SimulationError as err:
-            raise HomeAssistantError(f"The simulation failed: {err}") from err
+        except (SimulationError, ValueError) as err:
+            # Such as a setpoint out of the heater's range: the library's
+            # message says which.
+            raise HomeAssistantError(
+                f"The simulator refused the scenario: {err}"
+            ) from err
     document = codec.result_to_document(result)
     if not include_points:
         document.pop("points", None)
         document.pop("delivery", None)
-    document["inputs"] = {
-        "reasons": list(inputs.reasons),
-        "notes": list(inputs.notes),
+    return {
+        "result": document,
+        "inputs": {
+            "reasons": list(inputs.reasons),
+            "notes": list(inputs.notes),
+        },
     }
-    return document

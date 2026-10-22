@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ServiceValidationError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -146,28 +146,37 @@ async def test_sensors_are_unavailable_without_an_answer(
 async def test_the_service_walks_the_scenario(
     hass: HomeAssistant, hass_storage, entry, coordinator
 ):
+    from nwp500 import sim
+    from nwp500.sim import codec
+
     feature = await started(hass, entry, coordinator)
     runner = feature.runners[MAC]
+    walked = []
+    real = sim.simulate
 
-    document = await async_simulate(
-        hass,
-        runner,
-        hours=6,
-        writes=[],
-        include_points=False,
-    )
+    def spy(*args, **kwargs):
+        walked.append(real(*args, **kwargs))
+        return walked[-1]
 
-    assert "points" not in document
-    assert "delivery" not in document
-    assert document["heating"]
-    # The library's document, its reasons its own; the integration's
-    # notes on its inputs beside it.
-    assert {"summary", "units", "model"}.isdisjoint(document)
-    assert "reservations_unknown" not in document["reasons"]
-    assert document["inputs"]["reasons"] == ["reservations_unknown"]
-    assert isinstance(document["inputs"]["notes"], list)
-    start = datetime.fromisoformat(document["start"])
-    until = datetime.fromisoformat(document["until"])
+    with patch.object(sim, "simulate", side_effect=spy):
+        response = await async_simulate(
+            hass,
+            runner,
+            hours=6,
+            writes=[],
+            include_points=False,
+        )
+
+    # The library's document as it gives it, less the path; the
+    # integration's notes on its inputs beside it.
+    expected = codec.result_to_document(walked[-1])
+    del expected["points"], expected["delivery"]
+    assert response["result"] == expected
+    assert set(response) == {"result", "inputs"}
+    assert response["inputs"]["reasons"] == ["reservations_unknown"]
+    assert isinstance(response["inputs"]["notes"], list)
+    start = datetime.fromisoformat(expected["start"])
+    until = datetime.fromisoformat(expected["until"])
     assert until - start == timedelta(hours=6)
     await async_unload_simulator(hass, entry)
 
@@ -186,8 +195,8 @@ async def test_the_service_returns_the_path_when_asked(
         include_points=True,
     )
 
-    assert document["points"]
-    assert "delivery" in document
+    assert document["result"]["points"]
+    assert "delivery" in document["result"]
     await async_unload_simulator(hass, entry)
 
 
@@ -208,9 +217,9 @@ async def test_the_service_tries_a_write(
         include_points=False,
     )
 
-    landed = document["writes"] + document["mode_writes"]
+    landed = document["result"]["writes"] + document["result"]["mode_writes"]
     assert landed
-    setpoints = [w["setpoint_f"] for w in document["writes"]]
+    setpoints = [w["setpoint_f"] for w in document["result"]["writes"]]
     assert any(abs(value - 122.0) < 0.01 for value in setpoints)
     await async_unload_simulator(hass, entry)
 
@@ -233,10 +242,6 @@ async def test_the_service_says_when_there_is_no_scenario(
         )
     assert err.value.translation_key == "simulator_no_answer"
     await async_unload_simulator(hass, entry)
-
-
-def test_timestamps_are_utc():
-    assert datetime.fromisoformat("2026-10-20T00:00:00+00:00").tzinfo == UTC
 
 
 @pytest.mark.asyncio
@@ -273,7 +278,7 @@ async def test_a_heating_the_walk_cuts_off_stops_at_the_horizon(
         include_points=False,
     )
 
-    (heating,) = document["heating"]
+    (heating,) = document["result"]["heating"]
     assert heating["stop"] == "horizon"
     await async_unload_simulator(hass, entry)
 
@@ -340,8 +345,8 @@ async def test_the_service_refuses_a_setpoint_it_cannot_run(
     feature = await started(hass, entry, coordinator)
     at = dt_util.utcnow() + timedelta(minutes=10)
 
-    # The library's refusal, as the caller's error.
-    with pytest.raises(ServiceValidationError, match="°F"):
+    # The library's refusal, with its message.
+    with pytest.raises(HomeAssistantError, match="°F") as err:
         await async_simulate(
             hass,
             feature.runners[MAC],
@@ -349,6 +354,7 @@ async def test_the_service_refuses_a_setpoint_it_cannot_run(
             writes=[{"at": at, "temperature": 200.0}],
             include_points=False,
         )
+    assert not isinstance(err.value, ServiceValidationError)
 
     await async_unload_simulator(hass, entry)
 
@@ -406,4 +412,55 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
         SimulatorHotWaterReadySensor,
         SimulatorEnergySensor,
     }
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_heater_data_the_library_refuses_is_not_the_callers_error(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    feature = await started(hass, entry, coordinator)
+    bad = {
+        "reservation_use": 2,
+        "reservation": [
+            {
+                "enable": 2,
+                "week": 254,
+                "hour": 25,
+                "min": 0,
+                "mode": 4,
+                "param": 124,
+            }
+        ],
+    }
+    coordinator.reservation_schedules = {MAC: bad}
+
+    with pytest.raises(HomeAssistantError, match="heater's data") as err:
+        await async_simulate(
+            hass,
+            feature.runners[MAC],
+            hours=1,
+            writes=[],
+            include_points=False,
+        )
+    assert not isinstance(err.value, ServiceValidationError)
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_a_write_into_vacation_is_left_to_the_library(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    feature = await started(hass, entry, coordinator)
+    at = dt_util.utcnow().replace(microsecond=0) + timedelta(minutes=10)
+
+    document = await async_simulate(
+        hass,
+        feature.runners[MAC],
+        hours=1,
+        writes=[{"at": at, "mode": "vacation"}],
+        include_points=False,
+    )
+
+    assert "write_mode_not_modelled" in document["result"]["reasons"]
     await async_unload_simulator(hass, entry)

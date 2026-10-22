@@ -26,7 +26,7 @@
       },
       "simulator_menu": {
         "title": "Hot water simulator",
-        "description": "The simulator models this water heater's tank from what the heater reports: whether it is heating, when the tank will next be fully heated, and the electricity it is likely to use over the next day. It is optional, and you can turn it on or off later in the integration's options. Turning it on installs numpy, pandas and scipy if Home Assistant does not already have them. More about it: {guide_url}",
+        "description": "The simulator models this water heater's tank from what the heater reports: whether it is heating, when its current or next heating ends, and the electricity it is likely to use over the next day. It is optional, and you can turn it on or off later in the integration's options. Turning it on installs numpy, pandas and scipy if Home Assistant does not already have them. More about it: {guide_url}",
         "menu_options": {
           "simulator_setup": "Set up the hot water simulator",
           "simulator_skip": "Skip for now"
@@ -34,7 +34,7 @@
       },
       "simulator_device": {
         "title": "Hot water simulator: {device}",
-        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. More about the inputs: {guide_url}",
+        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading of the air at its intake, which runs warm while the heat pump is off; without a humidity sensor, 50%. More about the inputs: {guide_url}",
         "data": {
           "air_entity": "Air temperature beside the heater",
           "humidity_entity": "Humidity beside the heater"
@@ -93,7 +93,7 @@
         "data_description": {
           "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds.",
           "control_enabled": "Optional, and off unless you turn it on. Lets a scheduler of your own, such as an automation or a Node-RED flow, set this water heater's temperature and mode over time. Leave it off if you don't have one.",
-          "simulator_enabled": "Optional. Models the tank from what the heater reports: whether it is heating, when it will next be fully heated, and the electricity it is likely to use over the next day. Turning it on installs numpy, pandas and scipy if Home Assistant does not already have them. Turning it off removes its sensors."
+          "simulator_enabled": "Optional. Models the tank from what the heater reports: whether it is heating, when its current or next heating ends, and the electricity it is likely to use over the next day. Turning it on installs numpy, pandas and scipy if Home Assistant does not already have them. Turning it off removes its sensors."
         }
       },
       "external_control": {
@@ -114,7 +114,7 @@
       },
       "simulator_device": {
         "title": "Hot water simulator: {device}",
-        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. More about the inputs: {guide_url}",
+        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading of the air at its intake, which runs warm while the heat pump is off; without a humidity sensor, 50%. More about the inputs: {guide_url}",
         "data": {
           "air_entity": "Air temperature beside the heater",
           "humidity_entity": "Humidity beside the heater"
@@ -1143,7 +1143,7 @@
         },
         "writes": {
           "name": "Changes to try",
-          "description": "Setpoint or mode changes to simulate, each with `at` (when), and `temperature` (in Home Assistant's unit), `mode`, or both. Modes: heat_pump, electric, energy_saver or high_demand; the simulator doesn't model a change into Vacation or Power Off."
+          "description": "Setpoint or mode changes to simulate, each with `at` (when), and `temperature` (in Home Assistant's unit), `mode`, or both. Modes: heat_pump, electric, energy_saver, high_demand, vacation or power_off; the result's reasons say when the simulator doesn't model one."
         },
         "include_points": {
           "name": "Include the tank's path",

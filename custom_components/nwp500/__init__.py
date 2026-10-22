@@ -68,6 +68,7 @@ from .const import (
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
+    MODE_TO_DHW_ID,
     RESERVATION_MODE_IDS,
     SIMULATOR_UNIQUE_ID_MARKER,
     control_enabled,
@@ -421,15 +422,6 @@ def _writes_something(write: dict[str, Any]) -> dict[str, Any]:
     return write
 
 
-# The modes a simulated write may set: the simulator has no rule for what
-# a write into Vacation or Power Off does, and would drop it whole.
-SIMULATE_WRITE_MODES: Final = (
-    "heat_pump",
-    "electric",
-    "energy_saver",
-    "high_demand",
-)
-
 # A week: the simulator's answers grow less certain further out, and a
 # week's walk already takes most of a second.
 MAX_SIMULATE_HOURS = 168
@@ -453,7 +445,7 @@ SERVICE_SIMULATE_SCHEMA = vol.All(
                                     float
                                 ),
                                 vol.Optional(ATTR_OP_MODE): vol.In(
-                                    list(SIMULATE_WRITE_MODES)
+                                    list(MODE_TO_DHW_ID)
                                 ),
                             }
                         ),

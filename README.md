@@ -45,7 +45,7 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
   Assistant is down. See
   [docs/external-control.md](docs/external-control.md).
 - **Hot water simulator** — Optional. Models the tank from what the heater
-  reports: whether it is heating, when it will next be fully heated, and
+  reports: whether it is heating, when its current or next heating ends, and
   the electricity it is likely to use over the next day. See
   [docs/simulator.md](docs/simulator.md).
 

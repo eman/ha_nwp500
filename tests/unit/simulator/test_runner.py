@@ -324,3 +324,24 @@ async def test_a_scenario_the_library_refuses_is_a_failed_answer(
     assert r.answer is not None and r.answer.error == FAILED
     assert not r.answer.ok
     assert caplog.text.count("The hot water simulation for") == 1
+
+
+@pytest.mark.asyncio
+async def test_any_failure_of_the_walk_replaces_the_last_answer(
+    hass: HomeAssistant, coordinator
+):
+    from unittest.mock import patch
+
+    from nwp500 import sim
+
+    from custom_components.nwp500.simulator.runner import FAILED
+
+    r = runner(hass, coordinator)
+    await r._async_run()  # noqa: SLF001
+    assert r.answer is not None and r.answer.ok
+
+    with patch.object(sim, "simulate", side_effect=ZeroDivisionError):
+        await r._async_run()  # noqa: SLF001
+
+    assert r.answer is not None and r.answer.error == FAILED
+    assert not r.answer.ok

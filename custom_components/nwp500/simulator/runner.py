@@ -26,7 +26,6 @@ from nwp500 import sim
 from nwp500 import sim_adapters as sa
 from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
-from nwp500.sim.engine import SimulationError
 from nwp500.sim.inputs import POWER_OFF, VACATION, Commands, Scenario, Schedules
 from nwp500.sim_home_assistant import Entities, HomeAssistantEnvironment
 from nwp500.sim_live import Given, HeaterReading, compose
@@ -373,9 +372,8 @@ class SimulatorRunner:
         now = dt_util.utcnow()
         try:
             inputs = await self.async_inputs()
-        except ValueError as err:
-            # The library refused what the heater reported, such as a
-            # schedule entry it cannot read.
+        except Exception as err:  # noqa: BLE001
+            # Such as the library refusing a schedule entry it cannot read.
             self._fail(now, err, ())
             return
         if isinstance(inputs, str):
@@ -386,7 +384,9 @@ class SimulatorRunner:
             result = await self.hass.async_add_executor_job(
                 sim.simulate, inputs.scenario, inputs.params
             )
-        except (SimulationError, ValueError) as err:
+        except Exception as err:  # noqa: BLE001
+            # Whatever the library raised, the last answer is no longer
+            # current.
             self._fail(now, err, inputs.notes)
             return
         if self._stopped():
