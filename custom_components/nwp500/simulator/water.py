@@ -98,6 +98,10 @@ async def async_read_book(
 
     if not use.flow:
         return without("the meter's flow is not read")
+    if use.runs is None:
+        # A pump whose runs are unknown may have moved water the meter
+        # counted: booked as draws, it would empty the tank on paper.
+        return without("the circulation pump's runs are unknown")
     if len(runner.coordinator.data or {}) > 1:
         # The last response time is the account's, on its first heater: it
         # does not say when each heater was heard from.
@@ -137,7 +141,7 @@ async def async_read_book(
                 params,
                 at=now,
                 flow=[(t, sa.volume(v)) for t, v in use.flow],
-                circulation=use.runs or (),
+                circulation=use.runs,
                 inlet=[(t, sa.temperature(v)) for t, v in use.probe],
                 air=[(t, sa.temperature(v)) for t, v in air],
             )
