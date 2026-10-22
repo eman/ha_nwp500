@@ -349,3 +349,83 @@ async def test_a_meter_that_went_silent_books_nothing(
     assert got.book is None
     # The two hours it was silent, not a history that starts late.
     assert any("silent for 2:00:" in note for note in got.notes), got.notes
+
+
+async def _draws(hass: HomeAssistant, freezer: Any) -> Any:
+    """Three long draws through a meter and an inlet probe; returns now.
+
+    A draw: 2 gal/min for 15 minutes, the probe at 58 °F through it and
+    for a while after. At rest: the meter reports nothing moving, the
+    probe reads the air.
+    """
+    now = dt_util.utcnow().replace(second=0, microsecond=0)
+    start = now - timedelta(hours=7)
+    gal = {"unit_of_measurement": "gal"}
+    f = {"unit_of_measurement": "°F", "device_class": "temperature"}
+    for i in range(7 * 120):
+        at = start + timedelta(seconds=30 * i)
+        minute = (i // 2) % 120
+        drawing = 30 <= minute < 45
+        freezer.move_to(at)
+        # Alternating a little, so each report writes a row.
+        tick = 0.001 * (i % 2)
+        hass.states.async_set(
+            "sensor.meter", str((1.0 if drawing else 0.0) + tick), gal
+        )
+        # The probe follows the water late: the mains for a while after.
+        cold = 30 <= minute < 55
+        hass.states.async_set(
+            "sensor.inlet", str((58.0 if cold else 70.0) + tick * 100), f
+        )
+    freezer.move_to(now)
+    await async_wait_recording_done(hass)
+    return now
+
+
+@pytest.mark.asyncio
+async def test_the_mains_does_not_change_with_the_unit_preference(
+    recorder_mock: Any, hass: HomeAssistant, freezer: Any
+):
+    """PR #239 review: no unit change moves the water use's mains."""
+    from nwp500 import sim_adapters as sa
+    from nwp500.sim_home_assistant import Entities
+    from nwp500.unit_system import get_unit_system, set_unit_system
+
+    from custom_components.nwp500.simulator import water
+    from custom_components.nwp500.simulator.ha_client import InProcessClient
+
+    now = await _draws(hass, freezer)
+    entities = Entities(meter_volume="sensor.meter", inlet="sensor.inlet")
+    lookback = timedelta(hours=8)
+    real = water.water_use
+
+    def flipping(history: Any) -> Any:
+        # A unit change while the reconstruction runs: each reading put
+        # in the preferred unit (°F) before it, read back after (°C).
+        def converted(value_f: float) -> float:
+            set_unit_system("metric")
+            return value_f
+
+        with patch.object(sa, "temperature", converted):
+            return real(history)
+
+    before = get_unit_system()
+    seen = []
+    try:
+        for preference, worker in (
+            ("us_customary", real),
+            ("metric", real),
+            ("us_customary", flipping),
+        ):
+            set_unit_system(preference)
+            with patch.object(water, "water_use", worker):
+                use = await water._water_use(
+                    hass, InProcessClient(hass), entities, now, lookback
+                )
+            assert use.cold is not None, use.notes
+            seen.append((use.cold.t_cold_f, use.flow))
+    finally:
+        set_unit_system(before)
+
+    assert seen[0] == seen[1] == seen[2]
+    assert seen[0][0] == pytest.approx(58.05, abs=0.1)
