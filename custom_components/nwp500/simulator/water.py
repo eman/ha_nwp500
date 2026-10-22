@@ -46,7 +46,7 @@ from nwp500.sim_home_assistant import (
     record_inputs,
 )
 
-from .calibration import heater_entities
+from .calibration import first_change, heater_entities
 from .ha_client import InProcessClient
 
 if TYPE_CHECKING:
@@ -249,9 +249,21 @@ async def async_fit_book(
     heater, params = found
     client = cast("HomeAssistantClient", InProcessClient(hass))
     start = now - BOOK_HISTORY
+    if entities.circulation_speed is not None:
+        # The pump's runs are known only from its first recorded reading:
+        # the fit starts there, when the recorder keeps less.
+        try:
+            first = await first_change(
+                hass, entities.circulation_speed, start, now
+            )
+        except Exception as err:
+            return without(f"the pump's history is not read ({err})")
+        if first is None:
+            return without("the recorder has no history of the pump's speed")
+        start = max(start, first)
     try:
         use = await read_water_use(
-            client, entities, now=now, lookback=BOOK_HISTORY
+            client, entities, now=now, lookback=now - start
         )
         if use.runs is None:
             # Unknown, a run's flow would be fitted as draws.

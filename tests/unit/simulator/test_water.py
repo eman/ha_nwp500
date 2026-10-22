@@ -49,9 +49,15 @@ METERED = {
 
 
 @pytest.fixture(autouse=True)
-def recorder_running(hass: HomeAssistant) -> None:
-    """The recorder the history is read from, as the readers are patched."""
+def recorder_running(hass: HomeAssistant) -> Any:
+    """The recorder running, its pump history reaching back far enough."""
     hass.config.components.add("recorder")
+    with patch.object(
+        water_module,
+        "first_change",
+        AsyncMock(side_effect=lambda _hass, _entity, start, _end: start),
+    ):
+        yield
 
 
 #: A book's terms fitted on a meter: the default's, the UA refitted.
@@ -205,7 +211,18 @@ async def test_the_book_and_loop_terms_are_fitted_from_the_meter(
     now = dt_util.utcnow()
     reads, history, heaters, _ = _reads(use, None)
     fit = patch.object(water_module, "fit_book", return_value=_fit())
-    with reads as read_use, history as read_history, heaters, fit as fitting:
+    kept = patch.object(
+        water_module,
+        "first_change",
+        AsyncMock(return_value=now - timedelta(days=90)),
+    )
+    with (
+        reads as read_use,
+        history as read_history,
+        heaters,
+        kept,
+        fit as fitting,
+    ):
         got = await async_fit_book(hass, walker, now)
 
     assert got is not None and got.book == BOOK
@@ -482,3 +499,79 @@ async def test_without_the_recorder_nothing_is_read(
     assert "recorder is not running" in fit.why
     assert book.book is None
     assert any("recorder is not running" in n for n in book.notes)
+
+
+@pytest.mark.asyncio
+async def test_in_standby_the_tank_still_holds_its_hot_water(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: Standby stops heating, not the water stored."""
+    coordinator.data[MAC]["status"] = make_status(dhwOperationSetting=0)
+    walker = runner(hass, coordinator, **METERED, bath_gal=500.0)
+    with _booked():
+        await walker._async_run()
+
+    answer = walker.answer
+    assert answer is not None and answer.state == "disabled"
+    ready = answer.readiness
+    assert ready is not None and ready.deliverable_gal > 0
+    assert ready.showers_whole == int(ready.showers)
+    # No heating to come: a bath it can't run now has no time.
+    assert not ready.bath_ready and ready.bath_ready_at is None
+    assert ready.bath_margin_gal < 0
+    assert ready.reasons == ("standby",)
+    assert ready.defaults_used == (f"shower_gal={ready.shower_gal}",)
+
+
+@pytest.mark.asyncio
+async def test_a_book_read_under_old_terms_is_dropped(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: terms set while a read awaits make it stale."""
+    walker = runner(hass, coordinator, **METERED)
+
+    async def read(_hass: Any, _runner: Any, now: Any) -> WaterBook:
+        # Calibration sets new terms while the history is read.
+        walker.async_set_water_terms(BOOK, SITE_CIRCULATION)
+        return WaterBook(now, _book())
+
+    with patch(
+        "custom_components.nwp500.simulator.runner.async_read_book", read
+    ):
+        await walker._async_refresh_water(dt_util.utcnow())
+    assert walker.water is None
+
+    # Read again, with them.
+    with _booked():
+        await walker._async_refresh_water(dt_util.utcnow())
+    assert walker.water is not None and walker.water.book is not None
+    walker.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_the_fit_starts_where_the_pumps_history_does(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: a recorder that keeps less than BOOK_HISTORY."""
+    walker = runner(hass, coordinator, **METERED)
+    now = dt_util.utcnow()
+    first = now - timedelta(days=10)
+    reads, history, heaters, _ = _reads(_use(), None)
+    kept = patch.object(
+        water_module, "first_change", AsyncMock(return_value=first)
+    )
+    fit = patch.object(water_module, "fit_book", return_value=_fit())
+    with reads as read_use, history as read_history, heaters, kept, fit:
+        got = await async_fit_book(hass, walker, now)
+    assert got is not None and got.kept == "refit"
+    assert read_use.await_args.kwargs["lookback"] == now - first
+    assert read_history.await_args.args[2] == first
+
+    reads, history, heaters, _ = _reads(_use(), None)
+    unrecorded = patch.object(
+        water_module, "first_change", AsyncMock(return_value=None)
+    )
+    with reads, history, heaters, unrecorded:
+        got = await async_fit_book(hass, walker, now)
+    assert got is not None and got.kept == "base"
+    assert "no history of the pump" in got.why

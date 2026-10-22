@@ -161,6 +161,11 @@ this meter and pump, apart from the heater's own fit, and fitted afresh
 for another meter or pump. The calibration report's `book` says what was
 fitted and why.
 
+The fit reads what Home Assistant's recorder keeps, from the pump's first
+recorded speed. The recorder keeps 10 days unless told otherwise, which is
+seldom enough for the loop's terms: set its `purge_keep_days` to 42 or
+more for them to be fitted.
+
 **Where it comes from.** Every 10 minutes the simulator reads the last 72
 hours from Home Assistant's recorder: the meter, the pump and the probe,
 and the heater's own sensors (as [calibration](#fitting-it-to-your-heater)

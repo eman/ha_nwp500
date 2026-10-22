@@ -30,6 +30,7 @@ from nwp500 import sim
 from nwp500 import sim_adapters as sa
 from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
+from nwp500.sim.delivery import booked_deliverable
 from nwp500.sim.engine import SimulationError
 from nwp500.sim.inputs import (
     Commands,
@@ -38,6 +39,7 @@ from nwp500.sim.inputs import (
     Scenario,
     Schedules,
 )
+from nwp500.sim.ready import showers_ready_for, whole_showers
 from nwp500.sim_home_assistant import (
     Entities,
     HomeAssistantEnvironment,
@@ -428,6 +430,8 @@ class SimulatorRunner:
         #: None until they are.
         self.book: BookParams | None = None
         self.circulation: CirculationParams | None = None
+        # Counts the terms set: a read begun under others is dropped.
+        self._water_terms_set = 0
         self.last_duration_s: float | None = None
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -569,6 +573,7 @@ class SimulatorRunner:
         """Book and walk by these terms from the next read on."""
         self.book = book
         self.circulation = circulation
+        self._water_terms_set += 1
         # Booked again with them, not in REFRESH.
         self.water = None
         self.hass.async_create_task(self._debouncer.async_call())
@@ -661,17 +666,64 @@ class SimulatorRunner:
             return
         if self.water is not None and now - self.water.at < REFRESH:
             return
+        terms_set = self._water_terms_set
         try:
-            self.water = await async_read_book(self.hass, self, now)
+            water = await async_read_book(self.hass, self, now)
         except Exception as err:
             # Anything the recorder or the library raises leaves the
             # tank unbooked until the next read, not the runner stopped.
             _LOGGER.warning(
                 "The hot water for %s is not booked: %s", self.mac_address, err
             )
-            self.water = WaterBook(
-                now, None, notes=(f"book: not read ({err})",)
-            )
+            water = WaterBook(now, None, notes=(f"book: not read ({err})",))
+        if terms_set == self._water_terms_set:
+            self.water = water
+        # Else new terms came while it read: it is read again with them.
+
+    @callback
+    def _standby_readiness(self) -> Ready | None:
+        """The hot water the tank holds in Standby, from the book alone.
+
+        Nothing heats: what it holds now is all there is, and a bath it
+        can't run now has no time it will be ready.
+        """
+        water = self.water
+        device_data = self._device_data()
+        status = None if device_data is None else device_data.get("status")
+        feature = self.coordinator.device_features.get(self.mac_address)
+        if water is None or water.book is None or not status or not feature:
+            return None
+        params = self.walk_params(feature)
+        state = sa.heater_state(status)
+        deliverable = booked_deliverable(
+            water.book,
+            state.upper_f,
+            state.lower_f,
+            params.readiness,
+            params.book_terms(),
+        )
+        defaults: list[str] = []
+        bath_gal = self.options.get(CONF_SIMULATOR_BATH_GAL)
+        if bath_gal is None:
+            bath_gal = params.readiness.bath_gal
+            defaults.append(f"bath_gal={bath_gal}")
+        shower_gal = self.options.get(CONF_SIMULATOR_SHOWER_GAL)
+        if shower_gal is None:
+            shower_gal = params.readiness.shower_gal
+            defaults.append(f"shower_gal={shower_gal}")
+        showers = showers_ready_for(deliverable.gal, shower_gal)
+        return Ready(
+            deliverable_gal=round(deliverable.gal, 1),
+            showers=showers,
+            showers_whole=whole_showers(showers),
+            shower_gal=round(shower_gal, 1),
+            bath_gal=round(bath_gal, 1),
+            bath_ready=deliverable.gal >= bath_gal,
+            bath_margin_gal=round(deliverable.gal - bath_gal, 1),
+            bath_ready_at=None,
+            reasons=(WAIT_STANDBY,),
+            defaults_used=tuple(defaults),
+        )
 
     async def _async_readiness(self, inputs: Inputs) -> Ready | None:
         """The hot water the tank holds, with a book; None without one."""
@@ -724,6 +776,7 @@ class SimulatorRunner:
                     state=STATE_DISABLED,
                     energy_total_kwh=0.0,
                     reasons=(WAIT_STANDBY,),
+                    readiness=self._standby_readiness(),
                 )
             )
             return
