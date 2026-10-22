@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,7 +14,7 @@ from nwp500 import sim
 from nwp500 import sim_adapters as sa
 from nwp500.sim.cold_supply import ColdSupply
 from nwp500.sim.defaults import SITE_CIRCULATION
-from nwp500.sim_calibrate import METER_LAG, CirculationFit
+from nwp500.sim_calibrate import METER_LAG, BookTermsFit
 from nwp500.sim_home_assistant import HeaterHistory, WaterUse
 
 from custom_components.nwp500.simulator import water as water_module
@@ -28,13 +29,13 @@ from custom_components.nwp500.simulator.sensor import (
     create_simulator_sensors,
 )
 from custom_components.nwp500.simulator.water import (
-    CIRCULATION_HISTORY,
+    BOOK_HISTORY,
     REFRESH,
     WaterBook,
-    async_fit_circulation,
+    async_fit_book,
     async_read_book,
-    circulation_from_document,
-    circulation_to_document,
+    water_terms_from_document,
+    water_terms_to_document,
 )
 
 from .conftest import MAC, make_status
@@ -51,6 +52,10 @@ METERED = {
 def recorder_running(hass: HomeAssistant) -> None:
     """The recorder the history is read from, as the readers are patched."""
     hass.config.components.add("recorder")
+
+
+#: A book's terms fitted on a meter: the default's, the UA refitted.
+BOOK = dataclasses.replace(sim.default_params().book, ua_btu_per_h_f=4.3)
 
 
 def _book() -> Any:
@@ -163,7 +168,7 @@ async def test_a_pump_run_since_the_full_tank_needs_the_loops_terms(
 
     # With the loop's terms, a run is booked at its own flow: the meter's
     # excess over it is a draw.
-    walker.circulation = SITE_CIRCULATION
+    walker.book, walker.circulation = BOOK, SITE_CIRCULATION
     reads, history, heaters, booking = _reads(_use(runs=since), book)
     with reads, history, heaters, booking as book_mock:
         got = await async_read_book(hass, walker, now)
@@ -176,34 +181,36 @@ async def test_a_pump_run_since_the_full_tank_needs_the_loops_terms(
     assert kwargs["meter_lag"] == METER_LAG
 
 
-def _fit(**changes: Any) -> CirculationFit:
+def _fit(**changes: Any) -> BookTermsFit:
     fields: dict[str, Any] = {
-        "params": SITE_CIRCULATION,
+        "book": BOOK,
+        "circulation": SITE_CIRCULATION,
         "kept": "refit",
-        "runs": 14,
-        "pairs": 9,
-        "error_btu": 40.0,
+        "pairs": 28,
+        "run_pairs": 19,
+        "runs": 40,
+        "error_btu": 400.0,
         "why": "fitted",
     }
     fields.update(changes)
-    return CirculationFit(**fields)
+    return BookTermsFit(**fields)
 
 
 @pytest.mark.asyncio
-async def test_the_loops_terms_are_fitted_from_the_meter_and_the_pump(
+async def test_the_book_and_loop_terms_are_fitted_from_the_meter(
     hass: HomeAssistant, coordinator
 ):
     walker = runner(hass, coordinator, **METERED)
     use = _use()
     now = dt_util.utcnow()
     reads, history, heaters, _ = _reads(use, None)
-    fit = patch.object(water_module, "fit_circulation", return_value=_fit())
+    fit = patch.object(water_module, "fit_book", return_value=_fit())
     with reads as read_use, history as read_history, heaters, fit as fitting:
-        got = await async_fit_circulation(hass, walker, now)
+        got = await async_fit_book(hass, walker, now)
 
-    assert got is not None and got.params == SITE_CIRCULATION
-    assert read_use.await_args.kwargs["lookback"] == CIRCULATION_HISTORY
-    assert read_history.await_args.args[2] == now - CIRCULATION_HISTORY
+    assert got is not None and got.book == BOOK
+    assert read_use.await_args.kwargs["lookback"] == BOOK_HISTORY
+    assert read_history.await_args.args[2] == now - BOOK_HISTORY
     args, kwargs = fitting.call_args
     # Fitted with the heater's walk: its terms are the base.
     assert args[2] == walker.walk_params(coordinator.device_features[MAC])
@@ -212,38 +219,39 @@ async def test_the_loops_terms_are_fitted_from_the_meter_and_the_pump(
 
 
 @pytest.mark.asyncio
-async def test_without_a_pump_or_its_runs_nothing_is_fitted(
+async def test_without_a_meter_or_the_pumps_runs_nothing_is_fitted(
     hass: HomeAssistant, coordinator
 ):
-    meter_only = runner(hass, coordinator, meter_volume_entity="sensor.meter")
-    assert (
-        await async_fit_circulation(hass, meter_only, dt_util.utcnow()) is None
-    )
+    unmetered = runner(hass, coordinator)
+    assert await async_fit_book(hass, unmetered, dt_util.utcnow()) is None
 
     walker = runner(hass, coordinator, **METERED)
-    walker.circulation = SITE_CIRCULATION
+    walker.book, walker.circulation = BOOK, SITE_CIRCULATION
     reads, history, heaters, _ = _reads(_use(runs=None), None)
     with reads, history, heaters:
-        got = await async_fit_circulation(hass, walker, dt_util.utcnow())
+        got = await async_fit_book(hass, walker, dt_util.utcnow())
     # The terms in force are kept.
     assert got is not None and got.kept == "base"
-    assert got.params == SITE_CIRCULATION and "unknown" in got.why
+    assert got.book == BOOK and got.circulation == SITE_CIRCULATION
+    assert "unknown" in got.why
 
     reads, history, heaters, _ = _reads(_use(), None)
     refused = patch.object(
-        water_module, "fit_circulation", side_effect=ValueError("no runs")
+        water_module, "fit_book", side_effect=ValueError("no pairs")
     )
     with reads, history, heaters, refused:
-        got = await async_fit_circulation(hass, walker, dt_util.utcnow())
-    assert got is not None and got.why == "no runs"
+        got = await async_fit_book(hass, walker, dt_util.utcnow())
+    assert got is not None and got.why == "no pairs"
 
 
-def test_the_loops_terms_survive_storage():
-    doc = circulation_to_document(SITE_CIRCULATION)
-    assert circulation_from_document(doc) == SITE_CIRCULATION
-    assert circulation_from_document(None) is None
-    assert circulation_from_document({"flow_gpm": 1.0}) is None
-    assert circulation_from_document({**doc, "flow_gpm": "nan"}) is None
+def test_the_terms_survive_storage():
+    params = dataclasses.replace(
+        sim.default_params(), book=BOOK, circulation=SITE_CIRCULATION
+    )
+    doc = water_terms_to_document(params)
+    assert water_terms_from_document(doc) == (BOOK, SITE_CIRCULATION)
+    assert water_terms_from_document(None) is None
+    assert water_terms_from_document({"tank": "x"}) is None
 
 
 @pytest.mark.asyncio
@@ -466,11 +474,11 @@ async def test_without_the_recorder_nothing_is_read(
     reads, history, _, _ = _reads(_use(), None)
     entities = patch.object(water_module, "heater_entities")
     with reads, history, entities as found:
-        fit = await async_fit_circulation(hass, walker, dt_util.utcnow())
+        fit = await async_fit_book(hass, walker, dt_util.utcnow())
         book = await async_read_book(hass, walker, dt_util.utcnow())
 
     found.assert_not_called()
-    assert fit is not None and fit.params is None
+    assert fit is not None and fit.kept == "base"
     assert "recorder is not running" in fit.why
     assert book.book is None
     assert any("recorder is not running" in n for n in book.notes)

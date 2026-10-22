@@ -15,11 +15,13 @@
   sensors: **Simulated hot water available**, **Simulated showers ready**
   and **Simulated bath ready**, with when a bath will be ready if it isn't.
   The probe's long draws give the mains the gallons are counted at. With a
-  circulation pump, each calibration fits the loop's terms (the flow the
-  meter reads of a run and the heat a run takes) from 14 days of history;
-  until they are fitted, a pump run since the tank was last full leaves no
-  book. Needs nwp500-python with the heat book from entity history and the
-  circulation fit.
+  meter, each calibration fits the book's own terms (the heat pump's rate
+  and its change with the air, and the standby loss) from 42 days of
+  history, and with a circulation pump the loop's (the flow the meter
+  reads of a run and the heat a run takes), kept only where they book the
+  latest held-out evidence no worse; until the loop's are fitted, a pump
+  run since the tank was last full leaves no book. Needs nwp500-python
+  with the heat book from entity history and its fit.
 - **The simulator looks ahead at the air, from a weather forecast.** Each
   heater's simulator form takes an optional weather entity with an hourly
   forecast. With the air sensor, each calibration fits how the air beside

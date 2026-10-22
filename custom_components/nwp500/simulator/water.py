@@ -18,8 +18,7 @@ supply gives the mains the gallons are counted at (`on_the_mains`).
 from __future__ import annotations
 
 import functools
-import math
-from dataclasses import asdict, dataclass, fields
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -28,8 +27,14 @@ from homeassistant.core import HomeAssistant
 from nwp500 import sim_adapters as sa
 from nwp500.sim.book import Booked
 from nwp500.sim.cold_supply import on_the_mains
-from nwp500.sim.params import CirculationParams, HeaterParams
-from nwp500.sim_calibrate import METER_LAG, CirculationFit, fit_circulation
+from nwp500.sim.params import (
+    BookParams,
+    CirculationParams,
+    HeaterParams,
+    params_from_document,
+    params_to_document,
+)
+from nwp500.sim_calibrate import METER_LAG, BookTermsFit, fit_book
 from nwp500.sim_home_assistant import (
     INLET_LOOKBACK,
     Entities,
@@ -51,9 +56,10 @@ if TYPE_CHECKING:
 
 #: How often the book is read again.
 REFRESH = timedelta(minutes=10)
-#: The history the circulation loop's terms are fitted on: enough runs,
-#: and not a season's meter at ten seconds a reading.
-CIRCULATION_HISTORY = timedelta(days=14)
+#: The history the book's and the loop's terms are fitted on. A pair
+#: needs a quiet full tank either side, and a pump running about once a
+#: day gives ten pairs with a run in about four weeks.
+BOOK_HISTORY = timedelta(days=42)
 #: How far back it reads: the book anchors within this, the mains' long
 #: draws are found within it.
 LOOKBACK = INLET_LOOKBACK
@@ -208,35 +214,47 @@ async def async_read_book(
     return WaterBook(now, book, inlet_f, measured, tuple(notes))
 
 
-async def async_fit_circulation(
+async def async_fit_book(
     hass: HomeAssistant, runner: SimulatorRunner, now: datetime
-) -> CirculationFit | None:
-    """Fit, or keep, the circulation loop's terms from the recorder.
+) -> BookTermsFit | None:
+    """Fit, or keep, the book's terms and the loop's from the recorder.
 
-    From the meter, the pump's runs and the heater's own history over
-    `CIRCULATION_HISTORY`. None when the heater has no meter and pump to
-    fit them from.
+    From the meter, the pump's runs where there is a pump, and the
+    heater's own history over `BOOK_HISTORY`. None when the heater has no
+    meter to fit them from.
     """
     entities = runner.water_entities
-    if entities.meter_volume is None or entities.circulation_speed is None:
+    if entities.meter_volume is None:
         return None
-    base = runner.circulation
-    kept = "base" if base is not None else None
+    feature = runner.coordinator.device_features.get(runner.mac_address)
+    base = None if feature is None else runner.walk_params(feature)
 
-    def without(why: str) -> CirculationFit:
-        return CirculationFit(base, kept, 0, 0, None, why)
+    def without(why: str) -> BookTermsFit | None:
+        if base is None:
+            return None
+        return BookTermsFit(
+            book=base.book,
+            circulation=base.circulation,
+            kept="base",
+            pairs=0,
+            run_pairs=0,
+            runs=0,
+            error_btu=None,
+            why=why,
+        )
 
     found = await _heater(hass, runner)
     if isinstance(found, str):
         return without(found)
     heater, params = found
     client = cast("HomeAssistantClient", InProcessClient(hass))
-    start = now - CIRCULATION_HISTORY
+    start = now - BOOK_HISTORY
     try:
         use = await read_water_use(
-            client, entities, now=now, lookback=CIRCULATION_HISTORY
+            client, entities, now=now, lookback=BOOK_HISTORY
         )
         if use.runs is None:
+            # Unknown, a run's flow would be fitted as draws.
             return without("the circulation pump's runs are unknown")
         history, air = await _history(client, runner, heater, start, now)
     except HomeAssistantError as err:
@@ -244,7 +262,7 @@ async def async_fit_circulation(
     try:
         return await hass.async_add_executor_job(
             functools.partial(
-                fit_circulation,
+                fit_book,
                 history.rows,
                 history.observed,
                 params,
@@ -258,32 +276,31 @@ async def async_fit_circulation(
         return without(str(err))
 
 
-def circulation_to_document(terms: CirculationParams) -> dict[str, float]:
-    """For the store."""
-    return {key: float(value) for key, value in asdict(terms).items()}
+def water_terms_to_document(params: HeaterParams) -> dict[str, Any]:
+    """`params`, whose book and loop terms are kept, for the store."""
+    return params_to_document(params)
 
 
-def circulation_from_document(doc: Any) -> CirculationParams | None:
-    """The inverse of `circulation_to_document`; None if unreadable."""
+def water_terms_from_document(
+    doc: Any,
+) -> tuple[BookParams, CirculationParams | None] | None:
+    """The book's and loop's terms stored; None if unreadable."""
     if not isinstance(doc, dict):
         return None
     try:
-        terms = CirculationParams(
-            **{f.name: float(doc[f.name]) for f in fields(CirculationParams)}
-        )
+        params = params_from_document(doc)
     except KeyError, TypeError, ValueError:
         return None
-    values = asdict(terms).values()
-    return terms if all(math.isfinite(v) for v in values) else None
+    return params.book, params.circulation
 
 
 __all__ = [
-    "CIRCULATION_HISTORY",
+    "BOOK_HISTORY",
     "LOOKBACK",
     "REFRESH",
     "WaterBook",
-    "async_fit_circulation",
+    "async_fit_book",
     "async_read_book",
-    "circulation_from_document",
-    "circulation_to_document",
+    "water_terms_from_document",
+    "water_terms_to_document",
 ]

@@ -873,7 +873,7 @@ async def test_the_airs_model_is_fitted_with_the_heater_and_kept(
 
 
 @pytest.mark.asyncio
-async def test_the_loops_terms_are_fitted_with_the_heater_and_kept(
+async def test_the_meters_terms_are_fitted_with_the_heater_and_kept(
     hass: HomeAssistant,
     hass_storage,
     entry,
@@ -881,9 +881,9 @@ async def test_the_loops_terms_are_fitted_with_the_heater_and_kept(
     raw_listeners,
     config_dir,
 ):
-    """The loop's terms: fitted in the same run, kept apart, restored."""
+    """The book's and loop's terms: fitted in the run, kept apart, restored."""
     from nwp500.sim.defaults import SITE_CIRCULATION
-    from nwp500.sim_calibrate import CirculationFit
+    from nwp500.sim_calibrate import BookTermsFit
 
     _write_day(
         Path(simulator_history_dir(str(config_dir), MAC)),
@@ -909,44 +909,45 @@ async def test_the_loops_terms_are_fitted_with_the_heater_and_kept(
             },
         )
 
+    book = replace(sim.default_params().book, ua_btu_per_h_f=4.3)
     configure()
     feature = await _started(hass, entry, coordinator)
     runner = feature.runners[MAC]
     done, terms = _fake_done(fitted=True)
     run, rep = _patched(done, terms)
     fitted = AsyncMock(
-        return_value=CirculationFit(
-            SITE_CIRCULATION, "refit", 14, 9, 40.0, "fitted"
+        return_value=BookTermsFit(
+            book, SITE_CIRCULATION, "refit", 28, 19, 40, 400.0, "fitted"
         )
     )
-    with (
-        run,
-        rep,
-        patch.object(simulator_module, "async_fit_circulation", fitted),
-    ):
+    with run, rep, patch.object(simulator_module, "async_fit_book", fitted):
         report = await feature.async_calibrate(MAC)
 
     assert fitted.await_args.args[1] is runner
-    assert runner.circulation == SITE_CIRCULATION
+    assert runner.book == book and runner.circulation == SITE_CIRCULATION
     # Apart from the heater's own: those are refined without them.
-    assert runner.params is not None and runner.params.circulation is None
-    feature_ = coordinator.device_features[MAC]
-    assert runner.walk_params(feature_).circulation == SITE_CIRCULATION
-    assert report is not None and report.circulation is not None
-    assert report.circulation["kept"] == "refit"
+    assert runner.params is not None
+    assert runner.params.circulation is None
+    assert runner.params.book != book
+    walked = runner.walk_params(coordinator.device_features[MAC])
+    assert walked.book == book and walked.circulation == SITE_CIRCULATION
+    assert report is not None and report.book is not None
+    assert report.book["kept"] == "refit"
     await async_unload_simulator(hass, entry)
 
     feature = await _started(hass, entry, coordinator)
+    assert feature.runners[MAC].book == book
     assert feature.runners[MAC].circulation == SITE_CIRCULATION
-    assert feature.reports[MAC].circulation is not None
+    assert feature.reports[MAC].book is not None
     await async_unload_simulator(hass, entry)
 
-    # Fitted to another loop, they are not restored.
+    # Fitted to another meter or pump, they are not restored.
     for changed in (
         {"circulation_speed_entity": "sensor.other_pump"},
         {"meter_volume_entity": "sensor.other_meter"},
     ):
         configure(**changed)
         feature = await _started(hass, entry, coordinator)
+        assert feature.runners[MAC].book is None
         assert feature.runners[MAC].circulation is None
         await async_unload_simulator(hass, entry)

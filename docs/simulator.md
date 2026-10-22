@@ -142,14 +142,24 @@ compressor and the elements put in.
   speed, in rpm. Its runs move water the meter may read and take heat from
   the tank; a long draw during one isn't read for the mains. A pump with
   no reading in force is unknown, and there's no book until it reads
-  again. Calibration fits the loop's terms from the last 14 days of the
-  meter, the pump's runs and the heater's history: the flow the meter
-  reads of a run, and the heat a run takes from the tank. A later fit
-  replaces them only when it books the latest runs no worse; they are kept
-  for this meter and pump, and fitted again for another. Until they are
-  fitted, a run since the tank was last full leaves no book: the run's
-  flow would be booked as draws and its loss not at all.
+  again. Until the loop's terms are fitted (below), a run since the tank
+  was last full leaves no book: the run's flow would be booked as draws
+  and its loss not at all.
 - **Bath and shower sizes**: the hot water each takes.
+
+**Fitted to your heater.** With a meter, each calibration fits the book's
+own terms from the last 42 days of the meter and the heater's history:
+the heat pump's heating rate and how it changes with the air, and the
+tank's standby loss. With a pump, it fits the loop's terms with them: the
+flow the meter reads of a run, and the heat a run takes from the tank.
+They are fitted between the times the tank stood full, a pair of them
+with no heating in between; the loop's need ten pairs with a pump run in
+between, which a pump running about once a day gives in about four
+weeks. The latest fifth of the pairs is held out, and a fit replaces the
+terms in force only when it books those no worse. The terms are kept for
+this meter and pump, apart from the heater's own fit, and fitted afresh
+for another meter or pump. The calibration report's `book` says what was
+fitted and why.
 
 **Where it comes from.** Every 10 minutes the simulator reads the last 72
 hours from Home Assistant's recorder: the meter, the pump and the probe,

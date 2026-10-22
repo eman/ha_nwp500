@@ -293,9 +293,7 @@ def _simulator(feature: Any) -> dict[str, Any]:
                 is None
                 else {"calibrated": calibration["fitted_at"]},
                 "location_air": feature.location_models.get(runner.mac_address),
-                "circulation": feature.circulation_models.get(
-                    runner.mac_address
-                ),
+                "water_terms": feature.water_models.get(runner.mac_address),
                 "water": None
                 if runner.water is None
                 else runner.water.as_document(),

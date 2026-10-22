@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from nwp500.models import DeviceFeature, DeviceStatus
     from nwp500.sim.engine import HeatingInterval
     from nwp500.sim.location_air import LocationAirModel
-    from nwp500.sim.params import CirculationParams, HeaterParams
+    from nwp500.sim.params import BookParams, CirculationParams, HeaterParams
     from nwp500.sim.ready import Readiness
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
@@ -423,8 +423,10 @@ class SimulatorRunner:
         self._forecasts: Forecasts = {}
         #: The heat book as last read, with a meter; None until then.
         self.water: WaterBook | None = None
-        #: The circulation loop's terms, fitted apart from the heater's
-        #: own (`water.async_fit_circulation`); None until they are.
+        #: The book's terms and the circulation loop's, fitted from the
+        #: meter apart from the heater's own (`water.async_fit_book`);
+        #: None until they are.
+        self.book: BookParams | None = None
         self.circulation: CirculationParams | None = None
         self.last_duration_s: float | None = None
         self._listeners: list[CALLBACK_TYPE] = []
@@ -548,19 +550,25 @@ class SimulatorRunner:
         return True
 
     def walk_params(self, feature: DeviceFeature) -> HeaterParams:
-        """The heater's parameters, with the loop's terms where fitted.
+        """The heater's parameters, with the meter's terms where fitted.
 
-        The heater's are its calibration's, or the defaults for its tank.
+        The heater's are its calibration's, or the defaults for its tank;
+        the book's and the loop's terms are the meter's fit.
         """
         params = sa.params(feature) if self.params is None else self.params
-        if self.circulation is None:
+        if self.book is None:
             return params
-        return dataclasses.replace(params, circulation=self.circulation)
+        return dataclasses.replace(
+            params, book=self.book, circulation=self.circulation
+        )
 
     @callback
-    def async_set_circulation(self, terms: CirculationParams | None) -> None:
-        """Book and walk the loop by `terms` from the next read on."""
-        self.circulation = terms
+    def async_set_water_terms(
+        self, book: BookParams | None, circulation: CirculationParams | None
+    ) -> None:
+        """Book and walk by these terms from the next read on."""
+        self.book = book
+        self.circulation = circulation
         # Booked again with them, not in REFRESH.
         self.water = None
         self.hass.async_create_task(self._debouncer.async_call())
