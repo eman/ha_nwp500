@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError as UnitChangeError
 
 from nwp500 import sim_adapters as sa
 from nwp500.sim.book import Booked
@@ -130,23 +131,26 @@ async def async_read_book(
             air = record.air or []
     except HomeAssistantError as err:
         return without(f"the heater's history is not read ({err})")
-    # The book takes the preferred units, which the coordinator sets in
-    # the event loop: converted here, not in the executor.
+    # The book takes the preferred units and reads them back in the
+    # executor: no unit change may come between, so the coordinator's
+    # guard is held until it is done.
     try:
-        book = await hass.async_add_executor_job(
-            functools.partial(
-                sa.book_from_changes,
-                history.rows,
-                history.observed,
-                params,
-                at=now,
-                flow=[(t, sa.volume(v)) for t, v in use.flow],
-                circulation=use.runs,
-                inlet=[(t, sa.temperature(v)) for t, v in use.probe],
-                air=[(t, sa.temperature(v)) for t, v in air],
+        async with runner.coordinator.unit_transition_guard("book the tank"):
+            book = await hass.async_add_executor_job(
+                functools.partial(
+                    sa.book_from_changes,
+                    history.rows,
+                    history.observed,
+                    params,
+                    at=now,
+                    flow=[(t, sa.volume(v)) for t, v in use.flow],
+                    circulation=use.runs,
+                    inlet=[(t, sa.temperature(v)) for t, v in use.probe],
+                    air=[(t, sa.temperature(v)) for t, v in air],
+                )
             )
-        )
-    except ValueError as err:
+    except (UnitChangeError, ValueError) as err:
+        # A unit change underway: the next read books it.
         return without(str(err))
     if book is None:
         return without(

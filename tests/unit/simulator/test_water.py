@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 from datetime import timedelta
 from typing import Any
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
 from nwp500 import sim
 from nwp500 import sim_adapters as sa
@@ -105,6 +107,39 @@ async def test_the_tank_is_booked_from_the_meter_the_pump_and_the_probe(
     assert got.inlet_measured and got.inlet_f == 58.0
     assert got.book.inlet_f == 58.0
     assert "water: the plateau of 3 long draws" in got.notes
+
+
+@pytest.mark.asyncio
+async def test_the_book_holds_off_a_unit_change(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: the book reads its units back in the executor."""
+    walker = runner(hass, coordinator, **METERED)
+    held: list[str] = []
+
+    @contextlib.asynccontextmanager
+    async def guard(action: str) -> Any:
+        held.append(action)
+        yield
+
+    coordinator.unit_transition_guard = guard
+    reads, history, heaters, booking = _reads(_use(runs=[]), _book())
+    with reads, history, heaters, booking:
+        got = await async_read_book(hass, walker, dt_util.utcnow())
+    assert got.book is not None and held == ["book the tank"]
+
+    # A change underway: no book this time, and the walk goes on.
+    @contextlib.asynccontextmanager
+    async def changing(action: str) -> Any:
+        raise HomeAssistantError(f"Cannot {action} during a unit change")
+        yield
+
+    coordinator.unit_transition_guard = changing
+    reads, history, heaters, booking = _reads(_use(runs=[]), _book())
+    with reads, history, heaters, booking as book_mock:
+        got = await async_read_book(hass, walker, dt_util.utcnow())
+    assert got.book is None and not book_mock.called
+    assert any("unit change" in n for n in got.notes)
 
 
 @pytest.mark.asyncio
