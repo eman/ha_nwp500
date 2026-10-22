@@ -302,3 +302,41 @@ async def test_no_answer_before_the_tou_periods_are_read(
 
     assert err.value.translation_key == "simulator_no_answer"
     assert err.value.translation_placeholders == {"reason": "no_tou_periods"}
+
+
+async def planned_write(hass: HomeAssistant, runner: SimulatorRunner) -> Any:
+    """The heater's scenario, with a setpoint write half an hour in."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    at = (start + timedelta(minutes=30)).isoformat()
+    document["scenario"]["commands"] = {
+        "writes": [{"at": at, "setpoint_f": 125.0}]
+    }
+    return document
+
+
+async def test_omitted_writes_keep_the_documents(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await planned_write(hass, runner)
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False
+    )
+
+    # As it lands: on the heater's setpoint step.
+    setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
+    assert any(abs(value - 125.0) < 0.5 for value in setpoints)
+
+
+async def test_empty_writes_clear_the_documents(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await planned_write(hass, runner)
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, writes=[]
+    )
+
+    setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
+    assert not any(abs(value - 125.0) < 0.5 for value in setpoints)

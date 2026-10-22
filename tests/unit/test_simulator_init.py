@@ -379,8 +379,8 @@ async def test_the_service_says_when_the_simulator_is_off(
         ),
         (
             "async_simulate",
-            {"writes": [], "include_points": False},
-            {"hours": None, "writes": [], "include_points": False},
+            {"include_points": False},
+            {"hours": None, "writes": None, "include_points": False},
         ),
         (
             "async_time_to_ready",
@@ -435,7 +435,8 @@ def test_the_service_schema_fills_its_defaults():
     # The hours are the scenario's unless given.
     assert "hours" not in data
     assert data["use_heater"] is True
-    assert data["writes"] == []
+    # Omitted, not empty: an empty list clears a document's writes.
+    assert "writes" not in data
     assert data["include_points"] is False
 
 

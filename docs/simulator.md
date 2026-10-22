@@ -156,7 +156,8 @@ response_variable: snapshot
 
 - `simulate`:
   - `hours`: how far ahead, 1 to 168, in place of the document's.
-  - `writes`: setpoint or mode changes to try, in place of the document's.
+  - `writes`: setpoint or mode changes to try, in place of the document's
+    (an empty list clears them; left out, the document's stand).
     Each has `at` (when, within the walk), and `temperature` (in Home
     Assistant's unit, 104.9-149.9 °F or 40.5-65.5 °C), `mode`
     (`heat_pump`, `electric`, `energy_saver`, `high_demand`, `vacation` or

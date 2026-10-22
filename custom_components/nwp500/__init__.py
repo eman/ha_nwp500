@@ -460,7 +460,7 @@ SERVICE_SIMULATE_SCHEMA = _scenario_schema(
         vol.Optional(ATTR_HOURS): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=MAX_SIMULATE_HOURS)
         ),
-        vol.Optional(ATTR_WRITES, default=[]): vol.All(
+        vol.Optional(ATTR_WRITES): vol.All(
             cv.ensure_list,
             [
                 vol.All(
@@ -971,7 +971,7 @@ class NWP500ServiceHandler:
             call,
             "async_simulate",
             hours=call.data.get(ATTR_HOURS),
-            writes=call.data[ATTR_WRITES],
+            writes=call.data.get(ATTR_WRITES),
             include_points=call.data[ATTR_INCLUDE_POINTS],
         )
 

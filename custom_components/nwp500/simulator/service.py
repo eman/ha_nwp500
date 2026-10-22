@@ -175,12 +175,13 @@ async def async_simulate(
 ) -> dict[str, Any]:
     """Walk the scenario (`sim.simulate`).
 
-    `hours` and `writes` are laid over the document's.
+    `hours` and `writes` are laid over the document's: an empty `writes`
+    clears its writes, an omitted one keeps them.
     """
     over: dict[str, Any] = {}
     if hours is not None:
         over["horizon"] = timedelta(hours=hours)
-    if writes:
+    if writes is not None:
         over["commands"] = {"writes": _writes(hass, writes)}
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater, over=over
