@@ -13,7 +13,7 @@ program, and reports it, writing nothing. Live writes the list;
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import attr
 from homeassistant.const import Platform
@@ -86,6 +86,22 @@ _EARLIER_NAMES: dict[str, str] = {
     "in_sync": "Control In Sync",
     "disable": "Disable External Control",
 }
+
+
+def _entry_device(
+    hass: HomeAssistant, entry_id: str, mac_address: str
+) -> dr.DeviceEntry | None:
+    """The heater's device, as the config entry registered it."""
+    registry = dr.async_get(hass)
+    identifier = (DOMAIN, mac_address)
+    # Home Assistant 2026.8 scopes the lookup to the entry; before it,
+    # async_get_device is the only lookup there is.
+    by_identifier = getattr(registry, "async_get_device_by_identifier", None)
+    if by_identifier is not None:
+        return cast(
+            "dr.DeviceEntry | None", by_identifier(identifier, entry_id)
+        )
+    return registry.async_get_device(identifiers={identifier})
 
 
 class ControlFeature:
@@ -212,9 +228,7 @@ class ControlFeature:
         if object_id != name_part and not object_id.endswith(f"_{name_part}"):
             # Chosen by someone, or already the documented id.
             return None
-        device = dr.async_get(self.hass).async_get_device(
-            identifiers={(DOMAIN, mac_address)}
-        )
+        device = _entry_device(self.hass, self.entry.entry_id, mac_address)
         if device is None:
             return None
         documented = control_entity_id(
