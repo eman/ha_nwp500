@@ -299,7 +299,9 @@ async def test_a_write_outside_the_walk_is_refused(
             writes=[{"at": dt_util.utcnow() + offset, "temperature": 50.0}],
             include_points=False,
         )
-    assert err.value.translation_key == "simulator_write_outside"
+    # The library's refusal, with its message: the caller's mistake.
+    assert err.value.translation_key == "simulator_invalid_scenario"
+    assert "outside" in err.value.translation_placeholders["error"]
     await async_unload_simulator(hass, entry)
 
 

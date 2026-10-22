@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
+from nwp500.sim_live import LiveReadError
 
 from custom_components.nwp500.simulator.runner import (
     REASON_RESERVATIONS_UNKNOWN,
@@ -18,14 +19,14 @@ from custom_components.nwp500.simulator.runner import (
     WAIT_FEATURE,
     WAIT_STANDBY,
     WAIT_STATUS,
+    WAIT_TOU,
     Inputs,
     SimulatorRunner,
     answer_from,
-    heater_reading,
     heater_schedules,
 )
 
-from .conftest import MAC, make_feature, make_status
+from .conftest import MAC, make_status
 
 # Device booleans: 2 on, 1 off.
 ON, OFF = 2, 1
@@ -66,34 +67,14 @@ def runner(
     return SimulatorRunner(hass, coordinator, MAC, options)
 
 
-def test_the_heater_is_read_as_the_librarys_live_source_reads_it():
-    from nwp500 import sim_adapters as sa
-
-    for compressor in (OFF, ON):
-        status = make_status(compUse=compressor)
-        reading = heater_reading(status, make_feature())
-        assert reading.environment == sa.environment(status)
-        assert reading.state == sa.heater_state(status)
-        assert reading.settings == sa.settings(status)
-
-
-def test_the_tank_size_comes_from_the_feature():
-    reading = heater_reading(make_status(), make_feature())
-    assert reading.params is not None
-
-
 def test_schedules_not_read_yet_are_named():
     schedules, reasons = heater_schedules(make_status(), None, None)
     assert reasons == (REASON_RESERVATIONS_UNKNOWN,)
     assert schedules.reservations == ()
 
-    # TOU on with no periods read: the library says so itself.
-    schedules, reasons = heater_schedules(
-        make_status(touStatus=True), RESERVATIONS, None
-    )
-    assert reasons == ()
-    assert schedules.tou_enabled is True
-    assert schedules.tou_periods == ()
+    # TOU on with no periods read: the library refuses to walk without.
+    with pytest.raises(LiveReadError):
+        heater_schedules(make_status(touStatus=True), RESERVATIONS, None)
 
 
 def test_schedules_are_read_from_the_stored_copies():
@@ -119,6 +100,26 @@ async def test_no_scenario_without_the_feature(
 ):
     coordinator.device_features = {}
     assert await runner(hass, coordinator).async_inputs() == WAIT_FEATURE
+
+
+@pytest.mark.asyncio
+async def test_no_scenario_before_the_tou_periods_are_read(
+    hass: HomeAssistant, coordinator
+):
+    coordinator.data[MAC]["status"] = make_status(touStatus=True)
+    assert await runner(hass, coordinator).async_inputs() == WAIT_TOU
+
+
+@pytest.mark.asyncio
+async def test_the_scenario_is_kept_composed_for_a_document(
+    hass: HomeAssistant, coordinator
+):
+    inputs = await runner(hass, coordinator).async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    assert inputs.live is not None
+    assert inputs.live.scenario == inputs.scenario
+    assert inputs.live.params == inputs.params
 
 
 @pytest.mark.asyncio

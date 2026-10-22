@@ -64,6 +64,7 @@ from .const import (
     ISSUE_SIMULATOR_INSTALL_FAILED,
     ISSUE_SIMULATOR_PACKAGES_MISSING,
     ISSUE_SIMULATOR_START_FAILED,
+    MAX_SIMULATE_HOURS,
     MAX_TEMPERATURE_C,
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
@@ -120,6 +121,11 @@ SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
 SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
 SERVICE_GET_ENERGY_USAGE = "get_energy_usage"
 SERVICE_SIMULATE = "simulate"
+SERVICE_GET_SCENARIO = "get_scenario"
+SERVICE_TIME_TO_READY = "time_to_ready"
+SERVICE_NEXT_RECOVERY = "next_recovery"
+SERVICE_FORECAST = "forecast"
+SERVICE_HEATER_PROFILE = "heater_profile"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -135,6 +141,13 @@ ATTR_PERIODS = "periods"
 ATTR_WRITES = "writes"
 ATTR_AT = "at"
 ATTR_INCLUDE_POINTS = "include_points"
+ATTR_SCENARIO = "scenario"
+ATTR_USE_HEATER = "use_heater"
+ATTR_BATH_GAL = "bath_gal"
+ATTR_SHOWER_GAL = "shower_gal"
+ATTR_TARGET_TIME = "target_time"
+ATTR_TARGET_F = "target_f"
+ATTR_TARGET_LOWER_F = "target_lower_f"
 
 # Valid days of the week
 VALID_DAYS = [
@@ -422,41 +435,69 @@ def _writes_something(write: dict[str, Any]) -> dict[str, Any]:
     return write
 
 
-# A week: the simulator's answers grow less certain further out, and a
-# week's walk already takes most of a second.
-MAX_SIMULATE_HOURS = 168
+# What every simulator action takes: the heater, and a scenario document
+# (`nwp500.sim.codec`) laid over its live scenario, or alone without it.
+_SCENARIO_FIELDS: Final[dict[Any, Any]] = {
+    vol.Optional(ATTR_DEVICE_ID): cv.string,
+    vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+    vol.Optional(ATTR_SCENARIO): dict,
+    vol.Optional(ATTR_USE_HEATER, default=True): cv.boolean,
+}
 
-SERVICE_SIMULATE_SCHEMA = vol.All(
-    vol.Schema(
-        {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
-            vol.Optional(ATTR_HOURS, default=24): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=MAX_SIMULATE_HOURS)
-            ),
-            vol.Optional(ATTR_WRITES, default=[]): vol.All(
-                cv.ensure_list,
-                [
-                    vol.All(
-                        vol.Schema(
-                            {
-                                vol.Required(ATTR_AT): cv.datetime,
-                                vol.Optional(ATTR_TEMPERATURE): vol.Coerce(
-                                    float
-                                ),
-                                vol.Optional(ATTR_OP_MODE): vol.In(
-                                    list(MODE_TO_DHW_ID)
-                                ),
-                            }
-                        ),
-                        _writes_something,
-                    )
-                ],
-            ),
-            vol.Optional(ATTR_INCLUDE_POINTS, default=False): cv.boolean,
-        }
-    ),
-    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+
+def _scenario_schema(fields: dict[Any, Any] | None = None) -> Any:
+    """A simulator action's schema: the scenario fields, and `fields`."""
+    return vol.All(
+        vol.Schema({**_SCENARIO_FIELDS, **(fields or {})}),
+        cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+    )
+
+
+SERVICE_SCENARIO_SCHEMA = _scenario_schema()
+
+SERVICE_SIMULATE_SCHEMA = _scenario_schema(
+    {
+        vol.Optional(ATTR_HOURS): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=MAX_SIMULATE_HOURS)
+        ),
+        vol.Optional(ATTR_WRITES): vol.All(
+            cv.ensure_list,
+            [
+                vol.All(
+                    vol.Schema(
+                        {
+                            vol.Required(ATTR_AT): cv.datetime,
+                            vol.Optional(ATTR_TEMPERATURE): vol.Coerce(float),
+                            vol.Optional(ATTR_OP_MODE): vol.In(
+                                list(MODE_TO_DHW_ID)
+                            ),
+                        }
+                    ),
+                    _writes_something,
+                )
+            ],
+        ),
+        vol.Optional(ATTR_INCLUDE_POINTS, default=False): cv.boolean,
+    }
+)
+
+SERVICE_TIME_TO_READY_SCHEMA = _scenario_schema(
+    {
+        vol.Optional(ATTR_BATH_GAL): vol.All(
+            vol.Coerce(float), vol.Range(min=0, min_included=False)
+        ),
+        vol.Optional(ATTR_SHOWER_GAL): vol.All(
+            vol.Coerce(float), vol.Range(min=0, min_included=False)
+        ),
+    }
+)
+
+SERVICE_FORECAST_SCHEMA = _scenario_schema(
+    {
+        vol.Required(ATTR_TARGET_TIME): cv.datetime,
+        vol.Optional(ATTR_TARGET_F): vol.Coerce(float),
+        vol.Optional(ATTR_TARGET_LOWER_F): vol.Coerce(float),
+    }
 )
 
 SERVICE_SET_AIR_FILTER_LIFE_SCHEMA = vol.All(
@@ -892,12 +933,14 @@ class NWP500ServiceHandler:
         if not success:
             raise HomeAssistantError("Failed to request TOU settings")
 
-    async def async_simulate(self, call: ServiceCall) -> ServiceResponse:
-        """Handle the simulate service call.
+    async def _async_simulator_action(
+        self, call: ServiceCall, action: str, **fields: Any
+    ) -> ServiceResponse:
+        """Run `simulator.service`'s `action` on the call's heater.
 
-        Registered whether or not the simulator is on, so that calling it
-        with the simulator off says so rather than "unknown action"; the
-        simulator's own code is reached only through a running feature.
+        The simulator's actions are registered whether or not it is on, so
+        that calling one with it off says so rather than "unknown action";
+        the simulator's own code is reached only through a running feature.
         """
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
         feature = simulator_feature(self.hass, coordinator.entry)
@@ -907,15 +950,57 @@ class NWP500ServiceHandler:
                 translation_domain=DOMAIN,
                 translation_key="simulator_not_enabled",
             )
-        from .simulator.service import async_simulate
+        from .simulator import service
 
-        return await async_simulate(
+        result: ServiceResponse = await getattr(service, action)(
             self.hass,
             runner,
-            hours=call.data[ATTR_HOURS],
-            writes=call.data[ATTR_WRITES],
+            scenario=call.data.get(ATTR_SCENARIO),
+            use_heater=call.data[ATTR_USE_HEATER],
+            **fields,
+        )
+        return result
+
+    async def async_get_scenario(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the get_scenario service call."""
+        return await self._async_simulator_action(call, "async_get_scenario")
+
+    async def async_simulate(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the simulate service call."""
+        return await self._async_simulator_action(
+            call,
+            "async_simulate",
+            hours=call.data.get(ATTR_HOURS),
+            writes=call.data.get(ATTR_WRITES),
             include_points=call.data[ATTR_INCLUDE_POINTS],
         )
+
+    async def async_time_to_ready(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the time_to_ready service call."""
+        return await self._async_simulator_action(
+            call,
+            "async_time_to_ready",
+            bath_gal=call.data.get(ATTR_BATH_GAL),
+            shower_gal=call.data.get(ATTR_SHOWER_GAL),
+        )
+
+    async def async_next_recovery(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the next_recovery service call."""
+        return await self._async_simulator_action(call, "async_next_recovery")
+
+    async def async_forecast(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the forecast service call."""
+        return await self._async_simulator_action(
+            call,
+            "async_forecast",
+            target_time=call.data[ATTR_TARGET_TIME],
+            target_f=call.data.get(ATTR_TARGET_F),
+            target_lower_f=call.data.get(ATTR_TARGET_LOWER_F),
+        )
+
+    async def async_heater_profile(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the heater_profile service call."""
+        return await self._async_simulator_action(call, "async_heater_profile")
 
     async def async_get_energy_usage(
         self, call: ServiceCall
@@ -1441,7 +1526,15 @@ async def _async_remove_control_leftovers(
 # Services that answer the caller instead of acting on the device. Home
 # Assistant refuses to return data from a service not registered this way.
 _RESPONSE_SERVICES: Final[frozenset[str]] = frozenset(
-    {SERVICE_GET_ENERGY_USAGE, SERVICE_SIMULATE}
+    {
+        SERVICE_GET_ENERGY_USAGE,
+        SERVICE_GET_SCENARIO,
+        SERVICE_SIMULATE,
+        SERVICE_TIME_TO_READY,
+        SERVICE_NEXT_RECOVERY,
+        SERVICE_FORECAST,
+        SERVICE_HEATER_PROFILE,
+    }
 )
 
 # (service name, handler attribute, schema). One table drives both
@@ -1528,9 +1621,34 @@ _SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
         SERVICE_DEVICE_OR_ENTITY_SCHEMA,
     ),
     (
+        SERVICE_GET_SCENARIO,
+        "async_get_scenario",
+        SERVICE_SCENARIO_SCHEMA,
+    ),
+    (
         SERVICE_SIMULATE,
         "async_simulate",
         SERVICE_SIMULATE_SCHEMA,
+    ),
+    (
+        SERVICE_TIME_TO_READY,
+        "async_time_to_ready",
+        SERVICE_TIME_TO_READY_SCHEMA,
+    ),
+    (
+        SERVICE_NEXT_RECOVERY,
+        "async_next_recovery",
+        SERVICE_SCENARIO_SCHEMA,
+    ),
+    (
+        SERVICE_FORECAST,
+        "async_forecast",
+        SERVICE_FORECAST_SCHEMA,
+    ),
+    (
+        SERVICE_HEATER_PROFILE,
+        "async_heater_profile",
+        SERVICE_SCENARIO_SCHEMA,
     ),
 )
 

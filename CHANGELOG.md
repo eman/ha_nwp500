@@ -10,9 +10,14 @@
   date: whether the tank is heating or will heat within a day, when its
   current or next heating ends, and the electricity it is likely to use
   over the next day. An air temperature and a humidity sensor beside the
-  heater are optional inputs. `nwp500.simulate` returns the library's
-  simulation document on request, up to a week ahead, and can try setpoint
-  and mode changes first without touching the heater. Turning it on installs numpy, pandas and scipy if
+  heater are optional inputs. Its actions return the library's answers on
+  request without touching the heater: `nwp500.simulate` (up to a week
+  ahead, optionally trying setpoint and mode changes), `time_to_ready`,
+  `next_recovery`, `forecast` and `heater_profile`. Each takes an optional
+  scenario document laid over the heater's scenario (or alone, with
+  `use_heater` off), which `nwp500.get_scenario` returns to edit; the
+  library lays and validates it, and its own parameters, such as another
+  tank's, pass through. Turning it on installs numpy, pandas and scipy if
   Home Assistant lacks them, with a progress step; with it off none of them
   is installed or loaded, and a test holds set-up to what it was before.
   It starts after the heater's own entities, so the water heater never
@@ -60,7 +65,7 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.9.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.10.0. What the
   integration did before is kept; the library's corrections change these:
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.

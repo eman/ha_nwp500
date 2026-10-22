@@ -242,9 +242,13 @@ Assistant, from what the heater reports, and keeps three sensors up to date:
   ends.
 - **Simulated energy, next 24 hours**: the electricity it is likely to use.
 
-`nwp500.simulate` returns the library's simulation document from now on
-request, up to a week ahead, and can try setpoint and mode changes first
-without touching the heater.
+Its actions return the library's answers on request without touching the
+heater: `nwp500.simulate` (a simulation up to a week ahead, optionally
+trying setpoint and mode changes), `nwp500.time_to_ready`,
+`nwp500.next_recovery`, `nwp500.forecast` (when to start heating to be
+ready by a time) and `nwp500.heater_profile`. Each can take a scenario
+document, laid over the heater's or alone, which `nwp500.get_scenario`
+returns to edit, so a planner can ask about plans the heater isn't running.
 
 Turning it on installs numpy, pandas and scipy if Home Assistant does not
 already have them; with it off, none of them is installed or loaded, and
@@ -327,7 +331,7 @@ action:
 
 ## Library Version
 
-Uses **[nwp500-python v9.9.0](https://github.com/eman/nwp500-python/releases/tag/v9.9.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
+Uses **[nwp500-python v9.10.0](https://github.com/eman/nwp500-python/releases/tag/v9.10.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
 
 ## License
 

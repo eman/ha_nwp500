@@ -23,18 +23,24 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from nwp500 import sim
-from nwp500 import sim_adapters as sa
 from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
-from nwp500.sim.inputs import POWER_OFF, VACATION, Commands, Scenario, Schedules
+from nwp500.sim.inputs import POWER_OFF, VACATION, Scenario, Schedules
 from nwp500.sim_home_assistant import Entities, HomeAssistantEnvironment
-from nwp500.sim_live import Given, HeaterReading, compose
+from nwp500.sim_live import (
+    Composed,
+    Given,
+    LiveReadError,
+    compose,
+    heater_reading,
+    live_schedules,
+)
 
 from ..const import CONF_SIMULATOR_AIR_ENTITY, CONF_SIMULATOR_HUMIDITY_ENTITY
 from .ha_client import InProcessClient
 
 if TYPE_CHECKING:
-    from nwp500.models import DeviceFeature, DeviceStatus
+    from nwp500.models import DeviceStatus
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
 
@@ -63,6 +69,7 @@ _HEATING_DISABLED_MODES = frozenset({VACATION, POWER_OFF})
 WAIT_STATUS = "no_status"
 WAIT_FEATURE = "no_feature_info"
 WAIT_STANDBY = "standby"
+WAIT_TOU = "no_tou_periods"
 FAILED = "simulation_failed"
 
 # A reason the integration adds to the library's, about its own inputs.
@@ -79,6 +86,8 @@ class Inputs:
     reasons: tuple[str, ...] = ()
     #: What the environment source rests on, in its words.
     notes: tuple[str, ...] = ()
+    #: The heater's composed scenario, for a document to be laid over.
+    live: Composed | None = None
 
 
 @dataclass(frozen=True)
@@ -126,24 +135,6 @@ def _iso(at: datetime | None) -> str | None:
     return None if at is None else at.isoformat()
 
 
-def heater_reading(
-    status: DeviceStatus, feature: DeviceFeature
-) -> HeaterReading:
-    """The heater as `compose` takes it.
-
-    Read as the library's live source reads it
-    (`nwp500.sim_live.LiveHeaterSource`).
-    """
-    return HeaterReading(
-        state=sa.heater_state(status),
-        settings=sa.settings(status),
-        environment=sa.environment(status),
-        params=sa.params(feature),
-        status=status,
-        feature=feature,
-    )
-
-
 def heater_schedules(
     status: DeviceStatus,
     reservations: dict[str, Any] | None,
@@ -151,26 +142,24 @@ def heater_schedules(
 ) -> tuple[Schedules, tuple[str, ...]]:
     """The heater's schedules from the coordinator's stored copies.
 
-    A schedule not read yet is not an empty one: the answer says so.
+    Read as the library reads them (`nwp500.sim_live.live_schedules`),
+    which raises `LiveReadError` when TOU is on and its periods were not
+    read. A reservation schedule not read yet is not an empty one: the
+    answer says so.
     """
-    reasons: list[str] = []
-    schedule = None
-    if reservations is None:
-        reasons.append(REASON_RESERVATIONS_UNKNOWN)
-    else:
-        schedule = ReservationSchedule.model_validate(reservations)
-    periods: list[TOUPeriod] | None = None
-    tou_enabled = bool(status.tou_status)
-    if tou is not None:
-        periods = [
+    reasons = () if reservations is not None else (REASON_RESERVATIONS_UNKNOWN,)
+    schedules = live_schedules(
+        status,
+        None
+        if reservations is None
+        else ReservationSchedule.model_validate(reservations),
+        None
+        if tou is None
+        else [
             TOUPeriod.model_validate(p) for p in tou.get("reservation") or []
-        ]
-    return (
-        sa.schedules(
-            reservations=schedule, tou=periods, tou_enabled=tou_enabled
-        ),
-        tuple(reasons),
+        ],
     )
+    return schedules, reasons
 
 
 def answer_from(result: SimulationResult, inputs: Inputs) -> Answer:
@@ -309,11 +298,7 @@ class SimulatorRunner:
         self.hass.async_create_task(self._debouncer.async_call())
 
     async def async_inputs(
-        self,
-        *,
-        start: datetime | None = None,
-        horizon: timedelta = HORIZON,
-        commands: Commands | None = None,
+        self, *, start: datetime | None = None
     ) -> Inputs | str:
         """The scenario now, or why there is none (a WAIT_* reason).
 
@@ -331,13 +316,17 @@ class SimulatorRunner:
             # The library does not model Standby.
             return WAIT_STANDBY
         reading = heater_reading(status, feature)
-        schedules, reasons = heater_schedules(
-            status,
-            self.coordinator.reservation_schedules.get(self.mac_address),
-            self.coordinator.tou_schedules.get(self.mac_address),
-        )
+        try:
+            schedules, reasons = heater_schedules(
+                status,
+                self.coordinator.reservation_schedules.get(self.mac_address),
+                self.coordinator.tou_schedules.get(self.mac_address),
+            )
+        except LiveReadError:
+            # Read a little after the status; until then there is no walk.
+            return WAIT_TOU
         start = start or dt_util.utcnow().replace(microsecond=0)
-        until = start + horizon
+        until = start + HORIZON
         environment = None
         entities = self.entities
         if entities.air is not None or entities.humidity is not None:
@@ -352,18 +341,18 @@ class SimulatorRunner:
         # the result names the defaults it used.
         composed = await compose(
             start=start,
-            horizon=horizon,
+            horizon=HORIZON,
             tz=str(self.hass.config.time_zone),
             heater=Given(reading),
             schedules=Given(schedules),
             environment=environment,
-            commands=commands,
         )
         return Inputs(
             scenario=composed.scenario,
             params=composed.params,
             reasons=reasons,
             notes=tuple(environment.notes) if environment else (),
+            live=composed,
         )
 
     async def _async_run(self) -> None:
