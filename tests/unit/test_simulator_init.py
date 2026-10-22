@@ -332,8 +332,21 @@ async def test_removing_the_entry_removes_its_repairs_issue(
     )
 
 
+_ACTIONS = (
+    "async_get_scenario",
+    "async_simulate",
+    "async_time_to_ready",
+    "async_next_recovery",
+    "async_forecast",
+    "async_heater_profile",
+)
+
+
 @pytest.mark.asyncio
-async def test_the_service_says_when_the_simulator_is_off(hass: HomeAssistant):
+@pytest.mark.parametrize("action", _ACTIONS)
+async def test_the_service_says_when_the_simulator_is_off(
+    hass: HomeAssistant, action
+):
     handler = NWP500ServiceHandler(hass)
     coordinator = MagicMock()
     coordinator.entry = MockConfigEntry(domain=DOMAIN, entry_id="e1")
@@ -348,9 +361,70 @@ async def test_the_service_says_when_the_simulator_is_off(hass: HomeAssistant):
         patch.dict(sys.modules, dict.fromkeys(_HEAVY)),
         pytest.raises(ServiceValidationError) as err,
     ):
-        await handler.async_simulate(call)
+        await getattr(handler, action)(call)
 
     assert err.value.translation_key == "simulator_not_enabled"
+
+
+@needs_sim
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "data", "fields"),
+    [
+        ("async_get_scenario", {}, {}),
+        (
+            "async_simulate",
+            {"hours": 6, "writes": [], "include_points": True},
+            {"hours": 6, "writes": [], "include_points": True},
+        ),
+        (
+            "async_simulate",
+            {"writes": [], "include_points": False},
+            {"hours": None, "writes": [], "include_points": False},
+        ),
+        (
+            "async_time_to_ready",
+            {"bath_gal": 30.0},
+            {"bath_gal": 30.0, "shower_gal": None},
+        ),
+        ("async_next_recovery", {}, {}),
+        (
+            "async_forecast",
+            {"target_time": "at", "target_f": 130.0},
+            {"target_time": "at", "target_f": 130.0, "target_lower_f": None},
+        ),
+        ("async_heater_profile", {}, {}),
+    ],
+)
+async def test_each_action_passes_its_fields_to_the_library_call(
+    hass: HomeAssistant, action, data, fields
+):
+    from custom_components.nwp500.simulator import service
+
+    handler = NWP500ServiceHandler(hass)
+    coordinator = MagicMock()
+    runner = MagicMock()
+    feature = MagicMock(runners={MAC: runner})
+    document = {"schema_version": 1, "scenario": {}}
+    call = MagicMock(data={"scenario": document, "use_heater": False, **data})
+    answer = {"result": {}, "inputs": {"reasons": [], "notes": []}}
+
+    with (
+        patch.object(
+            handler,
+            "_get_coordinator_and_mac",
+            AsyncMock(return_value=(coordinator, MAC)),
+        ),
+        patch(
+            "custom_components.nwp500.simulator_feature", return_value=feature
+        ),
+        patch.object(service, action, AsyncMock(return_value=answer)) as fn,
+    ):
+        assert await getattr(handler, action)(call) == answer
+
+    fn.assert_awaited_once_with(
+        hass, runner, scenario=document, use_heater=False, **fields
+    )
 
 
 def test_the_service_schema_fills_its_defaults():
@@ -358,7 +432,9 @@ def test_the_service_schema_fills_its_defaults():
 
     data = SERVICE_SIMULATE_SCHEMA({"entity_id": "water_heater.heater"})
 
-    assert data["hours"] == 24
+    # The hours are the scenario's unless given.
+    assert "hours" not in data
+    assert data["use_heater"] is True
     assert data["writes"] == []
     assert data["include_points"] is False
 
@@ -395,3 +471,42 @@ def test_the_service_schema_takes_a_write():
     (write,) = data["writes"]
     assert write["temperature"] == 120.0
     assert write["at"].hour == 14
+
+
+@pytest.mark.parametrize(
+    ("schema", "data"),
+    [
+        ("SERVICE_SCENARIO_SCHEMA", {"scenario": "not a document"}),
+        ("SERVICE_SCENARIO_SCHEMA", {"use_heater": "maybe"}),
+        ("SERVICE_TIME_TO_READY_SCHEMA", {"bath_gal": 0}),
+        ("SERVICE_TIME_TO_READY_SCHEMA", {"shower_gal": -1}),
+        ("SERVICE_FORECAST_SCHEMA", {}),
+        ("SERVICE_FORECAST_SCHEMA", {"target_time": "soon"}),
+    ],
+)
+def test_the_action_schemas_refuse_what_cannot_be_asked(schema, data):
+    import voluptuous as vol
+
+    import custom_components.nwp500 as integration
+
+    with pytest.raises(vol.Invalid):
+        getattr(integration, schema)(
+            {"entity_id": "water_heater.heater", **data}
+        )
+
+
+def test_the_action_schemas_take_a_document():
+    from custom_components.nwp500 import (
+        SERVICE_FORECAST_SCHEMA,
+        SERVICE_SCENARIO_SCHEMA,
+    )
+
+    document = {"schema_version": 1, "scenario": {"horizon": "PT6H"}}
+    data = SERVICE_SCENARIO_SCHEMA({"device_id": "abc", "scenario": document})
+    assert data["scenario"] == document
+    assert data["use_heater"] is True
+
+    data = SERVICE_FORECAST_SCHEMA(
+        {"device_id": "abc", "target_time": "2026-10-21T14:00:00"}
+    )
+    assert data["target_time"].hour == 14

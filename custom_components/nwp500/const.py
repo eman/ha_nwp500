@@ -1424,6 +1424,11 @@ CONF_SIMULATOR_HUMIDITY_ENTITY: Final = "humidity_entity"
 DATA_SIMULATOR: Final = "simulator"
 DATA_SIMULATOR_START: Final = "simulator_start"
 
+# The longest walk the simulator's actions run: a week. The answers grow
+# less certain further out, and a week's walk already takes most of a
+# second.
+MAX_SIMULATE_HOURS: Final = 168
+
 # The Repairs issue raised while the simulator is on but failed to start.
 # One issue, worded by why: its packages are missing and Home Assistant
 # installs none, their install failed (retried only after a restart), or

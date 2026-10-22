@@ -626,11 +626,12 @@ get_energy_usage:
 simulate:
   name: Simulate
   description: >-
-    Simulate the water heater from now, as the hot water simulator sees it,
-    and return the result: each heating interval, the setpoint and mode
-    writes as they would land, and the electricity used. Optionally try
-    setpoint or mode changes first. Changes nothing on the heater. Needs the
-    hot water simulator turned on in the integration's options.
+    Simulate the water heater, as the hot water simulator sees it, and return
+    the result: each heating interval, the setpoint and mode writes as they
+    would land, and the electricity used. Optionally lay a scenario document
+    over the heater's, or try setpoint or mode changes. Changes nothing on the
+    heater. Needs the hot water simulator turned on in the integration's
+    options.
   fields:
     device_id:
       name: Device
@@ -649,9 +650,8 @@ simulate:
           integration: nwp500
     hours:
       name: Hours
-      description: How far ahead to simulate, 1 to 168 hours. Defaults to 24.
+      description: How far ahead to simulate, 1 to 168 hours. Defaults to the scenario document's, else 24.
       required: false
-      default: 24
       selector:
         number:
           min: 1
@@ -662,9 +662,9 @@ simulate:
       description: >-
         Setpoint or mode changes to simulate, each with `at` (when), and
         `temperature` (in Home Assistant's unit), `mode`, or both. Modes:
-        heat_pump, electric, energy_saver, high_demand, vacation or
-        power_off; the result's reasons say when the simulator doesn't model
-        one.
+        heat_pump, electric, energy_saver, high_demand, vacation or power_off;
+        the result's reasons say when the simulator doesn't model one. These
+        replace the scenario document's writes.
       required: false
       selector:
         object:
@@ -675,5 +675,318 @@ simulate:
         the path is long.
       required: false
       default: false
+      selector:
+        boolean:
+    scenario:
+      name: Scenario
+      description: >-
+        A scenario document (nwp500-python's, schema_version 1), as
+        get_scenario returns one, laid over the heater's scenario: objects
+        merge key by key, and any other value replaces the heater's.
+        Temperatures in °F, volumes in US gallons. A params section replaces
+        the parameters for the heater's tank size.
+      required: false
+      selector:
+        object:
+    use_heater:
+      name: Start from the heater
+      description: >-
+        Start from the water heater's scenario now. Off: the scenario document
+        alone, which must then give the whole scenario. On by default.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+get_scenario:
+  name: Get scenario
+  description: >-
+    Return the scenario the hot water simulator walks for the water heater
+    now, as a scenario document to edit and pass to the other simulator
+    actions: the tank, its settings, schedules and surroundings, and the
+    parameters for its tank size. With a scenario document, return it laid
+    over the heater's. Changes nothing on the heater. Needs the hot water
+    simulator turned on in the integration's options.
+  fields:
+    device_id:
+      name: Device
+      description: >-
+        The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: >-
+        The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    scenario:
+      name: Scenario
+      description: >-
+        A scenario document (nwp500-python's, schema_version 1), as
+        get_scenario returns one, laid over the heater's scenario: objects
+        merge key by key, and any other value replaces the heater's.
+        Temperatures in °F, volumes in US gallons. A params section replaces
+        the parameters for the heater's tank size.
+      required: false
+      selector:
+        object:
+    use_heater:
+      name: Start from the heater
+      description: >-
+        Start from the water heater's scenario now. Off: the scenario document
+        alone, which must then give the whole scenario. On by default.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+time_to_ready:
+  name: Time to ready
+  description: >-
+    Return the hot water now and ahead, as the hot water simulator sees it:
+    the gallons the tank can deliver, whether it can run a bath and when it
+    can in each mode, and how many showers it's ready for. Changes nothing on
+    the heater. Needs the hot water simulator turned on in the integration's
+    options.
+  fields:
+    device_id:
+      name: Device
+      description: >-
+        The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: >-
+        The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    bath_gal:
+      name: Bath size
+      description: >-
+        A bath's volume in US gallons. Defaults to the simulator's, which the
+        result's reasons name.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 200
+          step: 0.1
+          mode: box
+          unit_of_measurement: gal
+    shower_gal:
+      name: Shower size
+      description: >-
+        A shower's volume in US gallons. Defaults to the simulator's, which
+        the result's reasons name.
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 100
+          step: 0.1
+          mode: box
+          unit_of_measurement: gal
+    scenario:
+      name: Scenario
+      description: >-
+        A scenario document (nwp500-python's, schema_version 1), as
+        get_scenario returns one, laid over the heater's scenario: objects
+        merge key by key, and any other value replaces the heater's.
+        Temperatures in °F, volumes in US gallons. A params section replaces
+        the parameters for the heater's tank size.
+      required: false
+      selector:
+        object:
+    use_heater:
+      name: Start from the heater
+      description: >-
+        Start from the water heater's scenario now. Off: the scenario document
+        alone, which must then give the whole scenario. On by default.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+next_recovery:
+  name: Next recovery
+  description: >-
+    Return the heat-pump recovery the water heater runs next, as the hot water
+    simulator sees it: when it starts and ends, the energy it takes, and
+    whether time-of-use limits cut it short. Changes nothing on the heater.
+    Needs the hot water simulator turned on in the integration's options.
+  fields:
+    device_id:
+      name: Device
+      description: >-
+        The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: >-
+        The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    scenario:
+      name: Scenario
+      description: >-
+        A scenario document (nwp500-python's, schema_version 1), as
+        get_scenario returns one, laid over the heater's scenario: objects
+        merge key by key, and any other value replaces the heater's.
+        Temperatures in °F, volumes in US gallons. A params section replaces
+        the parameters for the heater's tank size.
+      required: false
+      selector:
+        object:
+    use_heater:
+      name: Start from the heater
+      description: >-
+        Start from the water heater's scenario now. Off: the scenario document
+        alone, which must then give the whole scenario. On by default.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+forecast:
+  name: Forecast a recovery
+  description: >-
+    Return when a heat-pump recovery must start for the tank to be ready by a
+    given time, as the hot water simulator sees it, and how long it runs.
+    Changes nothing on the heater. Needs the hot water simulator turned on in
+    the integration's options.
+  fields:
+    device_id:
+      name: Device
+      description: >-
+        The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: >-
+        The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    target_time:
+      name: Ready by
+      description: >-
+        When the tank must be ready, at most 168 hours after the scenario's
+        start.
+      required: true
+      selector:
+        datetime:
+    target_f:
+      name: Target temperature (°F)
+      description: >-
+        The temperature the tank must reach, in °F. Defaults to the heater's
+        stop threshold, else its setpoint.
+      required: false
+      selector:
+        number:
+          min: 32
+          max: 212
+          step: 0.1
+          mode: box
+          unit_of_measurement: °F
+    target_lower_f:
+      name: Lower tank target (°F)
+      description: >-
+        For a partial charge: the temperature the lower tank must reach, in
+        °F, in place of the target temperature.
+      required: false
+      selector:
+        number:
+          min: 32
+          max: 212
+          step: 0.1
+          mode: box
+          unit_of_measurement: °F
+    scenario:
+      name: Scenario
+      description: >-
+        A scenario document (nwp500-python's, schema_version 1), as
+        get_scenario returns one, laid over the heater's scenario: objects
+        merge key by key, and any other value replaces the heater's.
+        Temperatures in °F, volumes in US gallons. A params section replaces
+        the parameters for the heater's tank size.
+      required: false
+      selector:
+        object:
+    use_heater:
+      name: Start from the heater
+      description: >-
+        Start from the water heater's scenario now. Off: the scenario document
+        alone, which must then give the whole scenario. On by default.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+heater_profile:
+  name: Heater profile
+  description: >-
+    Return what the hot water simulator models of the water heater: its modes
+    and their heat sources, the commands, the setpoint range and step, and the
+    tank's volume. Changes nothing on the heater. Needs the hot water
+    simulator turned on in the integration's options.
+  fields:
+    device_id:
+      name: Device
+      description: >-
+        The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: >-
+        The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    scenario:
+      name: Scenario
+      description: >-
+        A scenario document (nwp500-python's, schema_version 1), as
+        get_scenario returns one, laid over the heater's scenario: objects
+        merge key by key, and any other value replaces the heater's.
+        Temperatures in °F, volumes in US gallons. A params section replaces
+        the parameters for the heater's tank size.
+      required: false
+      selector:
+        object:
+    use_heater:
+      name: Start from the heater
+      description: >-
+        Start from the water heater's scenario now. Off: the scenario document
+        alone, which must then give the whole scenario. On by default.
+      required: false
+      default: true
       selector:
         boolean:

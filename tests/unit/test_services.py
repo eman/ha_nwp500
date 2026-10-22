@@ -151,7 +151,7 @@ class TestReservationServices:
         """Test that all 16 services are registered."""
         await _async_setup_services(mock_hass)
 
-        assert mock_hass.services.async_register.call_count == 17
+        assert mock_hass.services.async_register.call_count == 22
 
         # Verify all expected services are registered
         registered_services = [

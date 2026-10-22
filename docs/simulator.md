@@ -104,18 +104,76 @@ the library doesn't model.
 The simulation runs again when the heater reports, at most once a minute,
 and every five minutes in any case.
 
-## The `nwp500.simulate` action
+## Actions
 
-`nwp500.simulate` returns a simulation from now and changes nothing on the
-heater. It needs the simulator running, and refuses to answer while the
-heater is in Standby.
+The simulator's actions return the library's answers on request and change
+nothing on the heater. Each is one of nwp500-python's calls on a scenario:
+
+| Action | The library's call | `result` |
+|---|---|---|
+| `nwp500.get_scenario` | none: the scenario the others walk | a scenario document |
+| `nwp500.simulate` | `sim.simulate` | a result document |
+| `nwp500.time_to_ready` | `sim.time_to_ready` | `kind: readiness` |
+| `nwp500.next_recovery` | `sim.next_recovery` | `kind: recovery` |
+| `nwp500.forecast` | `sim.forecast` | `kind: forecast` |
+| `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile` |
+
+They need the simulator running. While they read the heater, they refuse
+to answer in Standby, which the library doesn't model, and before the
+heater's status, its details, or (with time-of-use on) its time-of-use
+periods have arrived.
+
+### The scenario
+
+Every action takes:
 
 | Field | Meaning |
 |---|---|
 | `device_id` or `entity_id` | The water heater |
-| `hours` | How far ahead, 1 to 168. Default 24 |
-| `writes` | Setpoint or mode changes to try. Each has `at` (when, within the hours simulated), and `temperature` (in Home Assistant's unit, 104.9-149.9 °F or 40.5-65.5 °C), `mode` (`heat_pump`, `electric`, `energy_saver`, `high_demand`, `vacation` or `power_off`), or both. The library doesn't model a change into Vacation or Power Off: it leaves that write out and its `reasons` say `write_mode_not_modelled` |
-| `include_points` | Also return the tank's path. Default off |
+| `scenario` | Optional. A scenario document (nwp500-python's `nwp500.sim.codec`, `schema_version` 1), laid over the heater's scenario as `nwp-cli simulate` lays one: objects merge key by key, and any other value, a list included, replaces the heater's. A `params` section replaces the parameters for the heater's tank size |
+| `use_heater` | Start from the heater's scenario now. Default on. Off, the document alone is the scenario, and it must give all of it |
+
+So a planner can get the heater's scenario from `get_scenario`, change it
+(a setpoint, a mode, a reservation schedule, the household's draws, another
+tank's parameters), and ask any action about it. The documents are in the
+library's units: °F, Wh, US gallons, and ISO 8601 times and durations
+(`PT6H`). A document's times need a time zone or an offset: the library
+refuses one without.
+
+The scenario starts now, and runs 24 hours, unless the document says
+otherwise. Nothing walks more than 168 hours. Without parameters from the
+document or the heater (with `use_heater` off and no `params`), the library
+uses its defaults for a 65 gal tank, and `inputs.notes` says so.
+
+```yaml
+action: nwp500.get_scenario
+data:
+  entity_id: water_heater.heater
+response_variable: snapshot
+```
+
+### Each action's fields
+
+- `simulate`:
+  - `hours`: how far ahead, 1 to 168, in place of the document's.
+  - `writes`: setpoint or mode changes to try, in place of the document's.
+    Each has `at` (when, within the walk), and `temperature` (in Home
+    Assistant's unit, 104.9-149.9 °F or 40.5-65.5 °C), `mode`
+    (`heat_pump`, `electric`, `energy_saver`, `high_demand`, `vacation` or
+    `power_off`), or both. The library doesn't model a change into
+    Vacation or Power Off: it leaves that write out and its `reasons` say
+    `write_mode_not_modelled`.
+  - `include_points`: also return the tank's path. Default off.
+- `time_to_ready`: `bath_gal` and `shower_gal`, a bath's and a shower's
+  volume in US gallons. Without them, the library's, which its `reasons`
+  name.
+- `forecast`: `target_time`, when the tank must be ready (required, at most
+  168 hours after the scenario's start), and `target_f` or, for a partial
+  charge, `target_lower_f`, in °F. Without them, the heater's stop
+  threshold, else its setpoint.
+
+In these fields, unlike in a document, a time without a time zone is taken
+in Home Assistant's.
 
 ```yaml
 action: nwp500.simulate
@@ -129,33 +187,37 @@ data:
 response_variable: simulation
 ```
 
-The response has two parts:
+### The response
 
-- `result` is the library's result document (`nwp500.sim.codec`), in its
-  units: °F, Wh and US gallons. Its fields are `schema_version`, `start`,
-  `until`, and:
+Each response has two parts:
+
+- `result` is the library's document, in its units, with its
+  `schema_version`. `simulate`'s is the result document; its fields are
+  `start`, `until`, and:
   - `heating`: each heating interval, with its start and cause, end, stop,
     source, target and energy.
   - `writes`: setpoint writes and reservation firings, as they would land.
   - `mode_writes`: mode writes, as they would land.
   - `modes`: the mode over time.
   - `windows`: the scenario's hot water draw windows as the walk found
-    them. The integration gives the library none yet, so it is empty; it
-    says nothing about time-of-use windows.
+    them. They are the document's: the heater gives none. They say nothing
+    about time-of-use windows.
   - `points` and `delivery`: the tank's path and the delivered water's
     temperature at each point. They are left out unless `include_points`
     is on: the path is long.
   - `reasons` and `defaults_used`, the library's own.
+
+  The others' carry a `kind` and the library answer's fields
+  (`nwp500.sim.codec.to_document`).
 - `inputs` holds the integration's notes on what it gave the library:
   `reasons` (such as `reservations_unknown`, when the heater's reservation
   schedule hasn't been read yet) and `notes` (what the air and humidity
-  rest on).
+  rest on, and the library's own notes on the scenario).
 
-A write outside the hours simulated is refused as the caller's mistake. A
-scenario the library refuses, such as a setpoint out of the heater's range,
-fails with the library's message.
-
-A time without a time zone is taken in Home Assistant's.
+A scenario the library refuses as a scenario, such as a document it can't
+read or a write outside the walk, is the caller's mistake and says so. An
+answer the library can't give, such as for a setpoint out of the heater's
+range, fails with the library's message.
 
 ## Accuracy
 
@@ -172,8 +234,5 @@ size. Expect:
 
 ## Planned
 
-These are planned, in this order:
-
-1. Hot water use, from sensors of the water drawn and of the inlet
-   temperature: deliverable volume, showers and bath readiness.
-2. Services a scheduler can plan with.
+Hot water use, from the household's hot water draws and the inlet
+temperature: deliverable volume, showers and bath readiness.
