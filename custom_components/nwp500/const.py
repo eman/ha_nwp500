@@ -1,6 +1,5 @@
 """Constants for the Navien NWP500 integration."""
 
-import os
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 from homeassistant.components.water_heater import (
@@ -1419,9 +1418,6 @@ CONF_SIMULATOR_ENABLED: Final = "simulator_enabled"
 CONF_SIMULATOR: Final = "simulator"
 CONF_SIMULATOR_AIR_ENTITY: Final = "air_entity"
 CONF_SIMULATOR_HUMIDITY_ENTITY: Final = "humidity_entity"
-# A weather entity with an hourly forecast: the air beside the heater is
-# projected from it, with an air sensor to fit and anchor the projection.
-CONF_SIMULATOR_WEATHER_ENTITY: Final = "weather_entity"
 
 # Keys into hass.data[DOMAIN][entry_id]: the running simulator, and the
 # task starting it.
@@ -1435,16 +1431,6 @@ DATA_SIMULATOR_START: Final = "simulator_start"
 ISSUE_SIMULATOR_START_FAILED: Final = "simulator_start_failed"
 ISSUE_SIMULATOR_PACKAGES_MISSING: Final = "simulator_packages_missing"
 ISSUE_SIMULATOR_INSTALL_FAILED: Final = "simulator_install_failed"
-# A heater's calibration fitted nothing, or failed, run after run. One
-# issue per heater: `simulator_calibration_issue_id`.
-ISSUE_SIMULATOR_CALIBRATION_FAILING: Final = "simulator_calibration_failing"
-
-
-def simulator_calibration_issue_id(entry_id: str, mac_address: str) -> str:
-    """The Repairs issue of one heater's failing calibration."""
-    slug = mac_address.replace(":", "").lower()
-    return f"{ISSUE_SIMULATOR_CALIBRATION_FAILING}_{entry_id}_{slug}"
-
 
 # What the simulator leaves behind, known here so the off path can remove
 # it without importing the simulator.
@@ -1481,22 +1467,3 @@ def simulator_feature(hass: Any, entry: Any) -> Any | None:
     Typed loosely for the same reason as `control_feature`.
     """
     return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_SIMULATOR)
-
-
-# The simulator's history recording: a heater's raw statuses,
-# for its calibration. Per heater, in CONF_SIMULATOR's options.
-CONF_SIMULATOR_RECORD: Final = "record_history"
-CONF_SIMULATOR_HISTORY_DAYS: Final = "history_days"
-DEFAULT_SIMULATOR_HISTORY_DAYS: Final = 60
-MIN_SIMULATOR_HISTORY_DAYS: Final = 7
-MAX_SIMULATOR_HISTORY_DAYS: Final = 365
-
-# Where the recordings are kept, under Home Assistant's configuration
-# directory, so they go into its backups.
-SIMULATOR_HISTORY_DIR: Final = (DOMAIN, "history")
-
-
-def simulator_history_dir(config_dir: str, mac_address: str) -> str:
-    """The directory of one heater's recorded history."""
-    slug = mac_address.replace(":", "").lower()
-    return os.path.join(config_dir, *SIMULATOR_HISTORY_DIR, slug)

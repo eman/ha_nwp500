@@ -157,9 +157,9 @@ async def test_the_simulator_starts_after_the_platforms_in_the_background():
         assert await async_setup_entry(mock_hass, mock_entry) is True
 
         # Set-up is done, and the heater's platforms are forwarded, before
-        # the simulator has started; with the buttons, for its calibration.
+        # the simulator has started.
         mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
-            mock_entry, [*_PLATFORMS, Platform.BUTTON]
+            mock_entry, _PLATFORMS
         )
         setup.assert_not_awaited()
         (start,) = started
@@ -289,15 +289,6 @@ async def _leftovers(
         translation_key="simulator_start_failed",
         translation_placeholders={"reason": "x"},
     )
-    ir.async_create_issue(
-        hass,
-        DOMAIN,
-        f"simulator_calibration_failing_{entry.entry_id}_aabbccddeeff",
-        is_fixable=False,
-        severity=ir.IssueSeverity.WARNING,
-        translation_key="simulator_calibration_failing",
-        translation_placeholders={"device": "x", "runs": "3", "reason": "x"},
-    )
     return simulated, other
 
 
@@ -318,9 +309,6 @@ async def test_switching_it_off_removes_what_it_left(
     assert simulator_storage_key(entry.entry_id) not in hass_storage
     assert not ir.async_get(hass).async_get_issue(
         DOMAIN, f"simulator_start_failed_{entry.entry_id}"
-    )
-    assert not ir.async_get(hass).async_get_issue(
-        DOMAIN, f"simulator_calibration_failing_{entry.entry_id}_aabbccddeeff"
     )
 
 
@@ -417,25 +405,3 @@ def test_the_service_schema_takes_a_write():
     (write,) = data["writes"]
     assert write["temperature"] == 120.0
     assert write["at"].hour == 14
-
-
-@pytest.mark.asyncio
-async def test_removing_the_entry_deletes_its_recorded_history(
-    hass: HomeAssistant, hass_storage, tmp_path
-):
-    hass.config.config_dir = str(tmp_path)
-    directory = tmp_path / "nwp500" / "history" / "aabbccddeeff"
-    directory.mkdir(parents=True)
-    (directory / "2026-10-20.jsonl.gz").write_bytes(b"x")
-    entry = MockConfigEntry(
-        domain=DOMAIN,
-        options={
-            "simulator_enabled": False,
-            "simulator": {MAC: {"record_history": True}},
-        },
-    )
-    entry.add_to_hass(hass)
-
-    await async_remove_entry(hass, entry)
-
-    assert not directory.exists()

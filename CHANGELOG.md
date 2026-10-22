@@ -3,17 +3,6 @@
 ## [Unreleased]
 
 ### Added
-- **The simulator looks ahead at the air, from a weather forecast.** Each
-  heater's simulator form takes an optional weather entity with an hourly
-  forecast. With the air sensor, each calibration fits how the air beside
-  the heater follows the outdoor air (how much of its swing, how late, and
-  the offset) from the recorder's history of both, and the simulator then
-  projects the air over the day ahead from the forecast, anchored to the
-  air sensor's reading. A later fit replaces the model only when it does
-  better on the latest readings, held out of the refit; where the air
-  barely follows the weather, none is fitted. The Simulator calibration
-  sensor's `location_air` attribute, unrecorded, reports the model and how
-  it was judged. Forecasts are read at most every 30 minutes.
 - **Hot water simulator.** Optional, and off unless you turn it on: setup
   now offers it after sign-in, with **Skip for now**, and the options can
   turn it on or off later. It runs nwp500-python's simulator inside Home
@@ -30,35 +19,8 @@
   waits for its packages. A Repairs issue reports a simulator that cannot
   start, and why: packages missing, an install that failed (retried after a
   restart), or another error (retried on a reload). Turning it off removes
-  its sensors and what it stored. See `docs/simulator.md`.
-- **Recording the heater's history, for the simulator.** Each heater's
-  simulator form offers **Record the heater's history**, off unless you
-  turn it on. It keeps each status the heater reports, as reported and
-  without the heater's address, so that the simulator can be fitted
-  to the heater. It writes every 15 minutes, to one file per day
-  under `nwp500/history/` in Home Assistant's configuration folder, which
-  goes into backups. While it records, each finished day is compressed,
-  and days older than the retention (60 days unless changed) are deleted.
-  Turning the recording
-  or the simulator off keeps what was recorded; the options flow deletes it
-  only when asked, and removing the integration deletes it. The
-  diagnostics show the days stored, their size and the longest gap.
-- **Fitting the simulator to the heater.** Each heater is calibrated once
-  a week, at night, and when its **Calibrate simulator** button is
-  pressed, one heater at a time. The library refits the simulator's terms
-  from the heater's history: its recorded statuses, or, until those reach
-  as far back, Home Assistant's recorder of the heater's own sensors (the
-  last response time and the tank temperatures are needed). The air and
-  humidity sensors' history comes from the recorder. A term the history
-  cannot fit keeps its last value. A first fit replaces the defaults, and
-  the simulator walks the heater with it from then on, across restarts. A
-  later run refines it without making it worse: each group of terms is
-  replaced only when its refit scores better on its latest evidence, held
-  out of the refit, and kept with fewer than 10 items to judge by. The **Simulator calibration** sensor shows when it was last
-  fitted, and its attributes show each term's value and why a term was not
-  fitted. Three runs in a row that fit nothing raise a Repairs issue.
-  Weeks of history with quiet nights and full recoveries are needed before
-  most terms fit.
+  its sensors and what it stored. The heater's parameters are the
+  library's defaults for its tank's size. See `docs/simulator.md`.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
   start or the entry's reload. The heartbeat alone does not show a reload.
@@ -138,13 +100,6 @@
     4 Off; the values sent are unchanged. The Recirculation operation mode
     sensor reads `ALWAYS_ON`, `WEEKLY`, `HOT_BUTTON_ONLY` and `OFF` (was
     `ALWAYS`, `BUTTON`, `SCHEDULE` and `TEMPERATURE`).
-  - **The simulator's standby model has a bottom loss (9.9.0).** A
-    stratified tank loses heat at the bottom, so its lower probe falls
-    faster than a mixed tank's. Calibration fits that loss and its gate
-    with the tank's UA, and the next weekly calibration (or Calibrate now)
-    brings them in, kept only where they do better on the held-out
-    windows. Parameters stored before carry no bottom loss and walk as
-    before.
   - A heater reporting the operation setting 0 (Standby) is no longer
     rejected; its operation shows as unknown.
   - Expired AWS credentials are renewed with the access token before the

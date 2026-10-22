@@ -17,7 +17,7 @@ attributes, and goes through the library's own parsers as the same JSON.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from homeassistant.components.recorder import get_instance
@@ -25,7 +25,6 @@ from homeassistant.components.recorder import history as recorder_history
 from homeassistant.components.weather import ATTR_WEATHER_TEMPERATURE_UNIT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.json import json_bytes
-from homeassistant.util import dt as dt_util
 from homeassistant.util.json import json_loads
 
 from nwp500.sim_home_assistant import (
@@ -41,27 +40,13 @@ from nwp500.sim_home_assistant import (
     parse_units,
 )
 
-#: A forecast is asked for again after this: the simulation runs every
-#: few minutes, and a forecast changes by the hour.
-FORECAST_TTL = timedelta(minutes=30)
-
-#: Forecasts already read, by entity: when, the hours and their unit.
-Forecasts = dict[str, tuple[datetime, tuple[list[Reading], str | None]]]
-
 
 class InProcessClient:
     """The calls `HomeAssistantEnvironment` makes, answered in-process."""
 
-    def __init__(
-        self, hass: HomeAssistant, forecasts: Forecasts | None = None
-    ) -> None:
-        """Read from this Home Assistant's state machine.
-
-        `forecasts` keeps the forecasts read, for `FORECAST_TTL`, across
-        the clients made for one heater's runs.
-        """
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Read from this Home Assistant's state machine."""
         self._hass = hass
-        self._forecasts = forecasts
 
     async def state(self, entity: str) -> State:
         """The entity's value now, as the REST API would give it."""
@@ -105,12 +90,6 @@ class InProcessClient:
 
         The service answers in the entity's unit, which its state names.
         """
-        now = dt_util.utcnow()
-        cached = (
-            None if self._forecasts is None else self._forecasts.get(entity)
-        )
-        if cached is not None and now - cached[0] < FORECAST_TTL:
-            return cached[1]
         state = self._hass.states.get(entity)
         if state is None:
             raise HomeAssistantError(f"{entity} does not exist")
@@ -133,8 +112,6 @@ class InProcessClient:
         if unit is None:
             named = state.attributes.get(ATTR_WEATHER_TEMPERATURE_UNIT)
             unit = named if isinstance(named, str) else None
-        if self._forecasts is not None:
-            self._forecasts[entity] = (now, (hours, unit))
         return hours, unit
 
 
