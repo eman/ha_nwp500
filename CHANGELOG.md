@@ -154,6 +154,11 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **A Home Assistant deprecation warning at start-up with external control**
+  on (#234). Moving an entity to its documented id looked the heater's
+  device up with `async_get_device`, which Home Assistant 2026.8 deprecated
+  and removes in 2027.8. It now uses the lookup scoped to the integration's
+  own entry, and the old one on releases before 2026.8.
 - **The schedule card saves again.** It sent the entries it was given back
   with their display fields (`days`, `time`, `mode_name` and others), which
   Update all reservations refuses, so every edit, deletion, copy and switch

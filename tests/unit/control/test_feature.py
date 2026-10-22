@@ -236,3 +236,66 @@ def test_a_removed_entity_comes_back_with_its_documented_id(
     )
 
     assert again.entity_id == "sensor.nwp500_control_ack"
+
+
+def test_the_documented_id_reads_the_entrys_own_device(
+    hass: HomeAssistant, entry, coordinator
+):
+    """Issue #234: the device lookup is scoped to the feature's entry."""
+    from homeassistant.helpers import device_registry as dr
+
+    other = MockConfigEntry(domain=DOMAIN, unique_id="other")
+    other.add_to_hass(hass)
+    devices = dr.async_get(hass)
+    devices.async_get_or_create(
+        config_entry_id=other.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="Other Heater",
+    )
+    device = devices.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+    ack = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MAC}_control_ack",
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id="nwp500_control_acknowledgement",
+    )
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+
+    assert registry.async_get(ack.entity_id) is None
+    assert registry.async_get("sensor.nwp500_control_ack") is not None
+
+
+def test_the_documented_id_falls_back_before_scoped_lookups(
+    hass: HomeAssistant, entry, coordinator, monkeypatch
+):
+    """Issue #234: before Home Assistant 2026.8 there is only one lookup."""
+    from homeassistant.helpers import device_registry as dr
+
+    monkeypatch.delattr(dr.DeviceRegistry, "async_get_device_by_identifier")
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+    ack = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{MAC}_control_ack",
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id="nwp500_control_acknowledgement",
+    )
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+
+    assert registry.async_get(ack.entity_id) is None
+    assert registry.async_get("sensor.nwp500_control_ack") is not None
