@@ -148,24 +148,29 @@ can be fitted.
 **What changes.** A run refits what the heater runs on: its last fit, or
 the defaults for its tank's size. A term this history can't fit keeps its
 value. A first fit replaces the defaults, and the simulator walks the
-heater with it from then on, across restarts. A later run is a check: it
-reports what it would change but leaves the earlier fit in place, since
-nothing yet shows a fit on the recorder's few days no worse than one on a
-longer history. A run that fits nothing, or fails, leaves the heater as it
-was.
+heater with it from then on, across restarts. A later run refines the
+heater's fit without making it worse. Each group of terms (the standby
+loss, the gap between the zones, the compressor, input power, COP) is
+refitted with its latest fifth of evidence held out, and replaces the fit
+only if it scores better on that evidence. A group with fewer than 10
+windows, recoveries or cycles keeps the fit, so a fit on a long history
+is not worn down by the recorder's few days. A run that fits nothing, or
+fails, leaves the heater as it was.
 
 **The Simulator calibration sensor**, under the heater's diagnostics, is
 when the simulator was last fitted, and unknown while it runs on the
 defaults. Its attributes describe the last run:
 
 - `source`: `statuses` or `entities`;
-- `applied`: whether the run's fit replaced the heater's parameters;
+- `applied`: whether the run changed the heater's parameters;
+- `judged`, when refining: each group, whether the fit (`base`) or the
+  refit was kept, both errors on the evidence held out, and why;
 - `terms`: each term's `value`, what it was fitted `from`, its `error`,
   whether it was `fitted`, and `why` not;
 - `statuses` (the statuses or changes read), `gaps`, `air` (how the air
   was given), `duration_s`, `error`, `notes` and `running`.
 
-`terms` and `notes` are not recorded in history. Three runs in a row that
+`terms`, `judged` and `notes` are not recorded in history. Three runs in a row that
 fit nothing raise a Repairs issue, cleared by the next fit.
 
 A fit needs weeks of history with quiet nights, when no water is drawn,

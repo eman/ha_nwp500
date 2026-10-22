@@ -15,7 +15,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from nwp500 import sim, status_history
-from nwp500.sim_calibrate import CalibrationInputError
+from nwp500.sim_calibrate import CalibrationInputError, Judged
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.nwp500.const import (
@@ -179,7 +179,9 @@ def _fake_done(*, fitted: bool) -> tuple[MagicMock, list[MagicMock]]:
         sim.default_params(),
         loss=replace(sim.default_params().loss, ua_btu_hr_f=6.5),
     )
-    done = MagicMock(n_statuses=1234, n_gaps=1, air="source", notes=("n",))
+    done = MagicMock(
+        n_statuses=1234, n_gaps=1, air="source", notes=("n",), judged=()
+    )
     done.calibration.params = params
     term = MagicMock(
         samples="9 windows",
@@ -235,7 +237,7 @@ async def test_a_fit_is_applied_reported_and_kept(
     assert report.terms[0]["name"] == "Standby loss"
     assert runner.params == done.calibration.params
     # The day files, the defaults for the tank's size, and the air's record.
-    paths, base, given = run_mock.call_args.args
+    paths, base, given, _refine = run_mock.call_args.args
     assert [Path(p).name for p in paths] == ["2026-10-20.jsonl.gz"]
     assert base == sim.default_params()
     assert given is record
@@ -251,28 +253,62 @@ async def test_a_fit_is_applied_reported_and_kept(
     assert attributes["terms"][0]["value"] == "6.5"
     assert attributes["running"] is False
 
-    # The next run refits the fit: a term it can't fit keeps this one's.
-    run, rep = _patched(*_fake_done(fitted=False))
+    # The first fit was over the defaults: not refined.
+    assert run_mock.call_args.args[3] is False
+
+    # The next run refines the fit: each group kept unless its refit
+    # scores better on its latest evidence. Here the fit scores better.
+    kept, kept_terms = _fake_done(fitted=False)
+    kept.judged = (
+        Judged("standby", "base", 0.4, 0.6, 3, "the fit scores better"),
+    )
+    run, rep = _patched(kept, kept_terms)
     with run as run_mock, rep:
-        await feature.async_calibrate(MAC)
+        report = await feature.async_calibrate(MAC)
     assert run_mock.call_args.args[1] == done.calibration.params
+    assert run_mock.call_args.args[3] is True
+    assert runner.params == done.calibration.params
+    # Judged, and kept: not a run that fitted nothing.
+    assert report is not None and not report.applied
+    assert report.failures == 0
+    assert report.judged == [
+        {
+            "group": "standby",
+            "kept": "base",
+            "base_error": 0.4,
+            "refit_error": 0.6,
+            "held_out": 3,
+            "why": "the fit scores better",
+        }
+    ]
+    assert sensor.extra_state_attributes["judged"][0]["kept"] == "base"
+
+    # A refit rejected on another ground, though it scored better (the
+    # compressor's, pinned on a bound), is a run that fitted nothing.
+    pinned, pinned_terms = _fake_done(fitted=False)
+    pinned.judged = (
+        Judged("compressor", "base", 40.0, 30.0, 2, "the refit hit a bound"),
+    )
+    run, rep = _patched(pinned, pinned_terms)
+    with run, rep:
+        report = await feature.async_calibrate(MAC)
+    assert report is not None and report.failures == 1
     assert runner.params == done.calibration.params
 
-    # And a refit that fits something is reported, not applied: nothing
-    # shows it no worse than the fit it would replace.
+    # A refit that scores better replaces the fit.
     better = replace(
         done.calibration.params,
         loss=replace(done.calibration.params.loss, ua_btu_hr_f=9.9),
     )
     refit, refit_terms = _fake_done(fitted=True)
     refit.calibration.params = better
+    refit.judged = (Judged("standby", "refit", 0.6, 0.4, 3, "scores better"),)
     run, rep = _patched(refit, refit_terms)
     with run, rep:
         report = await feature.async_calibrate(MAC)
-    assert report is not None and report.fitted and not report.applied
-    assert report.failures == 0
-    assert runner.params == done.calibration.params
-    assert sensor.extra_state_attributes["applied"] is False
+    assert report is not None and report.applied
+    assert runner.params == better
+    done.calibration.params = better
 
     await async_unload_simulator(hass, entry)
     feature = await _started(hass, entry, coordinator)

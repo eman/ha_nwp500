@@ -252,9 +252,10 @@ Each week, and when you press **Calibrate simulator**, the simulator is
 fitted to the heater from its history: Home Assistant's recorder of the
 heater's own sensors, or the heater's statuses where you turn on
 **Record the heater's history** (kept in the configuration folder, under
-`nwp500/history/`); a later run keeps the first fit and reports what it
-would change. The answers come from physics, with the default parameters
-for the tank's size until it is fitted, and run short on long recoveries. An
+`nwp500/history/`). Later runs refine the fit, replacing a group of terms
+only when its refit scores better on the latest evidence. The answers
+come from physics, with the default parameters for the tank's size until
+it is fitted, and run short on long recoveries. An
 air temperature sensor beside the heater helps most. See
 [docs/simulator.md](docs/simulator.md).
 
@@ -332,7 +333,7 @@ action:
 
 ## Library Version
 
-Uses **[nwp500-python v9.7.0](https://github.com/eman/nwp500-python/releases/tag/v9.7.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
+Uses **[nwp500-python v9.8.0](https://github.com/eman/nwp500-python/releases/tag/v9.8.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
 
 ## License
 
