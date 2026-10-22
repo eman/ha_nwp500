@@ -53,12 +53,14 @@ choose to delete it on the same page.
 
 ## Inputs
 
-For each water heater you can choose two sensors. Both are optional:
+For each water heater you can choose two sensors and a weather entity. All
+are optional:
 
 | Input | Used for | Without it |
 |---|---|---|
 | Air temperature beside the heater | How fast the heat pump heats: it takes its heat from this air | The heater's own reading while the heat pump runs; otherwise 65 °F (18 °C), and `reasons` says `ambient_defaulted` |
 | Humidity beside the heater | The heat pump's output | 50% |
+| Weather forecast | The air over the next hours, [projected from the forecast](#the-air-ahead-from-a-weather-forecast) | The air sensor's reading, held |
 
 A sensor that has not reported for an hour is not used. One that keeps
 reporting the same value is.
@@ -71,6 +73,36 @@ draws the room's air past it.
 The simulator also reads, from the integration itself, the tank's
 temperatures, the mode and setpoint, the heater's reservation schedule and
 its time-of-use schedule.
+
+## The air ahead, from a weather forecast
+
+The air beside the heater changes over a day, with the weather, and the
+heat pump heats slower in colder air. With an air sensor alone, the
+simulator holds the air at its reading for the whole day ahead. With a
+weather entity too, it looks ahead.
+
+Choose a weather entity with an hourly forecast. Each
+[calibration](#fitting-it-to-your-heater) then fits how the air beside the
+heater follows the outdoor air: how much of the outdoor swing reaches it,
+how late, and the offset. It fits on the recorder's history of the air
+sensor and of the weather entity's temperature, at most 60 days, averaged
+per half hour; it needs at least 3 days of both. The simulator then
+projects the air over the day ahead from the hourly forecast, moved to pass
+through the air sensor's reading now.
+
+As with the heater's terms, a later run replaces the model only when it
+does better: the latest fifth of the readings is held out of the refit,
+and the model whose error spreads less there is kept. Where the air barely
+follows the outdoor air (a correlation under 0.5, as in a heated room), no
+model is fitted, and the air is held at its reading as before.
+
+The projection needs the air sensor, to fit it and to anchor it: without
+one, a weather entity is not used. The `location_air` attribute of the
+**Simulator calibration** sensor says what the last run found: the model
+in force (`damping`, `lag_hours`, `offset_f`), whether the heater's model
+(`base`) or the refit was kept, the correlation `r`, the half-hours fitted,
+each model's error on the readings held out, °F, and `why` it kept what it
+kept.
 
 ## Recording the heater's history
 
@@ -170,7 +202,10 @@ defaults. Its attributes describe the last run:
 - `statuses` (the statuses or changes read), `gaps`, `air` (how the air
   was given), `duration_s`, `error`, `notes` and `running`.
 
-`terms`, `judged` and `notes` are not recorded in history. Three runs in a row that
+`location_air`, with a weather entity, is the air's model: see
+[the air ahead](#the-air-ahead-from-a-weather-forecast).
+
+`terms`, `judged`, `location_air` and `notes` are not recorded in history. Three runs in a row that
 fit nothing raise a Repairs issue, cleared by the next fit.
 
 A fit needs weeks of history with quiet nights, when no water is drawn,
@@ -264,8 +299,6 @@ the heater. Expect:
 
 These are planned, in this order:
 
-1. The air beside the heater from a weather forecast, fitted to the air
-   sensor's history.
-2. Hot water use, from a water meter and an inlet temperature probe:
+1. Hot water use, from a water meter and an inlet temperature probe:
    deliverable volume, showers and bath readiness.
-3. Services a scheduler can plan with.
+2. Services a scheduler can plan with.

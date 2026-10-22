@@ -256,7 +256,9 @@ heater's own sensors, or the heater's statuses where you turn on
 only when its refit scores better on the latest evidence. The answers
 come from physics, with the default parameters for the tank's size until
 it is fitted, and run short on long recoveries. An
-air temperature sensor beside the heater helps most. See
+air temperature sensor beside the heater helps most; with a weather entity
+too, the simulator fits how that air follows the outdoor air and projects
+it over the day ahead from the hourly forecast. See
 [docs/simulator.md](docs/simulator.md).
 
 ## Automation Examples

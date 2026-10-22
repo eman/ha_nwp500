@@ -3,7 +3,8 @@
 `nwp500.sim_home_assistant.HomeAssistantEnvironment` reads the air beside
 the heater, its humidity and the inlet through a client with three calls.
 The library's own client makes them over Home Assistant's REST API; this
-one answers them in-process, from the state machine.
+one answers them in-process, from the state machine, the recorder and the
+weather entity's `weather.get_forecasts` service.
 
 A state is parsed by the library's own `parse_state`, from the same JSON
 the REST API returns for it (`State.as_dict_json`), so both clients date
@@ -16,13 +17,15 @@ attributes, and goes through the library's own parsers as the same JSON.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder import history as recorder_history
+from homeassistant.components.weather import ATTR_WEATHER_TEMPERATURE_UNIT
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.json import json_bytes
+from homeassistant.util import dt as dt_util
 from homeassistant.util.json import json_loads
 
 from nwp500.sim_home_assistant import (
@@ -31,19 +34,34 @@ from nwp500.sim_home_assistant import (
     Reading,
     State,
     history_for,
+    parse_forecast,
     parse_outages,
     parse_state,
     parse_states,
     parse_units,
 )
 
+#: A forecast is asked for again after this: the simulation runs every
+#: few minutes, and a forecast changes by the hour.
+FORECAST_TTL = timedelta(minutes=30)
+
+#: Forecasts already read, by entity: when, the hours and their unit.
+Forecasts = dict[str, tuple[datetime, tuple[list[Reading], str | None]]]
+
 
 class InProcessClient:
     """The calls `HomeAssistantEnvironment` makes, answered in-process."""
 
-    def __init__(self, hass: HomeAssistant) -> None:
-        """Read from this Home Assistant's state machine."""
+    def __init__(
+        self, hass: HomeAssistant, forecasts: Forecasts | None = None
+    ) -> None:
+        """Read from this Home Assistant's state machine.
+
+        `forecasts` keeps the forecasts read, for `FORECAST_TTL`, across
+        the clients made for one heater's runs.
+        """
         self._hass = hass
+        self._forecasts = forecasts
 
     async def state(self, entity: str) -> State:
         """The entity's value now, as the REST API would give it."""
@@ -83,12 +101,41 @@ class InProcessClient:
             ) from err
 
     async def forecast(self, entity: str) -> tuple[list[Reading], str | None]:
-        """Not used yet.
+        """`entity`'s hourly forecast: each hour's temperature, and its unit.
 
-        The air is projected from a forecast only with a fitted location
-        model, which this version does not have.
+        The service answers in the entity's unit, which its state names.
         """
-        raise HomeAssistantError("forecasts are not read in this version")
+        now = dt_util.utcnow()
+        cached = (
+            None if self._forecasts is None else self._forecasts.get(entity)
+        )
+        if cached is not None and now - cached[0] < FORECAST_TTL:
+            return cached[1]
+        state = self._hass.states.get(entity)
+        if state is None:
+            raise HomeAssistantError(f"{entity} does not exist")
+        try:
+            response = await self._hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"type": "hourly"},
+                target={"entity_id": entity},
+                blocking=True,
+                return_response=True,
+            )
+        except Exception as err:
+            # As the REST client reports a call refused: the environment
+            # goes on without the forecast.
+            raise HomeAssistantError(
+                f"the forecast is not read: {err}"
+            ) from err
+        hours, unit = parse_forecast({"service_response": response}, entity)
+        if unit is None:
+            named = state.attributes.get(ATTR_WEATHER_TEMPERATURE_UNIT)
+            unit = named if isinstance(named, str) else None
+        if self._forecasts is not None:
+            self._forecasts[entity] = (now, (hours, unit))
+        return hours, unit
 
 
 def _history_document(

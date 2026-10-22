@@ -15,9 +15,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from nwp500 import sim, status_history
+from nwp500.sim.location_air import LocationAirModel
 from nwp500.sim_calibrate import CalibrationInputError, Judged
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+import custom_components.nwp500.simulator as simulator_module
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
@@ -45,6 +47,11 @@ from custom_components.nwp500.simulator.calibration_entities import (
     SimulatorCalibrationSensor,
     create_calibration_buttons,
     create_calibration_sensors,
+)
+from custom_components.nwp500.simulator.location import (
+    KEPT_BASE,
+    KEPT_REFIT,
+    LocationFit,
 )
 
 from .conftest import MAC, status_dict
@@ -794,4 +801,56 @@ async def test_a_recorder_that_fails_leaves_the_statuses(
         report = await feature.async_calibrate(MAC)
     assert report is not None and report.failures == 1
     assert report.error is not None and "database is locked" in report.error
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_the_airs_model_is_fitted_with_the_heater_and_kept(
+    hass: HomeAssistant,
+    hass_storage,
+    entry,
+    coordinator,
+    raw_listeners,
+    config_dir,
+):
+    """The forecast's model is fitted in the same run, kept, and restored."""
+    _write_day(
+        Path(simulator_history_dir(str(config_dir), MAC)),
+        "2026-10-20",
+        5,
+        T0,
+        gz=True,
+    )
+    feature = await _started(hass, entry, coordinator)
+    runner = feature.runners[MAC]
+    model = LocationAirModel(0.5, timedelta(hours=2), 30.0)
+    done, terms = _fake_done(fitted=True)
+    run, rep = _patched(done, terms)
+    fitted = AsyncMock(
+        return_value=LocationFit(model, KEPT_REFIT, r=0.93, n=200, error=0.8)
+    )
+    with run, rep, patch.object(simulator_module, "async_fit_location", fitted):
+        report = await feature.async_calibrate(MAC)
+
+    assert fitted.await_args.args[1] is runner
+    assert runner.location_air == model
+    assert report is not None and report.location_air is not None
+    assert report.location_air["kept"] == KEPT_REFIT
+    assert report.location_air["lag_hours"] == 2
+    sensor = SimulatorCalibrationSensor(feature, MAC, "calibration")
+    assert sensor.extra_state_attributes["location_air"]["r"] == 0.93
+
+    # A run that keeps it leaves it in force.
+    run, rep = _patched(done, terms)
+    kept = AsyncMock(
+        return_value=LocationFit(model, KEPT_BASE, why="no better")
+    )
+    with run, rep, patch.object(simulator_module, "async_fit_location", kept):
+        await feature.async_calibrate(MAC)
+    assert runner.location_air == model
+
+    await async_unload_simulator(hass, entry)
+    feature = await _started(hass, entry, coordinator)
+    assert feature.runners[MAC].location_air == model
+    assert feature.reports[MAC].location_air is not None
     await async_unload_simulator(hass, entry)

@@ -34,10 +34,11 @@
       },
       "simulator_device": {
         "title": "Hot water simulator: {device}",
-        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. More about the inputs: {guide_url}",
+        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. With an air sensor, a weather entity lets it look ahead: it fits how the air beside the heater follows the outdoor air, and projects the air from the hourly forecast. More about the inputs: {guide_url}",
         "data": {
           "air_entity": "Air temperature beside the heater",
           "humidity_entity": "Humidity beside the heater",
+          "weather_entity": "Weather forecast",
           "record_history": "Record the heater's history",
           "history_days": "Days of history to keep",
           "delete_history": "Delete the history recorded so far"
@@ -45,6 +46,7 @@
         "data_description": {
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
           "humidity_entity": "A humidity sensor in the same room as the heater.",
+          "weather_entity": "A weather entity with an hourly forecast. Used with the air sensor: each calibration fits how the air beside the heater follows the outdoor air, from both their histories, and the simulator then projects the air from the forecast.",
           "record_history": "Optional. Keeps each status the heater reports, so that a later version can fit the simulator to this heater. It is stored in Home Assistant's configuration folder, under nwp500/history, and goes into its backups. The day in progress grows to about 20 MB; each finished day is compressed, to about 0.2 MB.",
           "history_days": "Older days are deleted.",
           "delete_history": "Deletes this heater's recorded history when you save."
@@ -120,10 +122,11 @@
       },
       "simulator_device": {
         "title": "Hot water simulator: {device}",
-        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. More about the inputs: {guide_url}",
+        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. With an air sensor, a weather entity lets it look ahead: it fits how the air beside the heater follows the outdoor air, and projects the air from the hourly forecast. More about the inputs: {guide_url}",
         "data": {
           "air_entity": "Air temperature beside the heater",
           "humidity_entity": "Humidity beside the heater",
+          "weather_entity": "Weather forecast",
           "record_history": "Record the heater's history",
           "history_days": "Days of history to keep",
           "delete_history": "Delete the history recorded so far"
@@ -131,6 +134,7 @@
         "data_description": {
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
           "humidity_entity": "A humidity sensor in the same room as the heater.",
+          "weather_entity": "A weather entity with an hourly forecast. Used with the air sensor: each calibration fits how the air beside the heater follows the outdoor air, from both their histories, and the simulator then projects the air from the forecast.",
           "record_history": "Optional. Keeps each status the heater reports, so that a later version can fit the simulator to this heater. It is stored in Home Assistant's configuration folder, under nwp500/history, and goes into its backups. The day in progress grows to about 20 MB; each finished day is compressed, to about 0.2 MB.",
           "history_days": "Older days are deleted.",
           "delete_history": "Deletes this heater's recorded history when you save."

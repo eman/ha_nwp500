@@ -102,7 +102,11 @@ async def test_setting_up_asks_about_each_heater(
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
-            {"air_entity": "sensor.garage_air", "humidity_entity": "sensor.rh"},
+            {
+                "air_entity": "sensor.garage_air",
+                "humidity_entity": "sensor.rh",
+                "weather_entity": "weather.home",
+            },
         )
         assert result["description_placeholders"]["device"] == "Basement"
         assert result["last_step"] is True
@@ -119,6 +123,7 @@ async def test_setting_up_asks_about_each_heater(
             MAC: {
                 "air_entity": "sensor.garage_air",
                 "humidity_entity": "sensor.rh",
+                "weather_entity": "weather.home",
             },
             MAC2: {},
         },
