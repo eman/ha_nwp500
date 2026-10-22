@@ -8,7 +8,9 @@ needs to say how much hot water the tank holds, how many showers, and
 whether a bath is ready (`sim.time_to_ready`).
 
 It is read from Home Assistant's recorder: the meter's flow, the pump's
-runs and the inlet probe (`sim_home_assistant.read_water_use`), and the
+runs and the inlet probe (`sim_home_assistant.read_water_history`, then
+`water_use` in the executor: its flow on a ten-second grid is too much for
+the event loop), and the
 heater's own sensors' changes (`read_heater_history`), the last 72 hours.
 That is too much to read every minute: a runner rereads it every
 `REFRESH`, and walks with the book it has in between. A probe on the cold
@@ -41,9 +43,11 @@ from nwp500.sim_home_assistant import (
     HeaterEntities,
     HeaterHistory,
     HomeAssistantError,
+    WaterUse,
     read_heater_history,
-    read_water_use,
+    read_water_history,
     record_inputs,
+    water_use,
 )
 
 from .calibration import first_change, heater_entities
@@ -139,13 +143,33 @@ async def _history(
     return history, air
 
 
+async def _water_use(
+    hass: HomeAssistant,
+    client: HomeAssistantClient,
+    entities: Entities,
+    now: datetime,
+    lookback: timedelta,
+) -> WaterUse:
+    """The meter's, pump's and probe's use, worked out in the executor.
+
+    Read in the event loop. Raises `HomeAssistantError` or `ValueError` when it can't be read.
+    """
+    read = await read_water_history(
+        client, entities, now=now, lookback=lookback
+    )
+    return await hass.async_add_executor_job(water_use, read)
+
+
 async def async_read_book(
     hass: HomeAssistant, runner: SimulatorRunner, now: datetime
 ) -> WaterBook:
     """Read the heater's water use and book its heat, as of `now`."""
     client = cast("HomeAssistantClient", InProcessClient(hass))
     entities = runner.water_entities
-    use = await read_water_use(client, entities, now=now, lookback=LOOKBACK)
+    try:
+        use = await _water_use(hass, client, entities, now, LOOKBACK)
+    except (HomeAssistantError, ValueError) as err:
+        return WaterBook(now, None, notes=(f"water: not read ({err})",))
     notes = [f"water: {note}" for note in use.notes]
     inlet_f = None if use.cold is None else use.cold.t_cold_f
 
@@ -262,14 +286,12 @@ async def async_fit_book(
             return without("the recorder has no history of the pump's speed")
         start = max(start, first)
     try:
-        use = await read_water_use(
-            client, entities, now=now, lookback=now - start
-        )
+        use = await _water_use(hass, client, entities, now, now - start)
         if use.runs is None:
             # Unknown, a run's flow would be fitted as draws.
             return without("the circulation pump's runs are unknown")
         history, air = await _history(client, runner, heater, start, now)
-    except HomeAssistantError as err:
+    except (HomeAssistantError, ValueError) as err:
         return without(f"the history is not read ({err})")
     try:
         return await hass.async_add_executor_job(

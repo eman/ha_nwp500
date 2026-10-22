@@ -15,7 +15,11 @@ from nwp500 import sim_adapters as sa
 from nwp500.sim.cold_supply import ColdSupply
 from nwp500.sim.defaults import SITE_CIRCULATION
 from nwp500.sim_calibrate import METER_LAG, BookTermsFit
-from nwp500.sim_home_assistant import HeaterHistory, WaterUse
+from nwp500.sim_home_assistant import (
+    HeaterHistory,
+    HomeAssistantError,
+    WaterUse,
+)
 
 from custom_components.nwp500.simulator import water as water_module
 from custom_components.nwp500.simulator.binary_sensor import (
@@ -87,9 +91,7 @@ def _reads(use: WaterUse, book: Any) -> Any:
     history = HeaterHistory(rows=MagicMock(), observed=[dt_util.utcnow()])
     heater = MagicMock()
     return (
-        patch.object(
-            water_module, "read_water_use", AsyncMock(return_value=use)
-        ),
+        patch.object(water_module, "_water_use", AsyncMock(return_value=use)),
         patch.object(
             water_module,
             "read_heater_history",
@@ -113,7 +115,7 @@ async def test_the_tank_is_booked_from_the_meter_the_pump_and_the_probe(
     with reads as read_use, history, heaters, booking as book_mock:
         got = await async_read_book(hass, walker, now)
 
-    entities = read_use.await_args.args[1]
+    entities = read_use.await_args.args[2]
     assert entities.meter_volume == "sensor.meter"
     assert entities.circulation_speed == "sensor.pump"
     kwargs = book_mock.call_args.kwargs
@@ -226,7 +228,7 @@ async def test_the_book_and_loop_terms_are_fitted_from_the_meter(
         got = await async_fit_book(hass, walker, now)
 
     assert got is not None and got.book == BOOK
-    assert read_use.await_args.kwargs["lookback"] == BOOK_HISTORY
+    assert read_use.await_args.args[4] == BOOK_HISTORY
     assert read_history.await_args.args[2] == now - BOOK_HISTORY
     args, kwargs = fitting.call_args
     # Fitted with the heater's walk: its terms are the base.
@@ -564,7 +566,7 @@ async def test_the_fit_starts_where_the_pumps_history_does(
     with reads as read_use, history as read_history, heaters, kept, fit:
         got = await async_fit_book(hass, walker, now)
     assert got is not None and got.kept == "refit"
-    assert read_use.await_args.kwargs["lookback"] == now - first
+    assert read_use.await_args.args[4] == now - first
     assert read_history.await_args.args[2] == first
 
     reads, history, heaters, _ = _reads(_use(), None)
@@ -575,3 +577,41 @@ async def test_the_fit_starts_where_the_pumps_history_does(
         got = await async_fit_book(hass, walker, now)
     assert got is not None and got.kept == "base"
     assert "no history of the pump" in got.why
+
+
+@pytest.mark.asyncio
+async def test_the_water_use_is_worked_out_off_the_event_loop(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: the meter's grid is built in the executor."""
+    import threading
+
+    walker = runner(hass, coordinator, **METERED)
+    read = MagicMock()
+    threads: list[threading.Thread] = []
+
+    def worked(history: Any) -> WaterUse:
+        assert history is read
+        threads.append(threading.current_thread())
+        return _use(flow=[])
+
+    with (
+        patch.object(
+            water_module, "read_water_history", AsyncMock(return_value=read)
+        ) as reading,
+        patch.object(water_module, "water_use", worked),
+    ):
+        got = await async_read_book(hass, walker, dt_util.utcnow())
+
+    assert reading.await_args.args[1].meter_volume == "sensor.meter"
+    assert threads and threads[0] is not threading.main_thread()
+    assert got.book is None
+
+    # A history that can't be read is no book, not a failed run.
+    with patch.object(
+        water_module,
+        "read_water_history",
+        AsyncMock(side_effect=HomeAssistantError("recorder busy")),
+    ):
+        got = await async_read_book(hass, walker, dt_util.utcnow())
+    assert got.book is None and "recorder busy" in got.notes[0]
