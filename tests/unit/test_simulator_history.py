@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -283,3 +283,69 @@ async def test_the_airs_model_is_fitted_from_the_recorders_history(
     assert done.model is not None
     assert done.model.damping == pytest.approx(0.5, abs=0.05)
     assert done.model.lag == timedelta(hours=2)
+
+
+async def _metered(
+    hass: HomeAssistant, freezer: Any, spans: list[tuple[int, int]]
+) -> Any:
+    """A meter reporting every 30 s over each span, from 19 h ago; now.
+
+    19 hours: the book's first window, 18, is read in full.
+    """
+    now = dt_util.utcnow().replace(second=0, microsecond=0)
+    start = now - timedelta(hours=19)
+    for first, last in spans:
+        freezer.move_to(start + timedelta(minutes=first))
+        for i in range((last - first) * 2):
+            freezer.move_to(start + timedelta(minutes=first, seconds=30 * i))
+            # Alternating, so each report writes a row.
+            hass.states.async_set(
+                "sensor.meter",
+                "0.0" if i % 2 else "0.001",
+                {"unit_of_measurement": "gal"},
+            )
+        freezer.move_to(start + timedelta(minutes=last))
+        hass.states.async_set(
+            "sensor.meter", "unavailable", {"unit_of_measurement": "gal"}
+        )
+    freezer.move_to(now)
+    await async_wait_recording_done(hass)
+    return now
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "spans",
+    [[(0, 600), (720, 1140)], [(0, 1020)]],
+    ids=["silent-inside", "stopped-before"],
+)
+async def test_a_meter_that_went_silent_books_nothing(
+    recorder_mock: Any, hass: HomeAssistant, freezer: Any, spans: Any
+):
+    """PR #239 review: a meter silent over an hour books nothing."""
+    from nwp500 import sim
+    from nwp500.sim_home_assistant import Entities, HeaterHistory
+
+    from custom_components.nwp500.simulator import water
+
+    now = await _metered(hass, freezer, spans)
+    runner = MagicMock()
+    runner.mac_address = "AA"
+    runner.coordinator.data = {"AA": {}}
+    runner.params = sim.default_params()
+    runner.entities = Entities()
+    runner.water_entities = Entities(meter_volume="sensor.meter")
+    # The heater heard throughout: the meter is what's missing.
+    heard = [now - timedelta(minutes=m) for m in range(73 * 60, -1, -1)]
+    history = HeaterHistory(rows=MagicMock(), observed=heard)
+    with (
+        patch.object(water, "heater_entities", return_value=(MagicMock(), [])),
+        patch.object(
+            water, "read_heater_history", AsyncMock(return_value=history)
+        ),
+    ):
+        got = await water.async_read_book(hass, runner, now)
+
+    assert got.book is None
+    # The two hours it was silent, not a history that starts late.
+    assert any("silent for 2:00:" in note for note in got.notes), got.notes
