@@ -150,6 +150,20 @@ async def test_a_scenario_the_library_refuses_is_the_callers_mistake(
     assert err.value.translation_key == "simulator_invalid_scenario"
 
 
+async def test_malformed_params_are_the_callers_mistake(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    document["params"]["unfitted"] = None
+
+    with pytest.raises(ServiceValidationError) as err:
+        await service.async_get_scenario(
+            hass, runner, scenario=document, use_heater=False
+        )
+
+    assert err.value.translation_key == "simulator_invalid_scenario"
+
+
 async def test_a_walk_longer_than_a_week_is_refused(
     hass: HomeAssistant, runner: SimulatorRunner
 ):

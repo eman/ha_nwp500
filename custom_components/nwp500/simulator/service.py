@@ -102,9 +102,10 @@ async def async_inputs(
             tz=str(hass.config.time_zone),
             over=over,
         )
-    except ValueError as err:
+    except (TypeError, ValueError) as err:
         # The heater's part is a scenario on its own: what is refused is
-        # the caller's.
+        # the caller's. Some malformed parameters raise TypeError in
+        # nwp500-python 9.10.0.
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="simulator_invalid_scenario",
