@@ -34,11 +34,17 @@
       },
       "simulator_device": {
         "title": "Hot water simulator: {device}",
-        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. With an air sensor, a weather entity lets it look ahead: it fits how the air beside the heater follows the outdoor air, and projects the air from the hourly forecast. More about the inputs: {guide_url}",
+        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. With an air sensor, a weather entity lets it look ahead: it fits how the air beside the heater follows the outdoor air, and projects the air from the hourly forecast. With a water meter, it books the tank's heat and says how much hot water it holds, how many showers, and whether a bath is ready. More about the inputs: {guide_url}",
         "data": {
           "air_entity": "Air temperature beside the heater",
           "humidity_entity": "Humidity beside the heater",
           "weather_entity": "Weather forecast",
+          "meter_volume_entity": "Water meter",
+          "meter_flow_entity": "Water meter flow rate",
+          "inlet_entity": "Cold supply temperature",
+          "circulation_speed_entity": "Circulation pump speed",
+          "bath_gal": "Bath size",
+          "shower_gal": "Shower size",
           "record_history": "Record the heater's history",
           "history_days": "Days of history to keep",
           "delete_history": "Delete the history recorded so far"
@@ -47,6 +53,12 @@
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
           "humidity_entity": "A humidity sensor in the same room as the heater.",
           "weather_entity": "A weather entity with an hourly forecast. Used with the air sensor: each calibration fits how the air beside the heater follows the outdoor air, from both their histories, and the simulator then projects the air from the forecast.",
+          "meter_volume_entity": "A meter of the water drawn from the heater, or of all the house's water. Either the volume each report adds, or a running total (a sensor whose state class is total or total increasing). With it, the simulator books the tank's heat from the heater's history: how much hot water it holds, how many showers, and whether a bath is ready. The meter has to report at rest too: a meter silent for over an hour gives no book.",
+          "meter_flow_entity": "Optional. The meter's flow rate, if it reports one: it finds short draws the volume alone misses.",
+          "inlet_entity": "Optional. A probe on the cold water pipe into the heater. Read during long draws, it gives the mains temperature the hot water is mixed from.",
+          "circulation_speed_entity": "Optional. A hot water circulation pump's speed (rpm): its runs move water the meter may not see. Leave it empty if there is no pump.",
+          "bath_gal": "How much hot water a bath takes. Without it, 28.7 gallons (109 L).",
+          "shower_gal": "How much hot water a shower takes. Without it, 12 gallons (45 L).",
           "record_history": "Optional. Keeps each status the heater reports, so that a later version can fit the simulator to this heater. It is stored in Home Assistant's configuration folder, under nwp500/history, and goes into its backups. The day in progress grows to about 20 MB; each finished day is compressed, to about 0.2 MB.",
           "history_days": "Older days are deleted.",
           "delete_history": "Deletes this heater's recorded history when you save."
@@ -122,11 +134,17 @@
       },
       "simulator_device": {
         "title": "Hot water simulator: {device}",
-        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. With an air sensor, a weather entity lets it look ahead: it fits how the air beside the heater follows the outdoor air, and projects the air from the hourly forecast. More about the inputs: {guide_url}",
+        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading while the heat pump runs, and 65 °F (18 °C) otherwise; without a humidity sensor, 50%. With an air sensor, a weather entity lets it look ahead: it fits how the air beside the heater follows the outdoor air, and projects the air from the hourly forecast. With a water meter, it books the tank's heat and says how much hot water it holds, how many showers, and whether a bath is ready. More about the inputs: {guide_url}",
         "data": {
           "air_entity": "Air temperature beside the heater",
           "humidity_entity": "Humidity beside the heater",
           "weather_entity": "Weather forecast",
+          "meter_volume_entity": "Water meter",
+          "meter_flow_entity": "Water meter flow rate",
+          "inlet_entity": "Cold supply temperature",
+          "circulation_speed_entity": "Circulation pump speed",
+          "bath_gal": "Bath size",
+          "shower_gal": "Shower size",
           "record_history": "Record the heater's history",
           "history_days": "Days of history to keep",
           "delete_history": "Delete the history recorded so far"
@@ -135,6 +153,12 @@
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
           "humidity_entity": "A humidity sensor in the same room as the heater.",
           "weather_entity": "A weather entity with an hourly forecast. Used with the air sensor: each calibration fits how the air beside the heater follows the outdoor air, from both their histories, and the simulator then projects the air from the forecast.",
+          "meter_volume_entity": "A meter of the water drawn from the heater, or of all the house's water. Either the volume each report adds, or a running total (a sensor whose state class is total or total increasing). With it, the simulator books the tank's heat from the heater's history: how much hot water it holds, how many showers, and whether a bath is ready. The meter has to report at rest too: a meter silent for over an hour gives no book.",
+          "meter_flow_entity": "Optional. The meter's flow rate, if it reports one: it finds short draws the volume alone misses.",
+          "inlet_entity": "Optional. A probe on the cold water pipe into the heater. Read during long draws, it gives the mains temperature the hot water is mixed from.",
+          "circulation_speed_entity": "Optional. A hot water circulation pump's speed (rpm): its runs move water the meter may not see. Leave it empty if there is no pump.",
+          "bath_gal": "How much hot water a bath takes. Without it, 28.7 gallons (109 L).",
+          "shower_gal": "How much hot water a shower takes. Without it, 12 gallons (45 L).",
           "record_history": "Optional. Keeps each status the heater reports, so that a later version can fit the simulator to this heater. It is stored in Home Assistant's configuration folder, under nwp500/history, and goes into its backups. The day in progress grows to about 20 MB; each finished day is compressed, to about 0.2 MB.",
           "history_days": "Older days are deleted.",
           "delete_history": "Deletes this heater's recorded history when you save."
@@ -712,6 +736,12 @@
       },
       "simulator_calibration": {
         "name": "Simulator calibration"
+      },
+      "simulator_hot_water_available": {
+        "name": "Simulated hot water available"
+      },
+      "simulator_showers_ready": {
+        "name": "Simulated showers ready"
       }
     },
     "binary_sensor": {
@@ -837,6 +867,9 @@
             "name": "Read at"
           }
         }
+      },
+      "simulator_bath_ready": {
+        "name": "Simulated bath ready"
       }
     },
     "switch": {

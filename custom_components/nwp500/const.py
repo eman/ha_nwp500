@@ -1422,6 +1422,18 @@ CONF_SIMULATOR_HUMIDITY_ENTITY: Final = "humidity_entity"
 # A weather entity with an hourly forecast: the air beside the heater is
 # projected from it, with an air sensor to fit and anchor the projection.
 CONF_SIMULATOR_WEATHER_ENTITY: Final = "weather_entity"
+# Hot water use: a water meter (the volume each report adds, or a running
+# total, and optionally its flow rate), a probe on the cold supply, and a
+# circulation pump's speed. With a meter, the simulator books the tank's
+# heat and says how much hot water it holds.
+CONF_SIMULATOR_METER_VOLUME_ENTITY: Final = "meter_volume_entity"
+CONF_SIMULATOR_METER_FLOW_ENTITY: Final = "meter_flow_entity"
+CONF_SIMULATOR_INLET_ENTITY: Final = "inlet_entity"
+CONF_SIMULATOR_CIRCULATION_ENTITY: Final = "circulation_speed_entity"
+# A bath's and a shower's hot water, US gallons as stored; the form takes
+# them in Home Assistant's volume unit.
+CONF_SIMULATOR_BATH_GAL: Final = "bath_gal"
+CONF_SIMULATOR_SHOWER_GAL: Final = "shower_gal"
 
 # Keys into hass.data[DOMAIN][entry_id]: the running simulator, and the
 # task starting it.

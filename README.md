@@ -258,7 +258,9 @@ come from physics, with the default parameters for the tank's size until
 it is fitted, and run short on long recoveries. An
 air temperature sensor beside the heater helps most; with a weather entity
 too, the simulator fits how that air follows the outdoor air and projects
-it over the day ahead from the hourly forecast. See
+it over the day ahead from the hourly forecast. With a water meter, it
+books the tank's heat and adds three sensors: the hot water available,
+the showers ready, and whether a bath is ready. See
 [docs/simulator.md](docs/simulator.md).
 
 ## Automation Examples

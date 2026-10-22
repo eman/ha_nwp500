@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Added
+- **How much hot water the tank holds.** Each heater's simulator form takes
+  a water meter (the volume each report adds, or a running total),
+  optionally its flow rate, a cold supply temperature probe, a circulation
+  pump's speed, and a bath's and a shower's size in your volume unit. With
+  a meter, the simulator books the tank's heat from the recorder's last 72
+  hours (from the last full tank: out with each draw and standing, in from
+  the compressor and the elements), every 10 minutes, and adds three
+  sensors: **Simulated hot water available**, **Simulated showers ready**
+  and **Simulated bath ready**, with when a bath will be ready if it isn't.
+  The probe's long draws give the mains the gallons are counted at. Needs
+  nwp500-python with the heat book from entity history.
 - **The simulator looks ahead at the air, from a weather forecast.** Each
   heater's simulator form takes an optional weather entity with an hourly
   forecast. With the air sensor, each calibration fits how the air beside

@@ -43,7 +43,8 @@ from ..const import (
 )
 
 # Imported with the package, in the import executor, rather than on the
-# first call of the service, in the event loop.
+# first call of the service, or the platforms' adding, in the event loop.
+from . import binary_sensor as binary_sensor
 from . import service as service
 from .calibration import (
     CALIBRATE_AT,

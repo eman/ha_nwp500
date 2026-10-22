@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 else:
     import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfVolume
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
@@ -29,10 +29,16 @@ from .const import (
     CONF_SCAN_INTERVAL,
     CONF_SIMULATOR,
     CONF_SIMULATOR_AIR_ENTITY,
+    CONF_SIMULATOR_BATH_GAL,
+    CONF_SIMULATOR_CIRCULATION_ENTITY,
     CONF_SIMULATOR_ENABLED,
     CONF_SIMULATOR_HISTORY_DAYS,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
+    CONF_SIMULATOR_INLET_ENTITY,
+    CONF_SIMULATOR_METER_FLOW_ENTITY,
+    CONF_SIMULATOR_METER_VOLUME_ENTITY,
     CONF_SIMULATOR_RECORD,
+    CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_LIVE,
@@ -128,11 +134,37 @@ def _delete_history(config_dir: str, mac_addresses: list[str]) -> None:
         )
 
 
-def _simulator_device_schema(*, has_history: bool) -> vol.Schema:
+#: Litres in a US gallon: the sizes are stored in gallons.
+_L_PER_GAL = 3.785411784
+#: The entities a hot water meter, an inlet probe and a pump give.
+_HOT_WATER_ENTITIES = (
+    CONF_SIMULATOR_METER_VOLUME_ENTITY,
+    CONF_SIMULATOR_METER_FLOW_ENTITY,
+    CONF_SIMULATOR_INLET_ENTITY,
+    CONF_SIMULATOR_CIRCULATION_ENTITY,
+)
+_SIZES = (CONF_SIMULATOR_BATH_GAL, CONF_SIMULATOR_SHOWER_GAL)
+
+
+def _size_selector(*, metric: bool) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=1,
+            max=1000 if metric else 260,
+            step=0.1,
+            mode=selector.NumberSelectorMode.BOX,
+            unit_of_measurement="L" if metric else "gal",
+        )
+    )
+
+
+def _simulator_device_schema(
+    *, has_history: bool, metric: bool = False
+) -> vol.Schema:
     """The simulator's form for one heater.
 
-    The sensors beside it, whether to record its history, for how long,
-    and, once it has some, whether to delete it.
+    The sensors beside it, the water it uses, whether to record its
+    history, for how long, and, once it has some, whether to delete it.
     """
     fields: dict[Any, Any] = {
         vol.Optional(CONF_SIMULATOR_AIR_ENTITY): selector.EntitySelector(
@@ -156,6 +188,30 @@ def _simulator_device_schema(*, has_history: bool) -> vol.Schema:
             )
         ),
         vol.Optional(
+            CONF_SIMULATOR_METER_VOLUME_ENTITY
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain="sensor", device_class=["water", "volume"]
+            )
+        ),
+        vol.Optional(CONF_SIMULATOR_METER_FLOW_ENTITY): selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain="sensor", device_class="volume_flow_rate"
+            )
+        ),
+        vol.Optional(CONF_SIMULATOR_INLET_ENTITY): selector.EntitySelector(
+            selector.EntitySelectorConfig(
+                domain="sensor", device_class="temperature"
+            )
+        ),
+        vol.Optional(
+            CONF_SIMULATOR_CIRCULATION_ENTITY
+        ): selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
+        vol.Optional(CONF_SIMULATOR_BATH_GAL): _size_selector(metric=metric),
+        vol.Optional(CONF_SIMULATOR_SHOWER_GAL): _size_selector(metric=metric),
+        vol.Optional(
             CONF_SIMULATOR_RECORD, default=False
         ): selector.BooleanSelector(),
         vol.Optional(
@@ -178,11 +234,13 @@ def _simulator_device_schema(*, has_history: bool) -> vol.Schema:
     return vol.Schema(fields)
 
 
-def _simulator_device_options(user_input: dict[str, Any]) -> dict[str, Any]:
+def _simulator_device_options(
+    user_input: dict[str, Any], *, metric: bool = False
+) -> dict[str, Any]:
     """A heater's stored options.
 
-    The sensors chosen, nothing for none, and the recording's, only when
-    it is on.
+    The sensors chosen, nothing for none; the sizes, in gallons; and the
+    recording's, only when it is on.
     """
     options = {
         key: user_input[key]
@@ -190,9 +248,14 @@ def _simulator_device_options(user_input: dict[str, Any]) -> dict[str, Any]:
             CONF_SIMULATOR_AIR_ENTITY,
             CONF_SIMULATOR_HUMIDITY_ENTITY,
             CONF_SIMULATOR_WEATHER_ENTITY,
+            *_HOT_WATER_ENTITIES,
         )
         if user_input.get(key)
     }
+    for key in _SIZES:
+        if user_input.get(key):
+            size = float(user_input[key])
+            options[key] = round(size / _L_PER_GAL if metric else size, 2)
     if user_input.get(CONF_SIMULATOR_RECORD) is True:
         options[CONF_SIMULATOR_RECORD] = True
         options[CONF_SIMULATOR_HISTORY_DAYS] = int(
@@ -357,6 +420,19 @@ class _SimulatorSteps:
         """Go on without the simulator."""
         raise NotImplementedError
 
+    def _simulator_metric(self) -> bool:
+        """Whether Home Assistant measures volume in litres."""
+        return bool(self.hass.config.units.volume_unit != UnitOfVolume.GALLONS)
+
+    def _simulator_shown(self, mac_address: str) -> dict[str, Any]:
+        """A heater's options as its form shows them: sizes in the unit."""
+        shown = dict(self._simulator_existing.get(mac_address, {}))
+        if self._simulator_metric():
+            for key in _SIZES:
+                if shown.get(key):
+                    shown[key] = round(float(shown[key]) * _L_PER_GAL, 1)
+        return shown
+
     async def async_step_simulator_device(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
@@ -368,7 +444,7 @@ class _SimulatorSteps:
             else:
                 self._simulator_delete.discard(mac_address)
             self._simulator_answers[mac_address] = _simulator_device_options(
-                user_input
+                user_input, metric=self._simulator_metric()
             )
             self._simulator_index += 1
             if self._simulator_index < len(self._simulator_devices):
@@ -378,9 +454,10 @@ class _SimulatorSteps:
             step_id="simulator_device",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
                 _simulator_device_schema(
-                    has_history=await self._async_has_history(mac_address)
+                    has_history=await self._async_has_history(mac_address),
+                    metric=self._simulator_metric(),
                 ),
-                self._simulator_existing.get(mac_address, {}),
+                self._simulator_shown(mac_address),
             ),
             description_placeholders={
                 "device": name,

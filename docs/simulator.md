@@ -61,6 +61,8 @@ are optional:
 | Air temperature beside the heater | How fast the heat pump heats: it takes its heat from this air | The heater's own reading while the heat pump runs; otherwise 65 °F (18 °C), and `reasons` says `ambient_defaulted` |
 | Humidity beside the heater | The heat pump's output | 50% |
 | Weather forecast | The air over the next hours, [projected from the forecast](#the-air-ahead-from-a-weather-forecast) | The air sensor's reading, held |
+| Water meter, its flow rate, the cold supply's temperature, a circulation pump's speed | [How much hot water the tank holds](#hot-water-use) | No hot water sensors |
+| Bath and shower sizes | Whether a bath is ready, and how many showers | 28.7 gallons (109 L) and 12 gallons (45 L) |
 
 A sensor that has not reported for an hour is not used. One that keeps
 reporting the same value is.
@@ -108,6 +110,58 @@ in force (`damping`, `lag_hours`, `offset_f`), whether the heater's model
 (`base`) or the refit was kept, the correlation `r`, the half-hours fitted,
 each model's error on the readings held out, °F, and `why` it kept what it
 kept.
+
+## Hot water use
+
+With a water meter, the simulator says how much hot water the tank holds:
+the gallons it can deliver now, how many showers, and whether a bath is
+ready. It books the tank's heat: from the last time the tank stood full
+(quiet after heating, both probes within 1.5 °F), it takes out the heat
+each draw carries and what the tank loses standing, and adds what the
+compressor and the elements put in.
+
+**The inputs.** All are sensors, chosen per heater:
+
+- **Water meter**, needed: a meter of the water drawn from the heater, or
+  of the whole house. Either the volume each report adds, or a running
+  total (a sensor whose state class is `total` or `total_increasing`);
+  a reset of a running total is counted from its new value. It has to
+  report at rest too: a meter silent for over an hour leaves no book.
+- **Water meter flow rate**, optional: finds short draws the volume
+  alone misses.
+- **Cold supply temperature**, optional: a probe on the cold pipe into the
+  heater. At rest it reads the air around the pipe, so only the last two
+  minutes of each long draw (at least 11 minutes, no circulation) count:
+  their median over the last 72 hours is the mains temperature. Without
+  it, the gallons are counted at a modelled inlet, and `reasons` says
+  `inlet_temp_modelled`.
+- **Circulation pump speed**, optional: a hot water circulation pump's
+  speed, in rpm. Its runs move water the meter may not see; a long draw
+  during one isn't read for the mains. A pump with no reading in force is
+  unknown, and its draws are left out.
+- **Bath and shower sizes**: the hot water each takes.
+
+**Where it comes from.** Every 10 minutes the simulator reads the last 72
+hours from Home Assistant's recorder: the meter, the pump and the probe,
+and the heater's own sensors (as [calibration](#fitting-it-to-your-heater)
+reads them: the Last MQTT response and tank temperature sensors must be
+recorded; the compressor and elements are used when enabled). A book
+needs a full tank in those 72 hours with the heater heard from since. On
+an account with several heaters there is none, as for calibration.
+
+**The sensors**, for a heater with a meter:
+
+| Sensor | State |
+|---|---|
+| Simulated hot water available | The hot water the tank can deliver now, at 105 °F, in your volume unit |
+| Simulated showers ready | Whole showers the tank can deliver now; the attribute `showers` has the fraction, `shower_gal` the size |
+| Simulated bath ready | On when the tank can fill a bath now. `margin_gal` is what it holds beyond a bath (below 0: short of it), `ready_at` when the heat pump has it ready if not now, `bath_gal` the size |
+
+They are unavailable while there is no book; `notes` says why (no full
+tank to count from, a silent meter, history not recorded). `inlet_measured`
+says whether the gallons are counted at the probe's mains. Diagnostics
+show the book: when it was read, its heat, how long since the tank stood
+full, and the mains.
 
 ## Recording the heater's history
 
@@ -297,13 +351,12 @@ the heater. Expect:
   hours to go ended about three quarters of an hour later than physics said.
 - **The air matters most.** Without an air sensor, the answer rests on a
   default air temperature whenever the heat pump is off.
-- **No hot water use is modelled yet.** The simulator doesn't know when
-  water is drawn, so it can't say how many showers the tank holds.
+- **Hot water use is booked, not forecast.** With a meter, the simulator
+  knows the water drawn so far and the heat left; it doesn't yet expect
+  the draws ahead, so the heating it plans is for a quiet tank.
 
 ## Planned
 
 These are planned, in this order:
 
-1. Hot water use, from a water meter and an inlet temperature probe:
-   deliverable volume, showers and bath readiness.
-2. Services a scheduler can plan with.
+1. Services a scheduler can plan with.

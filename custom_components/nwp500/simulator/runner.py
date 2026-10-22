@@ -12,6 +12,7 @@ preference is stable; the walk runs in an executor.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import logging
 import math
 from collections.abc import Callable, Sequence
@@ -48,16 +49,24 @@ from nwp500.sim_live import Given, HeaterReading, compose
 
 from ..const import (
     CONF_SIMULATOR_AIR_ENTITY,
+    CONF_SIMULATOR_BATH_GAL,
+    CONF_SIMULATOR_CIRCULATION_ENTITY,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
+    CONF_SIMULATOR_INLET_ENTITY,
+    CONF_SIMULATOR_METER_FLOW_ENTITY,
+    CONF_SIMULATOR_METER_VOLUME_ENTITY,
+    CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
 )
 from .ha_client import Forecasts, InProcessClient
+from .water import REFRESH, WaterBook, async_read_book
 
 if TYPE_CHECKING:
     from nwp500.models import DeviceFeature, DeviceStatus
     from nwp500.sim.engine import HeatingInterval
     from nwp500.sim.location_air import LocationAirModel
     from nwp500.sim.params import HeaterParams
+    from nwp500.sim.ready import Readiness
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
 
@@ -129,6 +138,8 @@ class Answer:
     #: Why there is no answer yet (WAIT_*), or that the walk failed.
     waiting: str | None = None
     error: str | None = None
+    #: The hot water the tank holds, from the heat book; None without one.
+    readiness: Ready | None = None
 
     @property
     def ok(self) -> bool:
@@ -140,8 +151,56 @@ class Answer:
         doc = dataclasses.asdict(self)
         for key in ("computed_at", "start", "end"):
             doc[key] = _iso(doc[key])
+        if self.readiness is not None:
+            doc["readiness"] = self.readiness.as_document()
         for key in ("reasons", "defaults_used", "notes"):
             doc[key] = list(doc[key])
+        return doc
+
+
+@dataclass(frozen=True)
+class Ready:
+    """The hot water the tank holds now, and when a bath is ready.
+
+    Gallons, from the heat book (`sim.time_to_ready`).
+    """
+
+    deliverable_gal: float
+    showers: float
+    showers_whole: int
+    shower_gal: float
+    bath_gal: float
+    bath_ready: bool
+    bath_margin_gal: float
+    #: When the heat pump has the bath ready, if not now; None when it
+    #: won't within the walk.
+    bath_ready_at: datetime | None
+    reasons: tuple[str, ...] = ()
+    defaults_used: tuple[str, ...] = ()
+
+    @classmethod
+    def from_readiness(cls, readiness: Readiness) -> Ready:
+        """The numbers the entities show."""
+        bath, showers = readiness.bath, readiness.showers
+        return cls(
+            deliverable_gal=round(readiness.deliverable_gal, 1),
+            showers=showers.ready_for,
+            showers_whole=showers.ready_for_whole,
+            shower_gal=showers.volume_gal,
+            bath_gal=bath.volume_gal,
+            bath_ready=bath.ready,
+            bath_margin_gal=round(bath.margin_gal, 1),
+            bath_ready_at=None if bath.ready else bath.ready_at,
+            reasons=tuple(readiness.reasons),
+            defaults_used=tuple(readiness.defaults_used),
+        )
+
+    def as_document(self) -> dict[str, Any]:
+        """For diagnostics."""
+        doc = dataclasses.asdict(self)
+        doc["bath_ready_at"] = _iso(self.bath_ready_at)
+        doc["reasons"] = list(self.reasons)
+        doc["defaults_used"] = list(self.defaults_used)
         return doc
 
 
@@ -362,6 +421,8 @@ class SimulatorRunner:
         #: by calibration; None: the air is held at its reading.
         self.location_air: LocationAirModel | None = None
         self._forecasts: Forecasts = {}
+        #: The heat book as last read, with a meter; None until then.
+        self.water: WaterBook | None = None
         self.last_duration_s: float | None = None
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -384,6 +445,23 @@ class SimulatorRunner:
             humidity=self.options.get(CONF_SIMULATOR_HUMIDITY_ENTITY),
             weather=self.options.get(CONF_SIMULATOR_WEATHER_ENTITY),
         )
+
+    @property
+    def water_entities(self) -> Entities:
+        """The entities the water use is read from."""
+        return Entities(
+            meter_volume=self.options.get(CONF_SIMULATOR_METER_VOLUME_ENTITY),
+            meter_flow=self.options.get(CONF_SIMULATOR_METER_FLOW_ENTITY),
+            inlet=self.options.get(CONF_SIMULATOR_INLET_ENTITY),
+            circulation_speed=self.options.get(
+                CONF_SIMULATOR_CIRCULATION_ENTITY
+            ),
+        )
+
+    @property
+    def has_meter(self) -> bool:
+        """Whether the heater's water is metered: it can be booked."""
+        return self.water_entities.meter_volume is not None
 
     @callback
     def async_start(self) -> None:
@@ -532,9 +610,14 @@ class SimulatorRunner:
             environment=environment,
             commands=commands,
         )
-        scenario = composed.scenario.model_copy(
-            update={"history": self.history.as_history()}
-        )
+        update: dict[str, Any] = {"history": self.history.as_history()}
+        water = self.water
+        if water is not None and water.inlet_f is not None:
+            # The mains, from the probe's long draws.
+            update["environment"] = composed.scenario.environment.model_copy(
+                update={"inlet_f": water.inlet_f}
+            )
+        scenario = composed.scenario.model_copy(update=update)
         return Inputs(
             scenario=scenario,
             params=composed.params,
@@ -542,10 +625,55 @@ class SimulatorRunner:
             notes=tuple(environment.notes) if environment else (),
         )
 
+    async def _async_refresh_water(self, now: datetime) -> None:
+        """Read the heat book again, every `REFRESH`."""
+        if not self.has_meter:
+            self.water = None
+            return
+        if self.water is not None and now - self.water.at < REFRESH:
+            return
+        try:
+            self.water = await async_read_book(self.hass, self, now)
+        except Exception as err:
+            # Anything the recorder or the library raises leaves the
+            # tank unbooked until the next read, not the runner stopped.
+            _LOGGER.warning(
+                "The hot water for %s is not booked: %s", self.mac_address, err
+            )
+            self.water = WaterBook(
+                now, None, notes=(f"book: not read ({err})",)
+            )
+
+    async def _async_readiness(self, inputs: Inputs) -> Ready | None:
+        """The hot water the tank holds, with a book; None without one."""
+        water = self.water
+        if water is None or water.book is None:
+            return None
+        options = self.options
+        try:
+            readiness = await self.hass.async_add_executor_job(
+                functools.partial(
+                    sim.time_to_ready,
+                    inputs.scenario,
+                    inputs.params,
+                    book=water.book,
+                    bath_gal=options.get(CONF_SIMULATOR_BATH_GAL),
+                    shower_gal=options.get(CONF_SIMULATOR_SHOWER_GAL),
+                    inlet_measured=water.inlet_measured,
+                )
+            )
+        except (SimulationError, ValueError) as err:
+            _LOGGER.debug("No readiness for %s: %s", self.mac_address, err)
+            return None
+        return Ready.from_readiness(readiness)
+
     async def _async_run(self) -> None:
         if self._closed:
             return
         now = dt_util.utcnow()
+        await self._async_refresh_water(now)
+        if self._stopped():
+            return
         try:
             inputs = await self.async_inputs()
         except ValueError as err:
@@ -583,8 +711,14 @@ class SimulatorRunner:
                 "The hot water simulation for %s runs again", self.mac_address
             )
             self._failure = None
+        ready = await self._async_readiness(inputs)
+        if self._stopped():
+            return
         self.last_duration_s = (dt_util.utcnow() - started).total_seconds()
-        self._publish(answer_from(result, inputs))
+        answer = answer_from(result, inputs)
+        if ready is not None:
+            answer = dataclasses.replace(answer, readiness=ready)
+        self._publish(answer)
 
     @callback
     def _fail(

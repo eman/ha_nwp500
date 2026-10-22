@@ -345,6 +345,42 @@ async def test_options_suggest_the_sensors_chosen_and_let_them_be_cleared(
 
 
 @pytest.mark.asyncio
+async def test_sizes_are_asked_in_litres_and_kept_in_gallons(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    from homeassistant.util.unit_system import METRIC_SYSTEM
+
+    hass.config.units = METRIC_SYSTEM
+    entry = _loaded_entry(
+        hass,
+        {
+            "simulator_enabled": True,
+            "simulator": {MAC: {"bath_gal": 28.7, "shower_gal": 12.0}},
+        },
+    )
+    with packages():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"scan_interval": 30, "simulator_enabled": True}
+        )
+        suggested = {
+            str(key): (key.description or {}).get("suggested_value")
+            for key in result["data_schema"].schema
+        }
+        assert suggested["bath_gal"] == pytest.approx(108.6)
+        assert suggested["shower_gal"] == pytest.approx(45.4)
+
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"meter_volume_entity": "sensor.meter", "bath_gal": 150},
+        )
+
+    assert entry.options["simulator"] == {
+        MAC: {"meter_volume_entity": "sensor.meter", "bath_gal": 39.63}
+    }
+
+
+@pytest.mark.asyncio
 async def test_options_switch_the_simulator_off(
     hass: HomeAssistant, enable_custom_integrations
 ):
