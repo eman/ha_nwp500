@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from datetime import timedelta
 from typing import Any
@@ -615,3 +616,36 @@ async def test_the_water_use_is_worked_out_off_the_event_loop(
     ):
         got = await async_read_book(hass, walker, dt_util.utcnow())
     assert got.book is None and "recorder busy" in got.notes[0]
+
+
+@pytest.mark.asyncio
+async def test_readiness_from_a_dropped_book_is_not_published(
+    hass: HomeAssistant, coordinator
+):
+    """PR #239 review: terms set while readiness runs make it stale."""
+    walker = runner(hass, coordinator, **METERED)
+    real = sim.time_to_ready
+
+    def ready(*args: Any, **kwargs: Any) -> Any:
+        # Calibration sets new terms while it runs.
+        hass.loop.call_soon_threadsafe(
+            walker.async_set_water_terms, BOOK, SITE_CIRCULATION
+        )
+        done = real(*args, **kwargs)
+        # Let the loop take the new terms before the result is back.
+        asyncio.run_coroutine_threadsafe(asyncio.sleep(0), hass.loop).result()
+        return done
+
+    with (
+        _booked(),
+        patch(
+            "custom_components.nwp500.simulator.runner.sim.time_to_ready",
+            ready,
+        ),
+    ):
+        await walker._async_run()
+
+    assert walker.water is None
+    assert walker.answer is not None and walker.answer.readiness is None
+    walker.async_stop()
+    await hass.async_block_till_done()

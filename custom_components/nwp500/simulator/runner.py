@@ -752,6 +752,10 @@ class SimulatorRunner:
         except (SimulationError, ValueError) as err:
             _LOGGER.debug("No readiness for %s: %s", self.mac_address, err)
             return None
+        if self.water is not water:
+            # New terms came while it ran: the book it read is dropped,
+            # and the run they start answers with the next.
+            return None
         return Ready.from_readiness(readiness)
 
     async def _async_run(self) -> None:
