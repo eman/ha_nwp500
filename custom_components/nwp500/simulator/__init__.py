@@ -135,8 +135,13 @@ class SimulatorFeature:
                 }
                 runner.params = params
             stored_location = stored_calibration.get("location_air")
-            if isinstance(stored_location, dict) and (
-                model := model_from_document(stored_location)
+            if (
+                isinstance(stored_location, dict)
+                # Fitted to these inputs: another pair is another model.
+                and stored_location.get("air_entity") == runner.entities.air
+                and stored_location.get("weather_entity")
+                == runner.entities.weather
+                and (model := model_from_document(stored_location))
             ):
                 self.location_models[mac_address] = dict(stored_location)
                 runner.location_air = model
@@ -350,6 +355,8 @@ class SimulatorFeature:
             return
         self.location_models[mac_address] = {
             **model_to_document(model),
+            "air_entity": runner.entities.air,
+            "weather_entity": runner.entities.weather,
             "fitted_at": fitted_at.isoformat(),
         }
         runner.async_set_location_air(model)

@@ -23,6 +23,7 @@ from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
+from homeassistant.util.json import json_loads
 
 from nwp500 import sim
 from nwp500 import sim_adapters as sa
@@ -36,7 +37,13 @@ from nwp500.sim.inputs import (
     Scenario,
     Schedules,
 )
-from nwp500.sim_home_assistant import Entities, HomeAssistantEnvironment
+from nwp500.sim_home_assistant import (
+    Entities,
+    HomeAssistantEnvironment,
+    fresh,
+    parse_state,
+    to_f,
+)
 from nwp500.sim_live import Given, HeaterReading, compose
 
 from ..const import (
@@ -446,6 +453,19 @@ class SimulatorRunner:
         self.params = params
         self.hass.async_create_task(self._debouncer.async_call())
 
+    def _anchorable(self, entity: str | None, now: datetime) -> bool:
+        """Whether `entity` has a fresh temperature to anchor the air to."""
+        if entity is None or (state := self.hass.states.get(entity)) is None:
+            return False
+        reading = parse_state(json_loads(state.as_dict_json))
+        if reading.value is None or not fresh(reading, now):
+            return False
+        try:
+            to_f(reading.value, reading.unit)
+        except ValueError:
+            return False
+        return True
+
     @callback
     def async_set_location_air(self, model: LocationAirModel | None) -> None:
         """Project the air by `model` from the next run on (None: don't)."""
@@ -494,10 +514,13 @@ class SimulatorRunner:
                 start=start,
                 until=until,
                 now=start,
-                # With no air sensor there is no anchor, and an unanchored
-                # projection is only as good as the model's offset.
+                # Without a reading to anchor to, a projection is only as
+                # good as the model's offset, which calibration doesn't
+                # judge: the air is then left as with no forecast.
                 location_air=(
-                    self.location_air if entities.air is not None else None
+                    self.location_air
+                    if self._anchorable(entities.air, start)
+                    else None
                 ),
             )
         composed = await compose(

@@ -262,3 +262,46 @@ async def test_without_an_air_sensor_nothing_is_projected(
 
     assert isinstance(inputs, Inputs)
     assert not any("projected" in n for n in inputs.notes)
+
+
+def test_air_that_does_not_vary_is_not_fitted():
+    """PR #238 review: a constant air has no correlation to judge by."""
+    outdoor = _outdoor()
+    air = [(T0 + timedelta(minutes=10 * i), 64.0) for i in range(6 * 144)]
+
+    done = fit(air, outdoor, TRUE)
+
+    assert done.model == TRUE and done.kept == KEPT_BASE
+    assert done.r is None
+    assert done.why is not None and "does not vary" in done.why
+    assert math.isfinite(done.as_document()["error_f"] or 0.0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "attributes", "age"),
+    [
+        ("unavailable", {"unit_of_measurement": "°F"}, timedelta(0)),
+        ("61.0", {"unit_of_measurement": "°F"}, timedelta(hours=2)),
+        ("61.0", {"unit_of_measurement": "W"}, timedelta(0)),
+    ],
+    ids=["unavailable", "stale", "not-a-temperature"],
+)
+async def test_without_a_reading_to_anchor_to_nothing_is_projected(
+    hass: HomeAssistant,
+    coordinator,
+    freezer: Any,
+    state: str,
+    attributes: dict[str, Any],
+    age: timedelta,
+):
+    """PR #238 review: a configured sensor that can't be read is no anchor."""
+    walker = _projecting(hass, coordinator, air_entity="sensor.garage")
+    freezer.tick(-age)
+    hass.states.async_set("sensor.garage", state, attributes)
+    freezer.tick(age)
+
+    inputs = await walker.async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    assert not any("projected" in n for n in inputs.notes)

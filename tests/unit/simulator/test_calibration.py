@@ -854,3 +854,19 @@ async def test_the_airs_model_is_fitted_with_the_heater_and_kept(
     assert feature.runners[MAC].location_air == model
     assert feature.reports[MAC].location_air is not None
     await async_unload_simulator(hass, entry)
+
+    # PR #238 review: fitted to other inputs, it is not restored.
+    for changed in ({"weather_entity": "weather.other"}, {"air_entity": None}):
+        options = {**entry.options[CONF_SIMULATOR][MAC], **changed}
+        hass.config_entries.async_update_entry(
+            entry,
+            options={
+                **entry.options,
+                CONF_SIMULATOR: {
+                    MAC: {k: v for k, v in options.items() if v is not None}
+                },
+            },
+        )
+        feature = await _started(hass, entry, coordinator)
+        assert feature.runners[MAC].location_air is None
+        await async_unload_simulator(hass, entry)

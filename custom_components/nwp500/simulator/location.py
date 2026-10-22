@@ -248,16 +248,18 @@ def fit(
         return LocationFit(base, kept, n=len(air), why=str(err))
     error = spread(refit.model, held, outdoor)
     base_error = None if base is None else spread(base, held, outdoor)
-    if refit.r < MIN_R:
+    if not math.isfinite(refit.r) or refit.r < MIN_R:
         return LocationFit(
             base,
             kept,
-            r=refit.r,
+            r=refit.r if math.isfinite(refit.r) else None,
             n=len(air),
-            error=error,
+            error=error if math.isfinite(error) else None,
             base_error=base_error,
             why=(
-                f"the air follows the outdoor air too loosely (r "
+                "the air does not vary, so it can't be fitted"
+                if not math.isfinite(refit.r)
+                else f"the air follows the outdoor air too loosely (r "
                 f"{refit.r:.2f}, at least {MIN_R} needed)"
             ),
         )

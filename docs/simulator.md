@@ -92,12 +92,15 @@ through the air sensor's reading now.
 
 As with the heater's terms, a later run replaces the model only when it
 does better: the latest fifth of the readings is held out of the refit,
-and the model whose error spreads less there is kept. Where the air barely
+and the model whose error spreads less there is kept. A model is kept with
+the air sensor and weather entity it was fitted to: choosing another drops
+it until the next fit. Where the air barely
 follows the outdoor air (a correlation under 0.5, as in a heated room), no
 model is fitted, and the air is held at its reading as before.
 
 The projection needs the air sensor, to fit it and to anchor it: without
-one, a weather entity is not used. The `location_air` attribute of the
+one, or while its reading is unavailable or more than an hour old, the
+forecast is not used. The `location_air` attribute of the
 **Simulator calibration** sensor says what the last run found: the model
 in force (`damping`, `lag_hours`, `offset_f`), whether the heater's model
 (`base`) or the refit was kept, the correlation `r`, the half-hours fitted,
