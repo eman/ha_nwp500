@@ -168,3 +168,69 @@ async def test_without_weather_nothing_is_fitted(
     await runner.async_inputs(start=now)
     assert runner.air_fit is None
     await stop(hass)
+
+
+async def test_a_second_heater_reads_the_shared_last_response(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    ids = _register_heater(hass)
+    runner = await started(hass, coordinator, WEATHER)
+    first = "aabbccddeeff"
+    registry = er.async_get(hass)
+    shared = registry.async_get_or_create(
+        "sensor", DOMAIN, f"{first}_diagnostic_last_response"
+    ).entity_id
+    # Another heater came first: the integration's one last response
+    # sensor is on it.
+    coordinator.data = {first: {}, **coordinator.data}
+
+    heater = runner._heater_air()  # noqa: SLF001
+
+    assert heater is not None
+    assert heater.heard == shared
+    # This heater's own probes, air and compressor.
+    assert heater.upper == ids["tank_upper_temperature"]
+    assert heater.ambient == ids["ambient_temperature"]
+    assert heater.compressor == ids["comp_use"]
+    await stop(hass)
+
+
+async def test_a_disabled_entity_is_not_given_to_the_library(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    ids = _register_heater(hass)
+    registry = er.async_get(hass)
+    # As the ambient sensor is registered by default.
+    registry.async_update_entity(
+        ids["ambient_temperature"],
+        disabled_by=er.RegistryEntryDisabler.INTEGRATION,
+    )
+    runner = await started(hass, coordinator, WEATHER)
+
+    heater = runner._heater_air()  # noqa: SLF001
+
+    assert heater is not None
+    assert heater.ambient is None
+    assert heater.compressor == ids["comp_use"]
+    await stop(hass)
+
+
+async def test_two_callers_due_a_fit_fit_once(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    import asyncio
+
+    _register_heater(hass)
+    _forecast(hass)
+    runner = await started(hass, coordinator, WEATHER)
+    read = AsyncMock(side_effect=HomeAssistantError("not recorded"))
+    now = dt_util.utcnow().replace(microsecond=0)
+    with patch.object(InProcessClient, "read_history", read):
+        runner.air_fit = None
+        # Such as an action while a walk reads.
+        await asyncio.gather(
+            runner.async_inputs(start=now),
+            runner.async_inputs(start=now + timedelta(seconds=1)),
+        )
+    assert read.await_count == 1
+    await stop(hass)

@@ -71,7 +71,10 @@ measures.
 The air's fit to the outdoor air is made at most once an hour, from the
 recorded history of the air sensor (or of the heater's own air and
 compressor entities) and of the weather entity, and kept for the
-simulations between. Where the library can't fit one, such as with less
+simulations between. Without an air sensor, enable the heater's Ambient
+temperature entity, which is off by default: a disabled entity records
+nothing to fit on. Either way the fit waits for a day of recorded
+history. Where the library can't fit one, such as with less
 than a day of history or air that doesn't follow the outdoor air, its
 notes say why, the air is held at its reading, and the fit is tried again
 an hour later.

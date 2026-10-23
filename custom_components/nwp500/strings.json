@@ -48,7 +48,7 @@
         "data_description": {
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
           "humidity_entity": "A humidity sensor in the same room as the heater.",
-          "weather_entity": "A weather entity with an hourly forecast. The simulator learns how the air beside the heater follows the outdoor air, from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs. It then projects that air from the forecast.",
+          "weather_entity": "A weather entity with an hourly forecast. The simulator learns how the air beside the heater follows the outdoor air, from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs, which needs the heater's Ambient temperature entity enabled (it is off by default). It then projects that air from the forecast, once a day of history has been recorded.",
           "inlet_entity": "A temperature probe on the cold water supply. With the hot water in use sensor, the simulator reads the mains' temperature from its readings over long draws.",
           "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
           "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
@@ -140,7 +140,7 @@
         "data_description": {
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
           "humidity_entity": "A humidity sensor in the same room as the heater.",
-          "weather_entity": "A weather entity with an hourly forecast. The simulator learns how the air beside the heater follows the outdoor air, from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs. It then projects that air from the forecast.",
+          "weather_entity": "A weather entity with an hourly forecast. The simulator learns how the air beside the heater follows the outdoor air, from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs, which needs the heater's Ambient temperature entity enabled (it is off by default). It then projects that air from the forecast, once a day of history has been recorded.",
           "inlet_entity": "A temperature probe on the cold water supply. With the hot water in use sensor, the simulator reads the mains' temperature from its readings over long draws.",
           "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
           "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",

@@ -13,6 +13,7 @@ preference is stable; the walk runs in an executor.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import logging
 from dataclasses import dataclass
@@ -283,6 +284,9 @@ class SimulatorRunner:
         )
         # When the air model was last fitted, and the fit; None for none.
         self.air_fit: tuple[datetime, FittedLocationAir | None] | None = None
+        # The walks' and the actions' reads of the environment, one at a
+        # time: two callers finding a fit or the inlet due read it once.
+        self._reading = asyncio.Lock()
         self._debouncer = Debouncer(
             hass,
             _LOGGER,
@@ -313,12 +317,18 @@ class SimulatorRunner:
         registered yet.
         """
         registry = er.async_get(self.hass)
-        mac = self.mac_address
 
-        def entity(domain: str, key: str) -> str | None:
-            return registry.async_get_entity_id(domain, DOMAIN, f"{mac}_{key}")
+        def entity(domain: str, key: str, mac: str | None = None) -> str | None:
+            # A disabled entity has no state or history to read.
+            unique_id = f"{mac or self.mac_address}_{key}"
+            entity_id = registry.async_get_entity_id(domain, DOMAIN, unique_id)
+            entry = None if entity_id is None else registry.async_get(entity_id)
+            return None if entry is None or entry.disabled else entity_id
 
-        heard = entity("sensor", "diagnostic_last_response")
+        # The last response time is one sensor for the integration, on its
+        # first heater (`sensor.py`).
+        first = next(iter(self.coordinator.data or {}), self.mac_address)
+        heard = entity("sensor", "diagnostic_last_response", first)
         upper = entity("sensor", "tank_upper_temperature")
         lower = entity("sensor", "tank_lower_temperature")
         if heard is None or upper is None or lower is None:
@@ -453,28 +463,29 @@ class SimulatorRunner:
         )
         start = start or dt_util.utcnow().replace(microsecond=0)
         until = start + HORIZON
-        environment = self._environment(start, until)
-        # A one-shot read knows no history: `compose` leaves it unset and
-        # the result names the defaults it used.
-        composed = await compose(
-            start=start,
-            horizon=HORIZON,
-            tz=str(self.hass.config.time_zone),
-            heater=Given(reading),
-            schedules=Given(schedules),
-            environment=environment,
-        )
-        if (
-            environment is not None
-            and environment.entities.weather is not None
-            and environment.location_air is None
-        ):
-            # Fitted on this walk: kept for the walks to the next fit.
-            self.air_fit = (start, environment.fitted_air)
+        async with self._reading:
+            environment = self._environment(start, until)
+            # A one-shot read knows no history: `compose` leaves it unset
+            # and the result names the defaults it used.
+            composed = await compose(
+                start=start,
+                horizon=HORIZON,
+                tz=str(self.hass.config.time_zone),
+                heater=Given(reading),
+                schedules=Given(schedules),
+                environment=environment,
+            )
+            if (
+                environment is not None
+                and environment.entities.weather is not None
+                and environment.location_air is None
+            ):
+                # Fitted on this walk: kept for the walks to the next fit.
+                self.air_fit = (start, environment.fitted_air)
+            inlet_f, inlet_notes = await self._async_inlet(start)
         # The inlet laid on as the CLI lays a given one, and the
         # parameters the heater's tank size gives, or the library's
         # defaults without it.
-        inlet_f, inlet_notes = await self._async_inlet(start)
         built = overlay(
             composed,
             now=start,
