@@ -1394,6 +1394,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         what the connection is for.
         """
         mac_address = device.device_info.mac_address
+        if mac_address in self.tou_schedules:
+            # Read already, when the device info arrived.
+            return
 
         # Mirrors the guard inside async_request_tou_settings, so the
         # not-ready case never reaches its error log.
@@ -1529,7 +1532,18 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     feature_dict.get("controller_sw_version"),
                 )
 
+            first = mac_address not in self.device_features
             self.device_features[mac_address] = feature
+
+            # The TOU plan's read needs the controller serial this brings.
+            # A device slower to answer than setup was skipped there; read
+            # its plan now rather than at the next schedule refresh.
+            device = self._devices_by_mac.get(mac_address)
+            if first and device and mac_address not in self.tou_schedules:
+                self.hass.async_create_task(
+                    self._async_request_initial_tou(device),
+                    f"{DOMAIN} initial TOU read {mac_address}",
+                )
 
             # Notify listeners that features (which affect device info, limits, etc.)
             # have been updated.
