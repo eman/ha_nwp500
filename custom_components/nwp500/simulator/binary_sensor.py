@@ -32,7 +32,9 @@ class SimulatorBathReadyBinarySensor(NWP500HotWaterEntity, BinarySensorEntity): 
         attributes = self._readiness_attributes()
         if readiness is not None:
             bath = readiness.bath
-            at = bath.ready_at
+            # Ready now, the library's `ready_at` is each walk's start:
+            # news only while the bath is still to come.
+            at = None if bath.ready else bath.ready_at
             attributes["bath_gal"] = bath.volume_gal
             # Whole gallons: a walk a minute moves it by fractions.
             attributes["margin_gal"] = round(bath.margin_gal)

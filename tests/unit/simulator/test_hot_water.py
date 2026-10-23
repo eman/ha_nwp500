@@ -168,7 +168,10 @@ async def test_the_hot_water_entities_report_the_answer(
     available = by_type[SimulatorHotWaterAvailableSensor]
     assert available.unique_id == f"{MAC}_simulator_hot_water_available"
     assert available.available
-    assert available.native_value == round(readiness.deliverable_gal)
+    # Home Assistant's test configuration measures in litres.
+    assert available.native_value == round(
+        readiness.deliverable_gal * 3.785411784
+    )
     assert available.extra_state_attributes["reasons"] == list(
         readiness.reasons
     )
@@ -184,6 +187,59 @@ async def test_the_hot_water_entities_report_the_answer(
     assert bath.unique_id == f"{MAC}_simulator_bath_ready"
     assert bath.is_on is readiness.bath.ready
     assert bath.extra_state_attributes["bath_gal"] == readiness.bath.volume_gal
+    await stop(hass)
+
+
+async def test_the_hot_water_is_in_whole_litres_where_litres_are_used(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from dataclasses import replace
+
+    from homeassistant.const import UnitOfVolume
+    from homeassistant.util.unit_system import (
+        METRIC_SYSTEM,
+        US_CUSTOMARY_SYSTEM,
+    )
+
+    runner = await started(hass, coordinator, {})
+    answer = runner.answer
+    assert answer is not None and answer.readiness is not None
+    runner.answer = replace(
+        answer, readiness=replace(answer.readiness, deliverable_gal=10.49)
+    )
+
+    hass.config.units = METRIC_SYSTEM
+    litres = SimulatorHotWaterAvailableSensor(runner, "hot_water_available")
+    assert litres.native_unit_of_measurement == UnitOfVolume.LITERS
+    # Rounded after the conversion: 39.7 L, not 10 gal's 37.9 L.
+    assert litres.native_value == 40
+
+    hass.config.units = US_CUSTOMARY_SYSTEM
+    gallons = SimulatorHotWaterAvailableSensor(runner, "hot_water_available")
+    assert gallons.native_unit_of_measurement == UnitOfVolume.GALLONS
+    assert gallons.native_value == 10
+    await stop(hass)
+
+
+async def test_a_ready_bath_has_no_ready_at_to_move(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from dataclasses import replace
+
+    runner = await started(hass, coordinator, {})
+    feature = hass.data[DOMAIN]["entry1"][DATA_SIMULATOR]
+    (bath,) = create_simulator_binary_sensors(feature)
+    answer = runner.answer
+    assert answer is not None and answer.readiness is not None
+    readiness = answer.readiness
+    ready_bath = replace(readiness.bath, ready=True, ready_at=readiness.at)
+    runner.answer = replace(
+        answer, readiness=replace(readiness, bath=ready_bath)
+    )
+
+    assert bath.is_on is True
+    # The library dates a ready bath by the walk's start: no news.
+    assert bath.extra_state_attributes["ready_at"] is None
     await stop(hass)
 
 

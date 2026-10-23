@@ -34,9 +34,8 @@ def _kwh(value: float | None) -> float | None:
     return None if value is None else round(value, _KWH_DIGITS)
 
 
-def _gal(value: float) -> int:
-    """Whole gallons: a walk a minute moves the tank's by fractions."""
-    return round(value)
+#: Litres in a US gallon: the library answers in gallons.
+_L_PER_GAL = 3.785411784
 
 
 def _minute(at: datetime | None) -> datetime | None:
@@ -221,22 +220,28 @@ class SimulatorHotWaterAvailableSensor(NWP500HotWaterEntity, SensorEntity):  # t
 
     _attr_device_class = SensorDeviceClass.VOLUME_STORAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfVolume.GALLONS
     _attr_suggested_display_precision = 0
     _attr_icon = "mdi:water-thermometer"
 
     def __init__(self, runner: SimulatorRunner, key: str) -> None:
-        """Shown in Home Assistant's volume unit."""
+        """In Home Assistant's volume unit, gallons or litres."""
         super().__init__(runner, key)
-        if runner.hass.config.units.volume_unit != UnitOfVolume.GALLONS:
-            self._attr_suggested_unit_of_measurement = UnitOfVolume.LITERS
+        self._litres = (
+            runner.hass.config.units.volume_unit != UnitOfVolume.GALLONS
+        )
+        self._attr_native_unit_of_measurement = (
+            UnitOfVolume.LITERS if self._litres else UnitOfVolume.GALLONS
+        )
 
     @property
     def native_value(self) -> int | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Gallons."""
+        """Whole units: a walk a minute moves the tank's by fractions."""
         answer = self.answer
         readiness = None if answer is None else answer.readiness
-        return None if readiness is None else _gal(readiness.deliverable_gal)
+        if readiness is None:
+            return None
+        gal = readiness.deliverable_gal
+        return round(gal * _L_PER_GAL if self._litres else gal)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
