@@ -335,6 +335,84 @@ class TestNWP500Sensor:
         attrs_none = sensor.extra_state_attributes
         assert "response_latency" not in attrs_none
 
+    def test_last_status_is_each_heaters_own(
+        self,
+        mock_coordinator: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        """When each heater last answered: the other heater's don't move it."""
+        from datetime import UTC, datetime
+
+        from homeassistant.components.sensor import SensorDeviceClass
+        from homeassistant.const import EntityCategory
+
+        from custom_components.nwp500.sensor import NWP500LastStatusSensor
+
+        mock_coordinator.data = {
+            "AA:BB:CC:DD:EE:FF": {
+                "device": mock_device,
+                "status": mock_device_status,
+                "last_update": 1000.5,
+            },
+            "11:22:33:44:55:66": {
+                "device": mock_device,
+                "status": mock_device_status,
+                "last_update": 2000.0,
+            },
+        }
+        sensor = NWP500LastStatusSensor(
+            mock_coordinator, "AA:BB:CC:DD:EE:FF", mock_device
+        )
+
+        assert sensor.unique_id == "AA:BB:CC:DD:EE:FF_last_status"
+        assert sensor.device_class is SensorDeviceClass.TIMESTAMP
+        assert sensor.entity_category is EntityCategory.DIAGNOSTIC
+        assert sensor.entity_registry_enabled_default is True
+        assert sensor.native_value == datetime.fromtimestamp(1000.5, tz=UTC)
+
+        # Not heard from yet.
+        mock_coordinator.data["AA:BB:CC:DD:EE:FF"]["last_update"] = None
+        assert sensor.native_value is None
+        mock_coordinator.data = {}
+        assert sensor.native_value is None
+
+    async def test_each_heater_gets_a_last_status(
+        self,
+        hass: HomeAssistant,
+        mock_coordinator: MagicMock,
+        mock_config_entry: MagicMock,
+        mock_device: MagicMock,
+        mock_device_status: MagicMock,
+    ):
+        from custom_components.nwp500.sensor import NWP500LastStatusSensor
+
+        other = MagicMock()
+        other.device_info.mac_address = "11:22:33:44:55:66"
+        other.device_info.device_name = "Second"
+        mock_coordinator.data = {
+            "AA:BB:CC:DD:EE:FF": {
+                "device": mock_device,
+                "status": mock_device_status,
+            },
+            "11:22:33:44:55:66": {
+                "device": other,
+                "status": mock_device_status,
+            },
+        }
+        mock_config_entry.runtime_data = mock_coordinator
+        added: list = []
+
+        await async_setup_entry(
+            hass,
+            mock_config_entry,
+            lambda e, update_before_add: added.extend(e),
+        )
+
+        assert sorted(
+            e.unique_id for e in added if isinstance(e, NWP500LastStatusSensor)
+        ) == ["11:22:33:44:55:66_last_status", "AA:BB:CC:DD:EE:FF_last_status"]
+
     def test_sensor_get_field_unit_integration(
         self,
         mock_coordinator: MagicMock,

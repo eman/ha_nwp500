@@ -245,6 +245,10 @@ async def async_setup_entry(
             )
             for key, config in INSTALLER_DIAGNOSTICS_SENSORS.items()
         )
+        # When this heater last answered with its status
+        entities.append(
+            NWP500LastStatusSensor(coordinator, mac_address, device)
+        )
         # Cloud-recorded metadata, readable while the device is offline
         entities.append(
             NWP500CloudErrorSensor(coordinator, mac_address, device)
@@ -422,6 +426,38 @@ class NWP500DiagnosticSensor(NWP500Entity, SensorEntity):  # type: ignore[report
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_diagnostic_{key}"
         self._attr_translation_key = key
+
+
+class NWP500LastStatusSensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """When this heater last answered with its status.
+
+    One per heater, changing with every status it sends, so its history
+    marks each time the heater was heard from and its silences show.
+    The integration's last MQTT response is one sensor for every heater.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_translation_key = "last_status"
+
+    def __init__(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        device: Device,
+    ) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, mac_address, device)
+        self._attr_unique_id = f"{mac_address}_last_status"
+
+    @property
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """When the heater's last status arrived."""
+        device_data = self.device_data
+        last_update = device_data.get("last_update") if device_data else None
+        if last_update is None:
+            return None
+        return datetime.fromtimestamp(last_update, tz=UTC)
 
 
 class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
