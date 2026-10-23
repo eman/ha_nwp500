@@ -245,7 +245,8 @@ Assistant, from what the heater reports, and keeps these up to date:
   the hot water the tank can deliver now.
 
 Every input beyond the heater is optional, and each adds what it measures:
-sensors for the air and humidity beside the heater, a cold water supply
+sensors for the air and humidity beside the heater, a weather forecast
+to project that air over the day, a cold water supply
 probe, a sensor that is on while hot water is in use, the circulation
 pump's speed, and a bath's and a shower's size.
 
@@ -338,7 +339,7 @@ action:
 
 ## Library Version
 
-Uses **[nwp500-python v9.10.0](https://github.com/eman/nwp500-python/releases/tag/v9.10.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
+Uses **[nwp500-python v9.11.0](https://github.com/eman/nwp500-python/releases/tag/v9.11.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
 
 ## License
 

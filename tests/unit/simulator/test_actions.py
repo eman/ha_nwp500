@@ -164,18 +164,18 @@ async def test_malformed_params_are_the_callers_mistake(
     assert err.value.translation_key == "simulator_invalid_scenario"
 
 
-async def test_parameters_the_walk_cannot_use_fail_with_its_message(
+async def test_a_null_parameter_is_the_callers_mistake(
     hass: HomeAssistant, runner: SimulatorRunner
 ):
     document = await snapshot(hass, runner)
-    # Read as given in nwp500-python 9.10.0, and refused by the walk.
     document["params"]["compressor"]["compressor_constant"] = None
 
-    with pytest.raises(HomeAssistantError, match="refused") as err:
+    with pytest.raises(ServiceValidationError) as err:
         await service.async_simulate(
             hass, runner, scenario=document, use_heater=False
         )
-    assert not isinstance(err.value, ServiceValidationError)
+    assert err.value.translation_key == "simulator_invalid_scenario"
+    assert "compressor_constant" in err.value.translation_placeholders["error"]
 
 
 async def test_a_walk_longer_than_a_week_is_refused(

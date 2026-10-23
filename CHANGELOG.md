@@ -34,6 +34,13 @@
   its sensors; it stores nothing of its own. It maps Home Assistant's
   entities to the library's inputs and publishes the library's answers:
   the heater's parameters are the library's defaults for its tank's size. See `docs/simulator.md`.
+- **The simulator projects the air from a weather forecast.** An optional
+  weather entity per heater: nwp500-python fits how the air beside the
+  heater follows the outdoor air, on the last 3 days of the air sensor's
+  history, or without one the heater's own air reading while its heat pump
+  runs, and projects the day's air from the hourly forecast. The fit is
+  made at most hourly and kept between simulations. The simulator now
+  lists `weather` among its after-dependencies.
 - **Simulated hot water.** With the simulator on, three more entities say
   how much hot water the tank can deliver now, how many showers it holds
   and whether a bath is ready, as nwp500-python's `time_to_ready` answers
@@ -83,8 +90,12 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.10.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.11.0. What the
   integration did before is kept; the library's corrections change these:
+  - **A malformed scenario's parameters are the caller's mistake.** A null
+    where a number goes is refused when the scenario is laid, as an invalid
+    scenario, naming the field.
+  - **A supply probe steady through a draw gives the mains' temperature.**
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
     Whether a mode-5 entry powers the heater off is untested. Set

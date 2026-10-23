@@ -102,10 +102,9 @@ async def async_inputs(
             tz=str(hass.config.time_zone),
             over=over,
         )
-    except (TypeError, ValueError) as err:
+    except ValueError as err:
         # The heater's part is a scenario on its own: what is refused is
-        # the caller's. Some malformed parameters raise TypeError in
-        # nwp500-python 9.10.0.
+        # the caller's.
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="simulator_invalid_scenario",
@@ -130,10 +129,9 @@ async def _async_call(hass: HomeAssistant, call: Callable[[], Any]) -> Any:
     async with _LOCK:
         try:
             return await hass.async_add_executor_job(call)
-        except (SimulationError, TypeError, ValueError) as err:
+        except (SimulationError, ValueError) as err:
             # Such as a setpoint out of the heater's range: the library's
-            # message says which. nwp500-python 9.10.0 reads a null in a
-            # parameter's number and raises TypeError on it here.
+            # message says which.
             raise HomeAssistantError(
                 f"The simulator refused the scenario: {err}"
             ) from err

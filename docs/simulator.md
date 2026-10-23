@@ -62,10 +62,33 @@ measures.
 |---|---|---|
 | Air temperature beside the heater | How fast the heat pump heats: it takes its heat from this air | The heater's own reading of the air at its intake |
 | Humidity beside the heater | The heat pump's output | 50% |
+| Weather forecast | The air beside the heater over the next day, projected from a weather entity's hourly forecast. The library learns how that air follows the outdoor air from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs | The air held at its reading now |
 | Cold water supply temperature | With the hot water in use sensor, the mains' temperature, read from a probe on the cold supply over the last 72 hours' long draws | The library's default inlet |
 | Hot water in use | A binary sensor on while the household draws hot water, its circulation's water not counted: whether water is being drawn now, and which of the supply probe's readings are long draws | No draw now, and no mains' temperature from the probe |
 | Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | No runs left out: the probe and the hot water in use sensor still give the mains' temperature. A pump configured whose history can't be read gives none |
 | Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit | The library's sizes, which `defaults_used` names |
+
+The air's fit to the outdoor air is made at most once an hour, from the
+recorded history of the air sensor (or of the heater's own air and
+compressor entities) and of the weather entity, and kept for the
+simulations between. Without an air sensor, enable the heater's Ambient
+temperature entity, which is off by default: a disabled entity records
+nothing to fit on. Either way the fit waits for a day of recorded
+history.
+
+Two limits between fits, for now:
+
+- After a fit that failed, the notes say why only on the simulation that
+  tried it. The ones until the next attempt, an hour later, hold the air
+  without saying why.
+- Without an air sensor, the projection is anchored to the heater's own
+  air reading only on the simulation that fitted. The ones between are
+  unanchored, so the projected air can shift a little after each fit.
+- The fit's arithmetic runs in Home Assistant's event loop: about a tenth
+  of a second, once an hour per heater with a weather forecast. Where the library can't fit one, such as with less
+than a day of history or air that doesn't follow the outdoor air, its
+notes say why, the air is held at its reading, and the fit is tried again
+an hour later.
 
 The mains' temperature is read from Home Assistant's recorded history, at
 most once an hour, so the probe, the hot water in use sensor and the pump,
@@ -256,7 +279,8 @@ size. Expect:
   sooner than it does. At one installation, recoveries with more than three
   hours to go ended about three quarters of an hour later than physics said.
 - **The air matters most.** Without an air sensor, the answer rests on the
-  heater's own reading, which runs warm while the heat pump is off.
+  heater's own reading, which runs warm while the heat pump is off. Without
+  a weather forecast, the air is held at its reading for the whole day.
 - **The hot water is judged from the tank's probes.** Without a heat book
   (`no_heat_book`), the gallons rest on the library's evidence for the
   tank's two temperatures, and read 0 for a tank colder than all of it.
@@ -264,4 +288,3 @@ size. Expect:
 ## Planned
 
 - A heat book from a household hot water flow, when one is configured.
-- The air beside the heater projected from a weather forecast.

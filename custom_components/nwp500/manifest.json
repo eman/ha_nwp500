@@ -4,7 +4,8 @@
   "after_dependencies": [
     "frontend",
     "http",
-    "recorder"
+    "recorder",
+    "weather"
   ],
   "codeowners": [
     "@eman"
@@ -19,7 +20,7 @@
     "custom_components.nwp500"
   ],
   "requirements": [
-    "nwp500-python==9.10.0",
+    "nwp500-python==9.11.0",
     "awsiotsdk==1.31.0"
   ],
   "single_config_entry": true,

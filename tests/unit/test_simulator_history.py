@@ -179,6 +179,45 @@ async def test_both_clients_read_the_same_heater_history(
 
 
 @pytest.mark.asyncio
+async def test_both_clients_read_the_same_outdoor_history(
+    recorder_mock: Any, hass: HomeAssistant, hass_client: Any, freezer: Any
+):
+    """A weather entity's outdoor air, each row in the unit it was in."""
+    rest = await _rest(hass, hass_client)
+    start = dt_util.utcnow().replace(microsecond=0)
+    for minutes, attributes in (
+        (-5, {"temperature": 50.0, "temperature_unit": "°F"}),
+        (5, {"temperature": 11.0, "temperature_unit": "°C"}),
+        # A row naming no unit: the entity's unit now.
+        (10, {"temperature": 53.0}),
+        # A unit the library doesn't read: left out.
+        (15, {"temperature": 3.0, "temperature_unit": "furlongs"}),
+        (20, {"temperature": 55.0, "temperature_unit": "°F"}),
+    ):
+        freezer.move_to(start + timedelta(minutes=minutes))
+        hass.states.async_set("weather.home", "sunny", attributes)
+    await async_wait_recording_done(hass)
+    end = start + timedelta(minutes=25)
+
+    local = await InProcessClient(hass).outdoor_history(
+        "weather.home", start, end
+    )
+    remote = await rest.outdoor_history("weather.home", start, end)
+
+    assert local == remote
+    assert [round(v, 1) for _, v in local] == [50.0, 51.8, 53.0, 55.0]
+
+
+@pytest.mark.asyncio
+async def test_outdoor_history_needs_the_recorder(hass: HomeAssistant):
+    now = dt_util.utcnow()
+    with pytest.raises(HomeAssistantError, match="recorder is not running"):
+        await InProcessClient(hass).outdoor_history(
+            "weather.home", now - timedelta(hours=1), now
+        )
+
+
+@pytest.mark.asyncio
 async def test_a_recorder_query_that_fails_is_a_history_not_read(
     recorder_mock: Any, hass: HomeAssistant
 ):

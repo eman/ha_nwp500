@@ -34,6 +34,7 @@ from .const import (
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_SHOWER_GAL,
+    CONF_SIMULATOR_WEATHER_ENTITY,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
@@ -110,6 +111,7 @@ _L_PER_GAL = 3.785411784
 _SIMULATOR_ENTITIES = (
     CONF_SIMULATOR_AIR_ENTITY,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
+    CONF_SIMULATOR_WEATHER_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_DEMAND_ENTITY,
     CONF_SIMULATOR_CIRCULATION_ENTITY,
@@ -132,8 +134,8 @@ def _size_selector(*, metric: bool) -> selector.NumberSelector:
 def _simulator_device_schema(*, metric: bool = False) -> vol.Schema:
     """The simulator's form for one heater, every field optional.
 
-    The sensors beside it, the household's hot water use, and a bath's
-    and a shower's size.
+    The sensors beside it, a weather forecast, the household's hot water
+    use, and a bath's and a shower's size.
     """
     return vol.Schema(
         {
@@ -148,6 +150,11 @@ def _simulator_device_schema(*, metric: bool = False) -> vol.Schema:
                 selector.EntitySelectorConfig(
                     domain="sensor", device_class="humidity"
                 )
+            ),
+            vol.Optional(
+                CONF_SIMULATOR_WEATHER_ENTITY
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="weather")
             ),
             vol.Optional(CONF_SIMULATOR_INLET_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(
@@ -803,7 +810,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            'uv pip install "nwp500-python==9.10.0" "awsiotsdk==1.31.0"'
+            'uv pip install "nwp500-python==9.11.0" "awsiotsdk==1.31.0"'
         )
         raise CannotConnect("nwp500-python library not available")
 
