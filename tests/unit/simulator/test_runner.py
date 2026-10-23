@@ -9,17 +9,16 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from nwp500.sim_live import LiveReadError
+from nwp500 import sim
+from nwp500.sim_live import DEFAULT_PARAMS_NOTE
 
 from custom_components.nwp500.simulator.runner import (
     REASON_RESERVATIONS_UNKNOWN,
     STATE_DISABLED,
     STATE_HEATING,
     STATE_SCHEDULED,
-    WAIT_FEATURE,
     WAIT_STANDBY,
     WAIT_STATUS,
-    WAIT_TOU,
     Inputs,
     SimulatorRunner,
     answer_from,
@@ -72,9 +71,13 @@ def test_schedules_not_read_yet_are_named():
     assert reasons == (REASON_RESERVATIONS_UNKNOWN,)
     assert schedules.reservations == ()
 
-    # TOU on with no periods read: the library refuses to walk without.
-    with pytest.raises(LiveReadError):
-        heater_schedules(make_status(touStatus=True), RESERVATIONS, None)
+    # TOU on with no periods read: the walk goes on without them.
+    schedules, reasons = heater_schedules(
+        make_status(touStatus=True), RESERVATIONS, None
+    )
+    assert reasons == ()
+    assert schedules.tou_enabled is True
+    assert schedules.tou_periods == ()
 
 
 def test_schedules_are_read_from_the_stored_copies():
@@ -95,19 +98,31 @@ async def test_no_scenario_without_a_status(hass: HomeAssistant, coordinator):
 
 
 @pytest.mark.asyncio
-async def test_no_scenario_without_the_feature(
+async def test_without_the_feature_the_librarys_defaults_are_walked(
     hass: HomeAssistant, coordinator
 ):
     coordinator.device_features = {}
-    assert await runner(hass, coordinator).async_inputs() == WAIT_FEATURE
+
+    inputs = await runner(hass, coordinator).async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    assert inputs.params == sim.default_params()
+    assert DEFAULT_PARAMS_NOTE in inputs.notes
+    # Not the heater's part: a document's params would replace them.
+    assert DEFAULT_PARAMS_NOTE not in inputs.live_notes
 
 
 @pytest.mark.asyncio
-async def test_no_scenario_before_the_tou_periods_are_read(
+async def test_tou_periods_not_read_do_not_hold_the_walk_up(
     hass: HomeAssistant, coordinator
 ):
     coordinator.data[MAC]["status"] = make_status(touStatus=True)
-    assert await runner(hass, coordinator).async_inputs() == WAIT_TOU
+
+    inputs = await runner(hass, coordinator).async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    result = sim.simulate(inputs.scenario, inputs.params)
+    assert "tou_schedule_unknown" in result.reasons
 
 
 @pytest.mark.asyncio
