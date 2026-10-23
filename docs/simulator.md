@@ -64,12 +64,12 @@ measures.
 | Humidity beside the heater | The heat pump's output | 50% |
 | Cold water supply temperature | With the hot water in use sensor, the mains' temperature, read from a probe on the cold supply over the last 72 hours' long draws | The library's default inlet |
 | Hot water in use | A binary sensor on while the household draws hot water, its circulation's water not counted: whether water is being drawn now, and which of the supply probe's readings are long draws | No draw now, and no mains' temperature from the probe |
-| Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | Its runs unknown: no mains' temperature from the probe |
+| Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | No runs left out: the probe and the hot water in use sensor still give the mains' temperature. A pump configured whose history can't be read gives none |
 | Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit | The library's sizes, which `defaults_used` names |
 
 The mains' temperature is read from Home Assistant's recorded history, at
-most once an hour, so the probe, the hot water in use sensor and the pump
-must be recorded (the recorder's default). Whether water is drawn now is
+most once an hour, so the probe, the hot water in use sensor and the pump,
+when there is one, must be recorded (the recorder's default). Whether water is drawn now is
 read with every simulation. A probe that holds one value through a long draw
 leaves one recorded reading, too few for the library to read the mains
 from; its notes say so.
