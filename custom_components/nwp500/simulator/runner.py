@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.const import STATE_ON
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
@@ -32,7 +33,12 @@ from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
 from nwp500.sim import codec
 from nwp500.sim.inputs import POWER_OFF, VACATION, Scenario, Schedules
-from nwp500.sim_home_assistant import Entities, HomeAssistantEnvironment
+from nwp500.sim.location_air import FittedLocationAir
+from nwp500.sim_home_assistant import (
+    Entities,
+    HeaterEntities,
+    HomeAssistantEnvironment,
+)
 from nwp500.sim_live import Composed, Given, compose, heater_reading, overlay
 
 from ..const import (
@@ -43,6 +49,8 @@ from ..const import (
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_SHOWER_GAL,
+    CONF_SIMULATOR_WEATHER_ENTITY,
+    DOMAIN,
 )
 from .ha_client import InProcessClient
 
@@ -65,6 +73,9 @@ REFRESH_INTERVAL = timedelta(minutes=5)
 # The mains' temperature, from the last 72 hours' long draws, moves slowly:
 # read at most hourly, not with every walk.
 INLET_REFRESH = timedelta(hours=1)
+# The library fits how the air beside the heater follows the outdoor air
+# on the last 3 days: fitted at most hourly, and the model kept between.
+AIR_FIT_REFRESH = timedelta(hours=1)
 
 # The heating states the entities report.
 STATE_HEATING = "heating"
@@ -270,6 +281,8 @@ class SimulatorRunner:
         self._inlet: tuple[datetime, float | None, tuple[str, ...]] | None = (
             None
         )
+        # When the air model was last fitted, and the fit; None for none.
+        self.air_fit: tuple[datetime, FittedLocationAir | None] | None = None
         self._debouncer = Debouncer(
             hass,
             _LOGGER,
@@ -289,6 +302,64 @@ class SimulatorRunner:
             circulation_speed=self.options.get(
                 CONF_SIMULATOR_CIRCULATION_ENTITY
             ),
+            weather=self.options.get(CONF_SIMULATOR_WEATHER_ENTITY),
+        )
+
+    def _heater_air(self) -> HeaterEntities | None:
+        """The heater's own air reading and compressor, as named here.
+
+        Where no air sensor is chosen, the library fits on that air while
+        the compressor runs. None when the heater's entities aren't
+        registered yet.
+        """
+        registry = er.async_get(self.hass)
+        mac = self.mac_address
+
+        def entity(domain: str, key: str) -> str | None:
+            return registry.async_get_entity_id(domain, DOMAIN, f"{mac}_{key}")
+
+        heard = entity("sensor", "diagnostic_last_response")
+        upper = entity("sensor", "tank_upper_temperature")
+        lower = entity("sensor", "tank_lower_temperature")
+        if heard is None or upper is None or lower is None:
+            return None
+        return HeaterEntities(
+            heard=heard,
+            upper=upper,
+            lower=lower,
+            ambient=entity("sensor", "ambient_temperature"),
+            compressor=entity("binary_sensor", "comp_use"),
+        )
+
+    def _environment(
+        self, start: datetime, until: datetime
+    ) -> HomeAssistantEnvironment | None:
+        """The air and humidity's source for one walk; None for neither.
+
+        The inlet is read apart, at most hourly (`_async_inlet`). With a
+        weather entity, the library fits the air model when it is due and
+        is given the kept model otherwise; after a fit that gave none, the
+        walks between leave the weather out.
+        """
+        entities = dataclasses.replace(self.entities, inlet=None)
+        location_air = None
+        fit = self.air_fit
+        if entities.weather is not None and fit is not None:
+            if start - fit[0] < AIR_FIT_REFRESH:
+                if fit[1] is None:
+                    entities = dataclasses.replace(entities, weather=None)
+                else:
+                    location_air = fit[1].model
+        if not any((entities.air, entities.humidity, entities.weather)):
+            return None
+        return HomeAssistantEnvironment(
+            cast("HomeAssistantClient", InProcessClient(self.hass)),
+            entities,
+            start=start,
+            until=until,
+            now=start,
+            location_air=location_air,
+            heater=self._heater_air() if entities.weather else None,
         )
 
     def _drawing(self) -> bool:
@@ -382,17 +453,7 @@ class SimulatorRunner:
         )
         start = start or dt_util.utcnow().replace(microsecond=0)
         until = start + HORIZON
-        environment = None
-        entities = self.entities
-        if entities.air is not None or entities.humidity is not None:
-            # The inlet is read apart, at most hourly (`_async_inlet`).
-            environment = HomeAssistantEnvironment(
-                cast("HomeAssistantClient", InProcessClient(self.hass)),
-                dataclasses.replace(entities, inlet=None),
-                start=start,
-                until=until,
-                now=start,
-            )
+        environment = self._environment(start, until)
         # A one-shot read knows no history: `compose` leaves it unset and
         # the result names the defaults it used.
         composed = await compose(
@@ -403,6 +464,13 @@ class SimulatorRunner:
             schedules=Given(schedules),
             environment=environment,
         )
+        if (
+            environment is not None
+            and environment.entities.weather is not None
+            and environment.location_air is None
+        ):
+            # Fitted on this walk: kept for the walks to the next fit.
+            self.air_fit = (start, environment.fitted_air)
         # The inlet laid on as the CLI lays a given one, and the
         # parameters the heater's tank size gives, or the library's
         # defaults without it.

@@ -1418,6 +1418,8 @@ CONF_SIMULATOR_ENABLED: Final = "simulator_enabled"
 CONF_SIMULATOR: Final = "simulator"
 CONF_SIMULATOR_AIR_ENTITY: Final = "air_entity"
 CONF_SIMULATOR_HUMIDITY_ENTITY: Final = "humidity_entity"
+# A weather entity whose forecast projects the air beside the heater.
+CONF_SIMULATOR_WEATHER_ENTITY: Final = "weather_entity"
 # Hot water use, each optional: a probe on the cold supply, a binary
 # sensor on while the household draws hot water (its circulation's water
 # not counted), and the circulation pump's speed.

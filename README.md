@@ -245,7 +245,8 @@ Assistant, from what the heater reports, and keeps these up to date:
   the hot water the tank can deliver now.
 
 Every input beyond the heater is optional, and each adds what it measures:
-sensors for the air and humidity beside the heater, a cold water supply
+sensors for the air and humidity beside the heater, a weather forecast
+to project that air over the day, a cold water supply
 probe, a sensor that is on while hot water is in use, the circulation
 pump's speed, and a bath's and a shower's size.
 
