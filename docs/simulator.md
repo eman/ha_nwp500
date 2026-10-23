@@ -83,7 +83,9 @@ Two limits between fits, for now:
   without saying why.
 - Without an air sensor, the projection is anchored to the heater's own
   air reading only on the simulation that fitted. The ones between are
-  unanchored, so the projected air can shift a little after each fit. Where the library can't fit one, such as with less
+  unanchored, so the projected air can shift a little after each fit.
+- The fit's arithmetic runs in Home Assistant's event loop: about a tenth
+  of a second, once an hour per heater with a weather forecast. Where the library can't fit one, such as with less
 than a day of history or air that doesn't follow the outdoor air, its
 notes say why, the air is held at its reading, and the fit is tried again
 an hour later.
