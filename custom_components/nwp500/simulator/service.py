@@ -121,7 +121,7 @@ async def async_inputs(
         scenario=built.scenario,
         params=built.params,
         reasons=() if live is None else live.reasons,
-        notes=(*(() if live is None else live.notes), *built.notes),
+        notes=(*(() if live is None else live.live_notes), *built.notes),
     )
 
 

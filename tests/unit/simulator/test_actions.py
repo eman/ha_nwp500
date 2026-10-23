@@ -320,16 +320,46 @@ async def test_the_profile_is_the_tanks_the_scenario_gives(
     assert response["result"]["tank_gal"] == 40.0
 
 
-async def test_no_answer_before_the_tou_periods_are_read(
+async def test_tou_periods_not_read_do_not_hold_an_answer_up(
     hass: HomeAssistant, runner: SimulatorRunner, coordinator
 ):
     coordinator.data[MAC]["status"] = make_status(touStatus=True)
 
-    with pytest.raises(ServiceValidationError) as err:
-        await service.async_next_recovery(hass, runner)
+    response = await service.async_simulate(hass, runner, hours=2)
 
-    assert err.value.translation_key == "simulator_no_answer"
-    assert err.value.translation_placeholders == {"reason": "no_tou_periods"}
+    assert "tou_schedule_unknown" in response["result"]["reasons"]
+
+
+async def test_without_the_feature_the_librarys_defaults_answer(
+    hass: HomeAssistant, runner: SimulatorRunner, coordinator
+):
+    coordinator.device_features = {}
+
+    response = await service.async_heater_profile(hass, runner)
+
+    assert (
+        response["result"]["tank_gal"] == sim.default_params().tank.volume_gal
+    )
+    assert response["inputs"]["notes"].count(DEFAULT_PARAMS_NOTE) == 1
+
+
+async def test_a_documents_params_leave_no_note_of_the_defaults(
+    hass: HomeAssistant, runner: SimulatorRunner, coordinator
+):
+    document = await snapshot(hass, runner)
+    coordinator.device_features = {}
+
+    response = await service.async_heater_profile(
+        hass,
+        runner,
+        scenario={
+            "schema_version": 1,
+            "scenario": {},
+            "params": document["params"],
+        },
+    )
+
+    assert DEFAULT_PARAMS_NOTE not in response["inputs"]["notes"]
 
 
 async def planned_write(hass: HomeAssistant, runner: SimulatorRunner) -> Any:

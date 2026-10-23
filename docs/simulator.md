@@ -97,9 +97,13 @@ Simulated heating also has the next heating interval's start (`starts_at`, none 
 
 The sensors appear once the simulator is running, which can take a few
 minutes while its packages install. They are unavailable while the heater
-isn't reporting, before its details have arrived, and when a simulation
-fails (the log says why, once). They are also unavailable in Standby, which
-the library doesn't model.
+isn't reporting and when a simulation fails (the log says why, once). They
+are also unavailable in Standby, which the library doesn't model.
+
+Nothing optional holds them up. Until the heater's details have arrived,
+the tank size is unknown and the library's defaults are used, which its
+notes say. Until the heater's time-of-use plan has been read, the walk
+goes on without it and the library's reasons say `tou_schedule_unknown`.
 
 The simulation runs again when the heater reports, at most once a minute,
 and every five minutes in any case.
@@ -120,8 +124,7 @@ nothing on the heater. Each is one of nwp500-python's calls on a scenario:
 
 They need the simulator running. While they read the heater, they refuse
 to answer in Standby, which the library doesn't model, and before the
-heater's status, its details, or (with time-of-use on) its time-of-use
-periods have arrived.
+heater has reported its status.
 
 ### The scenario
 

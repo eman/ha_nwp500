@@ -105,6 +105,45 @@ def test_handle_feature_update_in_loop(coordinator):
     assert coordinator.device_features[mac] == feature
 
 
+def _feature_arrives(coordinator, mac: str = "AA:BB:CC:DD:EE:FF") -> MagicMock:
+    device = MagicMock()
+    device.device_info.mac_address = mac
+    coordinator.devices = [device]
+    coordinator._update_device_cache()
+    coordinator._async_request_initial_tou = MagicMock(return_value="read")
+    feature = MagicMock()
+    feature.model_dump = MagicMock(return_value={})
+    coordinator._handle_feature_update_in_loop(mac, feature)
+    return device
+
+
+def test_the_tou_plan_is_read_when_the_device_info_first_arrives(coordinator):
+    """A device slower than setup has its plan read now, not ~20 min on."""
+    device = _feature_arrives(coordinator)
+
+    coordinator._async_request_initial_tou.assert_called_once_with(device)
+    coordinator.hass.async_create_task.assert_called_once()
+    assert coordinator.hass.async_create_task.call_args.args[0] == "read"
+
+
+def test_the_tou_plan_is_not_read_again_on_later_device_info(coordinator):
+    mac = "AA:BB:CC:DD:EE:FF"
+    coordinator.device_features = {mac: MagicMock()}
+
+    _feature_arrives(coordinator, mac)
+
+    coordinator._async_request_initial_tou.assert_not_called()
+
+
+def test_a_tou_plan_already_read_is_not_read_again(coordinator):
+    mac = "AA:BB:CC:DD:EE:FF"
+    coordinator.tou_schedules = {mac: {"reservation": []}}
+
+    _feature_arrives(coordinator, mac)
+
+    coordinator._async_request_initial_tou.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_async_update_data_syncs_unit_system(coordinator, mock_hass):
     """Test that _async_update_data synchronizes the unit system."""
@@ -2679,6 +2718,77 @@ async def test_initial_tou_read_never_fails_setup(coordinator):
     await coordinator._async_request_initial_tou(_device_with_mac())
 
     coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+@pytest.mark.asyncio
+async def test_initial_tou_read_is_skipped_once_the_plan_is_read(coordinator):
+    """Setup and the device info's arrival both ask; one read is enough."""
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    coordinator.tou_schedules = {MAC: {"reservation": []}}
+    coordinator.async_request_tou_settings = AsyncMock(return_value=True)
+
+    await coordinator._async_request_initial_tou(_device_with_mac())
+
+    coordinator.async_request_tou_settings.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_overlapping_initial_tou_reads_read_once(coordinator):
+    """Setup's read and the device info's must not both ask the cloud."""
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    release = asyncio.Event()
+
+    async def read(mac: str) -> bool:
+        await release.wait()
+        coordinator.tou_schedules[mac] = {"reservation": []}
+        return True
+
+    coordinator.async_request_tou_settings = AsyncMock(side_effect=read)
+    first = asyncio.create_task(
+        coordinator._async_request_initial_tou(_device_with_mac())
+    )
+    second = asyncio.create_task(
+        coordinator._async_request_initial_tou(_device_with_mac())
+    )
+    await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(first, second)
+
+    coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_a_pending_initial_tou_read(coordinator):
+    """A read still waiting on the cloud must not outlive the entry."""
+    started = asyncio.Event()
+
+    async def read(mac: str) -> bool:
+        started.set()
+        await asyncio.Event().wait()
+        return True
+
+    coordinator.hass.async_create_task = lambda coro, name=None: (
+        asyncio.get_running_loop().create_task(coro)
+    )
+    coordinator.async_request_tou_settings = AsyncMock(side_effect=read)
+    device = _device_with_mac()
+    coordinator.devices = [device]
+    coordinator._update_device_cache()
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    features.model_dump = MagicMock(return_value={})
+    coordinator._handle_feature_update_in_loop(MAC, features)
+    task = coordinator._initial_tou_tasks[MAC]
+    await started.wait()
+
+    await coordinator.async_shutdown()
+
+    assert task.cancelled()
+    assert coordinator._initial_tou_tasks == {}
 
 
 # ---------------------------------------------------------------------------

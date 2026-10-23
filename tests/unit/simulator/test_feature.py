@@ -230,7 +230,7 @@ async def test_the_service_says_when_there_is_no_scenario(
 ):
     feature = await started(hass, entry, coordinator)
     runner = feature.runners[MAC]
-    coordinator.device_features = {}
+    coordinator.data[MAC]["status"] = None
 
     with pytest.raises(ServiceValidationError) as err:
         await async_simulate(

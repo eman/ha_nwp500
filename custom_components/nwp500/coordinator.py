@@ -206,6 +206,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # and every device reaches the refresh cycle on the same update.
         # Run as tasks instead, at most one per device.
         self._schedule_refresh_tasks: dict[str, asyncio.Task[None]] = {}
+        # The TOU plan's first read, started when a device's info arrives,
+        # and one lock per device so that read and setup's never overlap.
+        self._initial_tou_tasks: dict[str, asyncio.Task[None]] = {}
+        self._initial_tou_locks: dict[str, asyncio.Lock] = {}
         # Track periodic re-reads of the REST device list, which carries the
         # cloud-recorded fault and descaling window (see
         # _async_refresh_device_metadata).
@@ -1386,13 +1390,24 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_request_initial_tou(self, device: Device) -> None:
-        """Read the TOU plan once at setup, if the device is ready for it.
+        """Read the TOU plan at setup, or when the device info first arrives.
 
+        One read at a time per device: the second finds the plan read.
         Best-effort: a device whose info has not arrived yet is skipped
         silently, because `_async_refresh_schedules` re-reads the plan on
         its own cycle. Nothing here may fail setup -- the TOU plan is not
         what the connection is for.
         """
+        mac_address = device.device_info.mac_address
+        lock = self._initial_tou_locks.setdefault(mac_address, asyncio.Lock())
+        async with lock:
+            if mac_address in self.tou_schedules:
+                # Read already, when the device info arrived or at setup.
+                return
+            await self._async_read_initial_tou(device)
+
+    async def _async_read_initial_tou(self, device: Device) -> None:
+        """Read one device's TOU plan, if its device info has arrived."""
         mac_address = device.device_info.mac_address
 
         # Mirrors the guard inside async_request_tou_settings, so the
@@ -1529,7 +1544,20 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     feature_dict.get("controller_sw_version"),
                 )
 
+            first = mac_address not in self.device_features
             self.device_features[mac_address] = feature
+
+            # The TOU plan's read needs the controller serial this brings.
+            # A device slower to answer than setup was skipped there; read
+            # its plan now rather than at the next schedule refresh.
+            device = self._devices_by_mac.get(mac_address)
+            if first and device and mac_address not in self.tou_schedules:
+                self._initial_tou_tasks[mac_address] = (
+                    self.hass.async_create_task(
+                        self._async_request_initial_tou(device),
+                        f"{DOMAIN} initial TOU read {mac_address}",
+                    )
+                )
 
             # Notify listeners that features (which affect device info, limits, etc.)
             # have been updated.
@@ -2320,6 +2348,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not task.done():
                 task.cancel()
         self._schedule_refresh_tasks.clear()
+
+        # And a TOU plan's first read, a REST call: it must not outlive the
+        # clients closed below, nor update a retired coordinator.
+        pending = [t for t in self._initial_tou_tasks.values() if not t.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        self._initial_tou_tasks.clear()
 
         # Cancel any pending reconnection task
         if self._reconnect_task and not self._reconnect_task.done():
