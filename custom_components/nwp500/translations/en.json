@@ -442,6 +442,9 @@
       "last_response": {
         "name": "Last MQTT response"
       },
+      "last_status": {
+        "name": "Last status"
+      },
       "request_count": {
         "name": "MQTT requests sent"
       },
