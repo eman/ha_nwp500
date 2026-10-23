@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 else:
     import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD
+from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfVolume
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
@@ -27,8 +27,13 @@ from .const import (
     CONF_SCAN_INTERVAL,
     CONF_SIMULATOR,
     CONF_SIMULATOR_AIR_ENTITY,
+    CONF_SIMULATOR_BATH_GAL,
+    CONF_SIMULATOR_CIRCULATION_ENTITY,
+    CONF_SIMULATOR_DEMAND_ENTITY,
     CONF_SIMULATOR_ENABLED,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
+    CONF_SIMULATOR_INLET_ENTITY,
+    CONF_SIMULATOR_SHOWER_GAL,
     CONTROL_LIVE_AVAILABLE,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
@@ -99,8 +104,37 @@ SIMULATOR_GUIDE_URL = (
 )
 
 
-def _simulator_device_schema() -> vol.Schema:
-    """The simulator's form for one heater: the sensors beside it."""
+#: Litres in a US gallon: the sizes are stored in gallons.
+_L_PER_GAL = 3.785411784
+#: The entities a heater's options may name.
+_SIMULATOR_ENTITIES = (
+    CONF_SIMULATOR_AIR_ENTITY,
+    CONF_SIMULATOR_HUMIDITY_ENTITY,
+    CONF_SIMULATOR_INLET_ENTITY,
+    CONF_SIMULATOR_DEMAND_ENTITY,
+    CONF_SIMULATOR_CIRCULATION_ENTITY,
+)
+_SIZES = (CONF_SIMULATOR_BATH_GAL, CONF_SIMULATOR_SHOWER_GAL)
+
+
+def _size_selector(*, metric: bool) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=1,
+            max=1000 if metric else 260,
+            step=0.1,
+            mode=selector.NumberSelectorMode.BOX,
+            unit_of_measurement="L" if metric else "gal",
+        )
+    )
+
+
+def _simulator_device_schema(*, metric: bool = False) -> vol.Schema:
+    """The simulator's form for one heater, every field optional.
+
+    The sensors beside it, the household's hot water use, and a bath's
+    and a shower's size.
+    """
     return vol.Schema(
         {
             vol.Optional(CONF_SIMULATOR_AIR_ENTITY): selector.EntitySelector(
@@ -115,17 +149,46 @@ def _simulator_device_schema() -> vol.Schema:
                     domain="sensor", device_class="humidity"
                 )
             ),
+            vol.Optional(CONF_SIMULATOR_INLET_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="temperature"
+                )
+            ),
+            vol.Optional(CONF_SIMULATOR_DEMAND_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="binary_sensor")
+            ),
+            vol.Optional(
+                CONF_SIMULATOR_CIRCULATION_ENTITY
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(CONF_SIMULATOR_BATH_GAL): _size_selector(
+                metric=metric
+            ),
+            vol.Optional(CONF_SIMULATOR_SHOWER_GAL): _size_selector(
+                metric=metric
+            ),
         }
     )
 
 
-def _simulator_device_options(user_input: dict[str, Any]) -> dict[str, Any]:
-    """A heater's stored options: the sensors chosen, nothing for none."""
-    return {
+def _simulator_device_options(
+    user_input: dict[str, Any], *, metric: bool = False
+) -> dict[str, Any]:
+    """A heater's stored options: the sensors chosen, nothing for none.
+
+    The sizes in gallons, from the form's unit.
+    """
+    options = {
         key: user_input[key]
-        for key in (CONF_SIMULATOR_AIR_ENTITY, CONF_SIMULATOR_HUMIDITY_ENTITY)
+        for key in _SIMULATOR_ENTITIES
         if user_input.get(key)
     }
+    for key in _SIZES:
+        if user_input.get(key):
+            size = float(user_input[key])
+            options[key] = round(size / _L_PER_GAL if metric else size, 2)
+    return options
 
 
 class _SimulatorSteps:
@@ -244,14 +307,28 @@ class _SimulatorSteps:
         """Go on without the simulator."""
         raise NotImplementedError
 
+    def _simulator_metric(self) -> bool:
+        """Whether Home Assistant measures volume in litres."""
+        return bool(self.hass.config.units.volume_unit != UnitOfVolume.GALLONS)
+
+    def _simulator_shown(self, mac_address: str) -> dict[str, Any]:
+        """A heater's options as its form shows them: sizes in the unit."""
+        shown = dict(self._simulator_existing.get(mac_address, {}))
+        if self._simulator_metric():
+            for key in _SIZES:
+                if shown.get(key):
+                    shown[key] = round(float(shown[key]) * _L_PER_GAL, 1)
+        return shown
+
     async def async_step_simulator_device(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """The sensors beside one heater, each optional."""
         mac_address, name = self._simulator_devices[self._simulator_index]
+        metric = self._simulator_metric()
         if user_input is not None:
             self._simulator_answers[mac_address] = _simulator_device_options(
-                user_input
+                user_input, metric=metric
             )
             self._simulator_index += 1
             if self._simulator_index < len(self._simulator_devices):
@@ -260,8 +337,8 @@ class _SimulatorSteps:
         return self.async_show_form(  # type: ignore[attr-defined,no-any-return]
             step_id="simulator_device",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
-                _simulator_device_schema(),
-                self._simulator_existing.get(mac_address, {}),
+                _simulator_device_schema(metric=metric),
+                self._simulator_shown(mac_address),
             ),
             description_placeholders={
                 "device": name,

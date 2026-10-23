@@ -28,7 +28,9 @@ from custom_components.nwp500.simulator.runner import Answer
 from custom_components.nwp500.simulator.sensor import (
     SimulatorEnergySensor,
     SimulatorHeatingSensor,
+    SimulatorHotWaterAvailableSensor,
     SimulatorHotWaterReadySensor,
+    SimulatorShowersReadySensor,
 )
 from custom_components.nwp500.simulator.service import async_simulate
 
@@ -413,6 +415,8 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
         SimulatorHeatingSensor,
         SimulatorHotWaterReadySensor,
         SimulatorEnergySensor,
+        SimulatorHotWaterAvailableSensor,
+        SimulatorShowersReadySensor,
     }
     await async_unload_simulator(hass, entry)
 

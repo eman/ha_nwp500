@@ -234,13 +234,20 @@ years:
 Optional, and off unless you turn it on, at setup or later in the
 integration's options. It runs the heater simulator from
 [nwp500-python](https://github.com/eman/nwp500-python) inside Home
-Assistant, from what the heater reports, and keeps three sensors up to date:
+Assistant, from what the heater reports, and keeps these up to date:
 
 - **Simulated heating**: heating, will heat (within the next 24 hours), not
   heating today, or heating off.
 - **Simulated hot water ready**: when the tank's current or next heating
   ends.
 - **Simulated energy, next 24 hours**: the electricity it is likely to use.
+- **Simulated hot water available**, **showers ready** and **bath ready**:
+  the hot water the tank can deliver now.
+
+Every input beyond the heater is optional, and each adds what it measures:
+sensors for the air and humidity beside the heater, a cold water supply
+probe, a sensor that is on while hot water is in use, the circulation
+pump's speed, and a bath's and a shower's size.
 
 Its actions return the library's answers on request without touching the
 heater: `nwp500.simulate` (a simulation up to a week ahead, optionally

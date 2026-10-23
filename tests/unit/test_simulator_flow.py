@@ -126,6 +126,39 @@ async def test_setting_up_asks_about_each_heater(
     install.assert_not_awaited()
 
 
+async def test_setting_up_takes_the_hot_water_inputs(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    """Each optional; the sizes in Home Assistant's unit, stored in gallons."""
+    from homeassistant.util.unit_system import METRIC_SYSTEM
+
+    hass.config.units = METRIC_SYSTEM
+    with signed_in(devices=[(MAC, "Water heater")]):
+        result = await _to_menu(hass)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "simulator_setup"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                "inlet_entity": "sensor.supply",
+                "demand_entity": "binary_sensor.demand",
+                "circulation_speed_entity": "sensor.pump",
+                "bath_gal": 113.6,
+                "shower_gal": 45.4,
+            },
+        )
+
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["result"].options["simulator"][MAC] == {
+        "inlet_entity": "sensor.supply",
+        "demand_entity": "binary_sensor.demand",
+        "circulation_speed_entity": "sensor.pump",
+        "bath_gal": 30.01,
+        "shower_gal": 11.99,
+    }
+
+
 async def _through_progress(hass: HomeAssistant, result: dict) -> dict:
     """Past the install's progress step.
 
@@ -336,6 +369,34 @@ async def test_options_suggest_the_sensors_chosen_and_let_them_be_cleared(
         )
 
     assert entry.options["simulator"] == {MAC: {}}
+
+
+@pytest.mark.asyncio
+async def test_options_show_the_sizes_in_home_assistants_unit(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    from homeassistant.util.unit_system import METRIC_SYSTEM
+
+    hass.config.units = METRIC_SYSTEM
+    entry = _loaded_entry(
+        hass,
+        {
+            "simulator_enabled": True,
+            "simulator": {MAC: {"bath_gal": 30.0, "shower_gal": 12.0}},
+        },
+    )
+    with packages():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"scan_interval": 30, "simulator_enabled": True}
+        )
+        suggested = {
+            str(key): (key.description or {}).get("suggested_value")
+            for key in result["data_schema"].schema
+        }
+
+    assert suggested["bath_gal"] == 113.6
+    assert suggested["shower_gal"] == 45.4
 
 
 @pytest.mark.asyncio

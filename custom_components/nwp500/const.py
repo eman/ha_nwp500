@@ -1418,6 +1418,16 @@ CONF_SIMULATOR_ENABLED: Final = "simulator_enabled"
 CONF_SIMULATOR: Final = "simulator"
 CONF_SIMULATOR_AIR_ENTITY: Final = "air_entity"
 CONF_SIMULATOR_HUMIDITY_ENTITY: Final = "humidity_entity"
+# Hot water use, each optional: a probe on the cold supply, a binary
+# sensor on while the household draws hot water (its circulation's water
+# not counted), and the circulation pump's speed.
+CONF_SIMULATOR_INLET_ENTITY: Final = "inlet_entity"
+CONF_SIMULATOR_DEMAND_ENTITY: Final = "demand_entity"
+CONF_SIMULATOR_CIRCULATION_ENTITY: Final = "circulation_speed_entity"
+# A bath's and a shower's hot water, US gallons as stored; the form takes
+# them in Home Assistant's volume unit. Without them, the library's.
+CONF_SIMULATOR_BATH_GAL: Final = "bath_gal"
+CONF_SIMULATOR_SHOWER_GAL: Final = "shower_gal"
 
 # Keys into hass.data[DOMAIN][entry_id]: the running simulator, and the
 # task starting it.
