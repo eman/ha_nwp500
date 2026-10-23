@@ -33,11 +33,13 @@ from nwp500 import sim_adapters as sa
 from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
 from nwp500.sim import codec
+from nwp500.sim.book import Booked
 from nwp500.sim.inputs import POWER_OFF, VACATION, Scenario, Schedules
 from nwp500.sim.location_air import FittedLocationAir
 from nwp500.sim_home_assistant import (
     Entities,
     HeaterEntities,
+    HomeAssistantBook,
     HomeAssistantEnvironment,
     fit_location_air,
 )
@@ -48,6 +50,7 @@ from ..const import (
     CONF_SIMULATOR_BATH_GAL,
     CONF_SIMULATOR_CIRCULATION_ENTITY,
     CONF_SIMULATOR_DEMAND_ENTITY,
+    CONF_SIMULATOR_DRAW_FLOW_ENTITY,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_SHOWER_GAL,
@@ -116,6 +119,11 @@ class Inputs:
     #: Whether the household draws hot water now, as its demand entity
     #: says; False without one.
     drawing: bool = False
+    #: The tank's heat, booked from the heater's history and the draw
+    #: flow's (`HomeAssistantBook`); None without a draw flow, and whether
+    #: its gallons convert at the mains (`inlet_measured`).
+    book: Booked | None = None
+    inlet_measured: bool = False
 
 
 @dataclass(frozen=True)
@@ -246,13 +254,20 @@ def walk(
 ) -> tuple[SimulationResult, Readiness]:
     """The day ahead and the hot water now. Runs in an executor."""
     return (
-        sim.simulate(inputs.scenario, inputs.params),
+        sim.simulate(
+            inputs.scenario,
+            inputs.params,
+            book=inputs.book,
+            inlet_measured=inputs.inlet_measured,
+        ),
         sim.time_to_ready(
             inputs.scenario,
             inputs.params,
+            book=inputs.book,
             bath_gal=bath_gal,
             shower_gal=shower_gal,
             drawing=inputs.drawing,
+            inlet_measured=inputs.inlet_measured,
         ),
     )
 
@@ -291,6 +306,8 @@ class SimulatorRunner:
         # The walks' and the actions' reads of the environment, one at a
         # time: two callers finding a fit or the inlet due read it once.
         self._reading = asyncio.Lock()
+        # The book's keeper and the history it holds; made on first use.
+        self._book: HomeAssistantBook | None = None
         self._debouncer = Debouncer(
             hass,
             _LOGGER,
@@ -313,12 +330,12 @@ class SimulatorRunner:
             weather=self.options.get(CONF_SIMULATOR_WEATHER_ENTITY),
         )
 
-    def _heater_air(self) -> HeaterEntities | None:
-        """The heater's own air reading and compressor, as named here.
+    def _heater_entities(self) -> HeaterEntities | None:
+        """The heater's own entities, as named here, for its history.
 
-        Where no air sensor is chosen, the library fits on that air while
-        the compressor runs. None when the heater's entities aren't
-        registered yet.
+        Where no air sensor is chosen, the library fits the air on the
+        heater's own reading while the compressor runs; the book reads
+        them all. None when the heater's entities aren't registered yet.
         """
         registry = er.async_get(self.hass)
 
@@ -339,9 +356,69 @@ class SimulatorRunner:
             heard=heard,
             upper=upper,
             lower=lower,
-            ambient=entity("sensor", "ambient_temperature"),
             compressor=entity("binary_sensor", "comp_use"),
+            upper_element=entity("binary_sensor", "heat_upper_use"),
+            lower_element=entity("binary_sensor", "heat_lower_use"),
+            heat_source=entity("sensor", "current_heat_use"),
+            dhw_in_use=entity("binary_sensor", "dhw_use"),
+            target=entity("sensor", "hp_lower_off_temp_setting"),
+            operation_mode=entity("sensor", "operation_mode"),
+            anti_legionella=entity(
+                "binary_sensor", "anti_legionella_operation_busy"
+            ),
+            error_code=entity("sensor", "error_code"),
+            power=entity("sensor", "current_inst_power"),
+            energy_to_setpoint=entity("sensor", "energy_to_setpoint"),
+            ambient=entity("sensor", "ambient_temperature"),
         )
+
+    def _keeper(self) -> HomeAssistantBook | None:
+        """The book's keeper, made once the heater's entities are known.
+
+        None without a draw flow: there is no book, and the library
+        answers from the tank's probes.
+        """
+        flow = self.options.get(CONF_SIMULATOR_DRAW_FLOW_ENTITY)
+        if flow is None:
+            return None
+        if self._book is None:
+            heater = self._heater_entities()
+            if heater is None:
+                return None
+            e = self.entities
+            self._book = HomeAssistantBook(
+                cast("HomeAssistantClient", InProcessClient(self.hass)),
+                heater,
+                flow,
+                Entities(
+                    circulation_speed=e.circulation_speed,
+                    inlet=e.inlet,
+                    demand=e.demand,
+                    air=e.air,
+                ),
+            )
+        return self._book
+
+    async def _async_book(
+        self, at: datetime, params: Any
+    ) -> tuple[Booked | None, bool, tuple[str, ...]]:
+        """The tank's heat at `at`, and whether it converts at the mains.
+
+        The keeper reads only the history since its last read; booking
+        from what it holds is CPU work, run in the executor.
+        """
+        keeper = self._keeper()
+        if keeper is None:
+            if self.options.get(CONF_SIMULATOR_DRAW_FLOW_ENTITY) is None:
+                return None, False, ()
+            return (
+                None,
+                False,
+                ("book: the heater's entities aren't registered",),
+            )
+        await keeper.read(at)
+        answer = await self.hass.async_add_executor_job(keeper.book, at, params)
+        return answer.booked, answer.inlet_measured, answer.notes
 
     def _environment(
         self, start: datetime, until: datetime
@@ -366,7 +443,7 @@ class SimulatorRunner:
             until=until,
             now=start,
             fitted_air=fitted,
-            heater=self._heater_air() if fitted else None,
+            heater=self._heater_entities() if fitted else None,
             run=self.hass.async_add_executor_job,
         )
 
@@ -386,7 +463,7 @@ class SimulatorRunner:
                 cast("HomeAssistantClient", InProcessClient(self.hass)),
                 Entities(air=self.entities.air, weather=weather),
                 now=now,
-                heater=self._heater_air(),
+                heater=self._heater_entities(),
                 run=self.hass.async_add_executor_job,
             )
             fit = self.air_fit = (now, fitted, tuple(notes))
@@ -498,20 +575,24 @@ class SimulatorRunner:
                 environment=environment,
             )
             inlet_f, inlet_notes = await self._async_inlet(start)
-        # The inlet laid on as the CLI lays a given one, and the
-        # parameters the heater's tank size gives, or the library's
-        # defaults without it.
-        built = overlay(
-            composed,
-            now=start,
-            over=None
-            if inlet_f is None
-            else {"environment": {"inlet_f": inlet_f}},
-        )
+            # The inlet laid on as the CLI lays a given one, and the
+            # parameters the heater's tank size gives, or the library's
+            # defaults without it.
+            built = overlay(
+                composed,
+                now=start,
+                over=None
+                if inlet_f is None
+                else {"environment": {"inlet_f": inlet_f}},
+            )
+            book, inlet_measured, book_notes = await self._async_book(
+                start, built.params
+            )
         live_notes = (
             *(environment.notes if environment else ()),
             *fit_notes,
             *inlet_notes,
+            *book_notes,
         )
         return Inputs(
             scenario=built.scenario,
@@ -521,6 +602,8 @@ class SimulatorRunner:
             live=dataclasses.replace(composed, scenario=built.scenario),
             live_notes=live_notes,
             drawing=self._drawing(),
+            book=book,
+            inlet_measured=inlet_measured,
         )
 
     async def _async_inlet(

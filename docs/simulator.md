@@ -66,6 +66,7 @@ measures.
 | Cold water supply temperature | With the hot water in use sensor, the mains' temperature, read from a probe on the cold supply over the last 72 hours' long draws | The library's default inlet |
 | Hot water in use | A binary sensor on while the household draws hot water, its circulation's water not counted: whether water is being drawn now, and which of the supply probe's readings are long draws | No draw now, and no mains' temperature from the probe |
 | Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | No runs left out: the probe and the hot water in use sensor still give the mains' temperature. A pump configured whose history can't be read gives none |
+| Hot water draw flow | The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn: the heat book (below) | No book: the hot water is judged from the tank's probes |
 | Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit | The library's sizes, which `defaults_used` names |
 
 The air's fit to the outdoor air is made at most once an hour, from the
@@ -125,10 +126,47 @@ defaults the simulator used instead.
 | Simulated bath ready | On when the tank can fill a bath now. Its attributes: `bath_gal`, `margin_gal` (whole gallons), and `ready_at`, when the heat pump has it ready if not now |
 
 The hot water sensors' `reasons` and `defaults_used` are `time_to_ready`'s.
-The tank's hot water is judged from its two probes until the simulator
-books the tank's heat (planned): where the tank is colder than every draw
-the library's evidence holds, it is not known to have any hot water, and
-it reads 0 with `colder_than_all_evidence` among its reasons.
+
+### The heat book
+
+With a hot water draw flow, nwp500-python books the tank's heat
+(`HomeAssistantBook`): from the heater's own entities' recorded history
+and the flow's, over the last 72 hours, it finds when the tank's heat was
+last known and walks it forward through each draw and recovery since.
+The simulations and the hot water sensors are given that book, so the
+gallons are what is left in the tank, not only what its two probes show.
+The circulation pump's speed, the cold water supply probe and the hot
+water in use sensor, when chosen, add their part: the circulation's runs,
+and the gallons converted at the mains' temperature.
+
+- **The flow.** The household's draws only, without the circulation's
+  water, as water is delivered at the taps (after a mixing valve, where
+  there is one): the library prices a delivered gallon at the valve's
+  delivery line. 0 while nothing is drawn. Its unit is any flow unit
+  Home Assistant offers (gal/min, L/min, L/h, m³/h). While it is
+  `unknown` or `unavailable` the draws are unknown, and the book starts
+  again after it. Each value holds until the next, so a source that stops
+  updating while it still shows a value is read as that value going on:
+  the flow's source should go `unavailable` when it stops.
+- **Recorded history.** The book reads the flow's and the heater's
+  recorded history, so the flow and the heater's entities must be
+  recorded (the recorder's default). The heater is heard from by its
+  Last status sensor. The first simulation reads 72 hours of history;
+  each one after reads only what is new.
+- **Without a book**, such as with no draw flow, while the heater isn't
+  heard from, after a recorder read fails until one succeeds, or before
+  an anchor, the hot water is judged from the
+  tank's two probes: where the tank is colder than every draw the
+  library's evidence holds, it is not known to have any hot water, and it
+  reads 0 with `colder_than_all_evidence` and `no_heat_book` among its
+  reasons. The notes say why there is no book.
+- **A late flow reaches the book late.** A draw that the flow reports
+  after it happened is booked at the next simulation after it is
+  recorded.
+
+The actions use the heater's book for a scenario on the heater's
+(`use_heater`) that still starts now with the heater's parameters; for
+another start or tank, the book is left out and a note says so.
 
 Each sensor has these attributes:
 
@@ -279,10 +317,7 @@ size. Expect:
 - **The air matters most.** Without an air sensor, the answer rests on the
   heater's own reading, which runs warm while the heat pump is off. Without
   a weather forecast, the air is held at its reading for the whole day.
-- **The hot water is judged from the tank's probes.** Without a heat book
-  (`no_heat_book`), the gallons rest on the library's evidence for the
-  tank's two temperatures, and read 0 for a tank colder than all of it.
-
-## Planned
-
-- A heat book from a household hot water flow, when one is configured.
+- **Without a heat book the hot water is judged from the tank's probes.**
+  Without a draw flow (`no_heat_book`), the gallons rest on the library's
+  evidence for the tank's two temperatures, and read 0 for a tank colder
+  than all of it.

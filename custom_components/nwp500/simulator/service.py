@@ -116,11 +116,35 @@ async def async_inputs(
             translation_key="simulator_horizon_too_long",
             translation_placeholders={"hours": str(MAX_SIMULATE_HOURS)},
         )
+    # The heater's book is its tank's heat now: only for a scenario that
+    # starts then, with the heater's parameters.
+    book_notes: tuple[str, ...] = ()
+    book = None
+    inlet_measured = False
+    if live is not None and live.book is not None:
+        if (
+            built.scenario.start == live.scenario.start
+            and built.params == live.params
+        ):
+            book, inlet_measured = live.book, live.inlet_measured
+        else:
+            book_notes = (
+                (
+                    "book: not used; the scenario's start or parameters "
+                    "are not the heater's"
+                ),
+            )
     return Inputs(
         scenario=built.scenario,
         params=built.params,
         reasons=() if live is None else live.reasons,
-        notes=(*(() if live is None else live.live_notes), *built.notes),
+        notes=(
+            *(() if live is None else live.live_notes),
+            *built.notes,
+            *book_notes,
+        ),
+        book=book,
+        inlet_measured=inlet_measured,
     )
 
 
@@ -187,7 +211,14 @@ async def async_simulate(
         hass, runner, scenario=scenario, use_heater=use_heater, over=over
     )
     result = await _async_call(
-        hass, partial(sim.simulate, inputs.scenario, inputs.params)
+        hass,
+        partial(
+            sim.simulate,
+            inputs.scenario,
+            inputs.params,
+            book=inputs.book,
+            inlet_measured=inputs.inlet_measured,
+        ),
     )
     document = codec.result_to_document(result)
     if not include_points:
@@ -215,8 +246,10 @@ async def async_time_to_ready(
             sim.time_to_ready,
             inputs.scenario,
             inputs.params,
+            book=inputs.book,
             bath_gal=bath_gal,
             shower_gal=shower_gal,
+            inlet_measured=inputs.inlet_measured,
         ),
     )
     return _response(codec.to_document(ready), inputs)

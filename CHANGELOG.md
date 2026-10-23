@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Added
+- **The simulator books the tank's heat from a hot water draw flow.** An
+  optional draw flow entity per heater: the household's hot water draw
+  flow, the circulation's water not in it. With it, nwp500-python's
+  `HomeAssistantBook` books the tank's heat from the heater's own
+  entities' recorded history and the flow's (72 hours the first time,
+  then only what is new), with the circulation pump's runs and the mains'
+  temperature when those are chosen, in the executor. The hot water
+  sensors and the walks are given the book, so the gallons are what is
+  left in the tank; the actions use it for the heater's own scenario.
+  Without a draw flow there is no book, as before.
+- **The air fit runs on its own cadence.** The air beside the heater is
+  fitted to the weather by nwp500-python's `fit_location_air`, at most
+  hourly and in the executor, and each simulation is given the fit: the
+  library anchors every projection to the heater's newest air reading and
+  repeats the fit's notes, and a failed fit's notes are kept until the
+  next attempt.
 - **Last status, per heater.** A diagnostic timestamp sensor on each
   heater that changes with every status the heater sends, so its history
   shows each time that heater was heard from, and its silences. The Last

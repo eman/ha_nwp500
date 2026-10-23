@@ -85,10 +85,10 @@ async def test_the_heaters_own_air_and_compressor_are_mapped(
 ):
     runner: SimulatorRunner = await started(hass, coordinator, WEATHER)
     # Not registered yet: no heater to fit on.
-    assert runner._heater_air() is None  # noqa: SLF001
+    assert runner._heater_entities() is None  # noqa: SLF001
 
     ids = _register_heater(hass)
-    heater = runner._heater_air()  # noqa: SLF001
+    heater = runner._heater_entities()  # noqa: SLF001
 
     assert heater is not None
     assert heater.heard == ids["last_status"]
@@ -152,7 +152,7 @@ async def test_the_fit_and_the_walks_compute_in_the_executor(
 
     assert fit.await_args is not None
     assert fit.await_args.kwargs["run"] == hass.async_add_executor_job
-    assert fit.await_args.kwargs["heater"] == runner._heater_air()  # noqa: SLF001
+    assert fit.await_args.kwargs["heater"] == runner._heater_entities()  # noqa: SLF001
     assert environment is not None
     assert environment.run == hass.async_add_executor_job
     await stop(hass)
@@ -180,7 +180,7 @@ async def test_the_kept_fit_projects_the_forecast_anchored_each_walk(
         assert environment is not None
         assert environment.fitted_air == FIT
         # On every walk, not only the one that fitted.
-        assert environment.heater == runner._heater_air()  # noqa: SLF001
+        assert environment.heater == runner._heater_entities()  # noqa: SLF001
 
         forecasts.clear()
         inputs = await runner.async_inputs(start=now + timedelta(minutes=5))
@@ -221,7 +221,7 @@ async def test_heard_is_this_heaters_last_status_not_the_shared_response(
     )
     runner = await started(hass, coordinator, WEATHER)
 
-    heater = runner._heater_air()  # noqa: SLF001
+    heater = runner._heater_entities()  # noqa: SLF001
 
     assert heater is not None
     assert heater.heard == ids["last_status"]
@@ -240,7 +240,7 @@ async def test_a_disabled_entity_is_not_given_to_the_library(
     )
     runner = await started(hass, coordinator, WEATHER)
 
-    heater = runner._heater_air()  # noqa: SLF001
+    heater = runner._heater_entities()  # noqa: SLF001
 
     assert heater is not None
     assert heater.ambient is None

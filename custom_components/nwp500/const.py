@@ -1426,6 +1426,9 @@ CONF_SIMULATOR_WEATHER_ENTITY: Final = "weather_entity"
 CONF_SIMULATOR_INLET_ENTITY: Final = "inlet_entity"
 CONF_SIMULATOR_DEMAND_ENTITY: Final = "demand_entity"
 CONF_SIMULATOR_CIRCULATION_ENTITY: Final = "circulation_speed_entity"
+# The household's hot water draw flow, the circulation's water not in it:
+# with it, the library books the tank's heat.
+CONF_SIMULATOR_DRAW_FLOW_ENTITY: Final = "draw_flow_entity"
 # A bath's and a shower's hot water, US gallons as stored; the form takes
 # them in Home Assistant's volume unit. Without them, the library's.
 CONF_SIMULATOR_BATH_GAL: Final = "bath_gal"
