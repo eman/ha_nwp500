@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- **Last status, per heater.** A diagnostic timestamp sensor on each
+  heater that changes with every status the heater sends, so its history
+  shows each time that heater was heard from, and its silences. The Last
+  MQTT response sensor is one for the integration, moved by any heater's
+  reply. With the default 30 s polling it records a row about every 30
+  seconds per heater; exclude it from the recorder if you don't want that
+  history.
 - **Hot water simulator.** Optional, and off unless you turn it on: setup
   now offers it after sign-in, with **Skip for now**, and the options can
   turn it on or off later. It runs nwp500-python's simulator inside Home
