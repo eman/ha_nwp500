@@ -67,9 +67,10 @@ measures.
 | Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | Its runs unknown: no mains' temperature from the probe |
 | Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit | The library's sizes, which `defaults_used` names |
 
-The mains' temperature is read from Home Assistant's recorded history, so
-the probe, the hot water in use sensor and the pump must be recorded (the
-recorder's default). A probe that holds one value through a long draw
+The mains' temperature is read from Home Assistant's recorded history, at
+most once an hour, so the probe, the hot water in use sensor and the pump
+must be recorded (the recorder's default). Whether water is drawn now is
+read with every simulation. A probe that holds one value through a long draw
 leaves one recorded reading, too few for the library to read the mains
 from; its notes say so.
 

@@ -62,6 +62,9 @@ HORIZON = timedelta(hours=24)
 # five minutes however quiet it is, so the answer keeps up with the clock.
 COOLDOWN_S = 60.0
 REFRESH_INTERVAL = timedelta(minutes=5)
+# The mains' temperature, from the last 72 hours' long draws, moves slowly:
+# read at most hourly, not with every walk.
+INLET_REFRESH = timedelta(hours=1)
 
 # The heating states the entities report.
 STATE_HEATING = "heating"
@@ -263,6 +266,10 @@ class SimulatorRunner:
         self._seen_update: float | None = None
         self._closed = False
         self._failure: str | None = None
+        # When the inlet was last read, what it read, and its notes.
+        self._inlet: tuple[datetime, float | None, tuple[str, ...]] | None = (
+            None
+        )
         self._debouncer = Debouncer(
             hass,
             _LOGGER,
@@ -377,10 +384,11 @@ class SimulatorRunner:
         until = start + HORIZON
         environment = None
         entities = self.entities
-        if any((entities.air, entities.humidity, entities.inlet)):
+        if entities.air is not None or entities.humidity is not None:
+            # The inlet is read apart, at most hourly (`_async_inlet`).
             environment = HomeAssistantEnvironment(
                 cast("HomeAssistantClient", InProcessClient(self.hass)),
-                entities,
+                dataclasses.replace(entities, inlet=None),
                 start=start,
                 until=until,
                 now=start,
@@ -395,19 +403,61 @@ class SimulatorRunner:
             schedules=Given(schedules),
             environment=environment,
         )
-        # The parameters the heater's tank size gives, or the library's
+        # The inlet laid on as the CLI lays a given one, and the
+        # parameters the heater's tank size gives, or the library's
         # defaults without it.
-        built = overlay(composed, now=start)
-        live_notes = tuple(environment.notes) if environment else ()
+        inlet_f, inlet_notes = await self._async_inlet(start)
+        built = overlay(
+            composed,
+            now=start,
+            over=None
+            if inlet_f is None
+            else {"environment": {"inlet_f": inlet_f}},
+        )
+        live_notes = (
+            *(environment.notes if environment else ()),
+            *inlet_notes,
+        )
         return Inputs(
             scenario=built.scenario,
             params=built.params,
             reasons=reasons,
             notes=(*live_notes, *built.notes),
-            live=composed,
+            live=dataclasses.replace(composed, scenario=built.scenario),
             live_notes=live_notes,
             drawing=self._drawing(),
         )
+
+    async def _async_inlet(
+        self, now: datetime
+    ) -> tuple[float | None, tuple[str, ...]]:
+        """The mains' temperature, and its notes; read at most hourly.
+
+        The library reads it from the supply probe over the last 72 hours'
+        long draws, which the demand entity marks and the pump's runs
+        leave out: a read of that history every walk would be most of the
+        walk's work.
+        """
+        entities = self.entities
+        if entities.inlet is None:
+            return None, ()
+        cached = self._inlet
+        if cached is not None and now - cached[0] < INLET_REFRESH:
+            return cached[1], cached[2]
+        source = HomeAssistantEnvironment(
+            cast("HomeAssistantClient", InProcessClient(self.hass)),
+            Entities(
+                inlet=entities.inlet,
+                demand=entities.demand,
+                circulation_speed=entities.circulation_speed,
+            ),
+            start=now,
+            until=now + HORIZON,
+            now=now,
+        )
+        environment = await source.read()
+        self._inlet = (now, environment.inlet_f, tuple(source.notes))
+        return self._inlet[1], self._inlet[2]
 
     async def _async_run(self) -> None:
         if self._closed:

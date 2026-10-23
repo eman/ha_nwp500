@@ -257,3 +257,59 @@ async def test_the_hot_water_entities_wait_with_the_others(
 
     assert not any(entity.available for entity in entities)
     await stop(hass)
+
+
+async def test_the_inlet_history_is_read_hourly_not_every_walk(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock, patch
+
+    from homeassistant.util import dt as dt_util
+    from nwp500.sim_home_assistant import HomeAssistantError
+
+    from custom_components.nwp500.simulator.ha_client import InProcessClient
+
+    hass.states.async_set(
+        "sensor.supply", "55.0", {"unit_of_measurement": "°F"}
+    )
+    runner = await started(
+        hass,
+        coordinator,
+        {
+            "inlet_entity": "sensor.supply",
+            "demand_entity": "binary_sensor.demand",
+        },
+    )
+    read = AsyncMock(side_effect=HomeAssistantError("not recorded"))
+    now = dt_util.utcnow().replace(microsecond=0)
+    with patch.object(InProcessClient, "read_history", read):
+        runner._inlet = None  # noqa: SLF001
+        await runner.async_inputs(start=now)
+        await runner.async_inputs(start=now + timedelta(minutes=59))
+        assert read.await_count == 1
+        await runner.async_inputs(start=now + timedelta(minutes=61))
+        assert read.await_count == 2
+    await stop(hass)
+
+
+async def test_the_inlet_read_is_laid_on_every_walk(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from homeassistant.util import dt as dt_util
+
+    runner = await started(hass, coordinator, {"inlet_entity": "sensor.supply"})
+    now = dt_util.utcnow().replace(microsecond=0)
+    note = "inlet: the plateau of 2 long draws"
+    runner._inlet = (now, 55.0, (note,))  # noqa: SLF001
+
+    inputs = await runner.async_inputs(start=now)
+
+    assert isinstance(inputs, Inputs)
+    assert inputs.scenario.environment.inlet_f == 55.0
+    assert note in inputs.notes
+    # And in the heater's part a planner's document is laid over.
+    assert inputs.live is not None
+    assert inputs.live.scenario.environment.inlet_f == 55.0
+    assert note in inputs.live_notes
+    await stop(hass)
