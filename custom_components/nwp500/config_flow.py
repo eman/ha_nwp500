@@ -30,6 +30,7 @@ from .const import (
     CONF_SIMULATOR_BATH_GAL,
     CONF_SIMULATOR_CIRCULATION_ENTITY,
     CONF_SIMULATOR_DEMAND_ENTITY,
+    CONF_SIMULATOR_DRAW_FLOW_ENTITY,
     CONF_SIMULATOR_ENABLED,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
@@ -115,6 +116,7 @@ _SIMULATOR_ENTITIES = (
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_DEMAND_ENTITY,
     CONF_SIMULATOR_CIRCULATION_ENTITY,
+    CONF_SIMULATOR_DRAW_FLOW_ENTITY,
 )
 _SIZES = (CONF_SIMULATOR_BATH_GAL, CONF_SIMULATOR_SHOWER_GAL)
 
@@ -168,6 +170,13 @@ def _simulator_device_schema(*, metric: bool = False) -> vol.Schema:
                 CONF_SIMULATOR_CIRCULATION_ENTITY
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_SIMULATOR_DRAW_FLOW_ENTITY
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor", device_class="volume_flow_rate"
+                )
             ),
             vol.Optional(CONF_SIMULATOR_BATH_GAL): _size_selector(
                 metric=metric
@@ -810,7 +819,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            'uv pip install "nwp500-python==9.11.0" "awsiotsdk==1.31.0"'
+            'uv pip install "nwp500-python==9.12.0" "awsiotsdk==1.31.0"'
         )
         raise CannotConnect("nwp500-python library not available")
 

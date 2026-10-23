@@ -145,6 +145,7 @@ async def test_setting_up_takes_the_hot_water_inputs(
                 "demand_entity": "binary_sensor.demand",
                 "circulation_speed_entity": "sensor.pump",
                 "weather_entity": "weather.home",
+                "draw_flow_entity": "sensor.draw_flow",
                 "bath_gal": 113.6,
                 "shower_gal": 45.4,
             },
@@ -156,6 +157,7 @@ async def test_setting_up_takes_the_hot_water_inputs(
         "demand_entity": "binary_sensor.demand",
         "circulation_speed_entity": "sensor.pump",
         "weather_entity": "weather.home",
+        "draw_flow_entity": "sensor.draw_flow",
         "bath_gal": 30.01,
         "shower_gal": 11.99,
     }

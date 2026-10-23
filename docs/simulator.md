@@ -66,6 +66,7 @@ measures.
 | Cold water supply temperature | With the hot water in use sensor, the mains' temperature, read from a probe on the cold supply over the last 72 hours' long draws | The library's default inlet |
 | Hot water in use | A binary sensor on while the household draws hot water, its circulation's water not counted: whether water is being drawn now, and which of the supply probe's readings are long draws | No draw now, and no mains' temperature from the probe |
 | Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | No runs left out: the probe and the hot water in use sensor still give the mains' temperature. A pump configured whose history can't be read gives none |
+| Hot water draw flow | The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn: the heat book (below) | No book: the hot water is judged from the tank's probes |
 | Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit | The library's sizes, which `defaults_used` names |
 
 The air's fit to the outdoor air is made at most once an hour, from the
@@ -76,16 +77,14 @@ temperature entity, which is off by default: a disabled entity records
 nothing to fit on. Either way the fit waits for a day of recorded
 history.
 
-Two limits between fits, for now:
+Between fits, each simulation is given the kept fit: the library repeats
+its note, anchors the projection to the air reading beside the heater (or
+the heater's own newest reading while its heat pump ran, under an hour
+old), and the fit's arithmetic runs outside Home Assistant's event loop.
+After a fit that failed, the simulations until the next attempt repeat
+the library's notes on why.
 
-- After a fit that failed, the notes say why only on the simulation that
-  tried it. The ones until the next attempt, an hour later, hold the air
-  without saying why.
-- Without an air sensor, the projection is anchored to the heater's own
-  air reading only on the simulation that fitted. The ones between are
-  unanchored, so the projected air can shift a little after each fit.
-- The fit's arithmetic runs in Home Assistant's event loop: about a tenth
-  of a second, once an hour per heater with a weather forecast. Where the library can't fit one, such as with less
+Where the library can't fit one, such as with less
 than a day of history or air that doesn't follow the outdoor air, its
 notes say why, the air is held at its reading, and the fit is tried again
 an hour later.
@@ -127,10 +126,48 @@ defaults the simulator used instead.
 | Simulated bath ready | On when the tank can fill a bath now. Its attributes: `bath_gal`, `margin_gal` (whole gallons), and `ready_at`, when the heat pump has it ready if not now |
 
 The hot water sensors' `reasons` and `defaults_used` are `time_to_ready`'s.
-The tank's hot water is judged from its two probes until the simulator
-books the tank's heat (planned): where the tank is colder than every draw
-the library's evidence holds, it is not known to have any hot water, and
-it reads 0 with `colder_than_all_evidence` among its reasons.
+
+### The heat book
+
+With a hot water draw flow, nwp500-python books the tank's heat
+(`HomeAssistantBook`): from the heater's own entities' recorded history
+and the flow's, over the last 72 hours, it finds when the tank's heat was
+last known and walks it forward through each draw and recovery since.
+The simulations and the hot water sensors are given that book, so the
+gallons are what is left in the tank, not only what its two probes show.
+The circulation pump's speed, the cold water supply probe and the hot
+water in use sensor, when chosen, add their part: the circulation's runs,
+and the gallons converted at the mains' temperature.
+
+- **The flow.** The household's draws only, without the circulation's
+  water, as water is delivered at the taps (after a mixing valve, where
+  there is one): the library prices a delivered gallon at the valve's
+  delivery line. 0 while nothing is drawn. Its unit is any flow unit
+  Home Assistant offers (gal/min, L/min, L/h, m³/h). While it is
+  `unknown` or `unavailable` the draws are unknown, and the book starts
+  again after it. Each value holds until the next, so a source that stops
+  updating while it still shows a value is read as that value going on:
+  the flow's source should go `unavailable` when it stops.
+- **Recorded history.** The book reads the flow's and the heater's
+  recorded history, so the flow and the heater's entities must be
+  recorded (the recorder's default). The heater is heard from by its
+  Last status sensor. The first simulation reads 72 hours of history;
+  each one after reads only what is new.
+- **Without a book**, such as with no draw flow, while the heater isn't
+  heard from, after a recorder read fails until one succeeds, or before
+  an anchor, the hot water is judged from the
+  tank's two probes, with `no_heat_book` among its reasons. A tank whose
+  probes read alike reads its full tank's gallons from them. Where the
+  library's evidence holds nothing for what the probes read, the gallons
+  are unknown, not none: it reads 0 with `no_evidence_for_state`. The
+  notes say why there is no book.
+- **A late flow reaches the book late.** A draw that the flow reports
+  after it happened is booked at the next simulation after it is
+  recorded.
+
+The actions use the heater's book for a scenario on the heater's
+(`use_heater`) that still starts now with the heater's parameters; for
+another start or tank, the book is left out and a note says so.
 
 Each sensor has these attributes:
 
@@ -144,8 +181,9 @@ Simulated heating also has the next heating interval's start (`starts_at`, none 
 
 The sensors appear once the simulator is running, which can take a few
 minutes while its packages install. They are unavailable while the heater
-isn't reporting and when a simulation fails (the log says why, once). They
-are also unavailable in Standby, which the library doesn't model.
+isn't reporting and when a simulation fails (the log says why, once). In
+Standby the library walks the heater as in Power Off, as the NaviLink app
+counts it: nothing heats.
 
 Nothing optional holds them up. Until the heater's details have arrived,
 the tank size is unknown and the library's defaults are used, which its
@@ -170,8 +208,7 @@ nothing on the heater. Each is one of nwp500-python's calls on a scenario:
 | `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile` |
 
 They need the simulator running. While they read the heater, they refuse
-to answer in Standby, which the library doesn't model, and before the
-heater has reported its status.
+to answer before the heater has reported its status.
 
 ### The scenario
 
@@ -281,10 +318,7 @@ size. Expect:
 - **The air matters most.** Without an air sensor, the answer rests on the
   heater's own reading, which runs warm while the heat pump is off. Without
   a weather forecast, the air is held at its reading for the whole day.
-- **The hot water is judged from the tank's probes.** Without a heat book
-  (`no_heat_book`), the gallons rest on the library's evidence for the
-  tank's two temperatures, and read 0 for a tank colder than all of it.
-
-## Planned
-
-- A heat book from a household hot water flow, when one is configured.
+- **Without a heat book the hot water is judged from the tank's probes.**
+  Without a draw flow (`no_heat_book`), the gallons rest on the library's
+  evidence for the tank's two temperatures, and read 0 for a tank colder
+  than all of it.

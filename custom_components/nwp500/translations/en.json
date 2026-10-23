@@ -42,6 +42,7 @@
           "inlet_entity": "Cold water supply temperature",
           "demand_entity": "Hot water in use",
           "circulation_speed_entity": "Circulation pump speed",
+          "draw_flow_entity": "Hot water draw flow",
           "bath_gal": "Bath size",
           "shower_gal": "Shower size"
         },
@@ -52,6 +53,7 @@
           "inlet_entity": "A temperature probe on the cold water supply. With the hot water in use sensor, the simulator reads the mains' temperature from its readings over long draws.",
           "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
           "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
+          "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
           "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
           "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names."
         }
@@ -134,6 +136,7 @@
           "inlet_entity": "Cold water supply temperature",
           "demand_entity": "Hot water in use",
           "circulation_speed_entity": "Circulation pump speed",
+          "draw_flow_entity": "Hot water draw flow",
           "bath_gal": "Bath size",
           "shower_gal": "Shower size"
         },
@@ -144,6 +147,7 @@
           "inlet_entity": "A temperature probe on the cold water supply. With the hot water in use sensor, the simulator reads the mains' temperature from its readings over long draws.",
           "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
           "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
+          "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
           "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
           "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names."
         }
@@ -1338,9 +1342,6 @@
     },
     "simulator_no_answer": {
       "message": "The simulator has no answer for this water heater yet ({reason})."
-    },
-    "simulator_standby": {
-      "message": "The water heater is in Standby, which the simulator doesn't model: nothing heats."
     },
     "simulator_invalid_scenario": {
       "message": "The simulator can't use this scenario: {error}"

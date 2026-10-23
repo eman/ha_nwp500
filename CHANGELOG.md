@@ -3,6 +3,22 @@
 ## [Unreleased]
 
 ### Added
+- **The simulator books the tank's heat from a hot water draw flow.** An
+  optional draw flow entity per heater: the household's hot water draw
+  flow, the circulation's water not in it. With it, nwp500-python's
+  `HomeAssistantBook` books the tank's heat from the heater's own
+  entities' recorded history and the flow's (72 hours the first time,
+  then only what is new), with the circulation pump's runs and the mains'
+  temperature when those are chosen, in the executor. The hot water
+  sensors and the walks are given the book, so the gallons are what is
+  left in the tank; the actions use it for the heater's own scenario.
+  Without a draw flow there is no book, as before.
+- **The air fit runs on its own cadence.** The air beside the heater is
+  fitted to the weather by nwp500-python's `fit_location_air`, at most
+  hourly and in the executor, and each simulation is given the fit: the
+  library anchors every projection to the heater's newest air reading and
+  repeats the fit's notes, and a failed fit's notes are kept until the
+  next attempt.
 - **Last status, per heater.** A diagnostic timestamp sensor on each
   heater that changes with every status the heater sends, so its history
   shows each time that heater was heard from, and its silences. The Last
@@ -90,12 +106,25 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.11.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.12.0. What the
   integration did before is kept; the library's corrections change these:
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
     scenario, naming the field.
   - **A supply probe steady through a draw gives the mains' temperature.**
+  - **Standby is walked as Power Off**, as the NaviLink app counts it:
+    nothing heats. The simulator's sensors were unavailable in Standby and
+    its actions refused it.
+  - **Hot water read from the probes alone.** A tank whose probes read
+    alike reads its full tank's gallons from them; one the library's
+    evidence holds nothing for reads 0 with `no_evidence_for_state` (the
+    gallons unknown, not none), in place of `colder_than_all_evidence`.
+    The 50 and 80 gal tanks' book and readiness defaults scale with their
+    size.
+  - **The heater's own air in the book and the air fit.** Without an air
+    sensor, the book and the weather fit take the heater's own air reading
+    once its heat pump has run 5 minutes; an idle cabinet reading is
+    flagged `ambient_from_idle_cabinet`.
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
     Whether a mode-5 entry powers the heater off is untested. Set

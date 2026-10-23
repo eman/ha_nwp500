@@ -138,7 +138,7 @@ async def test_sensors_are_unavailable_without_an_answer(
     runner = feature.runners[MAC]
     sensors = create_simulator_sensors(feature)
 
-    runner.answer = Answer(computed_at=dt_util.utcnow(), waiting="standby")
+    runner.answer = Answer(computed_at=dt_util.utcnow(), waiting="no_status")
 
     assert not any(sensor.available for sensor in sensors)
     await async_unload_simulator(hass, entry)
@@ -364,22 +364,21 @@ async def test_the_service_refuses_a_setpoint_it_cannot_run(
 
 
 @pytest.mark.asyncio
-async def test_the_service_says_standby(
+async def test_the_service_walks_standby_as_power_off(
     hass: HomeAssistant, hass_storage, entry, coordinator
 ):
     feature = await started(hass, entry, coordinator)
     coordinator.data[MAC]["status"] = make_status(dhwOperationSetting=0)
 
-    with pytest.raises(ServiceValidationError) as err:
-        await async_simulate(
-            hass,
-            feature.runners[MAC],
-            hours=1,
-            writes=[],
-            include_points=False,
-        )
+    response = await async_simulate(
+        hass,
+        feature.runners[MAC],
+        hours=1,
+        writes=[],
+        include_points=False,
+    )
 
-    assert err.value.translation_key == "simulator_standby"
+    assert response["result"]["heating"] == []
     await async_unload_simulator(hass, entry)
 
 
