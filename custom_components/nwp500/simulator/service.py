@@ -33,7 +33,7 @@ from nwp500.sim.profile import heater_profile
 from nwp500.sim_live import overlay
 
 from ..const import DOMAIN, MAX_SIMULATE_HOURS, MODE_TO_DHW_ID
-from .runner import WAIT_STANDBY, Inputs
+from .runner import Inputs
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -83,10 +83,6 @@ async def async_inputs(
             raise HomeAssistantError(
                 f"The simulator can't use the heater's data: {err}"
             ) from err
-        if got == WAIT_STANDBY:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN, translation_key="simulator_standby"
-            )
         if isinstance(got, str):
             raise ServiceValidationError(
                 translation_domain=DOMAIN,

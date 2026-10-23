@@ -30,7 +30,6 @@ from homeassistant.util import dt as dt_util
 
 from nwp500 import sim
 from nwp500 import sim_adapters as sa
-from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
 from nwp500.sim import codec
 from nwp500.sim.book import Booked
@@ -94,7 +93,6 @@ _HEATING_DISABLED_MODES = frozenset({VACATION, POWER_OFF})
 
 # Why an answer is missing, when it is.
 WAIT_STATUS = "no_status"
-WAIT_STANDBY = "standby"
 FAILED = "simulation_failed"
 
 # A reason the integration adds to the library's, about its own inputs.
@@ -550,9 +548,6 @@ class SimulatorRunner:
         # Without the feature info the tank size is unknown: the library
         # takes its defaults, and its notes say so.
         feature = self.coordinator.device_features.get(self.mac_address)
-        if status.dhw_operation_setting == DhwOperationSetting.STANDBY:
-            # The library does not model Standby.
-            return WAIT_STANDBY
         reading = heater_reading(status, feature)
         schedules, reasons = heater_schedules(
             status,

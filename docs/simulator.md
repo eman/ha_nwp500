@@ -156,10 +156,11 @@ and the gallons converted at the mains' temperature.
 - **Without a book**, such as with no draw flow, while the heater isn't
   heard from, after a recorder read fails until one succeeds, or before
   an anchor, the hot water is judged from the
-  tank's two probes: where the tank is colder than every draw the
-  library's evidence holds, it is not known to have any hot water, and it
-  reads 0 with `colder_than_all_evidence` and `no_heat_book` among its
-  reasons. The notes say why there is no book.
+  tank's two probes, with `no_heat_book` among its reasons. A tank whose
+  probes read alike reads its full tank's gallons from them. Where the
+  library's evidence holds nothing for what the probes read, the gallons
+  are unknown, not none: it reads 0 with `no_evidence_for_state`. The
+  notes say why there is no book.
 - **A late flow reaches the book late.** A draw that the flow reports
   after it happened is booked at the next simulation after it is
   recorded.
@@ -180,8 +181,9 @@ Simulated heating also has the next heating interval's start (`starts_at`, none 
 
 The sensors appear once the simulator is running, which can take a few
 minutes while its packages install. They are unavailable while the heater
-isn't reporting and when a simulation fails (the log says why, once). They
-are also unavailable in Standby, which the library doesn't model.
+isn't reporting and when a simulation fails (the log says why, once). In
+Standby the library walks the heater as in Power Off, as the NaviLink app
+counts it: nothing heats.
 
 Nothing optional holds them up. Until the heater's details have arrived,
 the tank size is unknown and the library's defaults are used, which its
@@ -206,8 +208,7 @@ nothing on the heater. Each is one of nwp500-python's calls on a scenario:
 | `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile` |
 
 They need the simulator running. While they read the heater, they refuse
-to answer in Standby, which the library doesn't model, and before the
-heater has reported its status.
+to answer before the heater has reported its status.
 
 ### The scenario
 

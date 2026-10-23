@@ -10,6 +10,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from nwp500 import sim
+from nwp500.sim.inputs import POWER_OFF
 from nwp500.sim_live import DEFAULT_PARAMS_NOTE
 
 from custom_components.nwp500.simulator.runner import (
@@ -17,7 +18,6 @@ from custom_components.nwp500.simulator.runner import (
     STATE_DISABLED,
     STATE_HEATING,
     STATE_SCHEDULED,
-    WAIT_STANDBY,
     WAIT_STATUS,
     Inputs,
     SimulatorRunner,
@@ -138,9 +138,12 @@ async def test_the_scenario_is_kept_composed_for_a_document(
 
 
 @pytest.mark.asyncio
-async def test_no_scenario_in_standby(hass: HomeAssistant, coordinator):
+async def test_standby_is_walked_as_power_off(hass: HomeAssistant, coordinator):
+    # As the NaviLink app counts it: nothing heats.
     coordinator.data[MAC]["status"] = make_status(dhwOperationSetting=0)
-    assert await runner(hass, coordinator).async_inputs() == WAIT_STANDBY
+    inputs = await runner(hass, coordinator).async_inputs()
+    assert isinstance(inputs, Inputs)
+    assert inputs.scenario.settings.mode == POWER_OFF
 
 
 @pytest.mark.asyncio
@@ -312,15 +315,16 @@ async def test_the_ready_time_is_the_end_of_the_first_heating(
 
 
 @pytest.mark.asyncio
-async def test_standby_has_no_answer(hass: HomeAssistant, coordinator):
-    # The library does not model Standby.
+async def test_standby_answers_that_nothing_heats(
+    hass: HomeAssistant, coordinator
+):
     coordinator.data[MAC]["status"] = make_status(dhwOperationSetting=0)
     r = runner(hass, coordinator)
 
     await r._async_run()  # noqa: SLF001
 
-    assert r.answer is not None and not r.answer.ok
-    assert r.answer.waiting == WAIT_STANDBY
+    assert r.answer is not None and r.answer.ok
+    assert r.answer.state == STATE_DISABLED
 
 
 @pytest.mark.asyncio

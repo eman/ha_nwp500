@@ -106,12 +106,25 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.11.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.12.0. What the
   integration did before is kept; the library's corrections change these:
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
     scenario, naming the field.
   - **A supply probe steady through a draw gives the mains' temperature.**
+  - **Standby is walked as Power Off**, as the NaviLink app counts it:
+    nothing heats. The simulator's sensors were unavailable in Standby and
+    its actions refused it.
+  - **Hot water read from the probes alone.** A tank whose probes read
+    alike reads its full tank's gallons from them; one the library's
+    evidence holds nothing for reads 0 with `no_evidence_for_state` (the
+    gallons unknown, not none), in place of `colder_than_all_evidence`.
+    The 50 and 80 gal tanks' book and readiness defaults scale with their
+    size.
+  - **The heater's own air in the book and the air fit.** Without an air
+    sensor, the book and the weather fit take the heater's own air reading
+    once its heat pump has run 5 minutes; an idle cabinet reading is
+    flagged `ambient_from_idle_cabinet`.
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
     Whether a mode-5 entry powers the heater off is untested. Set
