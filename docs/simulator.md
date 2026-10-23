@@ -76,16 +76,14 @@ temperature entity, which is off by default: a disabled entity records
 nothing to fit on. Either way the fit waits for a day of recorded
 history.
 
-Two limits between fits, for now:
+Between fits, each simulation is given the kept fit: the library repeats
+its note, anchors the projection to the air reading beside the heater (or
+the heater's own newest reading while its heat pump ran, under an hour
+old), and the fit's arithmetic runs outside Home Assistant's event loop.
+After a fit that failed, the simulations until the next attempt repeat
+the library's notes on why.
 
-- After a fit that failed, the notes say why only on the simulation that
-  tried it. The ones until the next attempt, an hour later, hold the air
-  without saying why.
-- Without an air sensor, the projection is anchored to the heater's own
-  air reading only on the simulation that fitted. The ones between are
-  unanchored, so the projected air can shift a little after each fit.
-- The fit's arithmetic runs in Home Assistant's event loop: about a tenth
-  of a second, once an hour per heater with a weather forecast. Where the library can't fit one, such as with less
+Where the library can't fit one, such as with less
 than a day of history or air that doesn't follow the outdoor air, its
 notes say why, the air is held at its reading, and the fit is tried again
 an hour later.

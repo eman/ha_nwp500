@@ -110,37 +110,76 @@ async def test_the_air_model_is_fitted_hourly_not_every_walk(
     now = dt_util.utcnow().replace(microsecond=0)
     with patch.object(InProcessClient, "read_history", read):
         runner.air_fit = None
-        await runner.async_inputs(start=now)
+        first = await runner.async_inputs(start=now)
         # The fit read the heater's air and compressor, and gave none.
         assert read.await_count == 1
-        assert runner.air_fit == (now, None)
+        assert runner.air_fit is not None
+        at, fitted, notes = runner.air_fit
+        assert (at, fitted) == (now, None)
+        assert notes
+        assert isinstance(first, Inputs)
+        assert set(notes) <= set(first.notes)
 
         forecasts.clear()
-        inputs = await runner.async_inputs(start=now + timedelta(minutes=59))
+        later = await runner.async_inputs(start=now + timedelta(minutes=59))
         # No refit, and no forecast without a model to project it through.
         assert read.await_count == 1
         assert forecasts == []
-        assert isinstance(inputs, Inputs)
+        # The failed fit's notes still say why.
+        assert isinstance(later, Inputs)
+        assert set(notes) <= set(later.notes)
+        assert set(notes) <= set(later.live_notes)
 
         await runner.async_inputs(start=now + timedelta(minutes=61))
         assert read.await_count == 2
     await stop(hass)
 
 
-async def test_the_kept_model_projects_the_forecast(
+async def test_the_fit_and_the_walks_compute_in_the_executor(
     hass: HomeAssistant, hass_storage, coordinator: MagicMock
 ):
+    from custom_components.nwp500.simulator import runner as runner_module
+
+    _register_heater(hass)
+    _forecast(hass)
+    runner = await started(hass, coordinator, WEATHER)
+    fit = AsyncMock(return_value=(FIT, ["air: fitted"]))
+    now = dt_util.utcnow().replace(microsecond=0)
+    with patch.object(runner_module, "fit_location_air", fit):
+        runner.air_fit = None
+        await runner.async_inputs(start=now)
+        environment = runner._environment(now, now + HORIZON)  # noqa: SLF001
+
+    assert fit.await_args is not None
+    assert fit.await_args.kwargs["run"] == hass.async_add_executor_job
+    assert fit.await_args.kwargs["heater"] == runner._heater_air()  # noqa: SLF001
+    assert environment is not None
+    assert environment.run == hass.async_add_executor_job
+    await stop(hass)
+
+
+async def test_the_kept_fit_projects_the_forecast_anchored_each_walk(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    from custom_components.nwp500.simulator import runner as runner_module
+
     _register_heater(hass)
     forecasts = _forecast(hass)
     runner = await started(hass, coordinator, WEATHER)
     now = dt_util.utcnow().replace(microsecond=0)
-    runner.air_fit = (now, FIT)
-    read = AsyncMock(side_effect=AssertionError("refitted"))
+    runner.air_fit = (now, FIT, ("air: fitted",))
+    fit = AsyncMock(side_effect=AssertionError("refitted"))
+    # The heater's last hour, which the library reads to anchor each walk.
+    read = AsyncMock(side_effect=HomeAssistantError("not recorded"))
 
-    with patch.object(InProcessClient, "read_history", read):
+    with (
+        patch.object(runner_module, "fit_location_air", fit),
+        patch.object(InProcessClient, "read_history", read),
+    ):
         environment = runner._environment(now, now + HORIZON)  # noqa: SLF001
         assert environment is not None
-        assert environment.location_air == FIT.model
+        assert environment.fitted_air == FIT
+        # On every walk, not only the one that fitted.
         assert environment.heater == runner._heater_air()  # noqa: SLF001
 
         forecasts.clear()
@@ -149,12 +188,13 @@ async def test_the_kept_model_projects_the_forecast(
     assert isinstance(inputs, Inputs)
     assert forecasts
     ambient = inputs.scenario.environment.ambient_f
-    # The library's projection, through the kept model.
+    # The library's projection, through the kept fit.
     assert isinstance(ambient, tuple)
     assert ambient
     assert any("projected from the outdoor forecast" in n for n in inputs.notes)
-    # Kept, not refitted.
-    assert runner.air_fit == (now, FIT)
+    # The library repeats the fit's own note; the integration adds none.
+    assert "air: fitted" not in inputs.notes
+    assert runner.air_fit == (now, FIT, ("air: fitted",))
     await stop(hass)
 
 

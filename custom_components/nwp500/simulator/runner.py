@@ -39,6 +39,7 @@ from nwp500.sim_home_assistant import (
     Entities,
     HeaterEntities,
     HomeAssistantEnvironment,
+    fit_location_air,
 )
 from nwp500.sim_live import Composed, Given, compose, heater_reading, overlay
 
@@ -282,8 +283,11 @@ class SimulatorRunner:
         self._inlet: tuple[datetime, float | None, tuple[str, ...]] | None = (
             None
         )
-        # When the air model was last fitted, and the fit; None for none.
-        self.air_fit: tuple[datetime, FittedLocationAir | None] | None = None
+        # When the air model was last fitted, the fit (None for none), and
+        # the library's notes on it.
+        self.air_fit: (
+            tuple[datetime, FittedLocationAir | None, tuple[str, ...]] | None
+        ) = None
         # The walks' and the actions' reads of the environment, one at a
         # time: two callers finding a fit or the inlet due read it once.
         self._reading = asyncio.Lock()
@@ -344,20 +348,15 @@ class SimulatorRunner:
     ) -> HomeAssistantEnvironment | None:
         """The air and humidity's source for one walk; None for neither.
 
-        The inlet is read apart, at most hourly (`_async_inlet`). With a
-        weather entity, the library fits the air model when it is due and
-        is given the kept model otherwise; after a fit that gave none, the
-        walks between leave the weather out.
+        The inlet is read apart, at most hourly (`_async_inlet`), and the
+        air model is fitted apart (`_async_fit_air`): the walk is given
+        the kept fit. Without one, the weather is left out.
         """
         entities = dataclasses.replace(self.entities, inlet=None)
-        location_air = None
         fit = self.air_fit
-        if entities.weather is not None and fit is not None:
-            if start - fit[0] < AIR_FIT_REFRESH:
-                if fit[1] is None:
-                    entities = dataclasses.replace(entities, weather=None)
-                else:
-                    location_air = fit[1].model
+        fitted = None if fit is None else fit[1]
+        if fitted is None:
+            entities = dataclasses.replace(entities, weather=None)
         if not any((entities.air, entities.humidity, entities.weather)):
             return None
         return HomeAssistantEnvironment(
@@ -366,9 +365,33 @@ class SimulatorRunner:
             start=start,
             until=until,
             now=start,
-            location_air=location_air,
-            heater=self._heater_air() if entities.weather else None,
+            fitted_air=fitted,
+            heater=self._heater_air() if fitted else None,
+            run=self.hass.async_add_executor_job,
         )
+
+    async def _async_fit_air(self, now: datetime) -> tuple[str, ...]:
+        """Fit the air to the weather when due, at most hourly.
+
+        The library reads the last 3 days of the air's history and the
+        weather's, and its arithmetic runs in the executor. Its notes on
+        a fit that gave none, for the walks until the next.
+        """
+        weather = self.entities.weather
+        if weather is None:
+            return ()
+        fit = self.air_fit
+        if fit is None or now - fit[0] >= AIR_FIT_REFRESH:
+            fitted, notes = await fit_location_air(
+                cast("HomeAssistantClient", InProcessClient(self.hass)),
+                Entities(air=self.entities.air, weather=weather),
+                now=now,
+                heater=self._heater_air(),
+                run=self.hass.async_add_executor_job,
+            )
+            fit = self.air_fit = (now, fitted, tuple(notes))
+        # A model's notes the environment repeats on every walk.
+        return () if fit[1] is not None else fit[2]
 
     def _drawing(self) -> bool:
         """Whether the demand entity says the household draws hot water."""
@@ -462,6 +485,7 @@ class SimulatorRunner:
         start = start or dt_util.utcnow().replace(microsecond=0)
         until = start + HORIZON
         async with self._reading:
+            fit_notes = await self._async_fit_air(start)
             environment = self._environment(start, until)
             # A one-shot read knows no history: `compose` leaves it unset
             # and the result names the defaults it used.
@@ -473,13 +497,6 @@ class SimulatorRunner:
                 schedules=Given(schedules),
                 environment=environment,
             )
-            if (
-                environment is not None
-                and environment.entities.weather is not None
-                and environment.location_air is None
-            ):
-                # Fitted on this walk: kept for the walks to the next fit.
-                self.air_fit = (start, environment.fitted_air)
             inlet_f, inlet_notes = await self._async_inlet(start)
         # The inlet laid on as the CLI lays a given one, and the
         # parameters the heater's tank size gives, or the library's
@@ -493,6 +510,7 @@ class SimulatorRunner:
         )
         live_notes = (
             *(environment.notes if environment else ()),
+            *fit_notes,
             *inlet_notes,
         )
         return Inputs(
@@ -531,6 +549,7 @@ class SimulatorRunner:
             start=now,
             until=now + HORIZON,
             now=now,
+            run=self.hass.async_add_executor_job,
         )
         environment = await source.read()
         self._inlet = (now, environment.inlet_f, tuple(source.notes))
