@@ -76,7 +76,7 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.10.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.11.0. What the
   integration did before is kept; the library's corrections change these:
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
