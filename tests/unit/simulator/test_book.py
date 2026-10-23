@@ -213,3 +213,23 @@ async def test_the_actions_use_the_heaters_book_for_its_own_scenario(
     assert any("book: not used" in n for n in other.notes)
     assert alone.book is None
     await stop(hass)
+
+
+async def test_a_renamed_heater_entity_makes_a_new_keeper(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    ids = _register_heater(hass)
+    runner = await started(hass, coordinator, FLOW)
+    keeper = runner._keeper()  # noqa: SLF001
+    assert keeper is not None
+    # Unchanged, the keeper and its history are kept.
+    assert runner._keeper() is keeper  # noqa: SLF001
+
+    er.async_get(hass).async_update_entity(
+        ids["tank_upper_temperature"], new_entity_id="sensor.renamed_upper"
+    )
+    renamed = runner._keeper()  # noqa: SLF001
+
+    assert renamed is not None and renamed is not keeper
+    assert renamed.heater.upper == "sensor.renamed_upper"
+    await stop(hass)

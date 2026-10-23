@@ -374,15 +374,17 @@ class SimulatorRunner:
         """The book's keeper, made once the heater's entities are known.
 
         None without a draw flow: there is no book, and the library
-        answers from the tank's probes.
+        answers from the tank's probes. A heater entity renamed or
+        disabled makes a new keeper, which reads its history afresh.
         """
         flow = self.options.get(CONF_SIMULATOR_DRAW_FLOW_ENTITY)
         if flow is None:
             return None
-        if self._book is None:
-            heater = self._heater_entities()
-            if heater is None:
-                return None
+        heater = self._heater_entities()
+        if heater is None:
+            self._book = None
+            return None
+        if self._book is None or self._book.heater != heater:
             e = self.entities
             self._book = HomeAssistantBook(
                 cast("HomeAssistantClient", InProcessClient(self.hass)),
