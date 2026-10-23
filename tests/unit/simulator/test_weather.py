@@ -44,7 +44,7 @@ def _register_heater(hass: HomeAssistant) -> dict[str, str]:
             domain, DOMAIN, f"{MAC}_{key}"
         ).entity_id
         for domain, key in (
-            ("sensor", "diagnostic_last_response"),
+            ("sensor", "last_status"),
             ("sensor", "tank_upper_temperature"),
             ("sensor", "tank_lower_temperature"),
             ("sensor", "ambient_temperature"),
@@ -91,7 +91,7 @@ async def test_the_heaters_own_air_and_compressor_are_mapped(
     heater = runner._heater_air()  # noqa: SLF001
 
     assert heater is not None
-    assert heater.heard == ids["diagnostic_last_response"]
+    assert heater.heard == ids["last_status"]
     assert heater.upper == ids["tank_upper_temperature"]
     assert heater.lower == ids["tank_lower_temperature"]
     assert heater.ambient == ids["ambient_temperature"]
@@ -170,28 +170,21 @@ async def test_without_weather_nothing_is_fitted(
     await stop(hass)
 
 
-async def test_a_second_heater_reads_the_shared_last_response(
+async def test_heard_is_this_heaters_last_status_not_the_shared_response(
     hass: HomeAssistant, hass_storage, coordinator: MagicMock
 ):
     ids = _register_heater(hass)
-    runner = await started(hass, coordinator, WEATHER)
-    first = "aabbccddeeff"
     registry = er.async_get(hass)
-    shared = registry.async_get_or_create(
-        "sensor", DOMAIN, f"{first}_diagnostic_last_response"
-    ).entity_id
-    # Another heater came first: the integration's one last response
-    # sensor is on it.
-    coordinator.data = {first: {}, **coordinator.data}
+    # One for the integration, moved by any heater's reply.
+    registry.async_get_or_create(
+        "sensor", DOMAIN, f"{MAC}_diagnostic_last_response"
+    )
+    runner = await started(hass, coordinator, WEATHER)
 
     heater = runner._heater_air()  # noqa: SLF001
 
     assert heater is not None
-    assert heater.heard == shared
-    # This heater's own probes, air and compressor.
-    assert heater.upper == ids["tank_upper_temperature"]
-    assert heater.ambient == ids["ambient_temperature"]
-    assert heater.compressor == ids["comp_use"]
+    assert heater.heard == ids["last_status"]
     await stop(hass)
 
 

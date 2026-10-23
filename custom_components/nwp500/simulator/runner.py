@@ -318,17 +318,15 @@ class SimulatorRunner:
         """
         registry = er.async_get(self.hass)
 
-        def entity(domain: str, key: str, mac: str | None = None) -> str | None:
+        def entity(domain: str, key: str) -> str | None:
             # A disabled entity has no state or history to read.
-            unique_id = f"{mac or self.mac_address}_{key}"
+            unique_id = f"{self.mac_address}_{key}"
             entity_id = registry.async_get_entity_id(domain, DOMAIN, unique_id)
             entry = None if entity_id is None else registry.async_get(entity_id)
             return None if entry is None or entry.disabled else entity_id
 
-        # The last response time is one sensor for the integration, on its
-        # first heater (`sensor.py`).
-        first = next(iter(self.coordinator.data or {}), self.mac_address)
-        heard = entity("sensor", "diagnostic_last_response", first)
+        # This heater's own: the last MQTT response is any heater's.
+        heard = entity("sensor", "last_status")
         upper = entity("sensor", "tank_upper_temperature")
         lower = entity("sensor", "tank_lower_temperature")
         if heard is None or upper is None or lower is None:
