@@ -2,8 +2,10 @@
 
 A runner turns the heater's latest status, its tank size, its schedules
 and the air beside it into a scenario, walks it for 24 hours with
-`nwp500.sim.simulate`, and keeps the answer: whether the tank is heating
-or when it next will, until when, and the electricity over the day.
+`nwp500.sim.simulate`, asks `nwp500.sim.time_to_ready` about its hot
+water, and keeps the answers: whether the tank is heating or when it next
+will, until when, the electricity over the day, and the hot water it can
+deliver, for showers and a bath.
 
 The scenario is built in the event loop, where the library's unit
 preference is stable; the walk runs in an executor.
@@ -15,8 +17,10 @@ import dataclasses
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
+from homeassistant.const import STATE_ON
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval
@@ -26,15 +30,25 @@ from nwp500 import sim
 from nwp500 import sim_adapters as sa
 from nwp500.enums import DhwOperationSetting
 from nwp500.models import ReservationSchedule, TOUPeriod
+from nwp500.sim import codec
 from nwp500.sim.inputs import POWER_OFF, VACATION, Scenario, Schedules
 from nwp500.sim_home_assistant import Entities, HomeAssistantEnvironment
 from nwp500.sim_live import Composed, Given, compose, heater_reading, overlay
 
-from ..const import CONF_SIMULATOR_AIR_ENTITY, CONF_SIMULATOR_HUMIDITY_ENTITY
+from ..const import (
+    CONF_SIMULATOR_AIR_ENTITY,
+    CONF_SIMULATOR_BATH_GAL,
+    CONF_SIMULATOR_CIRCULATION_ENTITY,
+    CONF_SIMULATOR_DEMAND_ENTITY,
+    CONF_SIMULATOR_HUMIDITY_ENTITY,
+    CONF_SIMULATOR_INLET_ENTITY,
+    CONF_SIMULATOR_SHOWER_GAL,
+)
 from .ha_client import InProcessClient
 
 if TYPE_CHECKING:
     from nwp500.models import DeviceStatus
+    from nwp500.sim import Readiness
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
 
@@ -83,6 +97,9 @@ class Inputs:
     #: and what its environment rests on.
     live: Composed | None = None
     live_notes: tuple[str, ...] = ()
+    #: Whether the household draws hot water now, as its demand entity
+    #: says; False without one.
+    drawing: bool = False
 
 
 @dataclass(frozen=True)
@@ -107,6 +124,8 @@ class Answer:
     reasons: tuple[str, ...] = ()
     defaults_used: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
+    #: The hot water now and ahead, as `nwp500.sim.time_to_ready` gives it.
+    readiness: Readiness | None = None
     #: Why there is no answer yet (WAIT_*), or that the walk failed.
     waiting: str | None = None
     error: str | None = None
@@ -123,6 +142,11 @@ class Answer:
             doc[key] = _iso(doc[key])
         for key in ("reasons", "defaults_used", "notes"):
             doc[key] = list(doc[key])
+        doc["readiness"] = (
+            None
+            if self.readiness is None
+            else codec.to_document(self.readiness)
+        )
         return doc
 
 
@@ -158,8 +182,12 @@ def heater_schedules(
     return schedules, reasons
 
 
-def answer_from(result: SimulationResult, inputs: Inputs) -> Answer:
-    """The entities' answer from a walk."""
+def answer_from(
+    result: SimulationResult,
+    inputs: Inputs,
+    readiness: Readiness | None = None,
+) -> Answer:
+    """The entities' answer from a walk, and its hot water's."""
     scenario = inputs.scenario
     state = scenario.state
     first = result.heating[0] if result.heating else None
@@ -193,6 +221,23 @@ def answer_from(result: SimulationResult, inputs: Inputs) -> Answer:
         reasons=tuple(dict.fromkeys((*inputs.reasons, *result.reasons))),
         defaults_used=result.defaults_used,
         notes=inputs.notes,
+        readiness=readiness,
+    )
+
+
+def walk(
+    inputs: Inputs, *, bath_gal: float | None, shower_gal: float | None
+) -> tuple[SimulationResult, Readiness]:
+    """The day ahead and the hot water now. Runs in an executor."""
+    return (
+        sim.simulate(inputs.scenario, inputs.params),
+        sim.time_to_ready(
+            inputs.scenario,
+            inputs.params,
+            bath_gal=bath_gal,
+            shower_gal=shower_gal,
+            drawing=inputs.drawing,
+        ),
     )
 
 
@@ -228,11 +273,22 @@ class SimulatorRunner:
 
     @property
     def entities(self) -> Entities:
-        """The entities the environment is read from."""
+        """The entities the library reads, each optional."""
         return Entities(
             air=self.options.get(CONF_SIMULATOR_AIR_ENTITY),
             humidity=self.options.get(CONF_SIMULATOR_HUMIDITY_ENTITY),
+            inlet=self.options.get(CONF_SIMULATOR_INLET_ENTITY),
+            demand=self.options.get(CONF_SIMULATOR_DEMAND_ENTITY),
+            circulation_speed=self.options.get(
+                CONF_SIMULATOR_CIRCULATION_ENTITY
+            ),
         )
+
+    def _drawing(self) -> bool:
+        """Whether the demand entity says the household draws hot water."""
+        demand = self.options.get(CONF_SIMULATOR_DEMAND_ENTITY)
+        state = None if demand is None else self.hass.states.get(demand)
+        return state is not None and state.state == STATE_ON
 
     @callback
     def async_start(self) -> None:
@@ -321,7 +377,7 @@ class SimulatorRunner:
         until = start + HORIZON
         environment = None
         entities = self.entities
-        if entities.air is not None or entities.humidity is not None:
+        if any((entities.air, entities.humidity, entities.inlet)):
             environment = HomeAssistantEnvironment(
                 cast("HomeAssistantClient", InProcessClient(self.hass)),
                 entities,
@@ -350,6 +406,7 @@ class SimulatorRunner:
             notes=(*live_notes, *built.notes),
             live=composed,
             live_notes=live_notes,
+            drawing=self._drawing(),
         )
 
     async def _async_run(self) -> None:
@@ -367,8 +424,13 @@ class SimulatorRunner:
             return
         started = dt_util.utcnow()
         try:
-            result = await self.hass.async_add_executor_job(
-                sim.simulate, inputs.scenario, inputs.params
+            result, readiness = await self.hass.async_add_executor_job(
+                partial(
+                    walk,
+                    inputs,
+                    bath_gal=self.options.get(CONF_SIMULATOR_BATH_GAL),
+                    shower_gal=self.options.get(CONF_SIMULATOR_SHOWER_GAL),
+                )
             )
         except Exception as err:  # noqa: BLE001
             # Whatever the library raised, the last answer is no longer
@@ -384,7 +446,7 @@ class SimulatorRunner:
             )
             self._failure = None
         self.last_duration_s = (dt_util.utcnow() - started).total_seconds()
-        self._publish(answer_from(result, inputs))
+        self._publish(answer_from(result, inputs, readiness))
 
     @callback
     def _fail(

@@ -1,11 +1,13 @@
 # Hot water simulator
 
 The hot water simulator models your water heater's tank from what the heater
-reports. It answers three questions, kept up to date as sensors:
+reports. It answers these questions, kept up to date as sensors:
 
 - Is the tank heating now, or will it heat within the next 24 hours?
 - When does the tank's current or next heating end?
 - How much electricity is the heater likely to use over the next 24 hours?
+- How much hot water can the tank deliver now, for how many showers, and
+  is a bath ready?
 
 It runs the simulator from [nwp500-python](https://github.com/eman/nwp500-python)
 (`nwp500.sim`) inside Home Assistant.
@@ -52,12 +54,24 @@ nothing of its own.
 
 ## Inputs
 
-For each water heater you can choose two sensors. Both are optional:
+For each water heater you can choose these. Each is optional: the
+simulator answers from the heater alone, and each input adds what it
+measures.
 
 | Input | Used for | Without it |
 |---|---|---|
 | Air temperature beside the heater | How fast the heat pump heats: it takes its heat from this air | The heater's own reading of the air at its intake |
 | Humidity beside the heater | The heat pump's output | 50% |
+| Cold water supply temperature | With the hot water in use sensor, the mains' temperature, read from a probe on the cold supply over the last 72 hours' long draws | The library's default inlet |
+| Hot water in use | A binary sensor on while the household draws hot water, its circulation's water not counted: whether water is being drawn now, and which of the supply probe's readings are long draws | No draw now, and no mains' temperature from the probe |
+| Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | Its runs unknown: no mains' temperature from the probe |
+| Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit | The library's sizes, which `defaults_used` names |
+
+The mains' temperature is read from Home Assistant's recorded history, so
+the probe, the hot water in use sensor and the pump must be recorded (the
+recorder's default). A probe that holds one value through a long draw
+leaves one recorded reading, too few for the library to read the mains
+from; its notes say so.
 
 A sensor that has not reported for an hour is not used. One that keeps
 reporting the same value is.
@@ -84,6 +98,15 @@ defaults the simulator used instead.
 | Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
 | Simulated hot water ready | When the heating the tank is in, or the next one within 24 hours, ends, as the library's `RecoveryResult.ready_at` gives it. Its `stop` attribute says why it ends: `target` (the tank is heated), or another, such as `horizon` (the 24 hours ran out) or `mode` (a mode change). Unknown when it won't heat within 24 hours |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
+| Simulated hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
+| Simulated showers ready | Whole showers the tank has hot water for now. Its `shower_gal` attribute is a shower's size |
+| Simulated bath ready | On when the tank can fill a bath now. Its attributes: `bath_gal`, `margin_gal` (whole gallons), and `ready_at`, when the heat pump has it ready if not now |
+
+The hot water sensors' `reasons` and `defaults_used` are `time_to_ready`'s.
+The tank's hot water is judged from its two probes until the simulator
+books the tank's heat (planned): where the tank is colder than every draw
+the library's evidence holds, it is not known to have any hot water, and
+it reads 0 with `colder_than_all_evidence` among its reasons.
 
 Each sensor has these attributes:
 
@@ -233,10 +256,11 @@ size. Expect:
   hours to go ended about three quarters of an hour later than physics said.
 - **The air matters most.** Without an air sensor, the answer rests on the
   heater's own reading, which runs warm while the heat pump is off.
-- **No hot water use is modelled yet.** The simulator doesn't know when
-  water is drawn, so it can't say how many showers the tank holds.
+- **The hot water is judged from the tank's probes.** Without a heat book
+  (`no_heat_book`), the gallons rest on the library's evidence for the
+  tank's two temperatures, and read 0 for a tank colder than all of it.
 
 ## Planned
 
-Hot water use, from the household's hot water draws and the inlet
-temperature: deliverable volume, showers and bath readiness.
+- A heat book from a household hot water flow, when one is configured.
+- The air beside the heater projected from a weather forecast.

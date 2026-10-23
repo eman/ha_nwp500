@@ -204,3 +204,56 @@ async def test_history_needs_the_recorder(hass: HomeAssistant):
     assert (await client.read_history([], now, now)).readings == {}
     with pytest.raises(HomeAssistantError, match="recorder"):
         await client.read_history(["sensor.air"], now, now)
+
+
+@pytest.mark.asyncio
+async def test_both_clients_read_the_inlet_from_a_long_draw(
+    recorder_mock: Any, hass: HomeAssistant, hass_client: Any, freezer: Any
+):
+    """Every hot water input, through the library's environment source."""
+    from nwp500.sim_home_assistant import HomeAssistantEnvironment
+
+    rest = await _rest(hass, hass_client)
+    start = dt_util.utcnow().replace(microsecond=0)
+    # The pump idle and no draw since before the library's lookback.
+    freezer.move_to(start - timedelta(hours=73))
+    hass.states.async_set("sensor.pump", "0", {"unit_of_measurement": "rpm"})
+    hass.states.async_set("binary_sensor.demand", "off")
+    freezer.move_to(start)
+    hass.states.async_set("binary_sensor.demand", "on")
+    # A long draw: the supply probe settles to the mains, wobbling by a
+    # tenth as a probe does (the recorder keeps changes only).
+    for step, seconds in enumerate(range(0, 13 * 60, 30)):
+        freezer.move_to(start + timedelta(seconds=seconds))
+        settled = f"{55.0 + 0.1 * (step % 2):.1f}"
+        value = settled if seconds >= 9 * 60 else f"{70 - seconds / 60:.1f}"
+        hass.states.async_set(
+            "sensor.supply", value, {"unit_of_measurement": "°F"}
+        )
+    freezer.move_to(start + timedelta(minutes=13))
+    hass.states.async_set("binary_sensor.demand", "off")
+    await async_wait_recording_done(hass)
+    now = start + timedelta(minutes=15)
+    freezer.move_to(now)
+    entities = Entities(
+        inlet="sensor.supply",
+        demand="binary_sensor.demand",
+        circulation_speed="sensor.pump",
+    )
+
+    async def read(client: Any) -> tuple[Any, list[str]]:
+        environment = HomeAssistantEnvironment(
+            client,
+            entities,
+            start=now,
+            until=now + timedelta(hours=24),
+            now=now,
+        )
+        return await environment.read(), environment.notes
+
+    local, local_notes = await read(InProcessClient(hass))
+    remote, remote_notes = await read(rest)
+
+    assert local == remote
+    assert local_notes == remote_notes
+    assert local.inlet_f == pytest.approx(55.05, abs=0.06), local_notes

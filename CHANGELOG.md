@@ -27,6 +27,17 @@
   its sensors; it stores nothing of its own. It maps Home Assistant's
   entities to the library's inputs and publishes the library's answers:
   the heater's parameters are the library's defaults for its tank's size. See `docs/simulator.md`.
+- **Simulated hot water.** With the simulator on, three more entities say
+  how much hot water the tank can deliver now, how many showers it holds
+  and whether a bath is ready, as nwp500-python's `time_to_ready` answers
+  from the heater's state. Each input beyond the heater is optional and
+  passed to the library as given: a cold water supply probe, a sensor on
+  while hot water is in use (whether water is drawn now, and with the
+  probe and the circulation pump's speed, the mains' temperature from the
+  recorded long draws), and a bath's and a shower's size. Without a heat
+  book the gallons rest on the library's evidence for the tank's two
+  temperatures, and its reasons say so. The simulator now lists `recorder`
+  among its after-dependencies, to read those histories in-process.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
   start or the entry's reload. The heartbeat alone does not show a reload.

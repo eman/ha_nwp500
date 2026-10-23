@@ -9,10 +9,16 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import control_feature
+from .const import (
+    control_feature,
+    simulator_enabled,
+    simulator_feature,
+    simulator_started_signal,
+)
 from .coordinator import (
     NWP500ConfigEntry,
     NWP500DataUpdateCoordinator,
@@ -362,6 +368,29 @@ async def async_setup_entry(
         entities.extend(create_control_binary_sensors(feature))
 
     async_add_entities(entities, True)
+
+    # The hot water simulator's binary sensors, once it runs, as its
+    # sensors are added (`sensor.py`).
+    if simulator_enabled(config_entry):
+
+        @callback
+        def _add_simulator_binary_sensors() -> None:
+            simulator = simulator_feature(hass, config_entry)
+            if simulator is None:
+                return
+            from .simulator.binary_sensor import (
+                create_simulator_binary_sensors,
+            )
+
+            async_add_entities(create_simulator_binary_sensors(simulator))
+
+        config_entry.async_on_unload(
+            async_dispatcher_connect(
+                hass,
+                simulator_started_signal(config_entry.entry_id),
+                _add_simulator_binary_sensors,
+            )
+        )
 
 
 class NWP500BinarySensor(NWP500Entity, BinarySensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
