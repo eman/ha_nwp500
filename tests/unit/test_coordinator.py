@@ -2734,6 +2734,63 @@ async def test_initial_tou_read_is_skipped_once_the_plan_is_read(coordinator):
     coordinator.async_request_tou_settings.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_overlapping_initial_tou_reads_read_once(coordinator):
+    """Setup's read and the device info's must not both ask the cloud."""
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    coordinator.device_features = {MAC: features}
+    release = asyncio.Event()
+
+    async def read(mac: str) -> bool:
+        await release.wait()
+        coordinator.tou_schedules[mac] = {"reservation": []}
+        return True
+
+    coordinator.async_request_tou_settings = AsyncMock(side_effect=read)
+    first = asyncio.create_task(
+        coordinator._async_request_initial_tou(_device_with_mac())
+    )
+    second = asyncio.create_task(
+        coordinator._async_request_initial_tou(_device_with_mac())
+    )
+    await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(first, second)
+
+    coordinator.async_request_tou_settings.assert_awaited_once_with(MAC)
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_a_pending_initial_tou_read(coordinator):
+    """A read still waiting on the cloud must not outlive the entry."""
+    started = asyncio.Event()
+
+    async def read(mac: str) -> bool:
+        started.set()
+        await asyncio.Event().wait()
+        return True
+
+    coordinator.hass.async_create_task = lambda coro, name=None: (
+        asyncio.get_running_loop().create_task(coro)
+    )
+    coordinator.async_request_tou_settings = AsyncMock(side_effect=read)
+    device = _device_with_mac()
+    coordinator.devices = [device]
+    coordinator._update_device_cache()
+    features = MagicMock()
+    features.controller_serial_number = "56496061BT22230408"
+    features.model_dump = MagicMock(return_value={})
+    coordinator._handle_feature_update_in_loop(MAC, features)
+    task = coordinator._initial_tou_tasks[MAC]
+    await started.wait()
+
+    await coordinator.async_shutdown()
+
+    assert task.cancelled()
+    assert coordinator._initial_tou_tasks == {}
+
+
 # ---------------------------------------------------------------------------
 # unit_transition_guard
 #
