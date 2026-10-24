@@ -17,7 +17,13 @@ from homeassistant.const import UnitOfEnergy, UnitOfVolume
 from homeassistant.core import callback
 
 from ..entity import NWP500Entity
-from .runner import HEATING_STATES, STATE_HEATING, Answer, SimulatorRunner
+from .runner import (
+    HEATING_STATES,
+    STATE_HEATING,
+    STOP_HORIZON,
+    Answer,
+    SimulatorRunner,
+)
 
 if TYPE_CHECKING:
     from . import SimulatorFeature
@@ -139,7 +145,8 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
 
     The end of the heating it is in, or of the next one within the day,
     as the library's `RecoveryResult.ready_at` gives it; `stop` says what
-    ended it. Unknown when there is none within the day.
+    ended it. Unknown when there is none within the day, or when the
+    day runs out before it ends (`stop` is `horizon`).
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -149,7 +156,11 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """The end of the next heating interval."""
         answer = self.answer
-        return None if answer is None else _minute(answer.end)
+        # Cut by the walk's horizon, the heating has no end yet: the
+        # horizon is not when the tank is ready.
+        if answer is None or answer.stop == STOP_HORIZON:
+            return None
+        return _minute(answer.end)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

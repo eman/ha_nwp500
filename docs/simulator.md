@@ -120,7 +120,7 @@ defaults the simulator used instead.
 | Sensor | State |
 |---|---|
 | Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
-| Simulated hot water ready | When the heating the tank is in, or the next one within 24 hours, ends, as the library's `RecoveryResult.ready_at` gives it. Its `stop` attribute says why it ends: `target` (the tank is heated), or another, such as `horizon` (the 24 hours ran out) or `mode` (a mode change). Unknown when it won't heat within 24 hours |
+| Simulated hot water ready | When the heating the tank is in, or the next one within 24 hours, ends, as the library's `RecoveryResult.ready_at` gives it. Its `stop` attribute says why it ends: `target` (the tank is heated), or another, such as `mode` (a mode change) or `cap` (a TOU period's cap). Unknown when it won't heat within 24 hours, or when the 24 hours run out before the heating ends (`stop` is `horizon`) |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 | Simulated hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
 | Simulated showers ready | Whole showers the tank has hot water for now. Its `shower_gal` attribute is a shower's size |
