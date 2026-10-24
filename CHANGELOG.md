@@ -37,8 +37,8 @@
   turn it on or off later. It runs nwp500-python's simulator inside Home
   Assistant, from what the heater reports, and keeps three sensors up to
   date: whether the tank is heating or will heat within a day, when its
-  current or next heating ends, and the electricity it is likely to use
-  over the next day. An air temperature and a humidity sensor beside the
+  current or next heating ends (unknown when that is past the day), and
+  the electricity it is likely to use over the next day. An air temperature and a humidity sensor beside the
   heater are optional inputs. Its actions return the library's answers on
   request without touching the heater: `nwp500.simulate` (up to a week
   ahead, optionally trying setpoint and mode changes), `time_to_ready`,

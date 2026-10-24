@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
@@ -141,6 +142,26 @@ async def test_sensors_are_unavailable_without_an_answer(
     runner.answer = Answer(computed_at=dt_util.utcnow(), waiting="no_status")
 
     assert not any(sensor.available for sensor in sensors)
+    await async_unload_simulator(hass, entry)
+
+
+@pytest.mark.asyncio
+async def test_a_heating_cut_by_the_horizon_has_no_ready_time(
+    hass: HomeAssistant, hass_storage, entry, coordinator
+):
+    feature = await started(hass, entry, coordinator)
+    runner = feature.runners[MAC]
+    ready = next(
+        sensor
+        for sensor in create_simulator_sensors(feature)
+        if isinstance(sensor, SimulatorHotWaterReadySensor)
+    )
+    assert runner.answer is not None
+    runner.answer = replace(runner.answer, stop="horizon")
+
+    assert ready.available
+    assert ready.native_value is None
+    assert ready.extra_state_attributes["stop"] == "horizon"
     await async_unload_simulator(hass, entry)
 
 

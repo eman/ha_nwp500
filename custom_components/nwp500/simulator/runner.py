@@ -95,6 +95,8 @@ STATE_SCHEDULED = "scheduled"
 STATE_IDLE = "idle"
 STATE_DISABLED = "disabled"
 HEATING_STATES = (STATE_HEATING, STATE_SCHEDULED, STATE_IDLE, STATE_DISABLED)
+#: A heating's `stop` when the walk's horizon cut it, not its own end.
+STOP_HORIZON = "horizon"
 
 # The modes in which nothing heats.
 _HEATING_DISABLED_MODES = frozenset({VACATION, POWER_OFF})
