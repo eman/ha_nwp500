@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Added
+- **The simulator takes the mixing valve's temperature.** An optional
+  setting per heater, in Home Assistant's temperature unit: what the
+  heater's mixing valve delivers. With it, the library prices each
+  delivered gallon at the valve, so a tank hotter than the valve reads
+  more hot water, showers and baths. Without it, nothing changes: water is
+  delivered at the tank's temperature.
 - **The simulator books the tank's heat from a hot water draw flow.** An
   optional draw flow entity per heater: the household's hot water draw
   flow, the circulation's water not in it. With it, nwp500-python's

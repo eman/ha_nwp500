@@ -68,6 +68,7 @@ measures.
 | Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | No runs left out: the probe and the hot water in use sensor still give the mains' temperature. A pump configured whose history can't be read gives none |
 | Hot water draw flow | The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn: the heat book (below) | No book: the hot water is judged from the tank's probes |
 | Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit | The library's sizes, which `defaults_used` names |
+| Mixing valve temperature | What the heater's mixing valve delivers, in Home Assistant's temperature unit. A tank hotter than it gives more hot water, mixed down with cold: the walks, the book and the hot water sensors price each delivered gallon at it (the library's `delivery_intercept_f`, with no slope). The actions use it for the heater's parameters, not a document's own | No valve: water is delivered at the tank's temperature |
 
 The air's fit to the outdoor air is made at most once an hour, from the
 recorded history of the air sensor (or of the heater's own air and

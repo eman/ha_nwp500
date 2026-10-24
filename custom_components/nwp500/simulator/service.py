@@ -106,6 +106,9 @@ async def async_inputs(
             translation_key="simulator_invalid_scenario",
             translation_placeholders={"error": str(err)},
         ) from err
+    if live is not None and not (scenario or {}).get("params"):
+        # The heater's parameters, its mixing valve in them.
+        built = runner.with_valve(built)
     if built.scenario.horizon > timedelta(hours=MAX_SIMULATE_HOURS):
         raise ServiceValidationError(
             translation_domain=DOMAIN,

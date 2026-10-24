@@ -313,3 +313,38 @@ async def test_the_inlet_read_is_laid_on_every_walk(
     assert inputs.live.scenario.environment.inlet_f == 55.0
     assert note in inputs.live_notes
     await stop(hass)
+
+
+async def test_without_a_mixing_valve_the_parameters_are_the_librarys(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from nwp500.sim_adapters import default_params
+
+    runner = await started(hass, coordinator, {})
+
+    inputs = await runner.async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    # No valve: the line is the tank's own.
+    assert inputs.params.draw == default_params().draw
+    await stop(hass)
+
+
+async def test_a_mixing_valve_is_given_to_the_library(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    runner = await started(hass, coordinator, {"mixing_valve_f": 120.0})
+
+    inputs = await runner.async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    draw = inputs.params.draw
+    assert (draw.delivery_intercept_f, draw.delivery_slope) == (120.0, 0.0)
+    # The book's terms take the same valve.
+    book = inputs.params.book_terms()
+    assert (book.delivery_intercept_f, book.delivery_slope) == (120.0, 0.0)
+    answer = runner.answer
+    assert answer is not None and answer.readiness is not None
+    expected = sim.time_to_ready(inputs.scenario, inputs.params)
+    assert answer.readiness.deliverable_gal == expected.deliverable_gal
+    await stop(hass)

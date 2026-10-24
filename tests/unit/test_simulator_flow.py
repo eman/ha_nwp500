@@ -129,7 +129,10 @@ async def test_setting_up_asks_about_each_heater(
 async def test_setting_up_takes_the_hot_water_inputs(
     hass: HomeAssistant, enable_custom_integrations
 ):
-    """Each optional; the sizes in Home Assistant's unit, stored in gallons."""
+    """Each optional; the sizes and the valve in Home Assistant's units.
+
+    Stored in gallons and °F.
+    """
     from homeassistant.util.unit_system import METRIC_SYSTEM
 
     hass.config.units = METRIC_SYSTEM
@@ -148,6 +151,7 @@ async def test_setting_up_takes_the_hot_water_inputs(
                 "draw_flow_entity": "sensor.draw_flow",
                 "bath_gal": 113.6,
                 "shower_gal": 45.4,
+                "mixing_valve_f": 49.0,
             },
         )
 
@@ -160,6 +164,7 @@ async def test_setting_up_takes_the_hot_water_inputs(
         "draw_flow_entity": "sensor.draw_flow",
         "bath_gal": 30.01,
         "shower_gal": 11.99,
+        "mixing_valve_f": 120.2,
     }
 
 
@@ -386,7 +391,13 @@ async def test_options_show_the_sizes_in_home_assistants_unit(
         hass,
         {
             "simulator_enabled": True,
-            "simulator": {MAC: {"bath_gal": 30.0, "shower_gal": 12.0}},
+            "simulator": {
+                MAC: {
+                    "bath_gal": 30.0,
+                    "shower_gal": 12.0,
+                    "mixing_valve_f": 120.2,
+                }
+            },
         },
     )
     with packages():
@@ -401,6 +412,7 @@ async def test_options_show_the_sizes_in_home_assistants_unit(
 
     assert suggested["bath_gal"] == 113.6
     assert suggested["shower_gal"] == 45.4
+    assert suggested["mixing_valve_f"] == 49.0
 
 
 @pytest.mark.asyncio

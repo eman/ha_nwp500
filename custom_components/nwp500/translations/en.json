@@ -44,7 +44,8 @@
           "circulation_speed_entity": "Circulation pump speed",
           "draw_flow_entity": "Hot water draw flow",
           "bath_gal": "Bath size",
-          "shower_gal": "Shower size"
+          "shower_gal": "Shower size",
+          "mixing_valve_f": "Mixing valve temperature"
         },
         "data_description": {
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
@@ -55,7 +56,8 @@
           "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
           "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
           "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
-          "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names."
+          "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names.",
+          "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
         }
       },
       "simulator_install": {
@@ -138,7 +140,8 @@
           "circulation_speed_entity": "Circulation pump speed",
           "draw_flow_entity": "Hot water draw flow",
           "bath_gal": "Bath size",
-          "shower_gal": "Shower size"
+          "shower_gal": "Shower size",
+          "mixing_valve_f": "Mixing valve temperature"
         },
         "data_description": {
           "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
@@ -149,7 +152,8 @@
           "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
           "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
           "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
-          "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names."
+          "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names.",
+          "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
         }
       },
       "simulator_install": {

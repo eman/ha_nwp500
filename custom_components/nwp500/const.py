@@ -1433,6 +1433,10 @@ CONF_SIMULATOR_DRAW_FLOW_ENTITY: Final = "draw_flow_entity"
 # them in Home Assistant's volume unit. Without them, the library's.
 CONF_SIMULATOR_BATH_GAL: Final = "bath_gal"
 CONF_SIMULATOR_SHOWER_GAL: Final = "shower_gal"
+# What the heater's mixing valve delivers, °F as stored; the form takes it
+# in Home Assistant's temperature unit. Without it, no valve: the hot
+# water is reckoned at the tank's temperature.
+CONF_SIMULATOR_MIXING_VALVE_F: Final = "mixing_valve_f"
 
 # Keys into hass.data[DOMAIN][entry_id]: the running simulator, and the
 # task starting it.

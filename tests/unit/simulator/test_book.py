@@ -233,3 +233,22 @@ async def test_a_renamed_heater_entity_makes_a_new_keeper(
     assert renamed is not None and renamed is not keeper
     assert renamed.heater.upper == "sensor.renamed_upper"
     await stop(hass)
+
+
+async def test_the_actions_keep_the_book_with_a_mixing_valve(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    _register_heater(hass)
+    reading, booking, _ = _patched()
+    with reading, booking:
+        runner = await started(
+            hass, coordinator, {**FLOW, "mixing_valve_f": 120.0}
+        )
+        inputs = await service.async_inputs(
+            hass, runner, scenario=None, use_heater=True
+        )
+
+    # The heater's scenario, the valve in its parameters: its book.
+    assert inputs.params.draw.delivery_intercept_f == 120.0
+    assert inputs.book == BOOKED
+    await stop(hass)

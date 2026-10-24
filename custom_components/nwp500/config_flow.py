@@ -13,7 +13,12 @@ if TYPE_CHECKING:
 else:
     import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfVolume
+from homeassistant.const import (
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    UnitOfTemperature,
+    UnitOfVolume,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import selector
@@ -34,6 +39,7 @@ from .const import (
     CONF_SIMULATOR_ENABLED,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
+    CONF_SIMULATOR_MIXING_VALVE_F,
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
     CONTROL_LIVE_AVAILABLE,
@@ -133,11 +139,33 @@ def _size_selector(*, metric: bool) -> selector.NumberSelector:
     )
 
 
-def _simulator_device_schema(*, metric: bool = False) -> vol.Schema:
+def _valve_selector(*, celsius: bool) -> selector.NumberSelector:
+    return selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=35 if celsius else 95,
+            max=70 if celsius else 160,
+            step=0.5 if celsius else 1,
+            mode=selector.NumberSelectorMode.BOX,
+            unit_of_measurement=(
+                UnitOfTemperature.CELSIUS
+                if celsius
+                else UnitOfTemperature.FAHRENHEIT
+            ),
+        )
+    )
+
+
+def _to_f(celsius: float) -> float:
+    return celsius * 9 / 5 + 32
+
+
+def _simulator_device_schema(
+    *, metric: bool = False, celsius: bool = False
+) -> vol.Schema:
     """The simulator's form for one heater, every field optional.
 
     The sensors beside it, a weather forecast, the household's hot water
-    use, and a bath's and a shower's size.
+    use, a bath's and a shower's size, and the mixing valve's setting.
     """
     return vol.Schema(
         {
@@ -184,16 +212,19 @@ def _simulator_device_schema(*, metric: bool = False) -> vol.Schema:
             vol.Optional(CONF_SIMULATOR_SHOWER_GAL): _size_selector(
                 metric=metric
             ),
+            vol.Optional(CONF_SIMULATOR_MIXING_VALVE_F): _valve_selector(
+                celsius=celsius
+            ),
         }
     )
 
 
 def _simulator_device_options(
-    user_input: dict[str, Any], *, metric: bool = False
+    user_input: dict[str, Any], *, metric: bool = False, celsius: bool = False
 ) -> dict[str, Any]:
     """A heater's stored options: the sensors chosen, nothing for none.
 
-    The sizes in gallons, from the form's unit.
+    The sizes in gallons and the valve in °F, from the form's units.
     """
     options = {
         key: user_input[key]
@@ -204,6 +235,11 @@ def _simulator_device_options(
         if user_input.get(key):
             size = float(user_input[key])
             options[key] = round(size / _L_PER_GAL if metric else size, 2)
+    if user_input.get(CONF_SIMULATOR_MIXING_VALVE_F):
+        valve = float(user_input[CONF_SIMULATOR_MIXING_VALVE_F])
+        options[CONF_SIMULATOR_MIXING_VALVE_F] = round(
+            _to_f(valve) if celsius else valve, 1
+        )
     return options
 
 
@@ -327,13 +363,24 @@ class _SimulatorSteps:
         """Whether Home Assistant measures volume in litres."""
         return bool(self.hass.config.units.volume_unit != UnitOfVolume.GALLONS)
 
+    def _simulator_celsius(self) -> bool:
+        """Whether Home Assistant measures temperature in °C."""
+        return bool(
+            self.hass.config.units.temperature_unit == UnitOfTemperature.CELSIUS
+        )
+
     def _simulator_shown(self, mac_address: str) -> dict[str, Any]:
-        """A heater's options as its form shows them: sizes in the unit."""
+        """A heater's options as its form shows them, in its units."""
         shown = dict(self._simulator_existing.get(mac_address, {}))
         if self._simulator_metric():
             for key in _SIZES:
                 if shown.get(key):
                     shown[key] = round(float(shown[key]) * _L_PER_GAL, 1)
+        valve = shown.get(CONF_SIMULATOR_MIXING_VALVE_F)
+        if valve and self._simulator_celsius():
+            shown[CONF_SIMULATOR_MIXING_VALVE_F] = round(
+                (float(valve) - 32) * 5 / 9, 1
+            )
         return shown
 
     async def async_step_simulator_device(
@@ -342,9 +389,10 @@ class _SimulatorSteps:
         """The sensors beside one heater, each optional."""
         mac_address, name = self._simulator_devices[self._simulator_index]
         metric = self._simulator_metric()
+        celsius = self._simulator_celsius()
         if user_input is not None:
             self._simulator_answers[mac_address] = _simulator_device_options(
-                user_input, metric=metric
+                user_input, metric=metric, celsius=celsius
             )
             self._simulator_index += 1
             if self._simulator_index < len(self._simulator_devices):
@@ -353,7 +401,7 @@ class _SimulatorSteps:
         return self.async_show_form(  # type: ignore[attr-defined,no-any-return]
             step_id="simulator_device",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
-                _simulator_device_schema(metric=metric),
+                _simulator_device_schema(metric=metric, celsius=celsius),
                 self._simulator_shown(mac_address),
             ),
             description_placeholders={
