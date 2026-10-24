@@ -42,7 +42,14 @@ from nwp500.sim_home_assistant import (
     HomeAssistantEnvironment,
     fit_location_air,
 )
-from nwp500.sim_live import Composed, Given, compose, heater_reading, overlay
+from nwp500.sim_live import (
+    Built,
+    Composed,
+    Given,
+    compose,
+    heater_reading,
+    overlay,
+)
 
 from ..const import (
     CONF_SIMULATOR_AIR_ENTITY,
@@ -52,6 +59,7 @@ from ..const import (
     CONF_SIMULATOR_DRAW_FLOW_ENTITY,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
+    CONF_SIMULATOR_MIXING_VALVE_F,
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
     DOMAIN,
@@ -582,6 +590,7 @@ class SimulatorRunner:
                 if inlet_f is None
                 else {"environment": {"inlet_f": inlet_f}},
             )
+            built = self.with_valve(built)
             book, inlet_measured, book_notes = await self._async_book(
                 start, built.params
             )
@@ -601,6 +610,28 @@ class SimulatorRunner:
             drawing=self._drawing(),
             book=book,
             inlet_measured=inlet_measured,
+        )
+
+    def with_valve(self, built: Built) -> Built:
+        """`built` with the mixing valve chosen, if any: the heater's.
+
+        The library's line is intercept + slope x the tank's upper zone,
+        never above the tank: a valve set to deliver T is T flat.
+        """
+        valve = self.options.get(CONF_SIMULATOR_MIXING_VALVE_F)
+        if valve is None:
+            return built
+        params = built.params
+        return dataclasses.replace(
+            built,
+            params=dataclasses.replace(
+                params,
+                draw=dataclasses.replace(
+                    params.draw,
+                    delivery_intercept_f=float(valve),
+                    delivery_slope=0.0,
+                ),
+            ),
         )
 
     async def _async_inlet(
