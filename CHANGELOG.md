@@ -106,7 +106,7 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.12.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.12.1. What the
   integration did before is kept; the library's corrections change these:
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
