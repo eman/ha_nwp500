@@ -50,17 +50,29 @@ class TestControlLeftovers:
     async def test_switching_off_after_a_failed_start_removes_them(
         self, hass, hass_storage
     ):
+        from homeassistant.helpers import issue_registry as ir
+
         from custom_components.nwp500 import async_reload_entry
         from custom_components.nwp500.const import control_storage_key
 
         entry, registry, control, own, _ = await self._entry_with_leftovers(
             hass, {"control_enabled": False}
         )
+        missing = f"control_plan_entity_missing_{entry.entry_id}"
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            missing,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="control_plan_entity_missing",
+        )
         hass.config_entries.async_reload = AsyncMock()
 
         await async_reload_entry(hass, entry)
         await hass.async_block_till_done()
 
+        assert ir.async_get(hass).async_get_issue(DOMAIN, missing) is None
         assert registry.async_get(control.entity_id) is None
         assert registry.async_get(own.entity_id) is not None
         assert control_storage_key(entry.entry_id) not in hass_storage

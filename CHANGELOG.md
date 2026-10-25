@@ -166,6 +166,31 @@
   #193, #194, #192, #215)
 
 ### Changed
+
+- **Setting up asks only for the sign-in.** The simulator's set-up-or-skip
+  page is gone: the sign-in form folds a section, *Optional features*,
+  with the hot water simulator and external control, so monitoring and
+  control alone is one page, as before either feature existed, and a
+  household with both sets them up in one pass.
+- **The options are a menu**: the update interval, the hot water
+  simulator and external control each have their own page, and saving one
+  no longer walks every water heater's simulator page.
+- **The simulator's page asks less.** The sensors beside the heater come
+  first; hot water use and the bath, refill and shower sizes are folded
+  away, their defaults named. The only weather entity, and the only
+  temperature and humidity sensors in the heater's area, are suggested the
+  first time; the heater's own entities aren't offered. A supply probe
+  without the hot water in use sensor, which it needs, is refused. After a
+  failed package install the only choice is to go on without (Home
+  Assistant tries again only after a restart).
+- **External control's page finds the plan entity.** Entities whose
+  attributes carry a plan are offered, and the only one is chosen; the
+  schedule sizes are folded away. Its toggle now says what turning it off
+  leaves: the plans' entries stay on the heater, and turned on again the
+  feature counts them as yours; publish an empty plan first to clear them.
+- **A renamed plan entity is followed**, and a missing one raises a
+  Repairs issue until it is back.
+
 - **Library Dependency: nwp500-python**: Upgraded to 9.12.2. What the
   integration did before is kept; the library's corrections change these:
   - **A malformed scenario's parameters are the caller's mistake.** A null

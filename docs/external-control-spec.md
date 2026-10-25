@@ -42,7 +42,8 @@ on its own judgement is the scheduler's, not the feature's.
 ### 1.1 Purely additive
 
 1. **Off by default.** An options-flow toggle, *External control*, enables
-   the feature. Off is the default for new and
+   the feature, or the same choice in the setup form's folded *Optional
+   features* section. Off is the default for new and
    existing installs.
 2. **Nothing loads while it is off.** The feature lives in its own subpackage
    (`custom_components/nwp500/control/`), imported only when enabled. While

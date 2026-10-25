@@ -21,15 +21,23 @@ It runs the simulator from [nwp500-python](https://github.com/eman/nwp500-python
 
 The simulator is optional, and off unless you turn it on.
 
-- **When you add the integration**, after you sign in, you choose either
-  **Set up the hot water simulator** or **Skip for now**. Skipping sets the
-  integration up exactly as it was before the simulator existed.
-- **Later**, open the integration's options and turn **Hot water simulator**
-  on or off. It can be turned on only while the integration is running,
-  since its water heaters are known only then.
+- **When you add the integration**, the sign-in form has a folded
+  section, **Optional features**: turn **Hot water simulator** on there.
+  Left folded, the integration is set up exactly as it was before the
+  simulator existed, with no page after the sign-in.
+- **Later**, open the integration's options and choose **Hot water
+  simulator**, then turn it on or off. It can be turned on only while the
+  integration is running, since its water heaters are known only then.
 
-Either way, you then choose the sensors beside each water heater (see
-[Inputs](#inputs)). Saving the options again lets you change or clear them.
+Either way, a page for each water heater follows, and every field on it
+is optional (see [Inputs](#inputs)): the sensors beside the heater
+first, then two folded sections, **Hot water use** and **Baths, showers
+and mixing valve**. Left empty, the sizes are the defaults. The only
+weather entity, and the only temperature and humidity sensors in the
+heater's area, are suggested the first time; the heater's own entities
+are not offered. Choosing **Hot water simulator** in the options again
+changes or clears them; the update interval and external control have
+their own pages, and saving one doesn't walk the others.
 
 The simulator needs numpy, pandas and scipy. When you turn it on, the
 integration checks for them and installs any that are missing, showing
@@ -47,7 +55,8 @@ simulator:
 - **If Home Assistant is set not to install packages** (`skip_pip`),
   install them yourself, then try again.
 - **After a failed install**, Home Assistant won't try again until it
-  restarts, so restart it first.
+  restarts, so the only choice is to go on without the simulator: restart
+  Home Assistant, then turn it on in the integration's options.
 
 If the simulator is on but can't start, Repairs says why: the packages are
 missing, their install failed (restart Home Assistant), or something else

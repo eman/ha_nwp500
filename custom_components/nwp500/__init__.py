@@ -60,6 +60,7 @@ from .const import (
     DEFAULT_TEMPERATURE_C,
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
+    ISSUE_CONTROL_PLAN_ENTITY_MISSING,
     ISSUE_CONTROL_START_FAILED,
     ISSUE_SIMULATOR_INSTALL_FAILED,
     ISSUE_SIMULATOR_PACKAGES_MISSING,
@@ -1558,6 +1559,9 @@ async def _async_remove_control_leftovers(
     ).async_remove()
     ir.async_delete_issue(
         hass, DOMAIN, f"{ISSUE_CONTROL_START_FAILED}_{entry_id}"
+    )
+    ir.async_delete_issue(
+        hass, DOMAIN, f"{ISSUE_CONTROL_PLAN_ENTITY_MISSING}_{entry_id}"
     )
 
 

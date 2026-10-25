@@ -93,8 +93,11 @@ If your HACS index is out of date, either refresh it (**HACS** > **⋮** > **Upd
 1. Go to **Settings** > **Devices & Services** > **Add Integration**.
 2. Search for "Navien NWP500".
 3. Enter your **NaviLink** email and password.
-4. Choose whether to set up the [hot water simulator](#hot-water-simulator),
-   or skip it. You can turn it on or off later in the integration's options.
+4. That's all for monitoring and control. To add the
+   [hot water simulator](#hot-water-simulator) or
+   [external control](docs/external-control.md), open **Optional
+   features** under the sign-in and turn either on; you can turn them on
+   or off later in the integration's options.
 
 ## Usage Guide
 

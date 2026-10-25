@@ -19,6 +19,7 @@ import attr
 from homeassistant.const import Platform
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import slugify
 
 from ..const import (
@@ -29,6 +30,7 @@ from ..const import (
 )
 from .device import DeviceControl
 from .entity import control_entity_id
+from .plan_entity import PlanEntityWatch, plan_entity_issue_id
 from .store import ControlStore
 
 if TYPE_CHECKING:
@@ -123,6 +125,7 @@ class ControlFeature:
         self.coordinator = coordinator
         self.store = ControlStore(hass, entry.entry_id)
         self.devices: dict[str, DeviceControl] = {}
+        self.plan_entity = PlanEntityWatch(hass, entry)
 
     async def async_start(self) -> None:
         """Load the stored state and start a controller per device."""
@@ -146,9 +149,11 @@ class ControlFeature:
             # stop them before the failure goes up.
             await self.async_stop()
             raise
+        self.plan_entity.async_start()
 
     async def async_stop(self) -> None:
         """Stop listeners and timers. Writes nothing (spec section 5.4)."""
+        self.plan_entity.async_stop()
         for control in self.devices.values():
             await control.async_stop()
         self.devices.clear()
@@ -163,6 +168,9 @@ class ControlFeature:
         await self.async_stop()
         self._remove_entities(stale_only=False)
         await self.store.async_remove()
+        ir.async_delete_issue(
+            self.hass, DOMAIN, plan_entity_issue_id(self.entry.entry_id)
+        )
 
     def _move_to_documented_ids(self) -> None:
         """Give entities the documented ids they lacked before (section 4).

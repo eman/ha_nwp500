@@ -55,16 +55,17 @@ options form stops offering `live` and a `live` option runs as shadow.
 
 ## Enabling the feature
 
-Everything is configured in the integration's options (Settings >
-Devices & services > Navien NWP500 > Configure). The first page holds the
-update interval and the **External control** toggle. Turning
-the toggle on opens a second page:
+Turn it on when you add the integration (the sign-in form's folded
+**Optional features** section), or later in the integration's options
+(Settings > Devices & services > Navien NWP500 > Configure > External
+control). Its page holds:
 
 | Option | Default | Notes |
 |---|---|---|
-| Plan entity | none | Required. The entity your scheduler puts its plan on; see below |
+| External control | off | The toggle, on the options page only |
+| Plan entity | none | Required while it is on. The entity your scheduler puts its plan on; see below. The entities whose attributes carry a plan are offered, and with only one it is chosen for you |
 | Mode | Preview | Stored as the `mode` option (spec section 6.1); see the table below |
-| Schedule size limit / entries kept free | 16 / 2 | The most entries the heater's schedule may hold in total, **your own included**, and how many are kept free for changes needed right away. The feature uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32, and larger lists are untested |
+| Schedule size limit / entries kept free | 16 / 2 | Folded under **Schedule size**. The most entries the heater's schedule may hold in total, **your own included**, and how many are kept free for changes needed right away. The feature uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32, and larger lists are untested |
 
 | Mode | Stored as | What it does |
 |---|---|---|
@@ -81,7 +82,12 @@ off writes nothing, and shows as Preview, until then.
 
 While the feature is off, nothing of it loads: no imports, listeners,
 entities, stored data, timers or writes. Turning it off again removes its
-entities and deletes its stored data.
+entities and deletes its stored data, and writes nothing to the heater:
+the entries your plans put in its schedule stay there, firing every week.
+With its stored data gone, the feature no longer knows those entries were
+its own, so turned on again it counts them as yours, using up schedule
+room. To clear them first, have your scheduler publish a plan with no
+segments (`segments: []`) while in Live, then turn the feature off.
 
 ## The plan entity
 
@@ -110,6 +116,11 @@ topic that carries the plan:
 
 A REST sensor or a template sensor works the same way. Exclude the plan
 entity from the recorder: its attributes are a document, not history.
+
+Renamed in Home Assistant, the plan entity is followed: the option moves to
+its new id and the integration reloads. Missing from Home Assistant once it
+has started, Repairs says so until it is back; meanwhile the plan in force
+stays in force and no new plan is taken.
 
 For a quick test without a scheduler, a state posted to the REST API
 (`POST /api/states/sensor.water_heater_plan` with the plan as
