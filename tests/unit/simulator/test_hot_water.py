@@ -572,22 +572,14 @@ def test_a_default_refill_on_its_boundary_counts():
     assert capacity.summary == "2 baths and 1 refill"
 
 
-@pytest.mark.parametrize(
-    ("was_ready", "restored"), [(True, True), (False, False)]
-)
-async def test_only_a_ready_since_time_is_restored(
-    hass: HomeAssistant,
-    hass_storage,
-    coordinator,
-    was_ready: bool,
-    restored: bool,
+async def test_only_a_ready_since_time_is_stored_and_restored(
+    hass: HomeAssistant, hass_storage, coordinator
 ):
     from dataclasses import replace
     from datetime import timedelta
     from unittest.mock import AsyncMock, patch
 
     from homeassistant.components.sensor import SensorExtraStoredData
-    from homeassistant.core import State
 
     from custom_components.nwp500.simulator import sensor as sensor_module
     from custom_components.nwp500.simulator.sensor import (
@@ -597,38 +589,58 @@ async def test_only_a_ready_since_time_is_restored(
     runner = await started(hass, coordinator, {})
     answer = runner.answer
     assert answer is not None and answer.readiness is not None
-    runner.answer = replace(
+    not_ready = replace(
+        answer,
+        readiness=replace(
+            answer.readiness,
+            bath=replace(
+                answer.readiness.bath,
+                ready=False,
+                ready_at=answer.computed_at + timedelta(hours=2),
+            ),
+        ),
+    )
+    ready = replace(
         answer,
         readiness=replace(
             answer.readiness,
             bath=replace(answer.readiness.bath, ready=True),
         ),
     )
-    earlier = (answer.computed_at - timedelta(hours=5)).replace(
-        second=0, microsecond=0
-    )
     sensor = SimulatorBathReadyAtSensor(runner, "bath_ready_at")
-    sensor.hass = hass
     sensor.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
-    # Before the restart: ready since then, or a forecast of then.
-    sensor.async_get_last_state = AsyncMock(  # type: ignore[method-assign]
-        return_value=State(
-            "sensor.x", earlier.isoformat(), {"ready": was_ready}
-        )
-    )
-    sensor.async_get_last_sensor_data = AsyncMock(  # type: ignore[method-assign]
-        return_value=SensorExtraStoredData(earlier, None)
-    )
 
+    # A forecast is shown, never stored.
+    runner.answer = not_ready
+    sensor._handle_answer()  # noqa: SLF001
+    assert sensor.native_value is not None
+    assert sensor.extra_restore_state_data.native_value is None
+
+    # Ready since, stored through a walk with no answer.
+    runner.answer = ready
+    sensor._handle_answer()  # noqa: SLF001
+    since = sensor.native_value
+    assert since is not None
+    runner.answer = replace(ready, readiness=None)
+    sensor._handle_answer()  # noqa: SLF001
+    stored = sensor.extra_restore_state_data
+    assert stored.native_value == since
+
+    # A new entity, after the restart, takes it back.
+    runner.answer = replace(ready, computed_at=since + timedelta(hours=1))
+    restarted = SimulatorBathReadyAtSensor(runner, "bath_ready_at")
+    restarted.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    restarted.async_get_last_sensor_data = AsyncMock(  # type: ignore[method-assign]
+        return_value=SensorExtraStoredData.from_dict(stored.as_dict())
+    )
     # The base classes' own setup (the coordinator's listener) aside.
     with patch.object(
         sensor_module.NWP500HotWaterEntity,
         "async_added_to_hass",
         AsyncMock(),
     ):
-        await sensor.async_added_to_hass()
-
-    assert (sensor.native_value == earlier) is restored
+        await restarted.async_added_to_hass()
+    assert restarted.native_value == since
     await stop(hass)
 
 

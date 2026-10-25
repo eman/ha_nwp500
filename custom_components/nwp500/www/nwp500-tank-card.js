@@ -238,8 +238,11 @@ class NWP500TankCard extends HTMLElement {
       });
       const series = (id) =>
         (result[id] || [])
-          .map((row) => ({ t: (row.lu ?? row.lc) * 1000, v: Number(row.s) }))
-          .filter((p) => Number.isFinite(p.v));
+          // Unavailable or unknown is a gap (null), not a reading.
+          .map((row) => {
+            const v = Number(row.s);
+            return { t: (row.lu ?? row.lc) * 1000, v: Number.isFinite(v) ? v : null };
+          });
       if (token !== this._historyToken) return;
       this._history = { upper: upper ? series(upper) : [], lower: lower ? series(lower) : [] };
       // What the read brought needs no live copy. Only to its last row:
@@ -262,12 +265,13 @@ class NWP500TankCard extends HTMLElement {
     const ids = this._sensors();
     for (const key of ['upper', 'lower']) {
       const state = ids[key] ? this._hass.states[ids[key]] : null;
-      const v = state ? Number(state.state) : NaN;
-      if (!Number.isFinite(v)) continue;
+      if (!state) continue;
+      const n = Number(state.state);
+      const v = Number.isFinite(n) ? n : null;
       const t = Date.parse(state.last_changed);
       const live = this._live[key];
       const last = live.length ? live[live.length - 1] : null;
-      if (!last || t > last.t) live.push({ t, v });
+      if (!last || (t > last.t && v !== last.v)) live.push({ t, v });
       // Bounded while history reads fail: none older than the chart shows.
       const oldest = Date.now() - this._config.hours_back * 3600 * 1000;
       while (live.length > 1 && live[1].t <= oldest) live.shift();
@@ -292,11 +296,10 @@ class NWP500TankCard extends HTMLElement {
       if (p.t <= t0) points[0] = { t: t0, v: p.v };
       else points.push(p);
     }
-    // The live state at now, else the last value held to now.
+    // The live state at now; an unavailable probe is a gap to now.
     const v = state ? Number(state.state) : NaN;
-    if (Number.isFinite(v)) points.push({ t: Date.now(), v });
-    else if (points.length) points.push({ t: Date.now(), v: points[points.length - 1].v });
-    return points.map((p) => ({ t: p.t, v: convert(p.v, from, unit) }));
+    points.push({ t: Date.now(), v: Number.isFinite(v) ? v : null });
+    return points.map((p) => ({ t: p.t, v: p.v === null ? null : convert(p.v, from, unit) }));
   }
 
   _status(path) {
@@ -347,8 +350,13 @@ class NWP500TankCard extends HTMLElement {
     const hass = this._hass;
     const stateObj = hass.states[this._config.entity];
     const name = this._config.name || stateObj?.attributes?.friendly_name || 'Water heater';
-    const path = this._path;
-    const status = this._status(path);
+    // A heater that doesn't report has no forecast to show: its last
+    // path would claim what it can't know.
+    const heaterDown = !stateObj || stateObj.state === 'unavailable';
+    const path = heaterDown ? null : this._path;
+    const status = heaterDown
+      ? { text: 'The water heater is unavailable.', kind: 'muted' }
+      : this._status(path);
     const hotWater = this._hotWater(path);
     const unit = path?.unit || hass.config.unit_system.temperature;
     const { upper: upperId, lower: lowerId } = this._sensors();
@@ -364,8 +372,8 @@ class NWP500TankCard extends HTMLElement {
     const recLower = this._recorded('lower', lowerId, t0, unit);
 
     const values = [
-      ...recUpper.map((p) => p.v),
-      ...recLower.map((p) => p.v),
+      ...recUpper.map((p) => p.v ?? NaN),
+      ...recLower.map((p) => p.v ?? NaN),
       ...modelled.flatMap((p) => [p.upper, p.lower, p.setpoint]),
     ].filter(Number.isFinite);
     if (!values.length) values.push(unit === '°C' ? 40 : 100, unit === '°C' ? 60 : 140);
@@ -389,12 +397,21 @@ class NWP500TankCard extends HTMLElement {
         .map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)},${y(p[key]).toFixed(1)}`)
         .join(' ');
     // A recorded value holds until the next: drawn as steps.
+    // A gap (null) ends the line where it starts; the next reading
+    // begins a new one.
     const steps = (pts) => {
       let d = '';
-      pts.forEach((p, i) => {
+      let drawing = false;
+      pts.forEach((p) => {
         const px = x(p.t).toFixed(1);
+        if (p.v === null) {
+          if (drawing) d += ` H${px}`;
+          drawing = false;
+          return;
+        }
         const py = y(p.v).toFixed(1);
-        d += i ? ` H${px} V${py}` : `M${px},${py}`;
+        d += drawing ? ` H${px} V${py}` : `${d ? ' ' : ''}M${px},${py}`;
+        drawing = true;
       });
       return d;
     };

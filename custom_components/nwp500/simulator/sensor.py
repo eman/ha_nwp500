@@ -12,6 +12,7 @@ from homeassistant.components.sensor import (
     RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
+    SensorExtraStoredData,
     SensorStateClass,
 )
 from homeassistant.const import UnitOfEnergy, UnitOfVolume
@@ -393,16 +394,9 @@ class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, RestoreSensor):  # type: 
     async def async_added_to_hass(self) -> None:
         """Take back the time held before, then the answer there is."""
         await super().async_added_to_hass()
-        # Only a time it was ready since: when not ready, the state was
-        # a forecast.
-        state = await self.async_get_last_state()
+        # What is stored is only ever a time it was ready since.
         last = await self.async_get_last_sensor_data()
-        if (
-            state is not None
-            and state.attributes.get("ready") is True
-            and last is not None
-            and isinstance(last.native_value, datetime)
-        ):
+        if last is not None and isinstance(last.native_value, datetime):
             self._restored = last.native_value
         self._hold()
 
@@ -429,6 +423,15 @@ class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, RestoreSensor):  # type: 
     def _handle_answer(self) -> None:
         self._hold()
         super()._handle_answer()
+
+    @property
+    @override
+    def extra_restore_state_data(self) -> SensorExtraStoredData:
+        """The time held, never a forecast.
+
+        Kept through a walk with no answer, while the state is unavailable.
+        """
+        return SensorExtraStoredData(self._ready_since, None)
 
     @property
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
