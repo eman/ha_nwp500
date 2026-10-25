@@ -393,8 +393,16 @@ class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, RestoreSensor):  # type: 
     async def async_added_to_hass(self) -> None:
         """Take back the time held before, then the answer there is."""
         await super().async_added_to_hass()
+        # Only a time it was ready since: when not ready, the state was
+        # a forecast.
+        state = await self.async_get_last_state()
         last = await self.async_get_last_sensor_data()
-        if last is not None and isinstance(last.native_value, datetime):
+        if (
+            state is not None
+            and state.attributes.get("ready") is True
+            and last is not None
+            and isinstance(last.native_value, datetime)
+        ):
             self._restored = last.native_value
         self._hold()
 

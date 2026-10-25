@@ -225,7 +225,9 @@ def capacity_from(readiness: Readiness, refill_gal: float) -> Capacity:
     )
     return Capacity(
         baths=baths,
-        refill=baths > 0 and deliverable - baths * bath_gal >= refill_gal,
+        # A hair under too: 67.6 - 2 * 28.7 is 10.1999… in binary.
+        refill=baths > 0
+        and deliverable - baths * bath_gal + 1e-9 >= refill_gal,
         showers=readiness.showers.ready_for_whole,
         bath_gal=bath_gal,
         refill_gal=refill_gal,

@@ -561,3 +561,118 @@ async def test_a_documents_own_sizes_are_not_the_heaters(
 
     assert answer["result"]["bath"]["volume_gal"] == 33.0
     await stop(hass)
+
+
+def test_a_default_refill_on_its_boundary_counts():
+    from custom_components.nwp500.simulator.runner import capacity_from
+
+    # 67.6 - 2 * 28.7 is 10.1999… in binary: the default refill fits.
+    capacity = capacity_from(_readiness(67.6), 10.2)  # type: ignore[arg-type]
+
+    assert capacity.summary == "2 baths and 1 refill"
+
+
+@pytest.mark.parametrize(
+    ("was_ready", "restored"), [(True, True), (False, False)]
+)
+async def test_only_a_ready_since_time_is_restored(
+    hass: HomeAssistant,
+    hass_storage,
+    coordinator,
+    was_ready: bool,
+    restored: bool,
+):
+    from dataclasses import replace
+    from datetime import timedelta
+    from unittest.mock import AsyncMock, patch
+
+    from homeassistant.components.sensor import SensorExtraStoredData
+    from homeassistant.core import State
+
+    from custom_components.nwp500.simulator import sensor as sensor_module
+    from custom_components.nwp500.simulator.sensor import (
+        SimulatorBathReadyAtSensor,
+    )
+
+    runner = await started(hass, coordinator, {})
+    answer = runner.answer
+    assert answer is not None and answer.readiness is not None
+    runner.answer = replace(
+        answer,
+        readiness=replace(
+            answer.readiness,
+            bath=replace(answer.readiness.bath, ready=True),
+        ),
+    )
+    earlier = (answer.computed_at - timedelta(hours=5)).replace(
+        second=0, microsecond=0
+    )
+    sensor = SimulatorBathReadyAtSensor(runner, "bath_ready_at")
+    sensor.hass = hass
+    sensor.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    # Before the restart: ready since then, or a forecast of then.
+    sensor.async_get_last_state = AsyncMock(  # type: ignore[method-assign]
+        return_value=State(
+            "sensor.x", earlier.isoformat(), {"ready": was_ready}
+        )
+    )
+    sensor.async_get_last_sensor_data = AsyncMock(  # type: ignore[method-assign]
+        return_value=SensorExtraStoredData(earlier, None)
+    )
+
+    # The base classes' own setup (the coordinator's listener) aside.
+    with patch.object(
+        sensor_module.NWP500HotWaterEntity,
+        "async_added_to_hass",
+        AsyncMock(),
+    ):
+        await sensor.async_added_to_hass()
+
+    assert (sensor.native_value == earlier) is restored
+    await stop(hass)
+
+
+async def test_a_documents_own_tank_carries_no_live_draw(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from custom_components.nwp500.simulator.service import async_inputs
+
+    hass.states.async_set("binary_sensor.demand", "on")
+    runner = await started(
+        hass, coordinator, {"demand_entity": "binary_sensor.demand"}
+    )
+
+    live = await async_inputs(hass, runner, scenario=None, use_heater=True)
+    tank = await async_inputs(
+        hass,
+        runner,
+        scenario={
+            "schema_version": 1,
+            "scenario": {"state": {"upper_f": 140.0, "lower_f": 130.0}},
+        },
+        use_heater=True,
+    )
+
+    assert live.drawing is True
+    assert tank.drawing is False
+    await stop(hass)
+
+
+async def test_a_heater_not_used_lends_no_sizes(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from custom_components.nwp500.simulator.service import (
+        async_get_scenario,
+        async_time_to_ready,
+    )
+
+    runner = await started(hass, coordinator, {"bath_gal": 40.0})
+    document = (await async_get_scenario(hass, runner))["result"]
+    del document["params"]
+
+    answer = await async_time_to_ready(
+        hass, runner, scenario=document, use_heater=False
+    )
+
+    assert answer["result"]["bath"]["volume_gal"] == 28.7
+    await stop(hass)
