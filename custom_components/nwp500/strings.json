@@ -43,6 +43,7 @@
           "demand_entity": "Hot water in use",
           "circulation_speed_entity": "Circulation pump speed",
           "draw_flow_entity": "Hot water draw flow",
+          "draw_flow_volume": "What the draw flow counts",
           "bath_gal": "Bath size",
           "shower_gal": "Shower size",
           "mixing_valve_f": "Mixing valve temperature"
@@ -55,6 +56,7 @@
           "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
           "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
           "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
+          "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
           "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
           "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names.",
           "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
@@ -139,6 +141,7 @@
           "demand_entity": "Hot water in use",
           "circulation_speed_entity": "Circulation pump speed",
           "draw_flow_entity": "Hot water draw flow",
+          "draw_flow_volume": "What the draw flow counts",
           "bath_gal": "Bath size",
           "shower_gal": "Shower size",
           "mixing_valve_f": "Mixing valve temperature"
@@ -151,6 +154,7 @@
           "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
           "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
           "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
+          "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
           "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
           "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names.",
           "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
@@ -1355,6 +1359,12 @@
     }
   },
   "selector": {
+    "draw_flow_volume": {
+      "options": {
+        "delivered": "Delivered water (at the taps)",
+        "tank": "Tank water (at the heater's hot outlet)"
+      }
+    },
     "control_mode": {
       "options": {
         "shadow": "Preview: show what the plan would do, write nothing",

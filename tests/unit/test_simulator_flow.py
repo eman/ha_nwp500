@@ -149,6 +149,7 @@ async def test_setting_up_takes_the_hot_water_inputs(
                 "circulation_speed_entity": "sensor.pump",
                 "weather_entity": "weather.home",
                 "draw_flow_entity": "sensor.draw_flow",
+                "draw_flow_volume": "tank",
                 "bath_gal": 113.6,
                 "shower_gal": 45.4,
                 "mixing_valve_f": 49.0,
@@ -162,6 +163,7 @@ async def test_setting_up_takes_the_hot_water_inputs(
         "circulation_speed_entity": "sensor.pump",
         "weather_entity": "weather.home",
         "draw_flow_entity": "sensor.draw_flow",
+        "draw_flow_volume": "tank",
         "bath_gal": 30.01,
         "shower_gal": 11.99,
         "mixing_valve_f": 120.2,
@@ -378,6 +380,35 @@ async def test_options_suggest_the_sensors_chosen_and_let_them_be_cleared(
         )
 
     assert entry.options["simulator"] == {MAC: {}}
+
+
+@pytest.mark.asyncio
+async def test_a_flow_of_delivered_water_is_the_default_and_stores_nothing(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    entry = _loaded_entry(
+        hass,
+        {
+            "simulator_enabled": True,
+            "simulator": {MAC: {"draw_flow_volume": "tank"}},
+        },
+    )
+    with packages():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"scan_interval": 30, "simulator_enabled": True}
+        )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "draw_flow_entity": "sensor.draw_flow",
+                "draw_flow_volume": "delivered",
+            },
+        )
+
+    assert entry.options["simulator"] == {
+        MAC: {"draw_flow_entity": "sensor.draw_flow"}
+    }
 
 
 @pytest.mark.asyncio

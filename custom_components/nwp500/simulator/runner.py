@@ -57,12 +57,14 @@ from ..const import (
     CONF_SIMULATOR_CIRCULATION_ENTITY,
     CONF_SIMULATOR_DEMAND_ENTITY,
     CONF_SIMULATOR_DRAW_FLOW_ENTITY,
+    CONF_SIMULATOR_DRAW_FLOW_VOLUME,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_MIXING_VALVE_F,
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
     DOMAIN,
+    DRAW_FLOW_DELIVERED,
 )
 from .ha_client import InProcessClient
 
@@ -385,7 +387,9 @@ class SimulatorRunner:
 
         None without a draw flow: there is no book, and the library
         answers from the tank's probes. A heater entity renamed or
-        disabled makes a new keeper, which reads its history afresh.
+        disabled makes a new keeper, which reads its history afresh. The
+        flow's gallons count delivered water, or tank water when chosen
+        (the library's `flow_volume`).
         """
         flow = self.options.get(CONF_SIMULATOR_DRAW_FLOW_ENTITY)
         if flow is None:
@@ -394,7 +398,14 @@ class SimulatorRunner:
         if heater is None:
             self._book = None
             return None
-        if self._book is None or self._book.heater != heater:
+        volume = self.options.get(
+            CONF_SIMULATOR_DRAW_FLOW_VOLUME, DRAW_FLOW_DELIVERED
+        )
+        if (
+            self._book is None
+            or self._book.heater != heater
+            or self._book.flow_volume != volume
+        ):
             e = self.entities
             self._book = HomeAssistantBook(
                 cast("HomeAssistantClient", InProcessClient(self.hass)),
@@ -406,6 +417,7 @@ class SimulatorRunner:
                     demand=e.demand,
                     air=e.air,
                 ),
+                flow_volume=volume,
             )
         return self._book
 

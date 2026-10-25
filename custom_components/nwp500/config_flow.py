@@ -36,6 +36,7 @@ from .const import (
     CONF_SIMULATOR_CIRCULATION_ENTITY,
     CONF_SIMULATOR_DEMAND_ENTITY,
     CONF_SIMULATOR_DRAW_FLOW_ENTITY,
+    CONF_SIMULATOR_DRAW_FLOW_VOLUME,
     CONF_SIMULATOR_ENABLED,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
@@ -52,6 +53,8 @@ from .const import (
     DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    DRAW_FLOW_DELIVERED,
+    DRAW_FLOW_TANK,
     MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
@@ -165,7 +168,8 @@ def _simulator_device_schema(
     """The simulator's form for one heater, every field optional.
 
     The sensors beside it, a weather forecast, the household's hot water
-    use, a bath's and a shower's size, and the mixing valve's setting.
+    use and what its flow counts, a bath's and a shower's size, and the
+    mixing valve's setting.
     """
     return vol.Schema(
         {
@@ -206,6 +210,15 @@ def _simulator_device_schema(
                     domain="sensor", device_class="volume_flow_rate"
                 )
             ),
+            vol.Optional(
+                CONF_SIMULATOR_DRAW_FLOW_VOLUME
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[DRAW_FLOW_DELIVERED, DRAW_FLOW_TANK],
+                    translation_key=CONF_SIMULATOR_DRAW_FLOW_VOLUME,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             vol.Optional(CONF_SIMULATOR_BATH_GAL): _size_selector(
                 metric=metric
             ),
@@ -235,6 +248,9 @@ def _simulator_device_options(
         if user_input.get(key):
             size = float(user_input[key])
             options[key] = round(size / _L_PER_GAL if metric else size, 2)
+    # Delivered water is the library's default: stored as nothing.
+    if user_input.get(CONF_SIMULATOR_DRAW_FLOW_VOLUME) == DRAW_FLOW_TANK:
+        options[CONF_SIMULATOR_DRAW_FLOW_VOLUME] = DRAW_FLOW_TANK
     if user_input.get(CONF_SIMULATOR_MIXING_VALVE_F):
         valve = float(user_input[CONF_SIMULATOR_MIXING_VALVE_F])
         options[CONF_SIMULATOR_MIXING_VALVE_F] = round(
@@ -867,7 +883,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            'uv pip install "nwp500-python==9.12.1" "awsiotsdk==1.31.0"'
+            'uv pip install "nwp500-python==9.12.2" "awsiotsdk==1.31.0"'
         )
         raise CannotConnect("nwp500-python library not available")
 

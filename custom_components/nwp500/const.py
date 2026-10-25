@@ -1429,6 +1429,12 @@ CONF_SIMULATOR_CIRCULATION_ENTITY: Final = "circulation_speed_entity"
 # The household's hot water draw flow, the circulation's water not in it:
 # with it, the library books the tank's heat.
 CONF_SIMULATOR_DRAW_FLOW_ENTITY: Final = "draw_flow_entity"
+# What the draw flow's gallons count: water delivered at the taps, after
+# any mixing valve (the library's default, stored as nothing), or tank
+# water, as a meter on the heater's hot outlet counts it.
+CONF_SIMULATOR_DRAW_FLOW_VOLUME: Final = "draw_flow_volume"
+DRAW_FLOW_DELIVERED: Final = "delivered"
+DRAW_FLOW_TANK: Final = "tank"
 # A bath's and a shower's hot water, US gallons as stored; the form takes
 # them in Home Assistant's volume unit. Without them, the library's.
 CONF_SIMULATOR_BATH_GAL: Final = "bath_gal"

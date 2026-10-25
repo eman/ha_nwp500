@@ -10,6 +10,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from nwp500 import sim
+from nwp500 import sim_adapters as sa
 from nwp500.sim.inputs import POWER_OFF
 from nwp500.sim_live import DEFAULT_PARAMS_NOTE
 
@@ -183,8 +184,11 @@ async def test_a_stale_air_sensor_is_not_used(hass: HomeAssistant, coordinator):
     ).async_inputs(start=later)
 
     assert isinstance(inputs, Inputs)
-    # The heater's own reading, as `compose` takes it without another.
-    assert inputs.scenario.environment.ambient_f == pytest.approx(71.6)
+    # The heater's own idle reading, its cabinet's warmth taken off, as
+    # `compose` takes it without another.
+    assert inputs.scenario.environment.ambient_f == pytest.approx(
+        71.6 - sa.IDLE_CABINET_WARM_F
+    )
 
 
 @pytest.mark.asyncio
@@ -196,8 +200,11 @@ async def test_a_missing_air_sensor_leaves_the_heaters_reading(
     ).async_inputs()
 
     assert isinstance(inputs, Inputs)
-    # The heater's own reading, as `compose` takes it without another.
-    assert inputs.scenario.environment.ambient_f == pytest.approx(71.6)
+    # The heater's own idle reading, its cabinet's warmth taken off, as
+    # `compose` takes it without another.
+    assert inputs.scenario.environment.ambient_f == pytest.approx(
+        71.6 - sa.IDLE_CABINET_WARM_F
+    )
 
 
 @pytest.mark.asyncio

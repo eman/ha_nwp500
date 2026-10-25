@@ -9,6 +9,12 @@
   delivered gallon at the valve, so a tank hotter than the valve reads
   more hot water, showers and baths. Without it, nothing changes: water is
   delivered at the tank's temperature.
+- **What the simulator's draw flow counts.** An optional setting per
+  heater beside the draw flow: delivered water (the default), measured at
+  the taps after any mixing valve, or tank water, measured on the
+  heater's hot outlet. nwp500-python 9.12.2's book prices a tank-water
+  gallon at the tank's upper probe (`flow_volume`). Its default empty tank
+  was fitted to delivered water: for tank water, fit it to the heater.
 - **The simulator books the tank's heat from a hot water draw flow.** An
   optional draw flow entity per heater: the household's hot water draw
   flow, the circulation's water not in it. With it, nwp500-python's
@@ -112,7 +118,7 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.12.1. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.12.2. What the
   integration did before is kept; the library's corrections change these:
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
@@ -121,16 +127,37 @@
   - **Standby is walked as Power Off**, as the NaviLink app counts it:
     nothing heats. The simulator's sensors were unavailable in Standby and
     its actions refused it.
-  - **Hot water read from the probes alone.** A tank whose probes read
-    alike reads its full tank's gallons from them; one the library's
-    evidence holds nothing for reads 0 with `no_evidence_for_state` (the
-    gallons unknown, not none), in place of `colder_than_all_evidence`.
-    The 50 and 80 gal tanks' book and readiness defaults scale with their
-    size.
+  - **Hot water read from the probes alone** is the tank's heat as its
+    two probes place it, whatever they read, and the larger of that and
+    the library's evidence where it has some. A tank with its probes apart
+    no longer reads 0, and `no_evidence_for_state`,
+    `colder_than_all_evidence`, `thermocline_unlocated` and
+    `estimated_from_probes` are gone from the hot water sensors' reasons.
+    The 50 and 80 gal tanks' defaults scale by their rated storage (45.2
+    and 76.1 gal).
   - **The heater's own air in the book and the air fit.** Without an air
     sensor, the book and the weather fit take the heater's own air reading
-    once its heat pump has run 5 minutes; an idle cabinet reading is
-    flagged `ambient_from_idle_cabinet`.
+    once its heat pump has run 5 minutes. An idle reading, the cabinet's,
+    has 6.2 °F taken off for the cabinet's warmth, and is flagged
+    `ambient_from_idle_cabinet`: without an air sensor the heater's air
+    reads cooler while the heat pump is off, and the simulated recoveries
+    run longer.
+  - **The heat book survives a restart.** Across a span the heater wasn't
+    heard from or an entity was unavailable, the book walks on, each value
+    held from before (the flow for a minute, the pump's speed for five),
+    where it used to have no book until the next anchor. It also anchors
+    while the heat pump runs alone with the probes alike, not only when a
+    recovery ends, and converts gallons at the mains read from the long
+    draws.
+  - **The model's corrections.** The refrigerant's properties are
+    CoolProp's, the evaporator follows the air 0.6 °F per °F, the standby
+    loss and the circulation's terms are refitted, High Demand's upper
+    element restarts about 4 °F short of the setpoint, Energy Saver holds
+    its lower trigger while the upper tank is at the setpoint, and a draw
+    moves the lower probe by how far apart the probes are. The simulated
+    times, energies and hot water move with them.
+  - **A draw window runs cold** as soon as the delivered water falls below
+    the line; the allowance for a dip that no draw showed is gone.
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
     Whether a mode-5 entry powers the heater off is untested. Set
