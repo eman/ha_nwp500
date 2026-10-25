@@ -63,8 +63,10 @@ from ..const import (
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_MIXING_VALVE_F,
+    CONF_SIMULATOR_REFILL_GAL,
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
+    DEFAULT_SIMULATOR_REFILL_GAL,
     DOMAIN,
     DRAW_FLOW_DELIVERED,
 )
@@ -180,6 +182,49 @@ def path_from(result: SimulationResult) -> tuple[PathSample, ...]:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Capacity:
+    """What the tank's hot water is enough for now: baths, showers.
+
+    Delivered gallons, as the library's readiness gives them. The first
+    bath is the library's own answer (its rounding and margin); a refill
+    is a top-up after the last whole bath, from what is left of the water
+    deliverable now. Showers are the library's whole showers.
+    """
+
+    baths: int
+    refill: bool
+    showers: int
+    bath_gal: float
+    refill_gal: float
+    shower_gal: float
+
+    @property
+    def summary(self) -> str:
+        """In words, for a dashboard: "1 bath and 1 refill", "3 showers"."""
+        if self.baths:
+            baths = f"{self.baths} bath{'s' if self.baths > 1 else ''}"
+            return f"{baths} and 1 refill" if self.refill else baths
+        if self.showers:
+            return f"{self.showers} shower{'s' if self.showers > 1 else ''}"
+        return "Less than a shower"
+
+
+def capacity_from(readiness: Readiness, refill_gal: float) -> Capacity:
+    """The baths, refill and showers the tank's hot water is enough for."""
+    bath_gal = readiness.bath.volume_gal
+    deliverable = readiness.deliverable_gal
+    baths = max(1, int(deliverable // bath_gal)) if readiness.bath.ready else 0
+    return Capacity(
+        baths=baths,
+        refill=baths > 0 and deliverable - baths * bath_gal >= refill_gal,
+        showers=readiness.showers.ready_for_whole,
+        bath_gal=bath_gal,
+        refill_gal=refill_gal,
+        shower_gal=readiness.showers.volume_gal,
+    )
+
+
 @dataclass(frozen=True)
 class Answer:
     """What a walk found, or why there is none."""
@@ -215,6 +260,8 @@ class Answer:
     notes: tuple[str, ...] = ()
     #: The hot water now and ahead, as `nwp500.sim.time_to_ready` gives it.
     readiness: Readiness | None = None
+    #: What that hot water is enough for, in baths and showers.
+    capacity: Capacity | None = None
     #: Why there is no answer yet (WAIT_*), or that the walk failed.
     waiting: str | None = None
     error: str | None = None
@@ -266,6 +313,8 @@ class Answer:
 
         end = None if self.stop == STOP_HORIZON else self.end
         ready = end if self.stop == STOP_TARGET else None
+        capacity = self.capacity
+        bath = None if self.readiness is None else self.readiness.bath
         return {
             "computed_at": _iso(self.computed_at),
             "state": self.state,
@@ -280,6 +329,21 @@ class Answer:
             "source": self.source,
             "compressor_start": _iso(self.compressor_start),
             "compressor_trigger": self.compressor_trigger,
+            "hot_water": (
+                None
+                if capacity is None or bath is None
+                else {
+                    "summary": capacity.summary,
+                    "baths": capacity.baths,
+                    "refill": capacity.refill,
+                    "showers": capacity.showers,
+                    "bath_ready": bath.ready,
+                    # Ready now, the library's is the walk's start.
+                    "bath_ready_at": (
+                        None if bath.ready else _iso(bath.ready_at)
+                    ),
+                }
+            ),
             "points": [
                 {
                     "at": _iso(p.at),
@@ -329,6 +393,7 @@ def answer_from(
     result: SimulationResult,
     inputs: Inputs,
     readiness: Readiness | None = None,
+    refill_gal: float = DEFAULT_SIMULATOR_REFILL_GAL,
 ) -> Answer:
     """The entities' answer from a walk, and its hot water's."""
     scenario = inputs.scenario
@@ -390,6 +455,9 @@ def answer_from(
         defaults_used=result.defaults_used,
         notes=inputs.notes,
         readiness=readiness,
+        capacity=(
+            None if readiness is None else capacity_from(readiness, refill_gal)
+        ),
     )
 
 
@@ -851,7 +919,16 @@ class SimulatorRunner:
             )
             self._failure = None
         self.last_duration_s = (dt_util.utcnow() - started).total_seconds()
-        self._publish(answer_from(result, inputs, readiness))
+        self._publish(
+            answer_from(
+                result,
+                inputs,
+                readiness,
+                refill_gal=self.options.get(
+                    CONF_SIMULATOR_REFILL_GAL, DEFAULT_SIMULATOR_REFILL_GAL
+                ),
+            )
+        )
 
     @callback
     def _fail(

@@ -434,3 +434,31 @@ async def test_a_subscription_waits_for_the_simulator_to_start(
     await hass.async_block_till_done()
 
     assert (await client.receive_json())["event"]["points"]
+
+
+async def test_the_path_says_what_the_hot_water_is_enough_for(
+    hass: HomeAssistant, feature: SimulatorFeature
+):
+    answer = feature.runners[MAC].answer
+    assert answer is not None
+    assert answer.capacity is not None and answer.readiness is not None
+    bath = answer.readiness.bath
+
+    hot_water = answer.path_document("°F")["hot_water"]
+
+    assert hot_water["summary"] == answer.capacity.summary
+    assert hot_water["baths"] == answer.capacity.baths
+    assert hot_water["showers"] == answer.capacity.showers
+    assert hot_water["bath_ready"] is bath.ready
+    if bath.ready:
+        assert hot_water["bath_ready_at"] is None
+    not_ready = replace(
+        answer,
+        readiness=replace(
+            answer.readiness,
+            bath=replace(bath, ready=False, ready_at=answer.computed_at),
+        ),
+    )
+    assert not_ready.path_document("°F")["hot_water"]["bath_ready_at"] == (
+        answer.computed_at.isoformat()
+    )

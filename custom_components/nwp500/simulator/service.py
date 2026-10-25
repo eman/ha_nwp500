@@ -33,7 +33,13 @@ from nwp500.sim.engine import SimulationError
 from nwp500.sim.profile import heater_profile
 from nwp500.sim_live import overlay
 
-from ..const import DOMAIN, MAX_SIMULATE_HOURS, MODE_TO_DHW_ID
+from ..const import (
+    CONF_SIMULATOR_BATH_GAL,
+    CONF_SIMULATOR_SHOWER_GAL,
+    DOMAIN,
+    MAX_SIMULATE_HOURS,
+    MODE_TO_DHW_ID,
+)
 from .runner import Inputs
 
 if TYPE_CHECKING:
@@ -158,6 +164,10 @@ async def async_inputs(
         ),
         book=book,
         inlet_measured=inlet_measured,
+        # A draw the heater reports now is the scenario's only from now.
+        drawing=live is not None
+        and live.drawing
+        and built.scenario.start == live.scenario.start,
     )
 
 
@@ -253,6 +263,9 @@ async def async_time_to_ready(
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater
     )
+    # Sizes not given are the heater's own, as its bath and shower
+    # sensors have them; with no heater, the library's.
+    options = {} if runner is None else runner.options
     ready = await _async_call(
         hass,
         partial(
@@ -260,8 +273,17 @@ async def async_time_to_ready(
             inputs.scenario,
             inputs.params,
             book=inputs.book,
-            bath_gal=bath_gal,
-            shower_gal=shower_gal,
+            bath_gal=(
+                bath_gal
+                if bath_gal is not None
+                else options.get(CONF_SIMULATOR_BATH_GAL)
+            ),
+            shower_gal=(
+                shower_gal
+                if shower_gal is not None
+                else options.get(CONF_SIMULATOR_SHOWER_GAL)
+            ),
+            drawing=inputs.drawing,
             inlet_measured=inputs.inlet_measured,
         ),
     )

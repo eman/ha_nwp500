@@ -73,7 +73,7 @@ measures.
 | Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | No runs left out: the probe and the hot water in use sensor still give the mains' temperature. A pump configured whose history can't be read gives none |
 | Hot water draw flow | The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn: the heat book (below) | No book: the hot water is judged from the tank's probes |
 | What the draw flow counts | Delivered water, measured at the taps after any mixing valve, or tank water, measured on the heater's hot outlet before the valve (the library's `flow_volume`). A tank-water gallon carries the tank's heat, more than a delivered one. The library's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration | Delivered water |
-| Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit | The library's sizes, which `defaults_used` names |
+| Bath size, bath refill size, shower size | The hot water a bath, a top-up of a filled bath, and a shower take, in Home Assistant's volume unit | The library's bath (28.7 gal, 109 L: the larger of two metered hot-only fills of one household's bath) and shower (12 gal, 45 L, assumed), which `defaults_used` names; a refill of 10 gal (38 L), the top end of that household's metered top-ups (4 to 10 gal) |
 | Mixing valve temperature | What the heater's mixing valve delivers, in Home Assistant's temperature unit. A tank hotter than it gives more hot water, mixed down with cold: the walks, the book and the hot water sensors price each delivered gallon at it (the library's `delivery_intercept_f`, with no slope). The actions use it for the heater's parameters, not a document's own | No valve: water is delivered at the tank's temperature |
 
 The air's fit to the outdoor air is made at most once an hour, from the
@@ -129,12 +129,14 @@ defaults the simulator used instead.
 | Sensor | State |
 |---|---|
 | Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
-| Simulated hot water ready | When the heating the tank is in, or the next one within 24 hours, ends, as the library's `RecoveryResult.ready_at` gives it. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why it ends: `target` (the tank is heated), or another, such as `mode` (a mode change) or `cap` (a TOU period's cap). Unknown when it won't heat within 24 hours, or when the 24 hours run out before the heating ends (`stop` is `horizon`) |
+| Simulated hot water ready | When the tank comes to temperature: the end of the heating it is in, or of the next one within 24 hours, when that heating ends at its target. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why the heating ends: `target` (the tank is heated), `cap` (a TOU period's cap), `mode` (a mode change), `write` (a setpoint write) or `horizon` (the 24 hours run out first). Unknown when it won't heat within 24 hours, and when the heating stops short (any `stop` but `target`) |
 | Simulated compressor start | When the heat pump's compressor next starts, as the walk finds it: the first heating interval whose source is the compressor. Its attributes: `running` (the heater reports the compressor running), and the start's `cause` and `trigger`. Unknown while the compressor runs (Simulated hot water ready is then when it stops), and when no start falls within 24 hours, such as in Electric or Vacation |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 | Simulated hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
 | Simulated showers ready | Whole showers the tank has hot water for now. Its `shower_gal` attribute is a shower's size |
 | Simulated bath ready | On when the tank can fill a bath now. Its attributes: `bath_gal`, `margin_gal` (whole gallons), and `ready_at`, when the heat pump has it ready if not now |
+| Simulated hot water for | What the hot water the tank can deliver now is enough for, in words: "2 baths", "1 bath and 1 refill", "1 bath", "3 showers", "1 shower" or "Less than a shower". The first bath is the library's bath answer; a refill is a top-up after the last whole bath from what is left; showers are counted when there is no bath. Its attributes: `baths`, `refill`, `showers`, and `bath_volume`, `refill_volume`, `shower_volume` in `volume_unit` (Home Assistant's) |
+| Simulated bath ready at | When the tank holds a bath's hot water. Not ready now: when the heater on its own has it ready, unknown when not within 24 hours. Ready: since when, held while it stays ready, so a dashboard reads "10 minutes ago". Its `ready` attribute says which |
 
 The hot water sensors' `reasons` and `defaults_used` are `time_to_ready`'s.
 
@@ -220,7 +222,9 @@ the simulator models them over the next day, dashed. The setpoint is
 dotted, the modelled heating is shaded, and two markers say when the tank
 comes to temperature and when the compressor next starts. Its heading
 says the same in words: "Heat pump running · at temperature by 3:40 PM",
-or "Heat pump off · next start 9:10 PM".
+or "Heat pump off · next start 9:10 PM", and what the hot water is
+enough for: "Hot water for 1 bath and 1 refill", or "Hot water for 2
+showers · a bath by 7:10 PM".
 
 ```yaml
 type: custom:nwp500-tank-card
@@ -263,6 +267,7 @@ The path is in Home Assistant's temperature unit:
 | `heating_start`, `heating_end`, `stop`, `source` | The current or next heating: when it starts, when it ends (none when the 24 hours cut it), why it ends and what heats |
 | `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`), none for one a TOU cap, a mode change or a setpoint write stops short |
 | `compressor_start`, `compressor_trigger` | As Simulated compressor start's |
+| `hot_water` | What the hot water is enough for, as Simulated hot water for: `summary`, `baths`, `refill`, `showers`; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |
 | `unit` | °F or °C |
 | `points` | The tank along the next 24 hours at the library's points (about every 10 minutes): `at`, `upper`, `lower`, `setpoint` and `heating` |
 | `waiting`, `error` | Why there is no path (`no_status`, `no_answer`, or `simulator_off` once the simulator stops), or that the simulation failed |
@@ -354,8 +359,9 @@ response_variable: snapshot
     `write_mode_not_modelled`.
   - `include_points`: also return the tank's path. Default off.
 - `time_to_ready`: `bath_gal` and `shower_gal`, a bath's and a shower's
-  volume in US gallons. Without them, the library's, which its `reasons`
-  name.
+  volume in US gallons. Without them, the heater's own sizes (its Bath
+  size and Shower size options), else the library's, which its
+  `defaults_used` names.
 - `forecast`: `target_time`, when the tank must be ready (required, at most
   168 hours after the scenario's start), and `target_f` or, for a partial
   charge, `target_lower_f`, in °F. Without them, the heater's stop

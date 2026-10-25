@@ -41,6 +41,7 @@ from .const import (
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_MIXING_VALVE_F,
+    CONF_SIMULATOR_REFILL_GAL,
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
     CONTROL_LIVE_AVAILABLE,
@@ -127,7 +128,11 @@ _SIMULATOR_ENTITIES = (
     CONF_SIMULATOR_CIRCULATION_ENTITY,
     CONF_SIMULATOR_DRAW_FLOW_ENTITY,
 )
-_SIZES = (CONF_SIMULATOR_BATH_GAL, CONF_SIMULATOR_SHOWER_GAL)
+_SIZES = (
+    CONF_SIMULATOR_BATH_GAL,
+    CONF_SIMULATOR_REFILL_GAL,
+    CONF_SIMULATOR_SHOWER_GAL,
+)
 
 
 def _size_selector(*, metric: bool) -> selector.NumberSelector:
@@ -220,6 +225,9 @@ def _simulator_device_schema(
                 )
             ),
             vol.Optional(CONF_SIMULATOR_BATH_GAL): _size_selector(
+                metric=metric
+            ),
+            vol.Optional(CONF_SIMULATOR_REFILL_GAL): _size_selector(
                 metric=metric
             ),
             vol.Optional(CONF_SIMULATOR_SHOWER_GAL): _size_selector(

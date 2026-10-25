@@ -350,3 +350,154 @@ async def test_a_mixing_valve_is_given_to_the_library(
     expected = sim.time_to_ready(inputs.scenario, inputs.params)
     assert answer.readiness.deliverable_gal == expected.deliverable_gal
     await stop(hass)
+
+
+def _readiness(deliverable: float, *, bath: float = 28.7, shower: float = 12.0):
+    """A readiness answer with `deliverable` gallons, as the library's."""
+    from types import SimpleNamespace
+
+    from nwp500.sim.ready import showers_ready_for, whole_showers
+
+    return SimpleNamespace(
+        deliverable_gal=deliverable,
+        bath=SimpleNamespace(volume_gal=bath, ready=deliverable >= bath),
+        showers=SimpleNamespace(
+            volume_gal=shower,
+            ready_for_whole=whole_showers(
+                showers_ready_for(deliverable, shower)
+            ),
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("deliverable", "summary"),
+    [
+        (5.0, "Less than a shower"),
+        (12.0, "1 shower"),
+        (28.6, "2 showers"),
+        (28.7, "1 bath"),
+        (38.6, "1 bath"),
+        (38.7, "1 bath and 1 refill"),
+        (57.4, "2 baths"),
+        (67.4, "2 baths and 1 refill"),
+    ],
+)
+def test_the_hot_water_is_counted_in_baths_a_refill_or_showers(
+    deliverable: float, summary: str
+):
+    from custom_components.nwp500.simulator.runner import capacity_from
+
+    capacity = capacity_from(_readiness(deliverable), 10.0)  # type: ignore[arg-type]
+
+    assert capacity.summary == summary
+
+
+def test_the_first_bath_is_the_librarys_answer():
+    from custom_components.nwp500.simulator.runner import capacity_from
+
+    # The library says not ready within its probe resolution: no bath,
+    # whatever the gallons.
+    readiness = _readiness(30.0)
+    readiness.bath.ready = False
+
+    capacity = capacity_from(readiness, 10.0)  # type: ignore[arg-type]
+
+    assert capacity.baths == 0
+    assert not capacity.refill
+    assert capacity.summary == "2 showers"
+
+
+async def test_the_capacity_sensor_says_it_in_words_and_sizes(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from homeassistant.util.unit_system import METRIC_SYSTEM
+
+    from custom_components.nwp500.simulator.sensor import (
+        SimulatorHotWaterCapacitySensor,
+    )
+
+    hass.config.units = METRIC_SYSTEM
+    runner = await started(hass, coordinator, {"refill_gal": 8.0})
+    answer = runner.answer
+    assert answer is not None and answer.capacity is not None
+    capacity = answer.capacity
+    sensor = SimulatorHotWaterCapacitySensor(runner, "hot_water_capacity")
+
+    assert sensor.unique_id == f"{MAC}_simulator_hot_water_capacity"
+    assert sensor.native_value == capacity.summary
+    attributes = sensor.extra_state_attributes
+    assert attributes["baths"] == capacity.baths
+    assert attributes["showers"] == capacity.showers
+    # The refill configured, in litres where litres are used.
+    assert capacity.refill_gal == 8.0
+    assert attributes["refill_volume"] == round(8.0 * 3.785411784, 1)
+    assert attributes["volume_unit"] == "L"
+    await stop(hass)
+
+
+async def test_the_bath_ready_at_is_ahead_or_held_since_ready(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from dataclasses import replace
+    from datetime import timedelta
+
+    from custom_components.nwp500.simulator.sensor import (
+        SimulatorBathReadyAtSensor,
+    )
+
+    runner = await started(hass, coordinator, {})
+    answer = runner.answer
+    assert answer is not None and answer.readiness is not None
+    readiness = answer.readiness
+    sensor = SimulatorBathReadyAtSensor(runner, "bath_ready_at")
+    sensor.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    later = answer.computed_at + timedelta(hours=2, seconds=31)
+
+    # Not ready: when the heater on its own has it, to the minute.
+    runner.answer = replace(
+        answer,
+        readiness=replace(
+            readiness,
+            bath=replace(readiness.bath, ready=False, ready_at=later),
+        ),
+    )
+    sensor._handle_answer()  # noqa: SLF001
+    assert sensor.native_value == later.replace(second=0, microsecond=0)
+    assert sensor.extra_state_attributes["ready"] is False
+
+    # Ready: since the first walk that found it, held while it stays.
+    ready = replace(readiness.bath, ready=True, ready_at=answer.computed_at)
+    first = replace(
+        answer,
+        computed_at=later,
+        readiness=replace(readiness, bath=ready),
+    )
+    runner.answer = first
+    sensor._handle_answer()  # noqa: SLF001
+    since = later.replace(second=0, microsecond=0)
+    assert sensor.native_value == since
+    runner.answer = replace(first, computed_at=later + timedelta(minutes=5))
+    sensor._handle_answer()  # noqa: SLF001
+    assert sensor.native_value == since
+    await stop(hass)
+
+
+async def test_time_to_ready_uses_the_heaters_bath_and_shower(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from custom_components.nwp500.simulator.service import (
+        async_time_to_ready,
+    )
+
+    runner = await started(
+        hass, coordinator, {"bath_gal": 40.0, "shower_gal": 15.0}
+    )
+
+    answer = await async_time_to_ready(hass, runner)
+    asked = await async_time_to_ready(hass, runner, bath_gal=20.0)
+
+    assert answer["result"]["bath"]["volume_gal"] == 40.0
+    assert answer["result"]["showers"]["volume_gal"] == 15.0
+    assert asked["result"]["bath"]["volume_gal"] == 20.0
+    await stop(hass)

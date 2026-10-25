@@ -27,10 +27,12 @@ from custom_components.nwp500.simulator import (
 )
 from custom_components.nwp500.simulator.runner import Answer
 from custom_components.nwp500.simulator.sensor import (
+    SimulatorBathReadyAtSensor,
     SimulatorCompressorStartSensor,
     SimulatorEnergySensor,
     SimulatorHeatingSensor,
     SimulatorHotWaterAvailableSensor,
+    SimulatorHotWaterCapacitySensor,
     SimulatorHotWaterReadySensor,
     SimulatorShowersReadySensor,
 )
@@ -147,8 +149,9 @@ async def test_sensors_are_unavailable_without_an_answer(
 
 
 @pytest.mark.asyncio
-async def test_a_heating_cut_by_the_horizon_has_no_ready_time(
-    hass: HomeAssistant, hass_storage, entry, coordinator
+@pytest.mark.parametrize("stop", ["horizon", "cap", "mode", "write"])
+async def test_a_heating_that_ends_short_has_no_ready_time(
+    hass: HomeAssistant, hass_storage, entry, coordinator, stop: str
 ):
     feature = await started(hass, entry, coordinator)
     runner = feature.runners[MAC]
@@ -158,11 +161,14 @@ async def test_a_heating_cut_by_the_horizon_has_no_ready_time(
         if isinstance(sensor, SimulatorHotWaterReadySensor)
     )
     assert runner.answer is not None
-    runner.answer = replace(runner.answer, stop="horizon")
+    at_target = replace(runner.answer, stop="target")
+    runner.answer = at_target
+    assert ready.native_value == at_target.end.replace(second=0, microsecond=0)  # type: ignore[union-attr]
+    runner.answer = replace(at_target, stop=stop)
 
     assert ready.available
     assert ready.native_value is None
-    assert ready.extra_state_attributes["stop"] == "horizon"
+    assert ready.extra_state_attributes["stop"] == stop
     await async_unload_simulator(hass, entry)
 
 
@@ -439,6 +445,8 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
         SimulatorEnergySensor,
         SimulatorHotWaterAvailableSensor,
         SimulatorShowersReadySensor,
+        SimulatorHotWaterCapacitySensor,
+        SimulatorBathReadyAtSensor,
     }
     await async_unload_simulator(hass, entry)
 

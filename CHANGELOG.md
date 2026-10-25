@@ -3,6 +3,18 @@
 ## [Unreleased]
 
 ### Added
+
+- **What the hot water is enough for.** A new simulator sensor, *Simulated
+  hot water for*, says it in words a dashboard can show: "1 bath", "1 bath
+  and 1 refill", "2 baths", "3 showers". Its attributes give the counts
+  and each size in Home Assistant's volume unit. A new option, *Bath
+  refill size*, sets the top-up, by default 10 gal (38 L), the top end of
+  one household's metered top-ups; the bath is the library's 28.7 gal
+  (109 L) unless set. The tank forecast card shows it under its heading,
+  with when a bath will be ready if it isn't, and the path's websocket
+  document carries it as `hot_water`.
+- **Simulated bath ready at**, a timestamp: when the heater on its own
+  has a bath's hot water ready, or, while it does, since when.
 - **The simulator takes the mixing valve's temperature.** An optional
   setting per heater, in Home Assistant's temperature unit: what the
   heater's mixing valve delivers. With it, the library prices each
@@ -31,6 +43,14 @@
   the lower at once: the sensor said the tank was ready at the hand-over.
   It now says when the last of them ends, and Simulated heating's
   `energy_kwh` is theirs together.
+- **Simulated hot water ready is only for a heating that reaches its
+  target.** One a TOU cap, a mode change or a setpoint write stops short
+  leaves it unknown, its `stop` attribute saying why, as the card's path
+  already did.
+- **The `time_to_ready` action uses the heater's own bath and shower
+  sizes** when the call gives none, as the bath and shower sensors do,
+  and a draw the heater reports now: it answered with the library's
+  defaults, and could disagree with them.
 - **The simulator's actions need no heater for a document alone.** With
   `use_heater` off, `nwp500.simulate`, `time_to_ready`, `next_recovery`,
   `forecast`, `heater_profile` and `get_scenario` take no water heater,

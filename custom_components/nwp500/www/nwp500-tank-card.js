@@ -297,6 +297,17 @@ class NWP500TankCard extends HTMLElement {
     return { text: `No heating within the next ${this._config.hours_ahead} hours`, kind: 'idle' };
   }
 
+  // What the hot water is enough for now, and when a bath is ready if
+  // it isn't: "Hot water for 1 bath and 1 refill", "… · bath by 7:10 PM".
+  _hotWater(path) {
+    const hw = path && !path.error && !path.waiting ? path.hot_water : null;
+    if (!hw) return '';
+    const bath = !hw.bath_ready && hw.bath_ready_at
+      ? ` · a bath by ${when(this._hass, new Date(hw.bath_ready_at))}`
+      : '';
+    return `Hot water for ${hw.summary.charAt(0).toLowerCase()}${hw.summary.slice(1)}${bath}`;
+  }
+
   _render() {
     if (!this._hass) return;
     const hass = this._hass;
@@ -304,6 +315,7 @@ class NWP500TankCard extends HTMLElement {
     const name = this._config.name || stateObj?.attributes?.friendly_name || 'Water heater';
     const path = this._path;
     const status = this._status(path);
+    const hotWater = this._hotWater(path);
     const unit = path?.unit || hass.config.unit_system.temperature;
     const { upper: upperId, lower: lowerId } = this._sensors();
 
@@ -426,6 +438,7 @@ class NWP500TankCard extends HTMLElement {
         <div class="header">
           <div class="name">${esc(name)}</div>
           <div class="status ${status.kind}">${esc(status.text)}</div>
+          ${hotWater ? `<div class="capacity">${esc(hotWater)}</div>` : ''}
         </div>
         <div class="chart">${svg}</div>
         <div class="legend">
@@ -449,6 +462,7 @@ class NWP500TankCard extends HTMLElement {
       .status.heating { color: ${COLORS.upper}; }
       .status.idle { color: var(--primary-text-color); }
       .status.error { color: var(--error-color, #db4437); }
+      .capacity { font-size: 13px; color: var(--primary-text-color); }
       .chart svg { width: 100%; height: 200px; display: block; }
       .grid { stroke: var(--divider-color, #e0e0e0); stroke-width: 0.5; }
       .tick { font-size: 10px; fill: var(--secondary-text-color, #888); }
