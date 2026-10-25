@@ -23,7 +23,6 @@ else:
     import voluptuous as vol
 from homeassistant.auth.permissions.const import POLICY_READ
 from homeassistant.components import websocket_api
-from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
@@ -70,15 +69,17 @@ def _heater(hass: HomeAssistant, msg: dict[str, Any]) -> tuple[str, str]:
     )
     if device is None:
         raise _NoHeaterError
-    macs = {value for domain, value in device.identifiers if domain == DOMAIN}
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.state is not ConfigEntryState.LOADED:
-            continue
-        coordinator = entry.runtime_data
-        for mac in (coordinator.data if coordinator else None) or {}:
-            if mac in macs:
-                return entry.entry_id, mac
-    raise _NoHeaterError
+    # Known from the registry, loaded or not: a frontend reconnecting
+    # while Home Assistant starts asks before the entry loads.
+    macs = [value for domain, value in device.identifiers if domain == DOMAIN]
+    entries = [
+        entry.entry_id
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.entry_id in device.config_entries
+    ]
+    if not macs or not entries:
+        raise _NoHeaterError
+    return entries[0], macs[0]
 
 
 def _readable(
@@ -128,8 +129,14 @@ def _resolve(
     hass: HomeAssistant,
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
-) -> tuple[str, str, SimulatorRunner] | None:
-    """The heater and its runner, or None with the error sent."""
+    *,
+    running: bool = True,
+) -> tuple[str, str, SimulatorRunner | None] | None:
+    """The heater and its runner, or None with the error sent.
+
+    Unless `running` is off, a heater the simulator doesn't run for is an
+    error; with it off, its runner is None.
+    """
     try:
         entry_id, mac = _heater(hass, msg)
     except _NoHeaterError:
@@ -143,7 +150,7 @@ def _resolve(
         )
         return None
     runner = _runner(hass, entry_id, mac)
-    if runner is None:
+    if runner is None and running:
         connection.send_error(
             msg["id"],
             ERR_SIMULATOR_OFF,
@@ -163,7 +170,8 @@ def websocket_path(
     msg: dict[str, Any],
 ) -> None:
     """The heater's modelled path, once."""
-    if (found := _resolve(hass, connection, msg)) is None:
+    # Resolved with `running`, the runner is there.
+    if (found := _resolve(hass, connection, msg)) is None or found[2] is None:
         return
     connection.send_result(msg["id"], _document(hass, found[2]))
 
@@ -180,9 +188,11 @@ def websocket_subscribe_path(
     """The heater's modelled path, now and with each new simulation.
 
     A reload makes a new runner: the subscription follows it. While the
-    simulator is stopped, the path is empty and says so.
+    simulator is stopped, or not started yet, the path is empty and says
+    so: a subscription is taken whether or not it runs, so a frontend
+    reconnecting while Home Assistant starts keeps it.
     """
-    if (found := _resolve(hass, connection, msg)) is None:
+    if (found := _resolve(hass, connection, msg, running=False)) is None:
         return
     entry_id, mac, runner = found
     unsubs: list[CALLBACK_TYPE] = []
@@ -228,7 +238,8 @@ def websocket_subscribe_path(
         for remove in (*following, *unsubs):
             remove()
 
-    follow(runner)
+    if runner is not None:
+        follow(runner)
     unsubs.append(
         async_dispatcher_connect(
             hass, simulator_started_signal(entry_id), started
@@ -241,7 +252,10 @@ def websocket_subscribe_path(
     )
     connection.subscriptions[msg["id"]] = unsubscribe
     connection.send_result(msg["id"])
-    send(runner)
+    if runner is not None:
+        send(runner)
+    else:
+        stopped()
 
 
 @callback

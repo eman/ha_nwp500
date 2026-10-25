@@ -129,7 +129,7 @@ defaults the simulator used instead.
 | Sensor | State |
 |---|---|
 | Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
-| Simulated hot water ready | When the heating the tank is in, or the next one within 24 hours, ends, as the library's `RecoveryResult.ready_at` gives it. Its `stop` attribute says why it ends: `target` (the tank is heated), or another, such as `mode` (a mode change) or `cap` (a TOU period's cap). Unknown when it won't heat within 24 hours, or when the 24 hours run out before the heating ends (`stop` is `horizon`) |
+| Simulated hot water ready | When the heating the tank is in, or the next one within 24 hours, ends, as the library's `RecoveryResult.ready_at` gives it. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why it ends: `target` (the tank is heated), or another, such as `mode` (a mode change) or `cap` (a TOU period's cap). Unknown when it won't heat within 24 hours, or when the 24 hours run out before the heating ends (`stop` is `horizon`) |
 | Simulated compressor start | When the heat pump's compressor next starts, as the walk finds it: the first heating interval whose source is the compressor. Its attributes: `running` (the heater reports the compressor running), and the start's `cause` and `trigger`. Unknown while the compressor runs (Simulated hot water ready is then when it stops), and when no start falls within 24 hours, such as in Electric or Vacation |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 | Simulated hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
@@ -231,8 +231,8 @@ hours_ahead: 24   # modelled path shown, default 24
 
 The tank sensors are found on the heater's device; `upper_entity` and
 `lower_entity` name others. The card needs the simulator on for the
-heater, and says so otherwise; opened while the simulator is still
-starting, it asks again until it runs. Recorded history needs the tank
+heater, and says so otherwise; it waits for a simulator that is still
+starting, and keeps its subscription across Home Assistant's restarts. Recorded history needs the tank
 sensors recorded (the recorder's default), and is drawn in Home
 Assistant's temperature unit whatever a sensor's own unit. A heating a
 TOU cap, a mode change or a setpoint write stops short is marked as
@@ -249,7 +249,9 @@ heater's water heater entity (and the entity named):
 - `nwp500/simulator/subscribe_path` sends the path now and again with
   every new simulation (at least every five minutes), keeps following the
   heater across a reload of the integration, and sends an empty path with
-  `waiting: simulator_off` when the simulator stops.
+  `waiting: simulator_off` while the simulator is stopped or not yet
+  started. It is taken for a heater whose integration hasn't loaded yet,
+  so a frontend reconnecting while Home Assistant starts keeps it.
 
 The path is in Home Assistant's temperature unit:
 

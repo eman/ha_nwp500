@@ -101,6 +101,8 @@ class NWP500TankCard extends HTMLElement {
     this._error = null;
     this._retryMs = RETRY_FIRST_MS;
     this._retryTimer = null;
+    // Each subscribe's token: a late answer to an earlier one is dropped.
+    this._token = 0;
   }
 
   static getConfigElement() {
@@ -162,6 +164,7 @@ class NWP500TankCard extends HTMLElement {
   }
 
   _unsubscribeNow() {
+    this._token += 1;
     clearTimeout(this._retryTimer);
     this._retryTimer = null;
     if (this._unsubscribe) {
@@ -176,9 +179,11 @@ class NWP500TankCard extends HTMLElement {
     this._unsubscribeNow();
     this._subscribedTo = this._config.entity;
     this._error = null;
+    const token = ++this._token;
     this._unsubscribe = this._hass.connection
       .subscribeMessage(
         (path) => {
+          if (token !== this._token) return;
           this._retryMs = RETRY_FIRST_MS;
           this._path = path;
           this._render();
@@ -186,6 +191,7 @@ class NWP500TankCard extends HTMLElement {
         { type: 'nwp500/simulator/subscribe_path', entity_id: this._config.entity }
       )
       .catch((err) => {
+        if (token !== this._token) return null;
         this._error = err?.message || String(err);
         this._path = null;
         this._render();
@@ -248,8 +254,14 @@ class NWP500TankCard extends HTMLElement {
       if (p.t <= t0) points[0] = { t: t0, v: p.v };
       else points.push(p);
     }
+    // The live state from when it changed, held to now.
     const v = state ? Number(state.state) : NaN;
-    if (Number.isFinite(v)) points.push({ t: Date.now(), v });
+    if (Number.isFinite(v)) {
+      const changed = Date.parse(state.last_changed);
+      const last = points.length ? points[points.length - 1].t : -Infinity;
+      if (changed > last) points.push({ t: Math.max(changed, t0), v });
+      points.push({ t: Date.now(), v });
+    }
     return points.map((p) => ({ t: p.t, v: convert(p.v, from, unit) }));
   }
 
@@ -272,6 +284,10 @@ class NWP500TankCard extends HTMLElement {
     if (path.compressor_running) return { text: `Heat pump running${ending()}`, kind: 'heating' };
     if (path.state === 'heating') return { text: `Element heating${ending()}`, kind: 'heating' };
     if (path.state === 'disabled') return { text: 'Heating is off (Vacation or powered off)', kind: 'muted' };
+    // A start at the walk's own start is now: the heater about to report it.
+    if (path.compressor_start && Date.parse(path.compressor_start) <= Date.parse(path.computed_at)) {
+      return { text: 'Heat pump starting now', kind: 'heating' };
+    }
     if (path.compressor_start) {
       return { text: `Heat pump off · next start ${when(hass, new Date(path.compressor_start))}`, kind: 'idle' };
     }

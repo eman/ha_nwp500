@@ -41,6 +41,7 @@ from custom_components.nwp500.simulator import (
     create_simulator_sensors,
 )
 from custom_components.nwp500.simulator.runner import (
+    CHAINED,
     Answer,
     SimulatorRunner,
     answer_from,
@@ -376,3 +377,60 @@ async def test_a_heating_stopped_short_is_not_at_temperature(
     assert document["stop"] == stop
     at_target = replace(answer, stop="target").path_document("°F")
     assert at_target["ready_at"] == answer.end.isoformat()
+
+
+async def test_electrics_upper_then_lower_element_is_one_heating(
+    hass: HomeAssistant, coordinator: MagicMock, feature: SimulatorFeature
+):
+    # Electric, its upper element on: the library ends the upper element
+    # at its target and starts the lower at once.
+    coordinator.data[MAC]["status"] = make_status(
+        dhwOperationSetting=2, heatUpperUse=ON, compUse=1, heatLowerUse=1
+    )
+    runner = feature.runners[MAC]
+    inputs, result = await walked(runner)
+    first, second = result.heating[:2]
+    assert first.source == second.source == "element"
+    assert second.start.at <= first.end + CHAINED
+
+    answer = answer_from(result, inputs)
+
+    chain = [first, second]
+    for interval in result.heating[2:]:
+        if interval.start.at > chain[-1].end + CHAINED:
+            break
+        chain.append(interval)
+    assert answer.start == first.start.at
+    assert answer.end == chain[-1].end
+    assert answer.stop == chain[-1].stop
+    assert answer.end > first.end
+
+
+async def test_a_subscription_waits_for_the_simulator_to_start(
+    hass: HomeAssistant, hass_ws_client, feature: SimulatorFeature
+):
+    assert await async_setup_component(hass, "websocket_api", {})
+    simulator_ws.async_register(hass)
+    runner = feature.runners.pop(MAC)
+    runner.async_stop()
+    client = await hass_ws_client(hass)
+
+    await client.send_json(
+        {
+            "id": 1,
+            "type": "nwp500/simulator/subscribe_path",
+            "device_id": heater_device(hass).id,
+        }
+    )
+    # Taken, and empty until the simulator runs.
+    assert (await client.receive_json())["success"]
+    assert (await client.receive_json())["event"]["waiting"] == "simulator_off"
+
+    started = SimulatorRunner(hass, runner.coordinator, MAC, {})
+    assert runner.answer is not None
+    started.answer = runner.answer
+    feature.runners[MAC] = started
+    async_dispatcher_send(hass, simulator_started_signal("entry1"))
+    await hass.async_block_till_done()
+
+    assert (await client.receive_json())["event"]["points"]

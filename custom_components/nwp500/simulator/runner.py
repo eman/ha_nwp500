@@ -73,6 +73,7 @@ from .ha_client import InProcessClient
 if TYPE_CHECKING:
     from nwp500.models import DeviceStatus
     from nwp500.sim import Readiness
+    from nwp500.sim.engine import HeatingInterval
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
 
@@ -106,6 +107,10 @@ STOP_TARGET = "target"
 
 # What heats in a heating interval, as the library names the heat pump.
 SOURCE_COMPRESSOR = "compressor"
+# Heating intervals one starting within this of another's end are one
+# heating: Electric's lower element after its upper, which the library
+# ends at its target. A compressor can't restart that soon (its lockout).
+CHAINED = timedelta(minutes=1)
 
 # The modes in which nothing heats.
 _HEATING_DISABLED_MODES = frozenset({VACATION, POWER_OFF})
@@ -182,7 +187,9 @@ class Answer:
     computed_at: datetime
     #: One of HEATING_STATES, or None with `waiting` or `error` set.
     state: str | None = None
-    #: The next (or current) heating interval, and why it ends.
+    #: The next (or current) heating, and why it ends: its intervals one
+    #: after another (`CHAINED`), from the first's start to the last's
+    #: end. The source, cause and trigger are the first's.
     start: datetime | None = None
     end: datetime | None = None
     stop: str | None = None
@@ -327,6 +334,18 @@ def answer_from(
     scenario = inputs.scenario
     state = scenario.state
     first = result.heating[0] if result.heating else None
+    # The heating it is in, or the next, to its last interval.
+    chain: list[HeatingInterval] = []
+    for interval in result.heating:
+        if chain and interval.start.at > chain[-1].end + CHAINED:
+            break
+        chain.append(interval)
+    last = chain[-1] if chain else None
+    chain_wh = (
+        None
+        if not chain or any(h.input_wh is None for h in chain)
+        else sum(h.input_wh or 0.0 for h in chain)
+    )
     heating_now = state.compressor_running or state.element_running
     if heating_now:
         heating_state = STATE_HEATING
@@ -351,17 +370,13 @@ def answer_from(
         computed_at=scenario.start,
         state=heating_state,
         start=None if first is None else first.start.at,
-        end=None if first is None else first.end,
-        stop=None if first is None else first.stop,
+        end=None if last is None else last.end,
+        stop=None if last is None else last.stop,
         source=None if first is None else first.source,
         cause=None if first is None else first.start.cause,
         trigger=None if first is None else first.start.trigger,
-        energy_kwh=(
-            None
-            if first is None or first.input_wh is None
-            else round(first.input_wh / 1000.0, 3)
-        ),
-        capped=None if first is None else first.capped,
+        energy_kwh=None if chain_wh is None else round(chain_wh / 1000.0, 3),
+        capped=None if last is None else last.capped,
         confidence=None if first is None else first.confidence,
         energy_total_kwh=None if total is None else round(total / 1000.0, 3),
         compressor_running=state.compressor_running,

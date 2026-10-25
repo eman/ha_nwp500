@@ -26,6 +26,11 @@
   heater. A heating a TOU cap, a mode change or a setpoint write stops
   short is not "at temperature": the path's `ready_at` is only for one
   that reaches its target.
+- **Simulated hot water ready takes back-to-back heatings as one.** In
+  Electric the library ends the upper element at its target and starts
+  the lower at once: the sensor said the tank was ready at the hand-over.
+  It now says when the last of them ends, and Simulated heating's
+  `energy_kwh` is theirs together.
 - **The simulator's actions need no heater for a document alone.** With
   `use_heater` off, `nwp500.simulate`, `time_to_ready`, `next_recovery`,
   `forecast`, `heater_profile` and `get_scenario` take no water heater,
