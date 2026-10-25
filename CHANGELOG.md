@@ -21,7 +21,11 @@
   temperature and when the compressor next starts. It reads the model
   from two new websocket commands, `nwp500/simulator/path` and
   `nwp500/simulator/subscribe_path` (the path again with each
-  simulation, across a reload), which other cards can use too.
+  simulation, across a reload, and an empty one when the simulator
+  stops), which other cards can use too, for a user who can read the
+  heater. A heating a TOU cap, a mode change or a setpoint write stops
+  short is not "at temperature": the path's `ready_at` is only for one
+  that reaches its target.
 - **The simulator's actions need no heater for a document alone.** With
   `use_heater` off, `nwp500.simulate`, `time_to_ready`, `next_recovery`,
   `forecast`, `heater_profile` and `get_scenario` take no water heater,

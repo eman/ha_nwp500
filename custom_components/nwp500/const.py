@@ -1472,6 +1472,11 @@ def simulator_started_signal(entry_id: str) -> str:
     return f"{DOMAIN}_simulator_started_{entry_id}"
 
 
+def simulator_stopped_signal(entry_id: str) -> str:
+    """The dispatcher signal sent when an entry's simulator stops."""
+    return f"{DOMAIN}_simulator_stopped_{entry_id}"
+
+
 def simulator_enabled(entry: Any) -> bool:
     """Whether the hot water simulator is switched on for an entry.
 

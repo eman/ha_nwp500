@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     import probatio as vol
 else:
     import voluptuous as vol
+from homeassistant.auth.permissions.const import POLICY_READ
 from homeassistant.components import websocket_api
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID
@@ -31,7 +32,12 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.typing import VolDictType
 
-from .const import DOMAIN, simulator_feature, simulator_started_signal
+from .const import (
+    DOMAIN,
+    simulator_feature,
+    simulator_started_signal,
+    simulator_stopped_signal,
+)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -40,6 +46,8 @@ if TYPE_CHECKING:
 
 ERR_NOT_FOUND = "not_found"
 ERR_SIMULATOR_OFF = "simulator_not_enabled"
+#: The path's `waiting` once the simulator stops for the heater.
+WAIT_SIMULATOR_OFF = "simulator_off"
 
 _HEATER: VolDictType = {
     vol.Optional(ATTR_DEVICE_ID): cv.string,
@@ -73,6 +81,31 @@ def _heater(hass: HomeAssistant, msg: dict[str, Any]) -> tuple[str, str]:
     raise _NoHeaterError
 
 
+def _readable(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    mac: str,
+) -> bool:
+    """Whether the user may read the heater, as its entities' state.
+
+    The path is the heater's state and forecast: the user must be able to
+    read its water heater entity, and the entity the message names.
+    """
+    user = connection.user
+    if user.is_admin or user.permissions.access_all_entities(POLICY_READ):
+        return True
+    heater = er.async_get(hass).async_get_entity_id(
+        "water_heater", DOMAIN, f"{mac}_water_heater"
+    )
+    named = msg.get(ATTR_ENTITY_ID)
+    return all(
+        entity_id is not None
+        and user.permissions.check_entity(entity_id, POLICY_READ)
+        for entity_id in (heater, *(() if named is None else (named,)))
+    )
+
+
 def _runner(
     hass: HomeAssistant, entry_id: str, mac: str
 ) -> SimulatorRunner | None:
@@ -102,6 +135,11 @@ def _resolve(
     except _NoHeaterError:
         connection.send_error(
             msg["id"], ERR_NOT_FOUND, "No NWP500 water heater found"
+        )
+        return None
+    if not _readable(hass, connection, msg, mac):
+        connection.send_error(
+            msg["id"], websocket_api.ERR_UNAUTHORIZED, "Unauthorized"
         )
         return None
     runner = _runner(hass, entry_id, mac)
@@ -141,7 +179,8 @@ def websocket_subscribe_path(
 ) -> None:
     """The heater's modelled path, now and with each new simulation.
 
-    A reload makes a new runner: the subscription follows it.
+    A reload makes a new runner: the subscription follows it. While the
+    simulator is stopped, the path is empty and says so.
     """
     if (found := _resolve(hass, connection, msg)) is None:
         return
@@ -169,6 +208,22 @@ def websocket_subscribe_path(
             send(current)
 
     @callback
+    def stopped() -> None:
+        for remove in following:
+            remove()
+        following.clear()
+        connection.send_message(
+            websocket_api.event_message(
+                msg["id"],
+                {
+                    "waiting": WAIT_SIMULATOR_OFF,
+                    "unit": hass.config.units.temperature_unit,
+                    "points": [],
+                },
+            )
+        )
+
+    @callback
     def unsubscribe() -> None:
         for remove in (*following, *unsubs):
             remove()
@@ -177,6 +232,11 @@ def websocket_subscribe_path(
     unsubs.append(
         async_dispatcher_connect(
             hass, simulator_started_signal(entry_id), started
+        )
+    )
+    unsubs.append(
+        async_dispatcher_connect(
+            hass, simulator_stopped_signal(entry_id), stopped
         )
     )
     connection.subscriptions[msg["id"]] = unsubscribe

@@ -101,6 +101,8 @@ STATE_DISABLED = "disabled"
 HEATING_STATES = (STATE_HEATING, STATE_SCHEDULED, STATE_IDLE, STATE_DISABLED)
 #: A heating's `stop` when the walk's horizon cut it, not its own end.
 STOP_HORIZON = "horizon"
+#: A heating's `stop` when the tank reached its target: at temperature.
+STOP_TARGET = "target"
 
 # What heats in a heating interval, as the library names the heat pump.
 SOURCE_COMPRESSOR = "compressor"
@@ -239,9 +241,12 @@ class Answer:
     def path_document(self, temperature_unit: str) -> dict[str, Any]:
         """The modelled path for a chart, in `temperature_unit`.
 
-        When the tank comes to temperature (none when the walk's horizon
-        cuts the heating), when the compressor next starts, and the two
-        probes along the walk; why there is none, when there isn't.
+        When the current or next heating ends (none when the walk's
+        horizon cuts it) and why; when the tank comes to temperature,
+        only for a heating that ends at its target, not one a TOU cap, a
+        mode change or a write stops short; when the compressor next
+        starts; and the two probes along the walk. Why there is none,
+        when there isn't.
         """
 
         def temperature(f: float) -> float:
@@ -252,7 +257,8 @@ class Answer:
                 _PATH_DIGITS,
             )
 
-        ready = None if self.stop == STOP_HORIZON else self.end
+        end = None if self.stop == STOP_HORIZON else self.end
+        ready = end if self.stop == STOP_TARGET else None
         return {
             "computed_at": _iso(self.computed_at),
             "state": self.state,
@@ -261,6 +267,7 @@ class Answer:
             "unit": temperature_unit,
             "compressor_running": self.compressor_running,
             "heating_start": _iso(self.start),
+            "heating_end": _iso(end),
             "ready_at": _iso(ready),
             "stop": self.stop,
             "source": self.source,

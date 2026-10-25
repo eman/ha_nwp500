@@ -18,6 +18,18 @@ const TANK_CARD_VERSION = '1.0.0';
 // Recorded history is read again this often, and live states appended
 // between reads.
 const HISTORY_REFRESH_MS = 5 * 60 * 1000;
+// A refused subscription is tried again, from this wait doubling to the
+// last: the simulator starts in the background after the integration, so
+// a card opened at start-up can ask before it runs.
+const RETRY_FIRST_MS = 5 * 1000;
+const RETRY_LAST_MS = 5 * 60 * 1000;
+
+// Why a heating ends short of its target, as the path's `stop` says.
+const STOP_LABELS = {
+  cap: 'TOU cap stops it',
+  mode: 'mode change stops it',
+  write: 'setpoint change stops it',
+};
 
 const COLORS = {
   upper: '#e8743b',
@@ -52,6 +64,14 @@ function when(hass, date) {
   return `${day}${clock(hass, date)}`;
 }
 
+/** `value` in `from`'s unit, as `to` reads it: °F and °C. */
+function convert(value, from, to) {
+  if (!from || !to || from === to) return value;
+  if (from === '°F' && to === '°C') return (value - 32) / 1.8;
+  if (from === '°C' && to === '°F') return value * 1.8 + 32;
+  return value;
+}
+
 /** The heater's tank sensors, found on the same device as `entityId`. */
 function tankSensors(hass, entityId) {
   const entities = hass.entities || {};
@@ -79,6 +99,8 @@ class NWP500TankCard extends HTMLElement {
     this._unsubscribe = null;
     this._subscribedTo = null;
     this._error = null;
+    this._retryMs = RETRY_FIRST_MS;
+    this._retryTimer = null;
   }
 
   static getConfigElement() {
@@ -140,6 +162,8 @@ class NWP500TankCard extends HTMLElement {
   }
 
   _unsubscribeNow() {
+    clearTimeout(this._retryTimer);
+    this._retryTimer = null;
     if (this._unsubscribe) {
       this._unsubscribe.then((unsub) => unsub && unsub()).catch(() => {});
     }
@@ -155,6 +179,7 @@ class NWP500TankCard extends HTMLElement {
     this._unsubscribe = this._hass.connection
       .subscribeMessage(
         (path) => {
+          this._retryMs = RETRY_FIRST_MS;
           this._path = path;
           this._render();
         },
@@ -164,6 +189,15 @@ class NWP500TankCard extends HTMLElement {
         this._error = err?.message || String(err);
         this._path = null;
         this._render();
+        // Not running yet, or a heater not loaded yet: ask again later.
+        // A heater the user may not read is not asked about again.
+        if (err?.code !== 'unauthorized') {
+          const entity = this._config.entity;
+          this._retryTimer = setTimeout(() => {
+            if (this._config.entity === entity) this._resubscribe();
+          }, this._retryMs);
+          this._retryMs = Math.min(this._retryMs * 2, RETRY_LAST_MS);
+        }
         return null;
       });
     this._historyAt = 0;
@@ -199,13 +233,24 @@ class NWP500TankCard extends HTMLElement {
     }
   }
 
-  /** The recorded series, with the live state appended. */
-  _recorded(key, entityId) {
-    const points = [...(this._history[key] || [])];
+  /**
+   * The recorded series from `t0`, in `unit`, with the live state appended.
+   *
+   * A recorded value holds until the next: the last before `t0` is the
+   * value at `t0`. Each sensor is converted from its own unit, which an
+   * entity's settings can make other than Home Assistant's.
+   */
+  _recorded(key, entityId, t0, unit) {
     const state = entityId ? this._hass.states[entityId] : null;
+    const from = state?.attributes?.unit_of_measurement;
+    const points = [];
+    for (const p of this._history[key] || []) {
+      if (p.t <= t0) points[0] = { t: t0, v: p.v };
+      else points.push(p);
+    }
     const v = state ? Number(state.state) : NaN;
     if (Number.isFinite(v)) points.push({ t: Date.now(), v });
-    return points;
+    return points.map((p) => ({ t: p.t, v: convert(p.v, from, unit) }));
   }
 
   _status(path) {
@@ -213,17 +258,19 @@ class NWP500TankCard extends HTMLElement {
     if (this._error) return { text: this._error, kind: 'error' };
     if (!path) return { text: 'Waiting for the simulator…', kind: 'muted' };
     if (path.error) return { text: 'The simulation failed; the log says why.', kind: 'error' };
+    if (path.waiting === 'simulator_off') return { text: 'The hot water simulator is off.', kind: 'muted' };
     if (path.waiting) return { text: 'Waiting for the heater to report.', kind: 'muted' };
-    if (path.compressor_running) {
-      if (path.ready_at) {
-        return { text: `Heat pump running · at temperature by ${when(hass, new Date(path.ready_at))}`, kind: 'heating' };
+    // How the heating it is in ends: at temperature, or stopped short.
+    const ending = () => {
+      if (path.ready_at) return ` · at temperature by ${when(hass, new Date(path.ready_at))}`;
+      if (path.heating_end) {
+        const why = STOP_LABELS[path.stop] || 'it stops';
+        return ` · ${why} at ${when(hass, new Date(path.heating_end))}, short of temperature`;
       }
-      return { text: 'Heat pump running · not at temperature within the forecast', kind: 'heating' };
-    }
-    if (path.state === 'heating') {
-      const end = path.ready_at ? ` · done by ${when(hass, new Date(path.ready_at))}` : '';
-      return { text: `Element heating${end}`, kind: 'heating' };
-    }
+      return ' · not at temperature within the forecast';
+    };
+    if (path.compressor_running) return { text: `Heat pump running${ending()}`, kind: 'heating' };
+    if (path.state === 'heating') return { text: `Element heating${ending()}`, kind: 'heating' };
     if (path.state === 'disabled') return { text: 'Heating is off (Vacation or powered off)', kind: 'muted' };
     if (path.compressor_start) {
       return { text: `Heat pump off · next start ${when(hass, new Date(path.compressor_start))}`, kind: 'idle' };
@@ -251,8 +298,8 @@ class NWP500TankCard extends HTMLElement {
     const modelled = (path?.points || [])
       .map((p) => ({ t: Date.parse(p.at), upper: p.upper, lower: p.lower, setpoint: p.setpoint, heating: p.heating }))
       .filter((p) => p.t <= t1);
-    const recUpper = this._recorded('upper', upperId).filter((p) => p.t >= t0);
-    const recLower = this._recorded('lower', lowerId).filter((p) => p.t >= t0);
+    const recUpper = this._recorded('upper', upperId, t0, unit);
+    const recLower = this._recorded('lower', lowerId, t0, unit);
 
     const values = [
       ...recUpper.map((p) => p.v),
@@ -327,10 +374,16 @@ class NWP500TankCard extends HTMLElement {
       return `<line x1="${px}" x2="${px}" y1="${T}" y2="${H - B}" stroke="${color}" stroke-width="1.5" stroke-dasharray="2 3" />
         <text x="${px + dx}" y="${T + 12 + row * 13}" class="marker" fill="${color}" text-anchor="${anchor}">${esc(label)}</text>`;
     };
-    const readyMarker = marker(path?.ready_at, 'at temperature', COLORS.upper);
+    // The heating's end: at temperature, or what stops it short.
+    const endAt = path?.ready_at || path?.heating_end;
+    const readyMarker = marker(
+      endAt,
+      path?.ready_at ? 'at temperature' : STOP_LABELS[path?.stop] || 'heating stops',
+      COLORS.upper,
+    );
     const startAt = path && !path.compressor_running ? path.compressor_start : null;
-    const close = startAt && path?.ready_at
-      && Math.abs(x(Date.parse(startAt)) - x(Date.parse(path.ready_at))) < 120;
+    const close = startAt && endAt
+      && Math.abs(x(Date.parse(startAt)) - x(Date.parse(endAt))) < 120;
     const startMarker = marker(startAt, 'compressor starts', COLORS.lower, close ? 1 : 0);
 
     const svg = `

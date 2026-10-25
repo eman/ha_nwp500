@@ -19,6 +19,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import METRIC_SYSTEM
@@ -190,6 +191,7 @@ async def test_the_path_document_is_in_home_assistants_unit(
     assert celsius["unit"] == UnitOfTemperature.CELSIUS
     assert celsius["points"][0]["upper"] == round((first.upper_f - 32) / 1.8, 1)
     assert celsius["points"][0]["at"] == first.at.isoformat()
+    assert answer.stop == "target"
     assert celsius["ready_at"] == answer.end.isoformat()
     assert celsius["heating_start"] == answer.start.isoformat()
     assert celsius["compressor_start"] == answer.compressor_start.isoformat()
@@ -290,3 +292,87 @@ async def test_the_subscription_follows_each_walk_and_a_reload(
     )
     assert (await client.receive_json())["success"]
     assert reloaded._listeners == []  # noqa: SLF001
+
+
+async def test_a_user_who_cannot_read_the_heater_gets_no_path(
+    hass: HomeAssistant,
+    hass_ws_client,
+    hass_read_only_user,
+    hass_read_only_access_token,
+    feature: SimulatorFeature,
+):
+    assert await async_setup_component(hass, "websocket_api", {})
+    simulator_ws.async_register(hass)
+    device = heater_device(hass)
+    heater = (
+        er.async_get(hass)
+        .async_get_or_create(
+            "water_heater", DOMAIN, f"{MAC}_water_heater", device_id=device.id
+        )
+        .entity_id
+    )
+    client = await hass_ws_client(hass, hass_read_only_access_token)
+
+    # Another entity readable, the heater not.
+    hass_read_only_user.mock_policy(
+        {"entities": {"entity_ids": {"sensor.elsewhere": True}}}
+    )
+    for i, ask in enumerate(
+        ({"device_id": device.id}, {"entity_id": heater}), start=1
+    ):
+        await client.send_json(
+            {"id": i, "type": "nwp500/simulator/subscribe_path", **ask}
+        )
+        reply = await client.receive_json()
+        assert reply["error"]["code"] == "unauthorized"
+
+    hass_read_only_user.mock_policy(
+        {"entities": {"entity_ids": {heater: True}}}
+    )
+    await client.send_json(
+        {"id": 3, "type": "nwp500/simulator/path", "device_id": device.id}
+    )
+    assert (await client.receive_json())["success"]
+
+
+async def test_a_subscription_hears_the_simulator_stop(
+    hass: HomeAssistant, hass_ws_client, feature: SimulatorFeature
+):
+    assert await async_setup_component(hass, "websocket_api", {})
+    simulator_ws.async_register(hass)
+    runner = feature.runners[MAC]
+    client = await hass_ws_client(hass)
+    await client.send_json(
+        {
+            "id": 1,
+            "type": "nwp500/simulator/subscribe_path",
+            "device_id": heater_device(hass).id,
+        }
+    )
+    assert (await client.receive_json())["success"]
+    assert (await client.receive_json())["event"]["points"]
+
+    await feature.async_stop()
+    await hass.async_block_till_done()
+
+    off = (await client.receive_json())["event"]
+    assert off["waiting"] == "simulator_off"
+    assert off["points"] == []
+    assert runner._listeners == []  # noqa: SLF001
+
+
+@pytest.mark.parametrize("stop", ["cap", "mode", "write"])
+async def test_a_heating_stopped_short_is_not_at_temperature(
+    hass: HomeAssistant, feature: SimulatorFeature, stop: str
+):
+    runner = feature.runners[MAC]
+    inputs, result = await walked(runner)
+    answer = replace(answer_from(result, inputs), stop=stop)
+
+    document = answer.path_document("°F")
+
+    assert document["ready_at"] is None
+    assert document["heating_end"] == answer.end.isoformat()
+    assert document["stop"] == stop
+    at_target = replace(answer, stop="target").path_document("°F")
+    assert at_target["ready_at"] == answer.end.isoformat()

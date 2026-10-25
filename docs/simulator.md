@@ -231,19 +231,25 @@ hours_ahead: 24   # modelled path shown, default 24
 
 The tank sensors are found on the heater's device; `upper_entity` and
 `lower_entity` name others. The card needs the simulator on for the
-heater, and says so otherwise. Recorded history needs the tank sensors
-recorded (the recorder's default).
+heater, and says so otherwise; opened while the simulator is still
+starting, it asks again until it runs. Recorded history needs the tank
+sensors recorded (the recorder's default), and is drawn in Home
+Assistant's temperature unit whatever a sensor's own unit. A heating a
+TOU cap, a mode change or a setpoint write stops short is marked as
+stopping short, not as at temperature.
 
 ### The path over the websocket API
 
 The card reads the modelled path from two websocket commands, which any
 frontend card or script can use too. Each takes the heater's `device_id`
-or any of its entities' `entity_id`:
+or any of its entities' `entity_id`, and answers a user who can read the
+heater's water heater entity (and the entity named):
 
 - `nwp500/simulator/path` answers once.
 - `nwp500/simulator/subscribe_path` sends the path now and again with
-  every new simulation (at least every five minutes), and keeps following
-  the heater across a reload of the integration.
+  every new simulation (at least every five minutes), keeps following the
+  heater across a reload of the integration, and sends an empty path with
+  `waiting: simulator_off` when the simulator stops.
 
 The path is in Home Assistant's temperature unit:
 
@@ -252,11 +258,12 @@ The path is in Home Assistant's temperature unit:
 | `computed_at` | When the simulation started |
 | `state` | As Simulated heating's |
 | `compressor_running` | Whether the heater reports its compressor running |
-| `heating_start`, `ready_at`, `stop`, `source` | The current or next heating: when it starts, when the tank comes to temperature (none when the 24 hours cut it), why it ends and what heats |
+| `heating_start`, `heating_end`, `stop`, `source` | The current or next heating: when it starts, when it ends (none when the 24 hours cut it), why it ends and what heats |
+| `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`), none for one a TOU cap, a mode change or a setpoint write stops short |
 | `compressor_start`, `compressor_trigger` | As Simulated compressor start's |
 | `unit` | °F or °C |
 | `points` | The tank along the next 24 hours at the library's points (about every 10 minutes): `at`, `upper`, `lower`, `setpoint` and `heating` |
-| `waiting`, `error` | Why there is no path yet (`no_status`, `no_answer`), or that the simulation failed |
+| `waiting`, `error` | Why there is no path (`no_status`, `no_answer`, or `simulator_off` once the simulator stops), or that the simulation failed |
 
 An ApexCharts card's `data_generator` can read it with
 `hass.callWS({type: 'nwp500/simulator/path', entity_id: 'water_heater.heater'})`.
