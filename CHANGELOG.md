@@ -8,7 +8,7 @@
   hot water for*, says it in words a dashboard can show: "1 bath", "1 bath
   and 1 refill", "2 baths", "3 showers". Its attributes give the counts
   and each size in Home Assistant's volume unit. A new option, *Bath
-  refill size*, sets the top-up, by default 10 gal (38 L), the top end of
+  refill size*, sets the top-up, by default 10.2 gal (39 L), the largest of
   one household's metered top-ups; the bath is the library's 28.7 gal
   (109 L) unless set. The tank forecast card shows it under its heading,
   with when a bath will be ready if it isn't, and the path's websocket

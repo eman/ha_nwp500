@@ -161,10 +161,10 @@ async def test_a_heating_that_ends_short_has_no_ready_time(
         if isinstance(sensor, SimulatorHotWaterReadySensor)
     )
     assert runner.answer is not None
-    at_target = replace(runner.answer, stop="target")
+    at_target = replace(runner.answer, stop="target", at_temperature=True)
     runner.answer = at_target
     assert ready.native_value == at_target.end.replace(second=0, microsecond=0)  # type: ignore[union-attr]
-    runner.answer = replace(at_target, stop=stop)
+    runner.answer = replace(at_target, stop=stop, at_temperature=False)
 
     assert ready.available
     assert ready.native_value is None

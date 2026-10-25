@@ -381,6 +381,8 @@ def _readiness(deliverable: float, *, bath: float = 28.7, shower: float = 12.0):
         (38.7, "1 bath and 1 refill"),
         (57.4, "2 baths"),
         (67.4, "2 baths and 1 refill"),
+        # 86.1 // 28.7 is 2.0 in binary: still 3 baths.
+        (86.1, "3 baths"),
     ],
 )
 def test_the_hot_water_is_counted_in_baths_a_refill_or_showers(
@@ -500,4 +502,62 @@ async def test_time_to_ready_uses_the_heaters_bath_and_shower(
     assert answer["result"]["bath"]["volume_gal"] == 40.0
     assert answer["result"]["showers"]["volume_gal"] == 15.0
     assert asked["result"]["bath"]["volume_gal"] == 20.0
+    await stop(hass)
+
+
+async def test_the_bath_ready_since_is_held_across_a_restart_and_a_gap(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from dataclasses import replace
+    from datetime import timedelta
+
+    from custom_components.nwp500.simulator.sensor import (
+        SimulatorBathReadyAtSensor,
+    )
+
+    runner = await started(hass, coordinator, {})
+    answer = runner.answer
+    assert answer is not None and answer.readiness is not None
+    ready = replace(
+        answer,
+        readiness=replace(
+            answer.readiness,
+            bath=replace(answer.readiness.bath, ready=True),
+        ),
+    )
+    runner.answer = ready
+    earlier = (answer.computed_at - timedelta(hours=5)).replace(
+        second=0, microsecond=0
+    )
+    sensor = SimulatorBathReadyAtSensor(runner, "bath_ready_at")
+    sensor.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    sensor._restored = earlier  # noqa: SLF001 - as async_added_to_hass sets it
+
+    sensor._hold()  # noqa: SLF001
+    assert sensor.native_value == earlier
+
+    # A walk with no answer changes nothing held.
+    runner.answer = replace(ready, readiness=None)
+    sensor._handle_answer()  # noqa: SLF001
+    runner.answer = replace(ready, computed_at=answer.computed_at)
+    sensor._handle_answer()  # noqa: SLF001
+    assert sensor.native_value == earlier
+    await stop(hass)
+
+
+async def test_a_documents_own_sizes_are_not_the_heaters(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from custom_components.nwp500.simulator.service import (
+        async_get_scenario,
+        async_time_to_ready,
+    )
+
+    runner = await started(hass, coordinator, {"bath_gal": 40.0})
+    scenario = (await async_get_scenario(hass, runner))["result"]
+    scenario["params"]["readiness"]["bath_gal"] = 33.0
+
+    answer = await async_time_to_ready(hass, runner, scenario=scenario)
+
+    assert answer["result"]["bath"]["volume_gal"] == 33.0
     await stop(hass)

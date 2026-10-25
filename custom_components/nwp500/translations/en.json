@@ -59,7 +59,7 @@
           "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
           "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
           "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
-          "refill_gal": "The hot water a bath's top-up takes, for \"1 bath and 1 refill\". Without it, 10 gal (38 L).",
+          "refill_gal": "The hot water a bath's top-up takes, for \"1 bath and 1 refill\". Without it, 10.2 gal (39 L), the largest of one household's metered top-ups.",
           "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names.",
           "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
         }
@@ -159,7 +159,7 @@
           "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
           "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
           "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
-          "refill_gal": "The hot water a bath's top-up takes, for \"1 bath and 1 refill\". Without it, 10 gal (38 L).",
+          "refill_gal": "The hot water a bath's top-up takes, for \"1 bath and 1 refill\". Without it, 10.2 gal (39 L), the largest of one household's metered top-ups.",
           "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names.",
           "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
         }

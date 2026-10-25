@@ -106,6 +106,8 @@ HEATING_STATES = (STATE_HEATING, STATE_SCHEDULED, STATE_IDLE, STATE_DISABLED)
 STOP_HORIZON = "horizon"
 #: A heating's `stop` when the tank reached its target: at temperature.
 STOP_TARGET = "target"
+#: A setpoint write ended it.
+STOP_WRITE = "write"
 
 # What heats in a heating interval, as the library names the heat pump.
 SOURCE_COMPRESSOR = "compressor"
@@ -214,7 +216,13 @@ def capacity_from(readiness: Readiness, refill_gal: float) -> Capacity:
     """The baths, refill and showers the tank's hot water is enough for."""
     bath_gal = readiness.bath.volume_gal
     deliverable = readiness.deliverable_gal
-    baths = max(1, int(deliverable // bath_gal)) if readiness.bath.ready else 0
+    # A hair over, as the library's whole showers: gallons rounded to a
+    # tenth divide by a bath's in binary a hair short (86.1 // 28.7 == 2).
+    baths = (
+        max(1, int(deliverable / bath_gal + 1e-9))
+        if readiness.bath.ready
+        else 0
+    )
     return Capacity(
         baths=baths,
         refill=baths > 0 and deliverable - baths * bath_gal >= refill_gal,
@@ -238,6 +246,11 @@ class Answer:
     start: datetime | None = None
     end: datetime | None = None
     stop: str | None = None
+    #: Whether it ends with the tank at temperature: at its target, or a
+    #: setpoint write ending it with the tank already at the new one (the
+    #: library's `reached`). Not when a TOU cap, a mode change or the
+    #: horizon ends it.
+    at_temperature: bool | None = None
     source: str | None = None
     cause: str | None = None
     trigger: str | None = None
@@ -312,7 +325,7 @@ class Answer:
             )
 
         end = None if self.stop == STOP_HORIZON else self.end
-        ready = end if self.stop == STOP_TARGET else None
+        ready = end if self.at_temperature else None
         capacity = self.capacity
         bath = None if self.readiness is None else self.readiness.bath
         return {
@@ -389,6 +402,18 @@ def heater_schedules(
     return schedules, reasons
 
 
+def _at_temperature(
+    result: SimulationResult, interval: HeatingInterval
+) -> bool:
+    """Whether a heating ends with the tank at temperature."""
+    if interval.stop == STOP_TARGET:
+        return True
+    # A write ending it at the new setpoint: the library counts it reached.
+    return interval.stop == STOP_WRITE and any(
+        at == interval.end for at, _ in result.simulation.reached
+    )
+
+
 def answer_from(
     result: SimulationResult,
     inputs: Inputs,
@@ -441,6 +466,7 @@ def answer_from(
         start=None if first is None else first.start.at,
         end=None if last is None else last.end,
         stop=None if last is None else last.stop,
+        at_temperature=None if last is None else _at_temperature(result, last),
         source=None if first is None else first.source,
         cause=None if first is None else first.start.cause,
         trigger=None if first is None else first.start.trigger,

@@ -242,9 +242,12 @@ class NWP500TankCard extends HTMLElement {
           .filter((p) => Number.isFinite(p.v));
       if (token !== this._historyToken) return;
       this._history = { upper: upper ? series(upper) : [], lower: lower ? series(lower) : [] };
-      // What the read covers needs no live copy.
+      // What the read brought needs no live copy. Only to its last row:
+      // a change the recorder hadn't committed yet stays live.
       for (const key of ['upper', 'lower']) {
-        this._live[key] = this._live[key].filter((p) => p.t > end.getTime());
+        const rows = this._history[key];
+        const covered = rows.length ? rows[rows.length - 1].t : -Infinity;
+        this._live[key] = this._live[key].filter((p) => p.t > covered);
       }
       this._render();
     } catch (err) {
@@ -265,6 +268,9 @@ class NWP500TankCard extends HTMLElement {
       const live = this._live[key];
       const last = live.length ? live[live.length - 1] : null;
       if (!last || t > last.t) live.push({ t, v });
+      // Bounded while history reads fail: none older than the chart shows.
+      const oldest = Date.now() - this._config.hours_back * 3600 * 1000;
+      while (live.length > 1 && live[1].t <= oldest) live.shift();
     }
   }
 
@@ -286,8 +292,10 @@ class NWP500TankCard extends HTMLElement {
       if (p.t <= t0) points[0] = { t: t0, v: p.v };
       else points.push(p);
     }
-    // The last value held to now.
-    if (points.length) points.push({ t: Date.now(), v: points[points.length - 1].v });
+    // The live state at now, else the last value held to now.
+    const v = state ? Number(state.state) : NaN;
+    if (Number.isFinite(v)) points.push({ t: Date.now(), v });
+    else if (points.length) points.push({ t: Date.now(), v: points[points.length - 1].v });
     return points.map((p) => ({ t: p.t, v: convert(p.v, from, unit) }));
   }
 

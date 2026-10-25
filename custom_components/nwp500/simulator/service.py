@@ -167,7 +167,8 @@ async def async_inputs(
         # A draw the heater reports now is the scenario's only from now.
         drawing=live is not None
         and live.drawing
-        and built.scenario.start == live.scenario.start,
+        and built.scenario.start == live.scenario.start
+        and not (scenario or {}).get("state"),
     )
 
 
@@ -264,8 +265,13 @@ async def async_time_to_ready(
         hass, runner, scenario=scenario, use_heater=use_heater
     )
     # Sizes not given are the heater's own, as its bath and shower
-    # sensors have them; with no heater, the library's.
-    options = {} if runner is None else runner.options
+    # sensors have them, unless the document brings its own parameters;
+    # with no heater, the library's.
+    options = (
+        {}
+        if runner is None or (scenario or {}).get("params")
+        else runner.options
+    )
     ready = await _async_call(
         hass,
         partial(

@@ -368,14 +368,18 @@ async def test_a_heating_stopped_short_is_not_at_temperature(
 ):
     runner = feature.runners[MAC]
     inputs, result = await walked(runner)
-    answer = replace(answer_from(result, inputs), stop=stop)
+    answer = replace(
+        answer_from(result, inputs), stop=stop, at_temperature=False
+    )
 
     document = answer.path_document("°F")
 
     assert document["ready_at"] is None
     assert document["heating_end"] == answer.end.isoformat()
     assert document["stop"] == stop
-    at_target = replace(answer, stop="target").path_document("°F")
+    at_target = replace(
+        answer, stop="target", at_temperature=True
+    ).path_document("°F")
     assert at_target["ready_at"] == answer.end.isoformat()
 
 
@@ -511,3 +515,24 @@ async def test_an_element_inside_a_longer_compressor_run_ends_nothing(
     assert answer.end == later.end
     assert answer.stop == "cap"
     assert answer.energy_kwh == 1.6
+
+
+async def test_a_write_that_ends_a_heating_at_its_new_setpoint_is_at_temperature(
+    hass: HomeAssistant, feature: SimulatorFeature
+):
+    from custom_components.nwp500.simulator.runner import _at_temperature
+
+    runner = feature.runners[MAC]
+    _, result = await walked(runner)
+    (template,) = result.heating[:1]
+    write = replace(template, stop="write")
+    reached = replace(
+        result,
+        simulation=replace(result.simulation, reached=[(write.end, 140.0)]),
+    )
+    short = replace(result, simulation=replace(result.simulation, reached=[]))
+
+    # The library counts it reached: the tank was at the new setpoint.
+    assert _at_temperature(reached, write)
+    assert not _at_temperature(short, write)
+    assert not _at_temperature(reached, replace(write, stop="cap"))

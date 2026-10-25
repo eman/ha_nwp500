@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
     SensorStateClass,
@@ -20,7 +21,6 @@ from ..entity import NWP500Entity
 from .runner import (
     HEATING_STATES,
     STATE_HEATING,
-    STOP_TARGET,
     Answer,
     SimulatorRunner,
 )
@@ -159,7 +159,7 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
         answer = self.answer
         # Stopped short, or cut by the walk's horizon, the tank is not at
         # temperature when the heating ends.
-        if answer is None or answer.stop != STOP_TARGET:
+        if answer is None or not answer.at_temperature:
             return None
         return _minute(answer.end)
 
@@ -368,13 +368,14 @@ class SimulatorHotWaterCapacitySensor(NWP500HotWaterEntity, SensorEntity):  # ty
         return attributes
 
 
-class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, RestoreSensor):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """When the tank holds a bath's hot water: ahead, or since when.
 
     Not ready, when the heater on its own has it ready (the library's
     `bath.ready_at`), unknown when not within the day. Ready, since when
     it has been: held while it stays ready, so a dashboard reads "ready
-    10 minutes ago" rather than a time moving each minute.
+    10 minutes ago" rather than a time moving each minute. Held across a
+    restart or reload, and across a walk with no answer.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -384,17 +385,41 @@ class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, SensorEntity):  # type: i
         """Nothing held yet."""
         super().__init__(runner, key)
         self._ready_since: datetime | None = None
+        # The time it was ready since before a restart, until an answer
+        # says whether it still is.
+        self._restored: datetime | None = None
 
-    @callback
-    def _handle_answer(self) -> None:
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Take back the time held before, then the answer there is."""
+        await super().async_added_to_hass()
+        last = await self.async_get_last_sensor_data()
+        if last is not None and isinstance(last.native_value, datetime):
+            self._restored = last.native_value
+        self._hold()
+
+    def _hold(self) -> None:
+        """Hold since when the bath has been ready, from the answer."""
         answer = self.answer
         readiness = None if answer is None else answer.readiness
         if answer is None or readiness is None:
-            self._ready_since = None
-        elif not readiness.bath.ready:
+            # No answer says otherwise: what is held stays.
+            return
+        restored, self._restored = self._restored, None
+        if not readiness.bath.ready:
             self._ready_since = None
         elif self._ready_since is None:
-            self._ready_since = _minute(answer.computed_at)
+            now = _minute(answer.computed_at)
+            # Ready before the restart, and still: since then.
+            self._ready_since = (
+                restored
+                if restored is not None and now is not None and restored <= now
+                else now
+            )
+
+    @callback
+    def _handle_answer(self) -> None:
+        self._hold()
         super()._handle_answer()
 
     @property
