@@ -243,8 +243,10 @@ def _simulator_device_schema(
                         vol.Optional(CONF_SIMULATOR_DRAW_FLOW_ENTITY): entities(
                             "sensor", "volume_flow_rate"
                         ),
+                        # Shown as the default it is; stored as nothing.
                         vol.Optional(
-                            CONF_SIMULATOR_DRAW_FLOW_VOLUME
+                            CONF_SIMULATOR_DRAW_FLOW_VOLUME,
+                            default=DRAW_FLOW_DELIVERED,
                         ): selector.SelectSelector(
                             selector.SelectSelectorConfig(
                                 options=[DRAW_FLOW_DELIVERED, DRAW_FLOW_TANK],

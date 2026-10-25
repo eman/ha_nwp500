@@ -642,6 +642,27 @@ async def test_a_flow_of_delivered_water_is_the_default_and_stores_nothing(
     }
 
 
+def test_the_flow_counts_field_shows_its_default():
+    """Not a blank select: delivered water, the default, stored as nothing."""
+    from custom_components.nwp500.config_flow import (
+        SECTION_HOT_WATER_USE,
+        _simulator_device_options,
+        _simulator_device_schema,
+    )
+
+    section_ = next(
+        value
+        for key, value in _simulator_device_schema().schema.items()
+        if str(key) == SECTION_HOT_WATER_USE
+    )
+    validated = section_({"draw_flow_entity": "sensor.draw_flow"})
+
+    assert validated["draw_flow_volume"] == "delivered"
+    assert _simulator_device_options({SECTION_HOT_WATER_USE: validated}) == {
+        "draw_flow_entity": "sensor.draw_flow"
+    }
+
+
 @pytest.mark.asyncio
 async def test_options_show_the_sizes_in_home_assistants_unit(
     hass: HomeAssistant, enable_custom_integrations
