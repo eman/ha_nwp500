@@ -462,3 +462,52 @@ async def test_the_path_says_what_the_hot_water_is_enough_for(
     assert not_ready.path_document("°F")["hot_water"]["bath_ready_at"] == (
         answer.computed_at.isoformat()
     )
+
+
+async def test_an_element_inside_a_longer_compressor_run_ends_nothing(
+    hass: HomeAssistant, feature: SimulatorFeature
+):
+    from datetime import timedelta
+
+    runner = feature.runners[MAC]
+    inputs, result = await walked(runner)
+    (template,) = result.heating[:1]
+    t0 = template.start.at
+    compressor = replace(
+        template,
+        source="compressor",
+        end=t0 + timedelta(hours=2),
+        stop="target",
+        input_wh=1000.0,
+    )
+    # A short element run within it, ending first and for another reason.
+    element = replace(
+        template,
+        source="element",
+        start=replace(template.start, at=t0 + timedelta(minutes=30)),
+        end=t0 + timedelta(minutes=50),
+        stop="mode",
+        input_wh=500.0,
+    )
+    later = replace(
+        template,
+        start=replace(template.start, at=t0 + timedelta(hours=1, minutes=59)),
+        end=t0 + timedelta(hours=2, minutes=10),
+        stop="cap",
+        input_wh=100.0,
+    )
+
+    walk = replace(
+        result,
+        simulation=replace(
+            result.simulation, heating=[compressor, element, later]
+        ),
+    )
+
+    answer = answer_from(walk, inputs)
+
+    # The element's end is not the heating's: the compressor runs on,
+    # and the run that starts within a minute of its end joins it.
+    assert answer.end == later.end
+    assert answer.stop == "cap"
+    assert answer.energy_kwh == 1.6

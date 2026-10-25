@@ -95,7 +95,11 @@ class NWP500TankCard extends HTMLElement {
     this._hass = null;
     this._path = null;
     this._history = { upper: [], lower: [] };
+    // Changes seen live since the last history read, per sensor: the
+    // recorder has them too, but only the next read brings them.
+    this._live = { upper: [], lower: [] };
     this._historyAt = 0;
+    this._historyToken = 0;
     this._unsubscribe = null;
     this._subscribedTo = null;
     this._error = null;
@@ -135,6 +139,7 @@ class NWP500TankCard extends HTMLElement {
     const seen = [this._config.entity, upper, lower].map((id) => hass.states[id]);
     if (first || seen.some((s, i) => s !== this._seen?.[i])) {
       this._seen = seen;
+      this._noteLive();
       this._render();
     }
   }
@@ -207,6 +212,7 @@ class NWP500TankCard extends HTMLElement {
         return null;
       });
     this._historyAt = 0;
+    this._live = { upper: [], lower: [] };
     this._fetchHistory();
   }
 
@@ -215,6 +221,9 @@ class NWP500TankCard extends HTMLElement {
     const { upper, lower } = this._sensors();
     const ids = [upper, lower].filter(Boolean);
     this._historyAt = Date.now();
+    // A read answered after a newer one began (other sensors, say) is
+    // dropped, success or failure.
+    const token = ++this._historyToken;
     if (!ids.length) return;
     const end = new Date();
     const start = new Date(end.getTime() - this._config.hours_back * 3600 * 1000);
@@ -231,11 +240,31 @@ class NWP500TankCard extends HTMLElement {
         (result[id] || [])
           .map((row) => ({ t: (row.lu ?? row.lc) * 1000, v: Number(row.s) }))
           .filter((p) => Number.isFinite(p.v));
+      if (token !== this._historyToken) return;
       this._history = { upper: upper ? series(upper) : [], lower: lower ? series(lower) : [] };
+      // What the read covers needs no live copy.
+      for (const key of ['upper', 'lower']) {
+        this._live[key] = this._live[key].filter((p) => p.t > end.getTime());
+      }
       this._render();
     } catch (err) {
+      if (token !== this._historyToken) return;
       // History is optional: the model still draws.
       this._history = { upper: [], lower: [] };
+    }
+  }
+
+  // Keep each change of the tank sensors seen live, by when it changed.
+  _noteLive() {
+    const ids = this._sensors();
+    for (const key of ['upper', 'lower']) {
+      const state = ids[key] ? this._hass.states[ids[key]] : null;
+      const v = state ? Number(state.state) : NaN;
+      if (!Number.isFinite(v)) continue;
+      const t = Date.parse(state.last_changed);
+      const live = this._live[key];
+      const last = live.length ? live[live.length - 1] : null;
+      if (!last || t > last.t) live.push({ t, v });
     }
   }
 
@@ -250,18 +279,15 @@ class NWP500TankCard extends HTMLElement {
     const state = entityId ? this._hass.states[entityId] : null;
     const from = state?.attributes?.unit_of_measurement;
     const points = [];
-    for (const p of this._history[key] || []) {
+    const recorded = this._history[key] || [];
+    const lastRecorded = recorded.length ? recorded[recorded.length - 1].t : -Infinity;
+    // The read's, then the changes seen live since, each held to the next.
+    for (const p of [...recorded, ...(this._live[key] || []).filter((q) => q.t > lastRecorded)]) {
       if (p.t <= t0) points[0] = { t: t0, v: p.v };
       else points.push(p);
     }
-    // The live state from when it changed, held to now.
-    const v = state ? Number(state.state) : NaN;
-    if (Number.isFinite(v)) {
-      const changed = Date.parse(state.last_changed);
-      const last = points.length ? points[points.length - 1].t : -Infinity;
-      if (changed > last) points.push({ t: Math.max(changed, t0), v });
-      points.push({ t: Date.now(), v });
-    }
+    // The last value held to now.
+    if (points.length) points.push({ t: Date.now(), v: points[points.length - 1].v });
     return points.map((p) => ({ t: p.t, v: convert(p.v, from, unit) }));
   }
 

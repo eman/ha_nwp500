@@ -399,13 +399,17 @@ def answer_from(
     scenario = inputs.scenario
     state = scenario.state
     first = result.heating[0] if result.heating else None
-    # The heating it is in, or the next, to its last interval.
+    # The heating it is in, or the next, to the interval that reaches
+    # furthest: an element can run inside a longer compressor run, and
+    # end first.
     chain: list[HeatingInterval] = []
+    last: HeatingInterval | None = None
     for interval in result.heating:
-        if chain and interval.start.at > chain[-1].end + CHAINED:
+        if last is not None and interval.start.at > last.end + CHAINED:
             break
         chain.append(interval)
-    last = chain[-1] if chain else None
+        if last is None or interval.end >= last.end:
+            last = interval
     chain_wh = (
         None
         if not chain or any(h.input_wh is None for h in chain)
