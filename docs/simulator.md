@@ -4,7 +4,12 @@ The hot water simulator models your water heater's tank from what the heater
 reports. It answers these questions, kept up to date as sensors:
 
 - Is the tank heating now, or will it heat within the next 24 hours?
-- When does the tank's current or next heating end?
+- When does the tank's current or next heating end: when does it come to
+  temperature?
+- When does the heat pump's compressor next start?
+- How do the tank's upper and lower temperatures move over the next day:
+  rising while it heats, falling while it stands? The
+  [tank forecast card](#the-tank-forecast-card) draws them.
 - How much electricity is the heater likely to use over the next 24 hours?
 - How much hot water can the tank deliver now, for how many showers, and
   is a bath ready?
@@ -125,6 +130,7 @@ defaults the simulator used instead.
 |---|---|
 | Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
 | Simulated hot water ready | When the heating the tank is in, or the next one within 24 hours, ends, as the library's `RecoveryResult.ready_at` gives it. Its `stop` attribute says why it ends: `target` (the tank is heated), or another, such as `mode` (a mode change) or `cap` (a TOU period's cap). Unknown when it won't heat within 24 hours, or when the 24 hours run out before the heating ends (`stop` is `horizon`) |
+| Simulated compressor start | When the heat pump's compressor next starts, as the walk finds it: the first heating interval whose source is the compressor. Its attributes: `running` (the heater reports the compressor running), and the start's `cause` and `trigger`. Unknown while the compressor runs (Simulated hot water ready is then when it stops), and when no start falls within 24 hours, such as in Electric or Vacation |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 | Simulated hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
 | Simulated showers ready | Whole showers the tank has hot water for now. Its `shower_gal` attribute is a shower's size |
@@ -204,6 +210,57 @@ goes on without it and the library's reasons say `tou_schedule_unknown`.
 The simulation runs again when the heater reports, at most once a minute,
 and every five minutes in any case.
 
+## The tank forecast card
+
+The integration ships a Lovelace card, **NWP500 Tank Forecast**
+(`custom:nwp500-tank-card`), loaded with the integration. It draws the
+tank's upper and lower temperatures: as recorded over the last hours,
+from the heater's Tank upper and Tank lower temperature sensors, and as
+the simulator models them over the next day, dashed. The setpoint is
+dotted, the modelled heating is shaded, and two markers say when the tank
+comes to temperature and when the compressor next starts. Its heading
+says the same in words: "Heat pump running · at temperature by 3:40 PM",
+or "Heat pump off · next start 9:10 PM".
+
+```yaml
+type: custom:nwp500-tank-card
+entity: water_heater.heater
+hours_back: 6     # recorded history shown, default 6
+hours_ahead: 24   # modelled path shown, default 24
+```
+
+The tank sensors are found on the heater's device; `upper_entity` and
+`lower_entity` name others. The card needs the simulator on for the
+heater, and says so otherwise. Recorded history needs the tank sensors
+recorded (the recorder's default).
+
+### The path over the websocket API
+
+The card reads the modelled path from two websocket commands, which any
+frontend card or script can use too. Each takes the heater's `device_id`
+or any of its entities' `entity_id`:
+
+- `nwp500/simulator/path` answers once.
+- `nwp500/simulator/subscribe_path` sends the path now and again with
+  every new simulation (at least every five minutes), and keeps following
+  the heater across a reload of the integration.
+
+The path is in Home Assistant's temperature unit:
+
+| Field | Meaning |
+|---|---|
+| `computed_at` | When the simulation started |
+| `state` | As Simulated heating's |
+| `compressor_running` | Whether the heater reports its compressor running |
+| `heating_start`, `ready_at`, `stop`, `source` | The current or next heating: when it starts, when the tank comes to temperature (none when the 24 hours cut it), why it ends and what heats |
+| `compressor_start`, `compressor_trigger` | As Simulated compressor start's |
+| `unit` | °F or °C |
+| `points` | The tank along the next 24 hours at the library's points (about every 10 minutes): `at`, `upper`, `lower`, `setpoint` and `heating` |
+| `waiting`, `error` | Why there is no path yet (`no_status`, `no_answer`), or that the simulation failed |
+
+An ApexCharts card's `data_generator` can read it with
+`hass.callWS({type: 'nwp500/simulator/path', entity_id: 'water_heater.heater'})`.
+
 ## Actions
 
 The simulator's actions return the library's answers on request and change
@@ -221,13 +278,37 @@ nothing on the heater. Each is one of nwp500-python's calls on a scenario:
 They need the simulator running. While they read the heater, they refuse
 to answer before the heater has reported its status.
 
+### From another integration
+
+The actions are how another integration, script or automation models a
+tank: they return their answers (`return_response`). With `use_heater`
+off, the call needs no water heater: the scenario document is the whole
+scenario, with its own `params` for any tank (without them, the library's
+65 gal defaults), and nothing of the heater is read. The simulator must be
+on for one of the integration's heaters, since its packages are installed
+only then.
+
+```python
+response = await hass.services.async_call(
+    "nwp500",
+    "simulate",
+    {"scenario": document, "use_heater": False, "include_points": True},
+    blocking=True,
+    return_response=True,
+)
+heating = response["result"]["heating"]
+```
+
+`get_scenario` gives a heater's scenario to start a document from, and
+nwp500-python's `nwp500.sim.codec` writes one.
+
 ### The scenario
 
 Every action takes:
 
 | Field | Meaning |
 |---|---|
-| `device_id` or `entity_id` | The water heater |
+| `device_id` or `entity_id` | The water heater. Not needed with `use_heater` off |
 | `scenario` | Optional. A scenario document (nwp500-python's `nwp500.sim.codec`, `schema_version` 1), laid over the heater's scenario as `nwp-cli simulate` lays one: objects merge key by key, and any other value, a list included, replaces the heater's. A `params` section replaces the parameters for the heater's tank size |
 | `use_heater` | Start from the heater's scenario now. Default on. Off, the document alone is the scenario, and it must give all of it |
 

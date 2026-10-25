@@ -172,6 +172,39 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
         return {**attributes, "stop": answer.stop}
 
 
+class SimulatorCompressorStartSensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """When the heat pump's compressor next starts, as modelled.
+
+    The first compressor start the walk finds within the day. Unknown
+    while the compressor runs (Simulated hot water ready is then when it
+    stops) and when no start falls within the day, such as in Electric
+    or Vacation.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:heat-pump-outline"
+
+    @property
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The compressor's next start."""
+        answer = self.answer
+        return None if answer is None else _minute(answer.compressor_start)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Whether it runs now, what starts it, and what the answer rests on."""
+        attributes = self._common_attributes()
+        answer = self.answer
+        if answer is None or not answer.ok:
+            return attributes
+        return {
+            **attributes,
+            "running": answer.compressor_running,
+            "cause": answer.compressor_cause,
+            "trigger": answer.compressor_trigger,
+        }
+
+
 class SimulatorEnergySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """The electricity the heater is expected to use over the next day.
 
@@ -292,6 +325,7 @@ def create_simulator_sensors(feature: SimulatorFeature) -> list[SensorEntity]:
             [
                 SimulatorHeatingSensor(runner, "heating"),
                 SimulatorHotWaterReadySensor(runner, "hot_water_ready"),
+                SimulatorCompressorStartSensor(runner, "compressor_start"),
                 SimulatorEnergySensor(runner, "energy_next_24h"),
                 SimulatorHotWaterAvailableSensor(runner, "hot_water_available"),
                 SimulatorShowersReadySensor(runner, "showers_ready"),

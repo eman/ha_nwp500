@@ -9,6 +9,25 @@
   delivered gallon at the valve, so a tank hotter than the valve reads
   more hot water, showers and baths. Without it, nothing changes: water is
   delivered at the tank's temperature.
+- **When the tank comes to temperature, and when the compressor starts.**
+  With the simulator on, a new sensor, Simulated compressor start, says
+  when the heat pump's compressor next starts while it is off (unknown
+  while it runs; Simulated hot water ready is then when it stops), with
+  the start's cause and trigger.
+- **The tank forecast card.** `custom:nwp500-tank-card`, loaded with the
+  integration, draws the tank's upper and lower temperatures: recorded
+  over the last hours, and modelled over the next day, with the setpoint,
+  the modelled heating, and markers for when the tank comes to
+  temperature and when the compressor next starts. It reads the model
+  from two new websocket commands, `nwp500/simulator/path` and
+  `nwp500/simulator/subscribe_path` (the path again with each
+  simulation, across a reload), which other cards can use too.
+- **The simulator's actions need no heater for a document alone.** With
+  `use_heater` off, `nwp500.simulate`, `time_to_ready`, `next_recovery`,
+  `forecast`, `heater_profile` and `get_scenario` take no water heater,
+  so another integration can model any tank, with its own parameters,
+  through the actions' responses. The simulator must be on for one
+  heater.
 - **What the simulator's draw flow counts.** An optional setting per
   heater beside the draw flow: delivered water (the default), measured at
   the taps after any mixing valve, or tank water, measured on the

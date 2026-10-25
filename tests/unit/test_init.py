@@ -482,6 +482,34 @@ async def test_async_setup_registers_every_asset_when_all_present():
     ]
 
 
+@pytest.mark.asyncio
+async def test_async_setup_serves_the_tank_card_and_its_path():
+    """The tank card ships, and the path it draws is a websocket command."""
+    from custom_components.nwp500 import (
+        TANK_CARD_PATH,
+        TANK_CARD_URL,
+        async_setup,
+    )
+
+    mock_hass = MagicMock()
+    mock_hass.data = {}
+
+    async def run(job):
+        return job()
+
+    mock_hass.async_add_executor_job = run
+    mock_hass.http.async_register_static_paths = AsyncMock()
+
+    with patch("custom_components.nwp500.add_extra_js_url") as mock_add_js:
+        assert await async_setup(mock_hass, {}) is True
+
+    assert TANK_CARD_PATH.is_file()
+    assert TANK_CARD_URL in [c.args[1] for c in mock_add_js.call_args_list]
+    commands = mock_hass.data["websocket_api"]
+    assert "nwp500/simulator/path" in commands
+    assert "nwp500/simulator/subscribe_path" in commands
+
+
 # --- External control (issue #158): the set-up hook -------------------------
 
 # The platforms the release before the feature forwarded. Spelled out rather

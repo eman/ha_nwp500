@@ -1,0 +1,292 @@
+"""The modelled path: the compressor's next start and the tank's probes.
+
+When the compressor runs, the path shows the probes rising to the
+setpoint and Simulated hot water ready says when; when it doesn't, the
+path shows them falling and Simulated compressor start says when it
+starts. Charts read the path over the websocket API.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from dataclasses import replace
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+from homeassistant.components.sensor import SensorDeviceClass
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import UnitOfTemperature
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.setup import async_setup_component
+from homeassistant.util.unit_system import METRIC_SYSTEM
+from nwp500 import sim
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.nwp500 import simulator_ws
+from custom_components.nwp500.const import (
+    CONF_SIMULATOR,
+    CONF_SIMULATOR_ENABLED,
+    DATA_SIMULATOR,
+    DOMAIN,
+    simulator_started_signal,
+)
+from custom_components.nwp500.simulator import (
+    SimulatorFeature,
+    async_setup_simulator,
+    async_unload_simulator,
+    create_simulator_sensors,
+)
+from custom_components.nwp500.simulator.runner import (
+    Answer,
+    SimulatorRunner,
+    answer_from,
+)
+from custom_components.nwp500.simulator.sensor import (
+    SimulatorCompressorStartSensor,
+)
+
+from .conftest import MAC, make_status
+
+ON = 2
+
+
+@pytest.fixture
+async def feature(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+) -> AsyncIterator[SimulatorFeature]:
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        entry_id="entry1",
+        options={CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: {MAC: {}}},
+    )
+    entry.add_to_hass(hass)
+    entry.mock_state(hass, ConfigEntryState.LOADED)
+    entry.runtime_data = coordinator
+    coordinator.entry = entry
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, MAC)}
+    )
+    await async_setup_simulator(hass, entry, coordinator)
+    await hass.async_block_till_done()
+    yield hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR]
+    await async_unload_simulator(hass, entry)
+
+
+def heater_device(hass: HomeAssistant) -> dr.DeviceEntry:
+    registry = dr.async_get(hass)
+    (device,) = dr.async_entries_for_config_entry(registry, "entry1")
+    return device
+
+
+def compressor_start(
+    feature: SimulatorFeature,
+) -> SimulatorCompressorStartSensor:
+    return next(
+        s
+        for s in create_simulator_sensors(feature)
+        if isinstance(s, SimulatorCompressorStartSensor)
+    )
+
+
+async def walked(runner: SimulatorRunner) -> tuple[Any, Any]:
+    """The runner's inputs now and the library's walk of them."""
+    inputs = await runner.async_inputs()
+    assert not isinstance(inputs, str)
+    return inputs, sim.simulate(inputs.scenario, inputs.params)
+
+
+async def test_idle_the_sensor_says_when_the_compressor_starts(
+    hass: HomeAssistant, feature: SimulatorFeature
+):
+    runner = feature.runners[MAC]
+    inputs, result = await walked(runner)
+    first = next(h for h in result.heating if h.source == "compressor")
+    answer = answer_from(result, inputs)
+    runner.answer = answer
+    sensor = compressor_start(feature)
+
+    assert sensor.unique_id == f"{MAC}_simulator_compressor_start"
+    assert sensor.translation_key == "simulator_compressor_start"
+    assert sensor.device_class is SensorDeviceClass.TIMESTAMP
+    assert answer.compressor_start == first.start.at
+    assert sensor.native_value == first.start.at.replace(
+        second=0, microsecond=0
+    )
+    attributes = sensor.extra_state_attributes
+    assert attributes["running"] is False
+    assert attributes["cause"] == first.start.cause
+    assert attributes["trigger"] == first.start.trigger
+
+
+async def test_an_element_heating_first_is_not_the_compressors_start(
+    hass: HomeAssistant, feature: SimulatorFeature
+):
+    runner = feature.runners[MAC]
+    inputs, result = await walked(runner)
+    compressor = result.heating[0]
+    element = replace(
+        compressor,
+        start=replace(compressor.start, at=result.start, source="element"),
+        source="element",
+    )
+    result.simulation.heating.insert(0, element)
+
+    answer = answer_from(result, inputs)
+
+    assert answer.start == result.start
+    assert answer.compressor_start == compressor.start.at
+
+
+async def test_running_the_compressor_has_no_next_start(
+    hass: HomeAssistant, coordinator: MagicMock, feature: SimulatorFeature
+):
+    coordinator.data[MAC]["status"] = make_status(compUse=ON)
+    runner = feature.runners[MAC]
+    inputs, result = await walked(runner)
+    runner.answer = answer_from(result, inputs)
+    sensor = compressor_start(feature)
+
+    assert sensor.available
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes["running"] is True
+    # The heating it is in ends when the tank comes to temperature.
+    assert runner.answer.end == result.heating[0].end
+
+
+async def test_the_path_is_the_walks_probes(
+    hass: HomeAssistant, feature: SimulatorFeature
+):
+    runner = feature.runners[MAC]
+    inputs, result = await walked(runner)
+
+    answer = answer_from(result, inputs)
+
+    assert len(answer.path) == len(result.points)
+    for sample, point in zip(answer.path, result.points, strict=True):
+        assert sample.at == point.at
+        assert sample.upper_f == round(point.upper_f, 1)
+        assert sample.lower_f == round(point.lower_f, 1)
+        assert sample.heating is point.heating
+    # Heating, the lower probe rises toward the setpoint.
+    heating = [s for s in answer.path if s.heating]
+    assert heating and heating[-1].lower_f > answer.path[0].lower_f
+
+
+async def test_the_path_document_is_in_home_assistants_unit(
+    hass: HomeAssistant, feature: SimulatorFeature
+):
+    runner = feature.runners[MAC]
+    inputs, result = await walked(runner)
+    answer = answer_from(result, inputs)
+
+    fahrenheit = answer.path_document(UnitOfTemperature.FAHRENHEIT)
+    celsius = answer.path_document(UnitOfTemperature.CELSIUS)
+
+    first = answer.path[0]
+    assert fahrenheit["points"][0]["upper"] == first.upper_f
+    assert celsius["unit"] == UnitOfTemperature.CELSIUS
+    assert celsius["points"][0]["upper"] == round((first.upper_f - 32) / 1.8, 1)
+    assert celsius["points"][0]["at"] == first.at.isoformat()
+    assert celsius["ready_at"] == answer.end.isoformat()
+    assert celsius["heating_start"] == answer.start.isoformat()
+    assert celsius["compressor_start"] == answer.compressor_start.isoformat()
+    # Cut by the horizon, the heating has no ready time.
+    cut = replace(answer, stop="horizon").path_document("°F")
+    assert cut["ready_at"] is None
+
+
+async def test_the_websocket_answers_with_the_path(
+    hass: HomeAssistant, hass_ws_client, feature: SimulatorFeature
+):
+    assert await async_setup_component(hass, "websocket_api", {})
+    hass.config.units = METRIC_SYSTEM
+    simulator_ws.async_register(hass)
+    runner = feature.runners[MAC]
+    client = await hass_ws_client(hass)
+    device = heater_device(hass)
+    assert runner.answer is not None
+
+    await client.send_json(
+        {"id": 1, "type": "nwp500/simulator/path", "device_id": device.id}
+    )
+    reply = await client.receive_json()
+
+    assert reply["success"]
+    assert reply["result"] == runner.answer.path_document(
+        UnitOfTemperature.CELSIUS
+    )
+    assert reply["result"]["points"]
+
+
+async def test_the_websocket_names_what_it_cannot_answer(
+    hass: HomeAssistant,
+    hass_ws_client,
+    coordinator: MagicMock,
+    feature: SimulatorFeature,
+):
+    assert await async_setup_component(hass, "websocket_api", {})
+    simulator_ws.async_register(hass)
+    client = await hass_ws_client(hass)
+
+    await client.send_json(
+        {"id": 1, "type": "nwp500/simulator/path", "device_id": "nowhere"}
+    )
+    reply = await client.receive_json()
+    assert reply["error"]["code"] == "not_found"
+
+    feature.runners.pop(MAC).async_stop()
+    device = heater_device(hass)
+    await client.send_json(
+        {"id": 2, "type": "nwp500/simulator/path", "device_id": device.id}
+    )
+    reply = await client.receive_json()
+    assert reply["error"]["code"] == "simulator_not_enabled"
+
+
+async def test_the_subscription_follows_each_walk_and_a_reload(
+    hass: HomeAssistant, hass_ws_client, feature: SimulatorFeature
+):
+    assert await async_setup_component(hass, "websocket_api", {})
+    simulator_ws.async_register(hass)
+    runner = feature.runners[MAC]
+    client = await hass_ws_client(hass)
+    device = heater_device(hass)
+
+    await client.send_json(
+        {
+            "id": 1,
+            "type": "nwp500/simulator/subscribe_path",
+            "device_id": device.id,
+        }
+    )
+    assert (await client.receive_json())["success"]
+    now = await client.receive_json()
+    assert now["type"] == "event"
+    assert now["event"]["points"]
+
+    # A new walk is sent.
+    assert runner.answer is not None
+    runner._publish(replace(runner.answer, stop="horizon"))  # noqa: SLF001
+    walk = await client.receive_json()
+    assert walk["event"]["ready_at"] is None
+
+    # A reload's new runner is followed; the old one is not.
+    reloaded = SimulatorRunner(hass, runner.coordinator, MAC, {})
+    reloaded.answer = Answer(computed_at=runner.answer.computed_at, error="x")
+    feature.runners[MAC] = reloaded
+    runner.async_stop()
+    async_dispatcher_send(hass, simulator_started_signal("entry1"))
+    await hass.async_block_till_done()
+    assert (await client.receive_json())["event"]["error"] == "x"
+    assert runner._listeners == []  # noqa: SLF001
+    reloaded._publish(runner.answer)  # noqa: SLF001
+    assert (await client.receive_json())["event"]["points"]
+
+    await client.send_json(
+        {"id": 2, "type": "unsubscribe_events", "subscription": 1}
+    )
+    assert (await client.receive_json())["success"]
+    assert reloaded._listeners == []  # noqa: SLF001

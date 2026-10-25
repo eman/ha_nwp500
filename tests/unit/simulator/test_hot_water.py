@@ -109,15 +109,17 @@ async def test_every_input_configured_is_passed_through(
     assert entities.inlet == "sensor.supply"
     assert entities.demand == "binary_sensor.demand"
     assert entities.circulation_speed == "sensor.pump"
-    inputs = await runner.async_inputs()
+    answer = runner.answer
+    assert answer is not None
+    # The walk's own start: a second's tick between the two moves the
+    # bath's ready time.
+    inputs = await runner.async_inputs(start=answer.computed_at)
     assert isinstance(inputs, Inputs)
     assert inputs.drawing is True
     assert inputs.scenario.environment.ambient_f == pytest.approx(60.0)
     # Without the recorder the inlet's history is not read: the library
     # says so, and answers without it.
     assert any(note.startswith("inlet:") for note in inputs.notes)
-    answer = runner.answer
-    assert answer is not None
     assert answer.readiness is not None
     expected = sim.time_to_ready(
         inputs.scenario,

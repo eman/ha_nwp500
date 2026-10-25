@@ -720,6 +720,9 @@
       "simulator_hot_water_ready": {
         "name": "Simulated hot water ready"
       },
+      "simulator_compressor_start": {
+        "name": "Simulated compressor start"
+      },
       "simulator_energy_next_24h": {
         "name": "Simulated energy, next 24 hours"
       },
@@ -1203,7 +1206,7 @@
         },
         "use_heater": {
           "name": "Start from the heater",
-          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario. On by default."
+          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario; the water heater may then be left out, so another integration can model any tank. On by default."
         }
       }
     },
@@ -1225,7 +1228,7 @@
         },
         "use_heater": {
           "name": "Start from the heater",
-          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario. On by default."
+          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario; the water heater may then be left out, so another integration can model any tank. On by default."
         }
       }
     },
@@ -1255,7 +1258,7 @@
         },
         "use_heater": {
           "name": "Start from the heater",
-          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario. On by default."
+          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario; the water heater may then be left out, so another integration can model any tank. On by default."
         }
       }
     },
@@ -1277,7 +1280,7 @@
         },
         "use_heater": {
           "name": "Start from the heater",
-          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario. On by default."
+          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario; the water heater may then be left out, so another integration can model any tank. On by default."
         }
       }
     },
@@ -1311,7 +1314,7 @@
         },
         "use_heater": {
           "name": "Start from the heater",
-          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario. On by default."
+          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario; the water heater may then be left out, so another integration can model any tank. On by default."
         }
       }
     },
@@ -1333,7 +1336,7 @@
         },
         "use_heater": {
           "name": "Start from the heater",
-          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario. On by default."
+          "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario; the water heater may then be left out, so another integration can model any tank. On by default."
         }
       }
     }

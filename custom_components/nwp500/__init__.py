@@ -48,7 +48,7 @@ from homeassistant.util import dt as dt_util
 
 from nwp500.exceptions import Nwp500Error
 
-from . import energy_report, schedule_state
+from . import energy_report, schedule_state, simulator_ws
 from .const import (
     CONF_CONTROL_ENABLED,
     CONF_SIMULATOR_ENABLED,
@@ -89,6 +89,9 @@ CARD_PATH = Path(__file__).parent / "www" / "nwp500-schedule-card.js"
 
 VISUAL_CARD_URL = f"/{DOMAIN}/nwp500-visual-card.js"
 VISUAL_CARD_PATH = Path(__file__).parent / "www" / "nwp500-visual-card.js"
+
+TANK_CARD_URL = f"/{DOMAIN}/nwp500-tank-card.js"
+TANK_CARD_PATH = Path(__file__).parent / "www" / "nwp500-tank-card.js"
 
 VISUAL_IMAGE_URL = f"/{DOMAIN}/nwp500-visual-card.png"
 VISUAL_IMAGE_PATH = Path(__file__).parent / "www" / "nwp500-visual-card.png"
@@ -445,11 +448,27 @@ _SCENARIO_FIELDS: Final[dict[Any, Any]] = {
 }
 
 
+def _heater_unless_alone(data: dict[str, Any]) -> dict[str, Any]:
+    """A heater, unless the scenario document stands alone.
+
+    With `use_heater` off nothing of the heater is read, so another
+    integration can model any tank without naming one.
+    """
+    if data[ATTR_USE_HEATER] and not (
+        data.get(ATTR_DEVICE_ID) or data.get(ATTR_ENTITY_ID)
+    ):
+        raise vol.Invalid(
+            "a water heater (device_id or entity_id) is needed unless "
+            "use_heater is off"
+        )
+    return data
+
+
 def _scenario_schema(fields: dict[Any, Any] | None = None) -> Any:
     """A simulator action's schema: the scenario fields, and `fields`."""
     return vol.All(
         vol.Schema({**_SCENARIO_FIELDS, **(fields or {})}),
-        cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+        _heater_unless_alone,
     )
 
 
@@ -941,11 +960,25 @@ class NWP500ServiceHandler:
         The simulator's actions are registered whether or not it is on, so
         that calling one with it off says so rather than "unknown action";
         the simulator's own code is reached only through a running feature.
+        A call naming no heater (its document alone, `use_heater` off) is
+        walked with no heater's runner, wherever the simulator runs.
         """
-        coordinator, mac_address = await self._get_coordinator_and_mac(call)
-        feature = simulator_feature(self.hass, coordinator.entry)
-        runner = None if feature is None else feature.runners.get(mac_address)
-        if runner is None:
+        runner = None
+        if call.data.get(ATTR_DEVICE_ID) or call.data.get(ATTR_ENTITY_ID):
+            coordinator, mac_address = await self._get_coordinator_and_mac(call)
+            feature = simulator_feature(self.hass, coordinator.entry)
+            runner = (
+                None if feature is None else feature.runners.get(mac_address)
+            )
+            running = runner is not None
+        else:
+            running = any(
+                simulator_feature(self.hass, entry) is not None
+                for entry in self.hass.config_entries.async_loaded_entries(
+                    DOMAIN
+                )
+            )
+        if not running:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="simulator_not_enabled",
@@ -1179,6 +1212,10 @@ class NWP500ServiceHandler:
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the NWP500 integration domain (once, before any config entries)."""
+    # The simulator's modelled path for charts: registered whether or not
+    # the simulator is on, it answers for each heater it runs for.
+    simulator_ws.async_register(hass)
+
     # Serve the bundled Lovelace card JS from the component's www/ directory.
     # This makes the custom card available without users needing to manually
     # register it as a Lovelace resource or install it separately via HACS.
@@ -1190,6 +1227,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     assets: tuple[tuple[str, Path, bool], ...] = (
         (CARD_URL, CARD_PATH, True),
         (VISUAL_CARD_URL, VISUAL_CARD_PATH, True),
+        (TANK_CARD_URL, TANK_CARD_PATH, True),
         (VISUAL_IMAGE_URL, VISUAL_IMAGE_PATH, False),
     )
 

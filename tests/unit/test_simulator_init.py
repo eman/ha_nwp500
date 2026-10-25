@@ -406,7 +406,14 @@ async def test_each_action_passes_its_fields_to_the_library_call(
     runner = MagicMock()
     feature = MagicMock(runners={MAC: runner})
     document = {"schema_version": 1, "scenario": {}}
-    call = MagicMock(data={"scenario": document, "use_heater": False, **data})
+    call = MagicMock(
+        data={
+            "device_id": "abc",
+            "scenario": document,
+            "use_heater": False,
+            **data,
+        }
+    )
     answer = {"result": {}, "inputs": {"reasons": [], "notes": []}}
 
     with (
@@ -425,6 +432,78 @@ async def test_each_action_passes_its_fields_to_the_library_call(
     fn.assert_awaited_once_with(
         hass, runner, scenario=document, use_heater=False, **fields
     )
+
+
+@needs_sim
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", _ACTIONS)
+async def test_a_document_alone_needs_no_heater(hass: HomeAssistant, action):
+    """Another integration can model any tank without naming a heater."""
+    from custom_components.nwp500.simulator import service
+
+    handler = NWP500ServiceHandler(hass)
+    entry = MockConfigEntry(domain=DOMAIN, entry_id="e1")
+    document = {"schema_version": 1, "scenario": {}}
+    # Each action's own required fields, as its schema fills them.
+    call = MagicMock(
+        data={
+            "scenario": document,
+            "use_heater": False,
+            "include_points": False,
+            "target_time": "at",
+        }
+    )
+    answer = {"result": {}, "inputs": {"reasons": [], "notes": []}}
+    heater = AsyncMock()
+
+    with (
+        patch.object(handler, "_get_coordinator_and_mac", heater),
+        patch.object(
+            hass.config_entries,
+            "async_loaded_entries",
+            MagicMock(return_value=[entry]),
+        ),
+        patch(
+            "custom_components.nwp500.simulator_feature",
+            return_value=MagicMock(runners={}),
+        ),
+        patch.object(service, action, AsyncMock(return_value=answer)) as fn,
+    ):
+        assert await getattr(handler, action)(call) == answer
+
+    heater.assert_not_awaited()
+    assert fn.await_args.args == (hass, None)
+    assert fn.await_args.kwargs["use_heater"] is False
+
+    # Nowhere the simulator runs, it says so.
+    with (
+        patch.object(
+            hass.config_entries,
+            "async_loaded_entries",
+            MagicMock(return_value=[entry]),
+        ),
+        patch("custom_components.nwp500.simulator_feature", return_value=None),
+        pytest.raises(ServiceValidationError) as err,
+    ):
+        await getattr(handler, action)(call)
+    assert err.value.translation_key == "simulator_not_enabled"
+
+
+def test_the_action_schemas_need_a_heater_unless_the_document_is_alone():
+    import voluptuous as vol
+
+    from custom_components.nwp500 import (
+        SERVICE_SCENARIO_SCHEMA,
+        SERVICE_SIMULATE_SCHEMA,
+    )
+
+    with pytest.raises(vol.Invalid):
+        SERVICE_SCENARIO_SCHEMA({})
+    with pytest.raises(vol.Invalid):
+        SERVICE_SIMULATE_SCHEMA({"use_heater": True})
+    data = SERVICE_SIMULATE_SCHEMA({"use_heater": False, "hours": 6})
+    assert data["use_heater"] is False
+    assert "device_id" not in data and "entity_id" not in data
 
 
 def test_the_service_schema_fills_its_defaults():

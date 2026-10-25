@@ -27,6 +27,7 @@ from custom_components.nwp500.simulator import (
 )
 from custom_components.nwp500.simulator.runner import Answer
 from custom_components.nwp500.simulator.sensor import (
+    SimulatorCompressorStartSensor,
     SimulatorEnergySensor,
     SimulatorHeatingSensor,
     SimulatorHotWaterAvailableSensor,
@@ -434,6 +435,7 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
     assert {type(s) for s in added[-1]} == {
         SimulatorHeatingSensor,
         SimulatorHotWaterReadySensor,
+        SimulatorCompressorStartSensor,
         SimulatorEnergySensor,
         SimulatorHotWaterAvailableSensor,
         SimulatorShowersReadySensor,

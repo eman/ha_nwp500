@@ -4,8 +4,9 @@ A runner turns the heater's latest status, its tank size, its schedules
 and the air beside it into a scenario, walks it for 24 hours with
 `nwp500.sim.simulate`, asks `nwp500.sim.time_to_ready` about its hot
 water, and keeps the answers: whether the tank is heating or when it next
-will, until when, the electricity over the day, and the hot water it can
-deliver, for showers and a bath.
+will, until when, when the compressor next starts, the tank's two
+temperatures along the day, the electricity over the day, and the hot
+water it can deliver, for showers and a bath.
 
 The scenario is built in the event loop, where the library's unit
 preference is stable; the walk runs in an executor.
@@ -21,12 +22,13 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
-from homeassistant.const import STATE_ON
+from homeassistant.const import STATE_ON, UnitOfTemperature
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from nwp500 import sim
 from nwp500 import sim_adapters as sa
@@ -100,6 +102,9 @@ HEATING_STATES = (STATE_HEATING, STATE_SCHEDULED, STATE_IDLE, STATE_DISABLED)
 #: A heating's `stop` when the walk's horizon cut it, not its own end.
 STOP_HORIZON = "horizon"
 
+# What heats in a heating interval, as the library names the heat pump.
+SOURCE_COMPRESSOR = "compressor"
+
 # The modes in which nothing heats.
 _HEATING_DISABLED_MODES = frozenset({VACATION, POWER_OFF})
 
@@ -137,6 +142,38 @@ class Inputs:
 
 
 @dataclass(frozen=True)
+class PathSample:
+    """The tank at one point of the walk, as the library modelled it."""
+
+    at: datetime
+    #: The upper and lower probes' temperatures, °F.
+    upper_f: float
+    lower_f: float
+    #: The setpoint in force, °F.
+    setpoint_f: float
+    #: Whether anything heats over the interval ending here.
+    heating: bool
+
+
+#: The path's temperatures, to a tenth of a degree.
+_PATH_DIGITS = 1
+
+
+def path_from(result: SimulationResult) -> tuple[PathSample, ...]:
+    """The tank's two temperatures along the walk, at the library's points."""
+    return tuple(
+        PathSample(
+            at=p.at,
+            upper_f=round(p.upper_f, _PATH_DIGITS),
+            lower_f=round(p.lower_f, _PATH_DIGITS),
+            setpoint_f=round(p.setpoint_f, _PATH_DIGITS),
+            heating=p.heating,
+        )
+        for p in result.points
+    )
+
+
+@dataclass(frozen=True)
 class Answer:
     """What a walk found, or why there is none."""
 
@@ -155,6 +192,15 @@ class Answer:
     confidence: float | None = None
     #: Electricity over the horizon, both sources.
     energy_total_kwh: float | None = None
+    #: Whether the heater reports its compressor running now.
+    compressor_running: bool | None = None
+    #: When the compressor next starts within the walk, and why: None
+    #: while it runs, and when no start falls within the walk.
+    compressor_start: datetime | None = None
+    compressor_cause: str | None = None
+    compressor_trigger: str | None = None
+    #: The tank's two temperatures along the walk.
+    path: tuple[PathSample, ...] = ()
     reasons: tuple[str, ...] = ()
     defaults_used: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
@@ -172,8 +218,15 @@ class Answer:
     def as_document(self) -> dict[str, Any]:
         """For diagnostics."""
         doc = dataclasses.asdict(self)
-        for key in ("computed_at", "start", "end"):
+        for key in ("computed_at", "start", "end", "compressor_start"):
             doc[key] = _iso(doc[key])
+        # Long: how many points, and the first and last.
+        path = self.path
+        doc["path"] = {
+            "points": len(path),
+            "first": None if not path else _iso(path[0].at),
+            "last": None if not path else _iso(path[-1].at),
+        }
         for key in ("reasons", "defaults_used", "notes"):
             doc[key] = list(doc[key])
         doc["readiness"] = (
@@ -182,6 +235,48 @@ class Answer:
             else codec.to_document(self.readiness)
         )
         return doc
+
+    def path_document(self, temperature_unit: str) -> dict[str, Any]:
+        """The modelled path for a chart, in `temperature_unit`.
+
+        When the tank comes to temperature (none when the walk's horizon
+        cuts the heating), when the compressor next starts, and the two
+        probes along the walk; why there is none, when there isn't.
+        """
+
+        def temperature(f: float) -> float:
+            return round(
+                TemperatureConverter.convert(
+                    f, UnitOfTemperature.FAHRENHEIT, temperature_unit
+                ),
+                _PATH_DIGITS,
+            )
+
+        ready = None if self.stop == STOP_HORIZON else self.end
+        return {
+            "computed_at": _iso(self.computed_at),
+            "state": self.state,
+            "waiting": self.waiting,
+            "error": self.error,
+            "unit": temperature_unit,
+            "compressor_running": self.compressor_running,
+            "heating_start": _iso(self.start),
+            "ready_at": _iso(ready),
+            "stop": self.stop,
+            "source": self.source,
+            "compressor_start": _iso(self.compressor_start),
+            "compressor_trigger": self.compressor_trigger,
+            "points": [
+                {
+                    "at": _iso(p.at),
+                    "upper": temperature(p.upper_f),
+                    "lower": temperature(p.lower_f),
+                    "setpoint": temperature(p.setpoint_f),
+                    "heating": p.heating,
+                }
+                for p in self.path
+            ],
+        }
 
 
 def _iso(at: datetime | None) -> str | None:
@@ -235,6 +330,16 @@ def answer_from(
     else:
         heating_state = STATE_IDLE
     total = result.input_wh
+    # The compressor's next start: while it runs, its run is the heating
+    # the walk starts in, and the ready sensor says when that ends.
+    compressor = (
+        None
+        if state.compressor_running
+        else next(
+            (h for h in result.heating if h.source == SOURCE_COMPRESSOR),
+            None,
+        )
+    )
     return Answer(
         computed_at=scenario.start,
         state=heating_state,
@@ -252,6 +357,13 @@ def answer_from(
         capped=None if first is None else first.capped,
         confidence=None if first is None else first.confidence,
         energy_total_kwh=None if total is None else round(total / 1000.0, 3),
+        compressor_running=state.compressor_running,
+        compressor_start=None if compressor is None else compressor.start.at,
+        compressor_cause=None if compressor is None else compressor.start.cause,
+        compressor_trigger=(
+            None if compressor is None else compressor.start.trigger
+        ),
+        path=path_from(result),
         reasons=tuple(dict.fromkeys((*inputs.reasons, *result.reasons))),
         defaults_used=result.defaults_used,
         notes=inputs.notes,
