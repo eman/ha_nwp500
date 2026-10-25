@@ -118,7 +118,7 @@
           "control_mode": "Mode"
         },
         "data_description": {
-          "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor: its state is the plan's ID and its attributes are the plan. The entities that carry a plan are offered; with only one, it is chosen for you.",
+          "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor: its state is the plan's ID and its attributes are the plan. If only one entity carries a plan, it is chosen for you.",
           "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule, as your scheduler sends it. Stopped stops applying plans: nothing more is written, and what is on the heater stays there."
         },
         "sections": {
@@ -177,7 +177,7 @@
         },
         "data_description": {
           "control_enabled": "Turning it off stops applying plans and removes its entities and stored data. Nothing is written to the heater: the entries the plans put in its schedule stay there and keep firing every week, and the integration no longer knows they were its own, so turned on again it counts them as yours. To clear them first, have your scheduler publish a plan with no segments while in Live, then turn it off.",
-          "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor: its state is the plan's ID and its attributes are the plan. The entities that carry a plan are offered; with only one, it is chosen for you.",
+          "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor: its state is the plan's ID and its attributes are the plan. If only one entity carries a plan, it is chosen for you.",
           "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule, as your scheduler sends it. Stopped stops applying plans: nothing more is written, and what is on the heater stays there."
         },
         "sections": {

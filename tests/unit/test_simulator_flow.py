@@ -579,32 +579,41 @@ async def test_options_suggest_the_sensors_chosen_and_let_them_be_cleared(
 
 
 @pytest.mark.asyncio
-async def test_the_heaters_own_entities_are_not_offered(
+async def test_the_heaters_own_sensors_can_be_kept(
     hass: HomeAssistant, enable_custom_integrations
 ):
-    from homeassistant.data_entry_flow import section
+    """Its DHW in use serves a household with no circulation loop."""
     from homeassistant.helpers import device_registry as dr
     from homeassistant.helpers import entity_registry as er
 
-    entry = _loaded_entry(hass, {})
+    entry = _loaded_entry(
+        hass,
+        {
+            "simulator_enabled": True,
+            "simulator": {MAC: {"demand_entity": "binary_sensor.heater_dhw"}},
+        },
+    )
     device = dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, MAC)}
     )
-    own = er.async_get(hass).async_get_or_create(
-        "sensor", DOMAIN, f"{MAC}_ambient", device_id=device.id
+    er.async_get(hass).async_get_or_create(
+        "binary_sensor",
+        DOMAIN,
+        f"{MAC}_dhw_use",
+        device_id=device.id,
+        suggested_object_id="heater_dhw",
     )
     with packages():
         result = await _simulator_page(hass, entry, on=True)
-    sensors = next(
-        v
-        for k, v in result["data_schema"].schema.items()
-        if isinstance(v, section) and str(k) == "sensors"
-    )
-    air = next(
-        v for k, v in sensors.schema.schema.items() if str(k) == "air_entity"
-    )
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            _sections(demand_entity="binary_sensor.heater_dhw"),
+        )
 
-    assert own.entity_id in air.config["exclude_entities"]
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options["simulator"] == {
+        MAC: {"demand_entity": "binary_sensor.heater_dhw"}
+    }
 
 
 @pytest.mark.asyncio

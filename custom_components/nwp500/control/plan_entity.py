@@ -65,10 +65,18 @@ class PlanEntityWatch:
 
     @callback
     def async_stop(self) -> None:
-        """Stop watching. The issue stays for the next start to judge."""
+        """Stop watching, and withdraw the issue.
+
+        A start judges the entity again at once, so an issue left by an
+        entry that stays unloaded (disabled, or failing to set up) would
+        only go stale.
+        """
         for unsub in self._unsubs:
             unsub()
         self._unsubs = []
+        ir.async_delete_issue(
+            self.hass, DOMAIN, plan_entity_issue_id(self.entry.entry_id)
+        )
 
     @callback
     def _started(self, _hass: HomeAssistant) -> None:
@@ -83,6 +91,10 @@ class PlanEntityWatch:
     def _state_changed(self, event: Event[Any]) -> None:
         if event.data.get("new_state") is not None:
             self._report(missing=False)
+        elif er.async_get(self.hass).async_get(self.entity_id or "") is None:
+            # Gone, with no registry entry to say so (a YAML entity with
+            # no unique id).
+            self._report(missing=True)
 
     @callback
     def _registry_updated(self, event: Event[Any]) -> None:

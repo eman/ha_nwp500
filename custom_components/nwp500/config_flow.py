@@ -197,26 +197,21 @@ _SECTIONS: dict[str, tuple[str, ...]] = {
 
 
 def _simulator_device_schema(
-    *,
-    metric: bool = False,
-    celsius: bool = False,
-    exclude: list[str] | None = None,
+    *, metric: bool = False, celsius: bool = False
 ) -> vol.Schema:
     """The simulator's form for one heater, every field optional.
 
     The sensors beside it and a weather forecast; the household's hot
     water use and what its flow counts, folded away; a bath's, a refill's
     and a shower's size and the mixing valve's setting, folded away.
-    `exclude` keeps the heater's own entities out of the pickers.
+    Any entity may be chosen, the heater's own among them (its DHW in use
+    and its inlet temperature can serve).
     """
-    left_out = list(exclude or ())
 
     def entities(
         domain: str, device_class: str | None = None
     ) -> selector.EntitySelector:
-        config = selector.EntitySelectorConfig(
-            domain=domain, exclude_entities=left_out
-        )
+        config = selector.EntitySelectorConfig(domain=domain)
         if device_class is not None:
             config["device_class"] = device_class
         return selector.EntitySelector(config)
@@ -596,11 +591,7 @@ class _SimulatorSteps:
         return self.async_show_form(  # type: ignore[attr-defined,no-any-return]
             step_id="simulator_device",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
-                _simulator_device_schema(
-                    metric=metric,
-                    celsius=celsius,
-                    exclude=_own_entities(self.hass, mac_address),
-                ),
+                _simulator_device_schema(metric=metric, celsius=celsius),
                 _nest(shown),
             ),
             errors=errors,
@@ -644,14 +635,11 @@ def _plan_entities(hass: HomeAssistant) -> list[str]:
     )
 
 
-def _control_schema(
-    plans: list[str], *, toggle: bool, current: str | None = None
-) -> vol.Schema:
+def _control_schema(*, toggle: bool) -> vol.Schema:
     """The external control form.
 
-    The plan entity picker offers the plan entities found, when there
-    are any (`plans`), and the one chosen before; else every entity.
-    With `toggle`, the form's first field turns the feature on or off,
+    The plan entity picker offers every entity: a plan entity that is
+    unavailable carries no plan to be found by. With `toggle`, the form's first field turns the feature on or off,
     and the plan entity is asked for only when it is on.
     """
     modes: list[str] = list(CONTROL_MODES_SELECTABLE)
@@ -659,12 +647,7 @@ def _control_schema(
         # Live writes the heater's reservation list; it is offered only
         # while the gate in the constants is on (issue #158, step 5).
         modes.insert(1, CONTROL_MODE_LIVE)
-    offered: list[str] = sorted(set(plans) | ({current} if current else set()))
-    picker = selector.EntitySelector(
-        selector.EntitySelectorConfig(include_entities=offered)
-        if plans
-        else selector.EntitySelectorConfig()
-    )
+    picker = selector.EntitySelector()
     fields: dict[Any, Any] = {}
     if toggle:
         fields[vol.Required(CONF_CONTROL_ENABLED, default=False)] = (
@@ -832,11 +815,7 @@ class _ControlSteps:
         return self.async_show_form(  # type: ignore[attr-defined,no-any-return]
             step_id="external_control",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
-                _control_schema(
-                    plans,
-                    toggle=toggle,
-                    current=options.get(CONF_CONTROL_INTENT_ENTITY),
-                ),
+                _control_schema(toggle=toggle),
                 suggested,
             ),
             errors=errors,

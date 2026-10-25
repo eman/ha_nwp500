@@ -63,7 +63,7 @@ control). Its page holds:
 | Option | Default | Notes |
 |---|---|---|
 | External control | off | The toggle, on the options page only |
-| Plan entity | none | Required while it is on. The entity your scheduler puts its plan on; see below. The entities whose attributes carry a plan are offered, and with only one it is chosen for you |
+| Plan entity | none | Required while it is on. The entity your scheduler puts its plan on; see below. If only one entity's attributes carry a plan, it is chosen for you |
 | Mode | Preview | Stored as the `mode` option (spec section 6.1); see the table below |
 | Schedule size limit / entries kept free | 16 / 2 | Folded under **Schedule size**. The most entries the heater's schedule may hold in total, **your own included**, and how many are kept free for changes needed right away. The feature uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32, and larger lists are untested |
 

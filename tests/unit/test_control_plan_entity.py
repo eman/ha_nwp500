@@ -103,3 +103,22 @@ async def test_a_plan_entity_with_a_state_but_no_registry_entry_is_there(
 
     assert _issue(hass) is None
     watch.async_stop()
+
+
+@pytest.mark.asyncio
+async def test_a_yaml_plan_entity_removed_at_runtime_is_reported(
+    hass: HomeAssistant,
+):
+    hass.states.async_set("sensor.yaml_plan", "plan-1")
+    entry = _entry(hass, "sensor.yaml_plan")
+    watch = PlanEntityWatch(hass, entry)
+    watch.async_start()
+    await hass.async_block_till_done()
+
+    hass.states.async_remove("sensor.yaml_plan")
+    await hass.async_block_till_done()
+
+    assert _issue(hass) is not None
+    # Stopped, the issue goes: the next start judges it again at once.
+    watch.async_stop()
+    assert _issue(hass) is None

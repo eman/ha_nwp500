@@ -32,10 +32,10 @@ The simulator is optional, and off unless you turn it on.
 Either way, a page for each water heater follows, and every field on it
 is optional (see [Inputs](#inputs)): the sensors beside the heater
 first, then two folded sections, **Hot water use** and **Baths, showers
-and mixing valve**. Left empty, the sizes are the defaults. The only
-weather entity, and the only temperature and humidity sensors in the
-heater's area, are suggested the first time; the heater's own entities
-are not offered. Choosing **Hot water simulator** in the options again
+and mixing valve**. Left empty, the sizes are the defaults. The first
+time, the only weather entity is suggested, and, turned on from the
+options once the heater has an area, the only temperature and humidity
+sensors in that area besides the heater's own. Choosing **Hot water simulator** in the options again
 changes or clears them; the update interval and external control have
 their own pages, and saving one doesn't walk the others.
 

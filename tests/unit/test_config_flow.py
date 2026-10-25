@@ -759,23 +759,22 @@ class TestExternalControlOptions:
         }
 
     @pytest.mark.asyncio
-    async def test_the_only_plan_entity_is_chosen_and_others_not_offered(
+    async def test_the_only_plan_entity_is_chosen_but_any_can_be(
         self, hass: HomeAssistant
     ):
         plan = {"protocol": "1", "intent_id": "p", "segments": []}
         hass.states.async_set("sensor.plan", "p", plan)
-        hass.states.async_set("sensor.other", "1")
+        hass.states.async_set("sensor.unavailable_plan", "unavailable")
         handler, _ = self._handler(hass)
 
         form = await handler.async_step_external_control()
 
         assert self._suggested(form)["control_intent_entity"] == "sensor.plan"
-        picker = next(
-            value
-            for key, value in form["data_schema"].schema.items()
-            if str(key) == "control_intent_entity"
+        # A plan entity unavailable now carries no plan: still choosable.
+        user_input = form["data_schema"](
+            self._control_input(control_intent_entity="sensor.unavailable_plan")
         )
-        assert picker.config["include_entities"] == ["sensor.plan"]
+        assert user_input["control_intent_entity"] == "sensor.unavailable_plan"
 
     @pytest.mark.asyncio
     async def test_with_no_plan_entity_found_every_entity_is_offered(
@@ -785,12 +784,6 @@ class TestExternalControlOptions:
 
         form = await handler.async_step_external_control()
 
-        picker = next(
-            value
-            for key, value in form["data_schema"].schema.items()
-            if str(key) == "control_intent_entity"
-        )
-        assert "include_entities" not in picker.config
         assert "control_intent_entity" not in self._suggested(form)
 
     @pytest.mark.asyncio
