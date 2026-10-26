@@ -116,6 +116,31 @@ async def test_a_document_alone_needs_no_heater(
     assert response["inputs"] == {"reasons": [], "notes": []}
 
 
+async def test_another_integrations_tank_is_walked_with_no_heater(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    # Another tank: its own setpoint, no heater named.
+    document["scenario"]["settings"]["setpoint_f"] = 125.0
+
+    response = await service.async_simulate(
+        hass, None, scenario=document, use_heater=False, include_points=True
+    )
+
+    scenario, params = walked(document)
+    expected = codec.result_to_document(sim.simulate(scenario, params))
+    assert response["result"] == expected
+    assert response["inputs"] == {"reasons": [], "notes": []}
+
+
+async def test_with_no_heater_the_heaters_scenario_is_not_there(
+    hass: HomeAssistant,
+):
+    with pytest.raises(ServiceValidationError) as err:
+        await service.async_get_scenario(hass, None)
+    assert err.value.translation_key == "simulator_not_enabled"
+
+
 async def test_a_document_without_params_takes_the_librarys_defaults(
     hass: HomeAssistant, runner: SimulatorRunner
 ):

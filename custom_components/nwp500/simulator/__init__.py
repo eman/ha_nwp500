@@ -17,8 +17,14 @@ import logging
 from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-from ..const import DATA_SIMULATOR, DOMAIN, simulator_device_options
+from ..const import (
+    DATA_SIMULATOR,
+    DOMAIN,
+    simulator_device_options,
+    simulator_stopped_signal,
+)
 
 # Imported with the package, in the import executor, rather than on the
 # first call of the service, in the event loop.
@@ -60,9 +66,12 @@ class SimulatorFeature:
             runner.async_start()
 
     async def async_stop(self) -> None:
-        """Stop the runners."""
+        """Stop the runners, and tell whoever follows them."""
         for runner in self.runners.values():
             runner.async_stop()
+        async_dispatcher_send(
+            self.hass, simulator_stopped_signal(self.entry.entry_id)
+        )
 
 
 async def async_setup_simulator(

@@ -4,8 +4,9 @@ A runner turns the heater's latest status, its tank size, its schedules
 and the air beside it into a scenario, walks it for 24 hours with
 `nwp500.sim.simulate`, asks `nwp500.sim.time_to_ready` about its hot
 water, and keeps the answers: whether the tank is heating or when it next
-will, until when, the electricity over the day, and the hot water it can
-deliver, for showers and a bath.
+will, until when, when the compressor next starts, the tank's two
+temperatures along the day, the electricity over the day, and the hot
+water it can deliver, for showers and a bath.
 
 The scenario is built in the event loop, where the library's unit
 preference is stable; the walk runs in an executor.
@@ -21,12 +22,13 @@ from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
-from homeassistant.const import STATE_ON
+from homeassistant.const import STATE_ON, UnitOfTemperature
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from nwp500 import sim
 from nwp500 import sim_adapters as sa
@@ -57,18 +59,23 @@ from ..const import (
     CONF_SIMULATOR_CIRCULATION_ENTITY,
     CONF_SIMULATOR_DEMAND_ENTITY,
     CONF_SIMULATOR_DRAW_FLOW_ENTITY,
+    CONF_SIMULATOR_DRAW_FLOW_VOLUME,
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_MIXING_VALVE_F,
+    CONF_SIMULATOR_REFILL_GAL,
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
+    DEFAULT_SIMULATOR_REFILL_GAL,
     DOMAIN,
+    DRAW_FLOW_DELIVERED,
 )
 from .ha_client import InProcessClient
 
 if TYPE_CHECKING:
     from nwp500.models import DeviceStatus
     from nwp500.sim import Readiness
+    from nwp500.sim.engine import HeatingInterval
     from nwp500.sim.result import SimulationResult
     from nwp500.sim_home_assistant import HomeAssistantClient
 
@@ -97,6 +104,17 @@ STATE_DISABLED = "disabled"
 HEATING_STATES = (STATE_HEATING, STATE_SCHEDULED, STATE_IDLE, STATE_DISABLED)
 #: A heating's `stop` when the walk's horizon cut it, not its own end.
 STOP_HORIZON = "horizon"
+#: A heating's `stop` when the tank reached its target: at temperature.
+STOP_TARGET = "target"
+#: A setpoint write ended it.
+STOP_WRITE = "write"
+
+# What heats in a heating interval, as the library names the heat pump.
+SOURCE_COMPRESSOR = "compressor"
+# Heating intervals one starting within this of another's end are one
+# heating: Electric's lower element after its upper, which the library
+# ends at its target. A compressor can't restart that soon (its lockout).
+CHAINED = timedelta(minutes=1)
 
 # The modes in which nothing heats.
 _HEATING_DISABLED_MODES = frozenset({VACATION, POWER_OFF})
@@ -135,16 +153,106 @@ class Inputs:
 
 
 @dataclass(frozen=True)
+class PathSample:
+    """The tank at one point of the walk, as the library modelled it."""
+
+    at: datetime
+    #: The upper and lower probes' temperatures, °F.
+    upper_f: float
+    lower_f: float
+    #: The setpoint in force, °F.
+    setpoint_f: float
+    #: Whether anything heats over the interval ending here.
+    heating: bool
+
+
+#: The path's temperatures, to a tenth of a degree.
+_PATH_DIGITS = 1
+
+
+def path_from(result: SimulationResult) -> tuple[PathSample, ...]:
+    """The tank's two temperatures along the walk, at the library's points."""
+    return tuple(
+        PathSample(
+            at=p.at,
+            upper_f=round(p.upper_f, _PATH_DIGITS),
+            lower_f=round(p.lower_f, _PATH_DIGITS),
+            setpoint_f=round(p.setpoint_f, _PATH_DIGITS),
+            heating=p.heating,
+        )
+        for p in result.points
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class Capacity:
+    """What the tank's hot water is enough for now: baths, showers.
+
+    Delivered gallons, as the library's readiness gives them. The first
+    bath is the library's own answer (its rounding and margin); a refill
+    is a top-up after the last whole bath, from what is left of the water
+    deliverable now. Showers are the library's whole showers.
+    """
+
+    baths: int
+    refill: bool
+    showers: int
+    bath_gal: float
+    refill_gal: float
+    shower_gal: float
+
+    @property
+    def summary(self) -> str:
+        """In words, for a dashboard: "1 bath and 1 refill", "3 showers"."""
+        if self.baths:
+            baths = f"{self.baths} bath{'s' if self.baths > 1 else ''}"
+            return f"{baths} and 1 refill" if self.refill else baths
+        if self.showers:
+            return f"{self.showers} shower{'s' if self.showers > 1 else ''}"
+        return "Less than a shower"
+
+
+def capacity_from(readiness: Readiness, refill_gal: float) -> Capacity:
+    """The baths, refill and showers the tank's hot water is enough for."""
+    bath_gal = readiness.bath.volume_gal
+    deliverable = readiness.deliverable_gal
+    # A hair over, as the library's whole showers: gallons rounded to a
+    # tenth divide by a bath's in binary a hair short (86.1 // 28.7 == 2).
+    baths = (
+        max(1, int(deliverable / bath_gal + 1e-9))
+        if readiness.bath.ready
+        else 0
+    )
+    return Capacity(
+        baths=baths,
+        # A hair under too: 67.6 - 2 * 28.7 is 10.1999… in binary.
+        refill=baths > 0
+        and deliverable - baths * bath_gal + 1e-9 >= refill_gal,
+        showers=readiness.showers.ready_for_whole,
+        bath_gal=bath_gal,
+        refill_gal=refill_gal,
+        shower_gal=readiness.showers.volume_gal,
+    )
+
+
+@dataclass(frozen=True)
 class Answer:
     """What a walk found, or why there is none."""
 
     computed_at: datetime
     #: One of HEATING_STATES, or None with `waiting` or `error` set.
     state: str | None = None
-    #: The next (or current) heating interval, and why it ends.
+    #: The next (or current) heating, and why it ends: its intervals one
+    #: after another (`CHAINED`), from the first's start to the last's
+    #: end. The source, cause and trigger are the first's.
     start: datetime | None = None
     end: datetime | None = None
     stop: str | None = None
+    #: Whether it ends with the tank at temperature: at its target, or a
+    #: setpoint write ending it with the tank already at the new one (the
+    #: library's `reached`). Not when a TOU cap, a mode change or the
+    #: horizon ends it.
+    at_temperature: bool | None = None
     source: str | None = None
     cause: str | None = None
     trigger: str | None = None
@@ -153,11 +261,22 @@ class Answer:
     confidence: float | None = None
     #: Electricity over the horizon, both sources.
     energy_total_kwh: float | None = None
+    #: Whether the heater reports its compressor running now.
+    compressor_running: bool | None = None
+    #: When the compressor next starts within the walk, and why: None
+    #: while it runs, and when no start falls within the walk.
+    compressor_start: datetime | None = None
+    compressor_cause: str | None = None
+    compressor_trigger: str | None = None
+    #: The tank's two temperatures along the walk.
+    path: tuple[PathSample, ...] = ()
     reasons: tuple[str, ...] = ()
     defaults_used: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
     #: The hot water now and ahead, as `nwp500.sim.time_to_ready` gives it.
     readiness: Readiness | None = None
+    #: What that hot water is enough for, in baths and showers.
+    capacity: Capacity | None = None
     #: Why there is no answer yet (WAIT_*), or that the walk failed.
     waiting: str | None = None
     error: str | None = None
@@ -170,8 +289,15 @@ class Answer:
     def as_document(self) -> dict[str, Any]:
         """For diagnostics."""
         doc = dataclasses.asdict(self)
-        for key in ("computed_at", "start", "end"):
+        for key in ("computed_at", "start", "end", "compressor_start"):
             doc[key] = _iso(doc[key])
+        # Long: how many points, and the first and last.
+        path = self.path
+        doc["path"] = {
+            "points": len(path),
+            "first": None if not path else _iso(path[0].at),
+            "last": None if not path else _iso(path[-1].at),
+        }
         for key in ("reasons", "defaults_used", "notes"):
             doc[key] = list(doc[key])
         doc["readiness"] = (
@@ -180,6 +306,70 @@ class Answer:
             else codec.to_document(self.readiness)
         )
         return doc
+
+    def path_document(self, temperature_unit: str) -> dict[str, Any]:
+        """The modelled path for a chart, in `temperature_unit`.
+
+        When the current or next heating ends (none when the walk's
+        horizon cuts it) and why; when the tank comes to temperature,
+        only for a heating that ends at its target, not one a TOU cap, a
+        mode change or a write stops short; when the compressor next
+        starts; and the two probes along the walk. Why there is none,
+        when there isn't.
+        """
+
+        def temperature(f: float) -> float:
+            return round(
+                TemperatureConverter.convert(
+                    f, UnitOfTemperature.FAHRENHEIT, temperature_unit
+                ),
+                _PATH_DIGITS,
+            )
+
+        end = None if self.stop == STOP_HORIZON else self.end
+        ready = end if self.at_temperature else None
+        capacity = self.capacity
+        bath = None if self.readiness is None else self.readiness.bath
+        return {
+            "computed_at": _iso(self.computed_at),
+            "state": self.state,
+            "waiting": self.waiting,
+            "error": self.error,
+            "unit": temperature_unit,
+            "compressor_running": self.compressor_running,
+            "heating_start": _iso(self.start),
+            "heating_end": _iso(end),
+            "ready_at": _iso(ready),
+            "stop": self.stop,
+            "source": self.source,
+            "compressor_start": _iso(self.compressor_start),
+            "compressor_trigger": self.compressor_trigger,
+            "hot_water": (
+                None
+                if capacity is None or bath is None
+                else {
+                    "summary": capacity.summary,
+                    "baths": capacity.baths,
+                    "refill": capacity.refill,
+                    "showers": capacity.showers,
+                    "bath_ready": bath.ready,
+                    # Ready now, the library's is the walk's start.
+                    "bath_ready_at": (
+                        None if bath.ready else _iso(bath.ready_at)
+                    ),
+                }
+            ),
+            "points": [
+                {
+                    "at": _iso(p.at),
+                    "upper": temperature(p.upper_f),
+                    "lower": temperature(p.lower_f),
+                    "setpoint": temperature(p.setpoint_f),
+                    "heating": p.heating,
+                }
+                for p in self.path
+            ],
+        }
 
 
 def _iso(at: datetime | None) -> str | None:
@@ -214,15 +404,44 @@ def heater_schedules(
     return schedules, reasons
 
 
+def _at_temperature(
+    result: SimulationResult, interval: HeatingInterval
+) -> bool:
+    """Whether a heating ends with the tank at temperature."""
+    if interval.stop == STOP_TARGET:
+        return True
+    # A write ending it at the new setpoint: the library counts it reached.
+    return interval.stop == STOP_WRITE and any(
+        at == interval.end for at, _ in result.simulation.reached
+    )
+
+
 def answer_from(
     result: SimulationResult,
     inputs: Inputs,
     readiness: Readiness | None = None,
+    refill_gal: float = DEFAULT_SIMULATOR_REFILL_GAL,
 ) -> Answer:
     """The entities' answer from a walk, and its hot water's."""
     scenario = inputs.scenario
     state = scenario.state
     first = result.heating[0] if result.heating else None
+    # The heating it is in, or the next, to the interval that reaches
+    # furthest: an element can run inside a longer compressor run, and
+    # end first.
+    chain: list[HeatingInterval] = []
+    last: HeatingInterval | None = None
+    for interval in result.heating:
+        if last is not None and interval.start.at > last.end + CHAINED:
+            break
+        chain.append(interval)
+        if last is None or interval.end >= last.end:
+            last = interval
+    chain_wh = (
+        None
+        if not chain or any(h.input_wh is None for h in chain)
+        else sum(h.input_wh or 0.0 for h in chain)
+    )
     heating_now = state.compressor_running or state.element_running
     if heating_now:
         heating_state = STATE_HEATING
@@ -233,27 +452,44 @@ def answer_from(
     else:
         heating_state = STATE_IDLE
     total = result.input_wh
+    # The compressor's next start: while it runs, its run is the heating
+    # the walk starts in, and the ready sensor says when that ends.
+    compressor = (
+        None
+        if state.compressor_running
+        else next(
+            (h for h in result.heating if h.source == SOURCE_COMPRESSOR),
+            None,
+        )
+    )
     return Answer(
         computed_at=scenario.start,
         state=heating_state,
         start=None if first is None else first.start.at,
-        end=None if first is None else first.end,
-        stop=None if first is None else first.stop,
+        end=None if last is None else last.end,
+        stop=None if last is None else last.stop,
+        at_temperature=None if last is None else _at_temperature(result, last),
         source=None if first is None else first.source,
         cause=None if first is None else first.start.cause,
         trigger=None if first is None else first.start.trigger,
-        energy_kwh=(
-            None
-            if first is None or first.input_wh is None
-            else round(first.input_wh / 1000.0, 3)
-        ),
-        capped=None if first is None else first.capped,
+        energy_kwh=None if chain_wh is None else round(chain_wh / 1000.0, 3),
+        capped=None if last is None else last.capped,
         confidence=None if first is None else first.confidence,
         energy_total_kwh=None if total is None else round(total / 1000.0, 3),
+        compressor_running=state.compressor_running,
+        compressor_start=None if compressor is None else compressor.start.at,
+        compressor_cause=None if compressor is None else compressor.start.cause,
+        compressor_trigger=(
+            None if compressor is None else compressor.start.trigger
+        ),
+        path=path_from(result),
         reasons=tuple(dict.fromkeys((*inputs.reasons, *result.reasons))),
         defaults_used=result.defaults_used,
         notes=inputs.notes,
         readiness=readiness,
+        capacity=(
+            None if readiness is None else capacity_from(readiness, refill_gal)
+        ),
     )
 
 
@@ -385,7 +621,9 @@ class SimulatorRunner:
 
         None without a draw flow: there is no book, and the library
         answers from the tank's probes. A heater entity renamed or
-        disabled makes a new keeper, which reads its history afresh.
+        disabled makes a new keeper, which reads its history afresh. The
+        flow's gallons count delivered water, or tank water when chosen
+        (the library's `flow_volume`).
         """
         flow = self.options.get(CONF_SIMULATOR_DRAW_FLOW_ENTITY)
         if flow is None:
@@ -394,7 +632,14 @@ class SimulatorRunner:
         if heater is None:
             self._book = None
             return None
-        if self._book is None or self._book.heater != heater:
+        volume = self.options.get(
+            CONF_SIMULATOR_DRAW_FLOW_VOLUME, DRAW_FLOW_DELIVERED
+        )
+        if (
+            self._book is None
+            or self._book.heater != heater
+            or self._book.flow_volume != volume
+        ):
             e = self.entities
             self._book = HomeAssistantBook(
                 cast("HomeAssistantClient", InProcessClient(self.hass)),
@@ -406,6 +651,7 @@ class SimulatorRunner:
                     demand=e.demand,
                     air=e.air,
                 ),
+                flow_volume=volume,
             )
         return self._book
 
@@ -705,7 +951,16 @@ class SimulatorRunner:
             )
             self._failure = None
         self.last_duration_s = (dt_util.utcnow() - started).total_seconds()
-        self._publish(answer_from(result, inputs, readiness))
+        self._publish(
+            answer_from(
+                result,
+                inputs,
+                readiness,
+                refill_gal=self.options.get(
+                    CONF_SIMULATOR_REFILL_GAL, DEFAULT_SIMULATOR_REFILL_GAL
+                ),
+            )
+        )
 
     @callback
     def _fail(

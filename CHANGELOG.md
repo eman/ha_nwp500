@@ -3,12 +3,66 @@
 ## [Unreleased]
 
 ### Added
+
+- **What the hot water is enough for.** A new simulator sensor, *Simulated
+  hot water for*, says it in words a dashboard can show: "1 bath", "1 bath
+  and 1 refill", "2 baths", "3 showers". Its attributes give the counts
+  and each size in Home Assistant's volume unit. A new option, *Bath
+  refill size*, sets the top-up, by default 10.2 gal (39 L), the largest of
+  one household's metered top-ups; the bath is the library's 28.7 gal
+  (109 L) unless set. The tank forecast card shows it under its heading,
+  with when a bath will be ready if it isn't, and the path's websocket
+  document carries it as `hot_water`.
+- **Simulated bath ready at**, a timestamp: when the heater on its own
+  has a bath's hot water ready, or, while it does, since when.
 - **The simulator takes the mixing valve's temperature.** An optional
   setting per heater, in Home Assistant's temperature unit: what the
   heater's mixing valve delivers. With it, the library prices each
   delivered gallon at the valve, so a tank hotter than the valve reads
   more hot water, showers and baths. Without it, nothing changes: water is
   delivered at the tank's temperature.
+- **When the tank comes to temperature, and when the compressor starts.**
+  With the simulator on, a new sensor, Simulated compressor start, says
+  when the heat pump's compressor next starts while it is off (unknown
+  while it runs; Simulated hot water ready is then when it stops), with
+  the start's cause and trigger.
+- **The tank forecast card.** `custom:nwp500-tank-card`, loaded with the
+  integration, draws the tank's upper and lower temperatures: recorded
+  over the last hours, and modelled over the next day, with the setpoint,
+  the modelled heating, and markers for when the tank comes to
+  temperature and when the compressor next starts. It reads the model
+  from two new websocket commands, `nwp500/simulator/path` and
+  `nwp500/simulator/subscribe_path` (the path again with each
+  simulation, across a reload, and an empty one when the simulator
+  stops), which other cards can use too, for a user who can read the
+  heater. A heating a TOU cap, a mode change or a setpoint write stops
+  short is not "at temperature": the path's `ready_at` is only for one
+  that reaches its target.
+- **Simulated hot water ready takes back-to-back heatings as one.** In
+  Electric the library ends the upper element at its target and starts
+  the lower at once: the sensor said the tank was ready at the hand-over.
+  It now says when the last of them ends, and Simulated heating's
+  `energy_kwh` is theirs together.
+- **Simulated hot water ready is only for a heating that reaches its
+  target.** One a TOU cap, a mode change or a setpoint write stops short
+  leaves it unknown, its `stop` attribute saying why, as the card's path
+  already did.
+- **The `time_to_ready` action uses the heater's own bath and shower
+  sizes** when the call gives none, as the bath and shower sensors do,
+  and a draw the heater reports now: it answered with the library's
+  defaults, and could disagree with them.
+- **The simulator's actions need no heater for a document alone.** With
+  `use_heater` off, `nwp500.simulate`, `time_to_ready`, `next_recovery`,
+  `forecast`, `heater_profile` and `get_scenario` take no water heater,
+  so another integration can model any tank, with its own parameters,
+  through the actions' responses. The simulator must be on for one
+  heater.
+- **What the simulator's draw flow counts.** An optional setting per
+  heater beside the draw flow: delivered water (the default), measured at
+  the taps after any mixing valve, or tank water, measured on the
+  heater's hot outlet. nwp500-python 9.12.2's book prices a tank-water
+  gallon at the tank's upper probe (`flow_volume`). Its default empty tank
+  was fitted to delivered water: for tank water, fit it to the heater.
 - **The simulator books the tank's heat from a hot water draw flow.** An
   optional draw flow entity per heater: the household's hot water draw
   flow, the circulation's water not in it. With it, nwp500-python's
@@ -112,7 +166,7 @@
   #193, #194, #192, #215)
 
 ### Changed
-- **Library Dependency: nwp500-python**: Upgraded to 9.12.1. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.12.2. What the
   integration did before is kept; the library's corrections change these:
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
@@ -121,16 +175,37 @@
   - **Standby is walked as Power Off**, as the NaviLink app counts it:
     nothing heats. The simulator's sensors were unavailable in Standby and
     its actions refused it.
-  - **Hot water read from the probes alone.** A tank whose probes read
-    alike reads its full tank's gallons from them; one the library's
-    evidence holds nothing for reads 0 with `no_evidence_for_state` (the
-    gallons unknown, not none), in place of `colder_than_all_evidence`.
-    The 50 and 80 gal tanks' book and readiness defaults scale with their
-    size.
+  - **Hot water read from the probes alone** is the tank's heat as its
+    two probes place it, whatever they read, and the larger of that and
+    the library's evidence where it has some. A tank with its probes apart
+    no longer reads 0, and `no_evidence_for_state`,
+    `colder_than_all_evidence`, `thermocline_unlocated` and
+    `estimated_from_probes` are gone from the hot water sensors' reasons.
+    The 50 and 80 gal tanks' defaults scale by their rated storage (45.2
+    and 76.1 gal).
   - **The heater's own air in the book and the air fit.** Without an air
     sensor, the book and the weather fit take the heater's own air reading
-    once its heat pump has run 5 minutes; an idle cabinet reading is
-    flagged `ambient_from_idle_cabinet`.
+    once its heat pump has run 5 minutes. An idle reading, the cabinet's,
+    has 6.2 °F taken off for the cabinet's warmth, and is flagged
+    `ambient_from_idle_cabinet`: without an air sensor the heater's air
+    reads cooler while the heat pump is off, and the simulated recoveries
+    run longer.
+  - **The heat book survives a restart.** Across a span the heater wasn't
+    heard from or an entity was unavailable, the book walks on, each value
+    held from before (the flow for a minute, the pump's speed for five),
+    where it used to have no book until the next anchor. It also anchors
+    while the heat pump runs alone with the probes alike, not only when a
+    recovery ends, and converts gallons at the mains read from the long
+    draws.
+  - **The model's corrections.** The refrigerant's properties are
+    CoolProp's, the evaporator follows the air 0.6 °F per °F, the standby
+    loss and the circulation's terms are refitted, High Demand's upper
+    element restarts about 4 °F short of the setpoint, Energy Saver holds
+    its lower trigger while the upper tank is at the setpoint, and a draw
+    moves the lower probe by how far apart the probes are. The simulated
+    times, energies and hot water move with them.
+  - **A draw window runs cold** as soon as the delivered water falls below
+    the line; the allowance for a dip that no draw showed is gone.
   - **Reservations have no Vacation mode.** The library now numbers
     entry modes as the NaviLink app does: 5 is Power Off, and it refuses 6.
     Whether a mode-5 entry powers the heater off is untested. Set

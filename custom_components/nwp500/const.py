@@ -1429,10 +1429,24 @@ CONF_SIMULATOR_CIRCULATION_ENTITY: Final = "circulation_speed_entity"
 # The household's hot water draw flow, the circulation's water not in it:
 # with it, the library books the tank's heat.
 CONF_SIMULATOR_DRAW_FLOW_ENTITY: Final = "draw_flow_entity"
+# What the draw flow's gallons count: water delivered at the taps, after
+# any mixing valve (the library's default, stored as nothing), or tank
+# water, as a meter on the heater's hot outlet counts it.
+CONF_SIMULATOR_DRAW_FLOW_VOLUME: Final = "draw_flow_volume"
+DRAW_FLOW_DELIVERED: Final = "delivered"
+DRAW_FLOW_TANK: Final = "tank"
 # A bath's and a shower's hot water, US gallons as stored; the form takes
 # them in Home Assistant's volume unit. Without them, the library's.
 CONF_SIMULATOR_BATH_GAL: Final = "bath_gal"
 CONF_SIMULATOR_SHOWER_GAL: Final = "shower_gal"
+#: A bath's refill (a top-up after the fill), delivered gallons.
+CONF_SIMULATOR_REFILL_GAL: Final = "refill_gal"
+#: The refill when none is set: one household's metered top-ups of a
+#: filled bath, 15 to 90 minutes after it, ran 4.5 to 10.2 gal. The
+#: largest, as the library's bath is the larger of its two measured fills:
+#: a size set too small promises water the tank cannot give. The library's
+#: `ReadinessParams.top_up_gal` from its next release; this until then.
+DEFAULT_SIMULATOR_REFILL_GAL: Final = 10.2
 # What the heater's mixing valve delivers, °F as stored; the form takes it
 # in Home Assistant's temperature unit. Without it, no valve: the hot
 # water is reckoned at the tank's temperature.
@@ -1464,6 +1478,11 @@ SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
 def simulator_started_signal(entry_id: str) -> str:
     """The dispatcher signal sent once an entry's simulator runs."""
     return f"{DOMAIN}_simulator_started_{entry_id}"
+
+
+def simulator_stopped_signal(entry_id: str) -> str:
+    """The dispatcher signal sent when an entry's simulator stops."""
+    return f"{DOMAIN}_simulator_stopped_{entry_id}"
 
 
 def simulator_enabled(entry: Any) -> bool:

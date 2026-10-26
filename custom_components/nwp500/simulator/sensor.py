@@ -9,8 +9,10 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.sensor import (
+    RestoreSensor,
     SensorDeviceClass,
     SensorEntity,
+    SensorExtraStoredData,
     SensorStateClass,
 )
 from homeassistant.const import UnitOfEnergy, UnitOfVolume
@@ -20,7 +22,6 @@ from ..entity import NWP500Entity
 from .runner import (
     HEATING_STATES,
     STATE_HEATING,
-    STOP_HORIZON,
     Answer,
     SimulatorRunner,
 )
@@ -141,12 +142,13 @@ class SimulatorHeatingSensor(NWP500SimulatorEntity, SensorEntity):  # type: igno
 
 
 class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """When the tank next finishes heating.
+    """When the tank next comes to temperature.
 
     The end of the heating it is in, or of the next one within the day,
-    as the library's `RecoveryResult.ready_at` gives it; `stop` says what
-    ended it. Unknown when there is none within the day, or when the
-    day runs out before it ends (`stop` is `horizon`).
+    when that heating ends at its target. Unknown when there is none
+    within the day, and when a heating ends short of it: the day runs out
+    first (`stop` is `horizon`), a TOU cap stops it (`cap`), or a mode
+    change or setpoint write does. `stop` says which.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -154,11 +156,11 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
 
     @property
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The end of the next heating interval."""
+        """The end of the next heating, when it reaches its target."""
         answer = self.answer
-        # Cut by the walk's horizon, the heating has no end yet: the
-        # horizon is not when the tank is ready.
-        if answer is None or answer.stop == STOP_HORIZON:
+        # Stopped short, or cut by the walk's horizon, the tank is not at
+        # temperature when the heating ends.
+        if answer is None or not answer.at_temperature:
             return None
         return _minute(answer.end)
 
@@ -170,6 +172,39 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
         if answer is None or not answer.ok:
             return attributes
         return {**attributes, "stop": answer.stop}
+
+
+class SimulatorCompressorStartSensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """When the heat pump's compressor next starts, as modelled.
+
+    The first compressor start the walk finds within the day. Unknown
+    while the compressor runs (Simulated hot water ready is then when it
+    stops) and when no start falls within the day, such as in Electric
+    or Vacation.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:heat-pump-outline"
+
+    @property
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The compressor's next start."""
+        answer = self.answer
+        return None if answer is None else _minute(answer.compressor_start)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Whether it runs now, what starts it, and what the answer rests on."""
+        attributes = self._common_attributes()
+        answer = self.answer
+        if answer is None or not answer.ok:
+            return attributes
+        return {
+            **attributes,
+            "running": answer.compressor_running,
+            "cause": answer.compressor_cause,
+            "trigger": answer.compressor_trigger,
+        }
 
 
 class SimulatorEnergySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -284,6 +319,142 @@ class SimulatorShowersReadySensor(NWP500HotWaterEntity, SensorEntity):  # type: 
         return attributes
 
 
+class SimulatorHotWaterCapacitySensor(NWP500HotWaterEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """What the tank's hot water is enough for now, in words.
+
+    "2 baths", "1 bath and 1 refill", "1 bath", "3 showers", or "Less
+    than a shower"; the counts and sizes are its attributes, the sizes in
+    Home Assistant's volume unit.
+    """
+
+    _attr_icon = "mdi:bathtub"
+
+    def __init__(self, runner: SimulatorRunner, key: str) -> None:
+        """Sizes in Home Assistant's volume unit, gallons or litres."""
+        super().__init__(runner, key)
+        self._litres = (
+            runner.hass.config.units.volume_unit != UnitOfVolume.GALLONS
+        )
+
+    @property
+    def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The baths, or else the showers."""
+        answer = self.answer
+        capacity = None if answer is None else answer.capacity
+        return None if capacity is None else capacity.summary
+
+    def _volume(self, gal: float) -> float:
+        return round(gal * _L_PER_GAL if self._litres else gal, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The counts, each size, and what the answer rests on."""
+        answer = self.answer
+        capacity = None if answer is None else answer.capacity
+        attributes = self._readiness_attributes()
+        if capacity is not None:
+            attributes |= {
+                "baths": capacity.baths,
+                "refill": capacity.refill,
+                "showers": capacity.showers,
+                "bath_volume": self._volume(capacity.bath_gal),
+                "refill_volume": self._volume(capacity.refill_gal),
+                "shower_volume": self._volume(capacity.shower_gal),
+                "volume_unit": (
+                    UnitOfVolume.LITERS
+                    if self._litres
+                    else UnitOfVolume.GALLONS
+                ),
+            }
+        return attributes
+
+
+class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, RestoreSensor):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """When the tank holds a bath's hot water: ahead, or since when.
+
+    Not ready, when the heater on its own has it ready (the library's
+    `bath.ready_at`), unknown when not within the day. Ready, since when
+    it has been: held while it stays ready, so a dashboard reads "ready
+    10 minutes ago" rather than a time moving each minute. Held across a
+    restart or reload, and across a walk with no answer.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_icon = "mdi:bathtub-outline"
+
+    def __init__(self, runner: SimulatorRunner, key: str) -> None:
+        """Nothing held yet."""
+        super().__init__(runner, key)
+        self._ready_since: datetime | None = None
+        # The time it was ready since before a restart, until an answer
+        # says whether it still is.
+        self._restored: datetime | None = None
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Take back the time held before, then the answer there is."""
+        await super().async_added_to_hass()
+        # What is stored is only ever a time it was ready since.
+        last = await self.async_get_last_sensor_data()
+        if last is not None and isinstance(last.native_value, datetime):
+            self._restored = last.native_value
+        self._hold()
+
+    def _hold(self) -> None:
+        """Hold since when the bath has been ready, from the answer."""
+        answer = self.answer
+        readiness = None if answer is None else answer.readiness
+        if answer is None or readiness is None:
+            # No answer says otherwise: what is held stays.
+            return
+        restored, self._restored = self._restored, None
+        if not readiness.bath.ready:
+            self._ready_since = None
+        elif self._ready_since is None:
+            now = _minute(answer.computed_at)
+            # Ready before the restart, and still: since then.
+            self._ready_since = (
+                restored
+                if restored is not None and now is not None and restored <= now
+                else now
+            )
+
+    @callback
+    def _handle_answer(self) -> None:
+        self._hold()
+        super()._handle_answer()
+
+    @property
+    @override
+    def extra_restore_state_data(self) -> SensorExtraStoredData:
+        """The time held, never a forecast.
+
+        Kept through a walk with no answer, while the state is unavailable.
+        """
+        return SensorExtraStoredData(self._ready_since, None)
+
+    @property
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """When it will be ready, or since when it has been."""
+        answer = self.answer
+        readiness = None if answer is None else answer.readiness
+        if answer is None or readiness is None:
+            return None
+        if readiness.bath.ready:
+            return self._ready_since or _minute(answer.computed_at)
+        return _minute(readiness.bath.ready_at)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Whether it is ready now, and what the answer rests on."""
+        answer = self.answer
+        readiness = None if answer is None else answer.readiness
+        attributes = self._readiness_attributes()
+        if readiness is not None:
+            attributes["ready"] = readiness.bath.ready
+        return attributes
+
+
 def create_simulator_sensors(feature: SimulatorFeature) -> list[SensorEntity]:
     """The sensors for each heater the simulator runs for."""
     entities: list[SensorEntity] = []
@@ -292,9 +463,12 @@ def create_simulator_sensors(feature: SimulatorFeature) -> list[SensorEntity]:
             [
                 SimulatorHeatingSensor(runner, "heating"),
                 SimulatorHotWaterReadySensor(runner, "hot_water_ready"),
+                SimulatorCompressorStartSensor(runner, "compressor_start"),
                 SimulatorEnergySensor(runner, "energy_next_24h"),
                 SimulatorHotWaterAvailableSensor(runner, "hot_water_available"),
                 SimulatorShowersReadySensor(runner, "showers_ready"),
+                SimulatorHotWaterCapacitySensor(runner, "hot_water_capacity"),
+                SimulatorBathReadyAtSensor(runner, "bath_ready_at"),
             ]
         )
     return entities

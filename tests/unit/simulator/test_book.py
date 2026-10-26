@@ -215,6 +215,25 @@ async def test_the_actions_use_the_heaters_book_for_its_own_scenario(
     await stop(hass)
 
 
+async def test_the_flow_counts_delivered_water_unless_told_tank(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    _register_heater(hass)
+    runner = await started(hass, coordinator, FLOW)
+    keeper = runner._keeper()  # noqa: SLF001
+    assert keeper is not None
+    assert keeper.flow_volume == "delivered"
+
+    # Told the flow counts tank water, a new keeper books it so.
+    runner.options = {**FLOW, "draw_flow_volume": "tank"}
+    tank = runner._keeper()  # noqa: SLF001
+
+    assert tank is not None and tank is not keeper
+    assert tank.flow_volume == "tank"
+    assert runner._keeper() is tank  # noqa: SLF001
+    await stop(hass)
+
+
 async def test_a_renamed_heater_entity_makes_a_new_keeper(
     hass: HomeAssistant, hass_storage, coordinator: MagicMock
 ):

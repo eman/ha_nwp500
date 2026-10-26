@@ -4,9 +4,10 @@ Each action builds its scenario as `nwp-cli simulate` does: the heater's
 live scenario (the one the entities' answer comes from), with the caller's
 scenario document (`nwp500.sim.codec`) laid over it by
 `nwp500.sim_live.overlay`, then the action's own fields. With `use_heater`
-off the heater is not read: the document alone is the scenario. The
+off the heater is not read: the document alone is the scenario, and the
+call need name no heater, so another integration can model any tank. The
 parameters are the document's when it has them, else the defaults for the
-heater's tank.
+heater's tank, or the library's without a heater.
 
 Each answer is the library's document under `result`, in its units (°F,
 Wh, US gallons); the integration's notes on the inputs are beside it under
@@ -32,7 +33,13 @@ from nwp500.sim.engine import SimulationError
 from nwp500.sim.profile import heater_profile
 from nwp500.sim_live import overlay
 
-from ..const import DOMAIN, MAX_SIMULATE_HOURS, MODE_TO_DHW_ID
+from ..const import (
+    CONF_SIMULATOR_BATH_GAL,
+    CONF_SIMULATOR_SHOWER_GAL,
+    DOMAIN,
+    MAX_SIMULATE_HOURS,
+    MODE_TO_DHW_ID,
+)
 from .runner import Inputs
 
 if TYPE_CHECKING:
@@ -67,15 +74,24 @@ def _writes(
 
 async def async_inputs(
     hass: HomeAssistant,
-    runner: SimulatorRunner,
+    runner: SimulatorRunner | None,
     *,
     scenario: dict[str, Any] | None,
     use_heater: bool,
     over: dict[str, Any] | None = None,
 ) -> Inputs:
-    """The scenario to walk: the heater's, `scenario` over it, then `over`."""
+    """The scenario to walk: the heater's, `scenario` over it, then `over`.
+
+    Without a heater's runner (`use_heater` off and no heater named), the
+    document alone.
+    """
     live: Inputs | None = None
     if use_heater:
+        if runner is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_not_enabled",
+            )
         try:
             got = await runner.async_inputs()
         except ValueError as err:
@@ -106,7 +122,11 @@ async def async_inputs(
             translation_key="simulator_invalid_scenario",
             translation_placeholders={"error": str(err)},
         ) from err
-    if live is not None and not (scenario or {}).get("params"):
+    if (
+        runner is not None
+        and live is not None
+        and not (scenario or {}).get("params")
+    ):
         # The heater's parameters, its mixing valve in them.
         built = runner.with_valve(built)
     if built.scenario.horizon > timedelta(hours=MAX_SIMULATE_HOURS):
@@ -144,6 +164,11 @@ async def async_inputs(
         ),
         book=book,
         inlet_measured=inlet_measured,
+        # A draw the heater reports now is the scenario's only from now.
+        drawing=live is not None
+        and live.drawing
+        and built.scenario.start == live.scenario.start
+        and not ((scenario or {}).get("scenario") or {}).get("state"),
     )
 
 
@@ -172,7 +197,7 @@ def _response(document: dict[str, Any], inputs: Inputs) -> dict[str, Any]:
 
 async def async_get_scenario(
     hass: HomeAssistant,
-    runner: SimulatorRunner,
+    runner: SimulatorRunner | None,
     *,
     scenario: dict[str, Any] | None = None,
     use_heater: bool = True,
@@ -188,7 +213,7 @@ async def async_get_scenario(
 
 async def async_simulate(
     hass: HomeAssistant,
-    runner: SimulatorRunner,
+    runner: SimulatorRunner | None,
     *,
     scenario: dict[str, Any] | None = None,
     use_heater: bool = True,
@@ -228,7 +253,7 @@ async def async_simulate(
 
 async def async_time_to_ready(
     hass: HomeAssistant,
-    runner: SimulatorRunner,
+    runner: SimulatorRunner | None,
     *,
     scenario: dict[str, Any] | None = None,
     use_heater: bool = True,
@@ -239,6 +264,14 @@ async def async_time_to_ready(
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater
     )
+    # Sizes not given are the heater's own, as its bath and shower
+    # sensors have them, unless the document brings its own parameters;
+    # with no heater, or the heater not used, the library's.
+    options = (
+        {}
+        if runner is None or not use_heater or (scenario or {}).get("params")
+        else runner.options
+    )
     ready = await _async_call(
         hass,
         partial(
@@ -246,8 +279,17 @@ async def async_time_to_ready(
             inputs.scenario,
             inputs.params,
             book=inputs.book,
-            bath_gal=bath_gal,
-            shower_gal=shower_gal,
+            bath_gal=(
+                bath_gal
+                if bath_gal is not None
+                else options.get(CONF_SIMULATOR_BATH_GAL)
+            ),
+            shower_gal=(
+                shower_gal
+                if shower_gal is not None
+                else options.get(CONF_SIMULATOR_SHOWER_GAL)
+            ),
+            drawing=inputs.drawing,
             inlet_measured=inputs.inlet_measured,
         ),
     )
@@ -256,7 +298,7 @@ async def async_time_to_ready(
 
 async def async_next_recovery(
     hass: HomeAssistant,
-    runner: SimulatorRunner,
+    runner: SimulatorRunner | None,
     *,
     scenario: dict[str, Any] | None = None,
     use_heater: bool = True,
@@ -273,7 +315,7 @@ async def async_next_recovery(
 
 async def async_forecast(
     hass: HomeAssistant,
-    runner: SimulatorRunner,
+    runner: SimulatorRunner | None,
     *,
     target_time: datetime,
     scenario: dict[str, Any] | None = None,
@@ -310,7 +352,7 @@ async def async_forecast(
 
 async def async_heater_profile(
     hass: HomeAssistant,
-    runner: SimulatorRunner,
+    runner: SimulatorRunner | None,
     *,
     scenario: dict[str, Any] | None = None,
     use_heater: bool = True,

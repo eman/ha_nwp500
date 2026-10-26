@@ -45,8 +45,9 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
   Assistant is down. See
   [docs/external-control.md](docs/external-control.md).
 - **Hot water simulator** — Optional. Models the tank from what the heater
-  reports: whether it is heating, when its current or next heating ends, and
-  the electricity it is likely to use over the next day. See
+  reports: whether it is heating, when it comes to temperature, when the
+  compressor next starts, the tank's temperatures over the next day (drawn
+  by the tank forecast card), and the electricity it is likely to use. See
   [docs/simulator.md](docs/simulator.md).
 
 ## Installation
@@ -239,7 +240,9 @@ Assistant, from what the heater reports, and keeps these up to date:
 - **Simulated heating**: heating, will heat (within the next 24 hours), not
   heating today, or heating off.
 - **Simulated hot water ready**: when the tank's current or next heating
-  ends.
+  ends: when it comes to temperature.
+- **Simulated compressor start**: when the heat pump's compressor next
+  starts, while it is off.
 - **Simulated energy, next 24 hours**: the electricity it is likely to use.
 - **Simulated hot water available**, **showers ready** and **bath ready**:
   the hot water the tank can deliver now.
@@ -252,6 +255,11 @@ pump's speed, the household's hot water draw flow (with it, the library
 books the tank's heat), a bath's and a shower's size, and the mixing
 valve's temperature.
 
+The **NWP500 Tank Forecast** card (`custom:nwp500-tank-card`), loaded
+with the integration, draws the tank's upper and lower temperatures,
+recorded and modelled: rising to temperature while it heats, falling
+until the compressor starts while it stands.
+
 Its actions return the library's answers on request without touching the
 heater: `nwp500.simulate` (a simulation up to a week ahead, optionally
 trying setpoint and mode changes), `nwp500.time_to_ready`,
@@ -259,6 +267,8 @@ trying setpoint and mode changes), `nwp500.time_to_ready`,
 ready by a time) and `nwp500.heater_profile`. Each can take a scenario
 document, laid over the heater's or alone, which `nwp500.get_scenario`
 returns to edit, so a planner can ask about plans the heater isn't running.
+With `use_heater` off no heater is needed: another integration can model
+any tank from a document alone.
 
 Turning it on installs numpy, pandas and scipy if Home Assistant does not
 already have them; with it off, none of them is installed or loaded, and
@@ -341,7 +351,7 @@ action:
 
 ## Library Version
 
-Uses **[nwp500-python v9.12.1](https://github.com/eman/nwp500-python/releases/tag/v9.12.1)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
+Uses **[nwp500-python v9.12.2](https://github.com/eman/nwp500-python/releases/tag/v9.12.2)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
 
 ## License
 
