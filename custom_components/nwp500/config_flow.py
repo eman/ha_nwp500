@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     # Home Assistant 2026.9 and later validate with probatio, and import
@@ -371,16 +371,35 @@ def _simulator_device_errors(options: dict[str, Any]) -> dict[str, str]:
 
 
 def _heater_device(
-    hass: HomeAssistant, mac_address: str
+    hass: HomeAssistant, entry_id: str | None, mac_address: str
 ) -> dr.DeviceEntry | None:
-    return dr.async_get(hass).async_get_device(
-        identifiers={(DOMAIN, mac_address)}
-    )
+    """The heater's device as this config entry registered it.
+
+    None before the entry exists: a new setup doesn't borrow the device
+    another entry registered for the same heater, nor its area.
+    """
+    if entry_id is None:
+        return None
+    registry = dr.async_get(hass)
+    identifier = (DOMAIN, mac_address)
+    # Home Assistant 2026.8 scopes the lookup to the entry; before it,
+    # the one device found must be this entry's.
+    by_identifier = getattr(registry, "async_get_device_by_identifier", None)
+    if by_identifier is not None:
+        return cast(
+            "dr.DeviceEntry | None", by_identifier(identifier, entry_id)
+        )
+    device = registry.async_get_device(identifiers={identifier})
+    if device is None or entry_id not in device.config_entries:
+        return None
+    return device
 
 
-def _own_entities(hass: HomeAssistant, mac_address: str) -> list[str]:
+def _own_entities(
+    hass: HomeAssistant, entry_id: str | None, mac_address: str
+) -> list[str]:
     """The heater's own entities: not the sensors beside it."""
-    device = _heater_device(hass, mac_address)
+    device = _heater_device(hass, entry_id, mac_address)
     if device is None:
         return []
     return [
@@ -391,20 +410,24 @@ def _own_entities(hass: HomeAssistant, mac_address: str) -> list[str]:
     ]
 
 
-def _discovered(hass: HomeAssistant, mac_address: str) -> dict[str, Any]:
+def _discovered(
+    hass: HomeAssistant, entry_id: str | None, mac_address: str
+) -> dict[str, Any]:
     """Sensors a heater's form can suggest: each the only one there is.
 
     The only weather entity; the only temperature, and the only humidity,
-    sensor in the heater's area, not the heater's own.
+    sensor in the area of the heater's device as `entry_id` registered
+    it, not the heater's own. A new setup, with no entry yet, is
+    suggested the weather entity alone.
     """
     found: dict[str, Any] = {}
     weather = hass.states.async_entity_ids("weather")
     if len(weather) == 1:
         found[CONF_SIMULATOR_WEATHER_ENTITY] = weather[0]
-    device = _heater_device(hass, mac_address)
+    device = _heater_device(hass, entry_id, mac_address)
     if device is None or device.area_id is None:
         return found
-    own = set(_own_entities(hass, mac_address))
+    own = set(_own_entities(hass, entry_id, mac_address))
     registry = er.async_get(hass)
     devices = dr.async_get(hass)
     for key, device_class in (
@@ -462,6 +485,10 @@ class _SimulatorSteps:
     def _simulator_followed(self) -> bool:
         """Whether another page follows the simulator's."""
         return False
+
+    def _simulator_entry_id(self) -> str | None:
+        """The config entry the heaters are registered by; None in setup."""
+        return None
 
     async def async_step_simulator_setup(
         self, user_input: dict[str, Any] | None = None
@@ -578,7 +605,9 @@ class _SimulatorSteps:
         if mac_address in self._simulator_existing:
             shown = dict(self._simulator_existing[mac_address])
         else:
-            shown = _discovered(self.hass, mac_address)
+            shown = _discovered(
+                self.hass, self._simulator_entry_id(), mac_address
+            )
         if self._simulator_metric():
             for key in _SIZES:
                 if shown.get(key):
@@ -1232,6 +1261,9 @@ class OptionsFlowHandler(
             description_placeholders={"guide_url": SIMULATOR_GUIDE_URL},
             last_step=False,
         )
+
+    def _simulator_entry_id(self) -> str | None:
+        return str(self.config_entry.entry_id)
 
     async def _async_simulator_done(
         self, devices: dict[str, dict[str, Any]]

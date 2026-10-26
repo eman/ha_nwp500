@@ -841,3 +841,65 @@ async def test_a_setup_already_open_has_words():
     for name in ("strings.json", "translations/en.json"):
         abort = json.loads((root / name).read_text())["config"]["abort"]
         assert abort["already_in_progress"]
+
+
+def _heater_in(
+    hass: HomeAssistant, entry: MockConfigEntry, area: str, sensor: str
+) -> None:
+    """The entry's heater device in `area`, a temperature sensor beside it."""
+    from homeassistant.helpers import area_registry as ar
+    from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er
+
+    area_id = ar.async_get(hass).async_get_or_create(area).id
+    devices = dr.async_get(hass)
+    device = devices.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, MAC)}
+    )
+    devices.async_update_device(device.id, area_id=area_id)
+    er.async_get(hass).async_get_or_create(
+        "sensor", "test", sensor, suggested_object_id=sensor
+    )
+    er.async_get(hass).async_update_entity(f"sensor.{sensor}", area_id=area_id)
+    hass.states.async_set(
+        f"sensor.{sensor}", "64", {"device_class": "temperature"}
+    )
+
+
+def _other_entry(hass: HomeAssistant) -> MockConfigEntry:
+    """Another entry registering the same heater elsewhere.
+
+    The integration allows one entry, so only a registry built by hand
+    has two; the lookup is scoped to the entry all the same.
+    """
+    other = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="other@example.com",
+        data={CONF_EMAIL: "other@example.com", CONF_PASSWORD: "pw"},
+    )
+    other.add_to_hass(hass)
+    _heater_in(hass, other, "Kitchen", "kitchen_air")
+    return other
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scoped_lookup", [True, False])
+async def test_suggestions_come_from_this_entrys_heater_only(
+    hass: HomeAssistant, enable_custom_integrations, monkeypatch, scoped_lookup
+):
+    from homeassistant.helpers import device_registry as dr
+
+    _other_entry(hass)
+    entry = _loaded_entry(hass, {})
+    _heater_in(hass, entry, "Garage", "garage_air")
+    if not scoped_lookup:
+        # Before Home Assistant 2026.8: one unscoped lookup.
+        monkeypatch.delattr(dr.DeviceRegistry, "async_get_device_by_identifier")
+
+    with packages():
+        result = await _simulator_page(hass, entry, on=True)
+
+    air = _suggested(result)["air_entity"]
+    assert air != "sensor.kitchen_air"
+    if scoped_lookup:
+        assert air == "sensor.garage_air"
