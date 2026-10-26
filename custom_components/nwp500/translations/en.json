@@ -147,6 +147,7 @@
     },
     "abort": {
       "already_configured": "Account is already configured",
+      "already_in_progress": "A setup for this account is already in progress. Finish or close it first.",
       "reauth_successful": "Re-authentication successful",
       "reauth_failed": "Re-authentication failed. Please try removing and re-adding the integration.",
       "reconfigure_successful": "Reconfiguration successful",

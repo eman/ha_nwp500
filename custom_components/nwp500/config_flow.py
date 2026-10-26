@@ -197,7 +197,10 @@ _SECTIONS: dict[str, tuple[str, ...]] = {
 
 
 def _simulator_device_schema(
-    *, metric: bool = False, celsius: bool = False
+    *,
+    metric: bool = False,
+    celsius: bool = False,
+    open_sections: frozenset[str] = frozenset(),
 ) -> vol.Schema:
     """The simulator's form for one heater, every field optional.
 
@@ -205,7 +208,9 @@ def _simulator_device_schema(
     water use and what its flow counts, folded away; a bath's, a refill's
     and a shower's size and the mixing valve's setting, folded away.
     Any entity may be chosen, the heater's own among them (its DHW in use
-    and its inlet temperature can serve).
+    and its inlet temperature can serve). A folded section in
+    `open_sections` is shown open: one holding a value, so a field an
+    error names is in view.
     """
 
     def entities(
@@ -262,7 +267,7 @@ def _simulator_device_schema(
                         ): entities("sensor"),
                     }
                 ),
-                {"collapsed": True},
+                {"collapsed": SECTION_HOT_WATER_USE not in open_sections},
             ),
             vol.Optional(SECTION_HOUSEHOLD): section(
                 vol.Schema(
@@ -281,9 +286,28 @@ def _simulator_device_schema(
                         ): _valve_selector(celsius=celsius),
                     }
                 ),
-                {"collapsed": True},
+                {"collapsed": SECTION_HOUSEHOLD not in open_sections},
             ),
         }
+    )
+
+
+def _filled_sections(shown: dict[str, Any]) -> frozenset[str]:
+    """The folded sections holding a value: stored, or just entered.
+
+    What the draw flow counts at its default is no value of the user's.
+    """
+    return frozenset(
+        name
+        for name, values in _nest(shown).items()
+        if any(
+            value not in (None, "")
+            and not (
+                key == CONF_SIMULATOR_DRAW_FLOW_VOLUME
+                and value == DRAW_FLOW_DELIVERED
+            )
+            for key, value in values.items()
+        )
     )
 
 
@@ -593,7 +617,11 @@ class _SimulatorSteps:
         return self.async_show_form(  # type: ignore[attr-defined,no-any-return]
             step_id="simulator_device",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
-                _simulator_device_schema(metric=metric, celsius=celsius),
+                _simulator_device_schema(
+                    metric=metric,
+                    celsius=celsius,
+                    open_sections=_filled_sections(shown),
+                ),
                 _nest(shown),
             ),
             errors=errors,
@@ -637,7 +665,7 @@ def _plan_entities(hass: HomeAssistant) -> list[str]:
     )
 
 
-def _control_schema(*, toggle: bool) -> vol.Schema:
+def _control_schema(*, toggle: bool, schedule_open: bool = False) -> vol.Schema:
     """The external control form.
 
     The plan entity picker offers every entity: a plan entity that is
@@ -693,7 +721,7 @@ def _control_schema(*, toggle: bool) -> vol.Schema:
                 ),
             }
         ),
-        {"collapsed": True},
+        {"collapsed": not schedule_open},
     )
     return vol.Schema(fields)
 
@@ -817,7 +845,11 @@ class _ControlSteps:
         return self.async_show_form(  # type: ignore[attr-defined,no-any-return]
             step_id="external_control",
             data_schema=self.add_suggested_values_to_schema(  # type: ignore[attr-defined]
-                _control_schema(toggle=toggle),
+                # Its own error is about the schedule's sizes: in view.
+                _control_schema(
+                    toggle=toggle,
+                    schedule_open=errors.get("base") == "reserve_exceeds_limit",
+                ),
                 suggested,
             ),
             errors=errors,
@@ -829,7 +861,7 @@ class _ControlSteps:
 SECTION_FEATURES = "features"
 
 
-def _user_schema() -> vol.Schema:
+def _user_schema(*, features_open: bool = False) -> vol.Schema:
     """The sign-in, and the optional features folded beneath it."""
     return vol.Schema(
         {
@@ -846,7 +878,7 @@ def _user_schema() -> vol.Schema:
                         ): selector.BooleanSelector(),
                     }
                 ),
-                {"collapsed": True},
+                {"collapsed": not features_open},
             ),
         }
     )
@@ -923,7 +955,14 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(
-                _user_schema(),
+                # A feature turned on stays in view after a failed sign-in.
+                _user_schema(
+                    features_open=any(
+                        (
+                            (user_input or {}).get(SECTION_FEATURES) or {}
+                        ).values()
+                    )
+                ),
                 None
                 if user_input is None
                 else {

@@ -71,6 +71,15 @@ def _suggested(result: dict) -> dict:
     return found
 
 
+def _collapsed(result) -> dict[str, bool]:
+    """Whether each of the form's sections is shown folded."""
+    return {
+        str(key): value.options["collapsed"]
+        for key, value in result["data_schema"].schema.items()
+        if hasattr(value, "options") and "collapsed" in value.options
+    }
+
+
 def _sections(**fields) -> dict:
     """A heater's answers, in the form's sections."""
     from custom_components.nwp500.config_flow import _nest
@@ -258,8 +267,13 @@ async def test_a_supply_probe_needs_the_hot_water_in_use_sensor(
         )
         assert result["type"] is FlowResultType.FORM
         assert result["errors"] == {"base": "inlet_needs_demand"}
-        # What was chosen is still there.
+        # What was chosen is still there, its section open to fix it.
         assert _suggested(result)["inlet_entity"] == "sensor.supply"
+        assert _collapsed(result) == {
+            "sensors": False,
+            "hot_water_use": False,
+            "household": True,
+        }
 
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -783,3 +797,47 @@ async def test_options_with_it_on_do_not_check_its_packages_again(
         )
 
     assert entry.options["simulator_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_sections_holding_stored_values_are_shown_open(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    entry = _loaded_entry(
+        hass,
+        {"simulator_enabled": True, "simulator": {MAC: {"bath_gal": 30.0}}},
+    )
+    with packages():
+        result = await _simulator_page(hass, entry, on=True)
+
+    assert _collapsed(result) == {
+        "sensors": False,
+        "hot_water_use": True,
+        "household": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_failed_sign_in_keeps_a_feature_turned_on_in_view(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    from custom_components.nwp500.config_flow import InvalidAuth
+
+    with patch(f"{FLOW}.validate_input", AsyncMock(side_effect=InvalidAuth)):
+        result = await _signed_in(hass, simulator=True)
+
+    assert result["errors"] == {"base": "invalid_auth"}
+    assert _collapsed(result) == {"features": False}
+    assert _suggested(result)["simulator_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_setup_already_open_has_words():
+    """HA's own abort, raised by the unique ID: said, not its key."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).parents[2] / "custom_components" / "nwp500"
+    for name in ("strings.json", "translations/en.json"):
+        abort = json.loads((root / name).read_text())["config"]["abort"]
+        assert abort["already_in_progress"]

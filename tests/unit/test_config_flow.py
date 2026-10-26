@@ -879,6 +879,13 @@ class TestExternalControlOptions:
         # The user's answers come back as suggestions rather than being lost.
         suggested = self._suggested(result)
         assert suggested["control_intent_entity"] == "sensor.intent"
+        # The sizes it is about are in view.
+        schedule = next(
+            value
+            for key, value in result["data_schema"].schema.items()
+            if str(key) == "schedule"
+        )
+        assert schedule.options["collapsed"] is False
 
     @pytest.mark.asyncio
     async def test_live_is_not_offered_while_the_gate_is_closed(
