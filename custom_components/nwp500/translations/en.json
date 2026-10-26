@@ -6,6 +6,20 @@
         "data": {
           "email": "Email",
           "password": "Password"
+        },
+        "sections": {
+          "features": {
+            "name": "Optional features",
+            "description": "Both are off unless you turn them on, and you can turn either on or off later in the integration's options.",
+            "data": {
+              "simulator_enabled": "Hot water simulator",
+              "control_enabled": "External control"
+            },
+            "data_description": {
+              "simulator_enabled": "How much hot water the tank holds now (\"1 bath and 1 refill\", \"3 showers\"), when it will be ready if it isn't, and when the heat pump next starts. Installs numpy, pandas and scipy if Home Assistant doesn't have them.",
+              "control_enabled": "Lets a scheduler of your own, such as an automation or a Node-RED flow, program this water heater's temperature and mode over time. Leave it off if you don't have one."
+            }
+          }
         }
       },
       "reauth_confirm": {
@@ -24,44 +38,58 @@
           "password": "Password"
         }
       },
-      "simulator_menu": {
-        "title": "Hot water simulator",
-        "description": "The simulator models this water heater's tank from what the heater reports: whether it is heating, when its current or next heating ends, and the electricity it is likely to use over the next day. It is optional, and you can turn it on or off later in the integration's options. Turning it on installs numpy, pandas and scipy if Home Assistant does not already have them. More about it: {guide_url}",
-        "menu_options": {
-          "simulator_setup": "Set up the hot water simulator",
-          "simulator_skip": "Skip for now"
-        }
-      },
       "simulator_device": {
         "title": "Hot water simulator: {device}",
-        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading of the air at its intake, which runs warm while the heat pump is off; without a humidity sensor, 50%. Hot water use is optional too: each sensor adds what it measures, and the simulator answers without it. More about the inputs: {guide_url}",
-        "data": {
-          "air_entity": "Air temperature beside the heater",
-          "humidity_entity": "Humidity beside the heater",
-          "weather_entity": "Weather forecast",
-          "inlet_entity": "Cold water supply temperature",
-          "demand_entity": "Hot water in use",
-          "circulation_speed_entity": "Circulation pump speed",
-          "draw_flow_entity": "Hot water draw flow",
-          "draw_flow_volume": "What the draw flow counts",
-          "bath_gal": "Bath size",
-          "refill_gal": "Bath refill size",
-          "shower_gal": "Shower size",
-          "mixing_valve_f": "Mixing valve temperature"
-        },
-        "data_description": {
-          "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
-          "humidity_entity": "A humidity sensor in the same room as the heater.",
-          "weather_entity": "A weather entity with an hourly forecast. The simulator learns how the air beside the heater follows the outdoor air, from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs, which needs the heater's Ambient temperature entity enabled (it is off by default). It then projects that air from the forecast, once a day of history has been recorded.",
-          "inlet_entity": "A temperature probe on the cold water supply. With the hot water in use sensor, the simulator reads the mains' temperature from its readings over long draws.",
-          "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
-          "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
-          "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
-          "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
-          "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
-          "refill_gal": "The hot water a bath's top-up takes, for \"1 bath and 1 refill\". Without it, 10.2 gal (39 L), the largest of one household's metered top-ups.",
-          "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names.",
-          "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
+        "description": "Every field here is optional: the simulator works from what the heater reports alone, and each sensor makes its answers closer. More about the inputs: {guide_url}",
+        "sections": {
+          "sensors": {
+            "name": "Beside the heater",
+            "description": "Optional. Without an air sensor the simulator uses the heater's own reading of the air at its intake, which runs warm while the heat pump is off; without a humidity sensor, 50%.",
+            "data": {
+              "air_entity": "Air temperature beside the heater",
+              "humidity_entity": "Humidity beside the heater",
+              "weather_entity": "Weather forecast"
+            },
+            "data_description": {
+              "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
+              "humidity_entity": "A humidity sensor in the same room as the heater.",
+              "weather_entity": "A weather entity with an hourly forecast. The simulator learns how the air beside the heater follows the outdoor air, from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs, which needs the heater's Ambient temperature entity enabled (it is off by default). It then projects that air from the forecast, once a day of history has been recorded."
+            }
+          },
+          "hot_water_use": {
+            "name": "Hot water use",
+            "description": "Optional. Each sensor adds what it measures: when water is drawn, how much, and the mains' temperature. The simulator answers without them, from the tank's own probes.",
+            "data": {
+              "demand_entity": "Hot water in use",
+              "draw_flow_entity": "Hot water draw flow",
+              "draw_flow_volume": "What the draw flow counts",
+              "inlet_entity": "Cold water supply temperature",
+              "circulation_speed_entity": "Circulation pump speed"
+            },
+            "data_description": {
+              "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
+              "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
+              "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
+              "inlet_entity": "A temperature probe on the cold water supply. Needs the hot water in use sensor: the simulator reads the mains' temperature from the probe over long draws, which that sensor marks.",
+              "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws."
+            }
+          },
+          "household": {
+            "name": "Baths, showers and mixing valve",
+            "description": "Optional. The sizes behind \"1 bath and 1 refill\" and \"3 showers\". Leave them empty for the defaults.",
+            "data": {
+              "bath_gal": "Bath size",
+              "refill_gal": "Bath refill size",
+              "shower_gal": "Shower size",
+              "mixing_valve_f": "Mixing valve temperature"
+            },
+            "data_description": {
+              "bath_gal": "The hot water a bath takes. Without it, 28.7 gal (109 L): one household's bath, the larger of two metered hot-only fills.",
+              "refill_gal": "The hot water a top-up of a filled bath takes, for \"1 bath and 1 refill\". Without it, 10.2 gal (39 L): the largest of that household's metered top-ups.",
+              "shower_gal": "The hot water a shower takes. Without it, 12 gal (45 L).",
+              "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
+            }
+          }
         }
       },
       "simulator_install": {
@@ -77,20 +105,49 @@
       },
       "simulator_install_failed": {
         "title": "The simulator's packages couldn't be installed",
-        "description": "{packages} could not be installed. Check the Home Assistant log for why. Home Assistant won't try the install again until it restarts: restart it, then try again, or go on without the simulator for now. More: {guide_url}",
+        "description": "{packages} could not be installed; the Home Assistant log says why. Home Assistant tries an install again only after it restarts: go on without the simulator now, and turn it on in the integration's options after a restart. More: {guide_url}",
         "menu_options": {
-          "simulator_retry": "Try again",
           "simulator_without": "Set up without the simulator"
+        }
+      },
+      "external_control": {
+        "title": "External control",
+        "description": "External control needs a scheduler of your own, such as an automation, a Node-RED flow or a script, and does nothing without one. Your scheduler publishes a plan: a list of times, each with the temperature and mode to use from then on. External control writes the plan into the heater's own schedule, so the heater keeps following it even while Home Assistant is down. How to publish a plan: {guide_url}",
+        "data": {
+          "control_intent_entity": "Plan entity",
+          "control_mode": "Mode"
+        },
+        "data_description": {
+          "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor: its state is the plan's ID and its attributes are the plan. If only one entity carries a plan, it is chosen for you.",
+          "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule, as your scheduler sends it. Stopped stops applying plans: nothing more is written, and what is on the heater stays there."
+        },
+        "sections": {
+          "schedule": {
+            "name": "Schedule size",
+            "description": "Leave these as they are unless your heater's schedule holds a different number of entries.",
+            "data": {
+              "control_reservation_entry_limit": "Schedule size limit",
+              "control_reservation_entry_reserve": "Schedule entries kept free"
+            },
+            "data_description": {
+              "control_reservation_entry_limit": "The most entries the heater's schedule may hold in total, your own included. External control uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32.",
+              "control_reservation_entry_reserve": "Entries kept free for changes that must happen right away, such as a plan step that has already begun. Must be less than the schedule size limit."
+            }
+          }
         }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to Navien service. If authentication succeeded but no devices were found, please verify your device is registered in the NaviLink app and is online.",
       "invalid_auth": "Invalid email or password",
-      "unknown": "Unexpected error occurred"
+      "unknown": "Unexpected error occurred",
+      "inlet_needs_demand": "The cold water supply temperature is read only over long draws, which the hot water in use sensor marks: choose that sensor too, or leave the supply probe empty.",
+      "intent_entity_required": "Choose the entity your scheduler puts its plan on.",
+      "reserve_exceeds_limit": "“Schedule entries kept free” (under Schedule size) must be less than the schedule size limit."
     },
     "abort": {
       "already_configured": "Account is already configured",
+      "already_in_progress": "A setup for this account is already in progress. Finish or close it first.",
       "reauth_successful": "Re-authentication successful",
       "reauth_failed": "Re-authentication failed. Please try removing and re-adding the integration.",
       "reconfigure_successful": "Reconfiguration successful",
@@ -103,65 +160,94 @@
   "options": {
     "step": {
       "init": {
-        "title": "NWP500 Options",
-        "description": "Configure advanced settings for your Navien NWP500 integration.",
-        "data": {
-          "scan_interval": "Update interval (seconds)",
-          "control_enabled": "External control",
-          "simulator_enabled": "Hot water simulator"
-        },
-        "data_description": {
-          "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds.",
-          "control_enabled": "Optional, and off unless you turn it on. Lets a scheduler of your own, such as an automation or a Node-RED flow, set this water heater's temperature and mode over time. Leave it off if you don't have one.",
-          "simulator_enabled": "Optional. Models the tank from what the heater reports: whether it is heating, when its current or next heating ends, and the electricity it is likely to use over the next day. Turning it on installs numpy, pandas and scipy if Home Assistant does not already have them. Turning it off removes its sensors."
+        "title": "NWP500 options",
+        "description": "Hot water simulator: {simulator}. External control: {control}.",
+        "menu_options": {
+          "settings": "Update interval",
+          "simulator": "Hot water simulator",
+          "external_control": "External control"
         }
       },
       "external_control": {
         "title": "External control",
         "description": "External control needs a scheduler of your own, such as an automation, a Node-RED flow or a script, and does nothing without one. Your scheduler publishes a plan: a list of times, each with the temperature and mode to use from then on. External control writes the plan into the heater's own schedule, so the heater keeps following it even while Home Assistant is down. How to publish a plan: {guide_url}",
         "data": {
+          "control_enabled": "External control",
           "control_intent_entity": "Plan entity",
-          "control_mode": "Mode",
-          "control_reservation_entry_limit": "Schedule size limit",
-          "control_reservation_entry_reserve": "Schedule entries kept free"
+          "control_mode": "Mode"
         },
         "data_description": {
-          "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor. Its state is the plan's ID and its attributes are the plan.",
-          "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule, as your scheduler sends it. Stopped stops applying plans: nothing more is written, and what is on the heater stays there. To remove external control completely, turn it off on the first page.",
-          "control_reservation_entry_limit": "The most entries the heater's schedule may hold in total, your own included. External control uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32.",
-          "control_reservation_entry_reserve": "Entries kept free for changes that must happen right away, such as a plan step that has already begun. Must be less than the schedule size limit."
+          "control_enabled": "Turning it off stops applying plans and removes its entities and stored data. Nothing is written to the heater: the entries the plans put in its schedule stay there and keep firing every week, and the integration no longer knows they were its own, so turned on again it counts them as yours. To clear them first, have your scheduler publish a plan with no segments while in Live, then turn it off.",
+          "control_intent_entity": "The entity your scheduler puts its plan on, such as an MQTT sensor: its state is the plan's ID and its attributes are the plan. If only one entity carries a plan, it is chosen for you.",
+          "control_mode": "Preview works out what the plan would do and shows it, without changing the heater. Live writes the plan into the heater's schedule, as your scheduler sends it. Stopped stops applying plans: nothing more is written, and what is on the heater stays there."
+        },
+        "sections": {
+          "schedule": {
+            "name": "Schedule size",
+            "description": "Leave these as they are unless your heater's schedule holds a different number of entries.",
+            "data": {
+              "control_reservation_entry_limit": "Schedule size limit",
+              "control_reservation_entry_reserve": "Schedule entries kept free"
+            },
+            "data_description": {
+              "control_reservation_entry_limit": "The most entries the heater's schedule may hold in total, your own included. External control uses what is left after your entries and the ones kept free. Navien documents 16; the heater tested held 32.",
+              "control_reservation_entry_reserve": "Entries kept free for changes that must happen right away, such as a plan step that has already begun. Must be less than the schedule size limit."
+            }
+          }
         }
       },
       "simulator_device": {
         "title": "Hot water simulator: {device}",
-        "description": "The simulator works better with sensors beside the heater. Both are optional: without an air sensor it uses the heater's own reading of the air at its intake, which runs warm while the heat pump is off; without a humidity sensor, 50%. Hot water use is optional too: each sensor adds what it measures, and the simulator answers without it. More about the inputs: {guide_url}",
-        "data": {
-          "air_entity": "Air temperature beside the heater",
-          "humidity_entity": "Humidity beside the heater",
-          "weather_entity": "Weather forecast",
-          "inlet_entity": "Cold water supply temperature",
-          "demand_entity": "Hot water in use",
-          "circulation_speed_entity": "Circulation pump speed",
-          "draw_flow_entity": "Hot water draw flow",
-          "draw_flow_volume": "What the draw flow counts",
-          "bath_gal": "Bath size",
-          "refill_gal": "Bath refill size",
-          "shower_gal": "Shower size",
-          "mixing_valve_f": "Mixing valve temperature"
-        },
-        "data_description": {
-          "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
-          "humidity_entity": "A humidity sensor in the same room as the heater.",
-          "weather_entity": "A weather entity with an hourly forecast. The simulator learns how the air beside the heater follows the outdoor air, from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs, which needs the heater's Ambient temperature entity enabled (it is off by default). It then projects that air from the forecast, once a day of history has been recorded.",
-          "inlet_entity": "A temperature probe on the cold water supply. With the hot water in use sensor, the simulator reads the mains' temperature from its readings over long draws.",
-          "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
-          "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws.",
-          "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
-          "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
-          "bath_gal": "The hot water a bath takes. Without it, the simulator's default, which its answer names.",
-          "refill_gal": "The hot water a bath's top-up takes, for \"1 bath and 1 refill\". Without it, 10.2 gal (39 L), the largest of one household's metered top-ups.",
-          "shower_gal": "The hot water a shower takes. Without it, the simulator's default, which its answer names.",
-          "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
+        "description": "Every field here is optional: the simulator works from what the heater reports alone, and each sensor makes its answers closer. More about the inputs: {guide_url}",
+        "sections": {
+          "sensors": {
+            "name": "Beside the heater",
+            "description": "Optional. Without an air sensor the simulator uses the heater's own reading of the air at its intake, which runs warm while the heat pump is off; without a humidity sensor, 50%.",
+            "data": {
+              "air_entity": "Air temperature beside the heater",
+              "humidity_entity": "Humidity beside the heater",
+              "weather_entity": "Weather forecast"
+            },
+            "data_description": {
+              "air_entity": "A temperature sensor in the same room as the heater. The heat pump takes its heat from this air, so it sets how fast the tank heats. Don't use the heater's own ambient temperature sensor: while the heat pump is off it reads the cabinet, several degrees warm.",
+              "humidity_entity": "A humidity sensor in the same room as the heater.",
+              "weather_entity": "A weather entity with an hourly forecast. The simulator learns how the air beside the heater follows the outdoor air, from the last 3 days' history: the air sensor's, or without one the heater's own reading while its heat pump runs, which needs the heater's Ambient temperature entity enabled (it is off by default). It then projects that air from the forecast, once a day of history has been recorded."
+            }
+          },
+          "hot_water_use": {
+            "name": "Hot water use",
+            "description": "Optional. Each sensor adds what it measures: when water is drawn, how much, and the mains' temperature. The simulator answers without them, from the tank's own probes.",
+            "data": {
+              "demand_entity": "Hot water in use",
+              "draw_flow_entity": "Hot water draw flow",
+              "draw_flow_volume": "What the draw flow counts",
+              "inlet_entity": "Cold water supply temperature",
+              "circulation_speed_entity": "Circulation pump speed"
+            },
+            "data_description": {
+              "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
+              "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
+              "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
+              "inlet_entity": "A temperature probe on the cold water supply. Needs the hot water in use sensor: the simulator reads the mains' temperature from the probe over long draws, which that sensor marks.",
+              "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws."
+            }
+          },
+          "household": {
+            "name": "Baths, showers and mixing valve",
+            "description": "Optional. The sizes behind \"1 bath and 1 refill\" and \"3 showers\". Leave them empty for the defaults.",
+            "data": {
+              "bath_gal": "Bath size",
+              "refill_gal": "Bath refill size",
+              "shower_gal": "Shower size",
+              "mixing_valve_f": "Mixing valve temperature"
+            },
+            "data_description": {
+              "bath_gal": "The hot water a bath takes. Without it, 28.7 gal (109 L): one household's bath, the larger of two metered hot-only fills.",
+              "refill_gal": "The hot water a top-up of a filled bath takes, for \"1 bath and 1 refill\". Without it, 10.2 gal (39 L): the largest of that household's metered top-ups.",
+              "shower_gal": "The hot water a shower takes. Without it, 12 gal (45 L).",
+              "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
+            }
+          }
         }
       },
       "simulator_install": {
@@ -177,16 +263,37 @@
       },
       "simulator_install_failed": {
         "title": "The simulator's packages couldn't be installed",
-        "description": "{packages} could not be installed. Check the Home Assistant log for why. Home Assistant won't try the install again until it restarts: restart it, then try again, or go on without the simulator for now. More: {guide_url}",
+        "description": "{packages} could not be installed; the Home Assistant log says why. Home Assistant tries an install again only after it restarts: go on without the simulator now, and turn it on in the integration's options after a restart. More: {guide_url}",
         "menu_options": {
-          "simulator_retry": "Try again",
           "simulator_without": "Leave the simulator off"
+        }
+      },
+      "settings": {
+        "title": "NWP500 Options",
+        "description": "Configure advanced settings for your Navien NWP500 integration.",
+        "data": {
+          "scan_interval": "Update interval (seconds)"
+        },
+        "data_description": {
+          "scan_interval": "How often to poll device status (10-300 seconds). Lower values provide faster updates but may increase server load. Default: 30 seconds."
+        }
+      },
+      "simulator": {
+        "title": "Hot water simulator",
+        "description": "The simulator models this water heater's tank from what the heater reports: how much hot water it holds now, in baths and showers; when it will be ready if it isn't; when the heat pump next starts; and the electricity it is likely to use over the next day. Turning it on installs numpy, pandas and scipy if Home Assistant doesn't already have them. More about it: {guide_url}",
+        "data": {
+          "simulator_enabled": "Hot water simulator"
+        },
+        "data_description": {
+          "simulator_enabled": "On, each water heater's optional sensors follow. Off removes the simulator's sensors."
         }
       }
     },
     "error": {
-      "reserve_exceeds_limit": "“Schedule entries kept free” must be less than the schedule size limit.",
-      "simulator_not_loaded": "The integration isn't running, so its water heaters aren't known yet. Turn the simulator on once the integration has loaded."
+      "reserve_exceeds_limit": "“Schedule entries kept free” (under Schedule size) must be less than the schedule size limit.",
+      "simulator_not_loaded": "The integration isn't running, so its water heaters aren't known yet. Turn the simulator on once the integration has loaded.",
+      "inlet_needs_demand": "The cold water supply temperature is read only over long draws, which the hot water in use sensor marks: choose that sensor too, or leave the supply probe empty.",
+      "intent_entity_required": "Choose the entity your scheduler puts its plan on."
     },
     "progress": {
       "simulator_install": "Installing the simulator's packages (numpy, pandas, scipy). This can take a few minutes on slower hardware."
@@ -1402,6 +1509,10 @@
     "simulator_install_failed": {
       "title": "The hot water simulator's packages couldn't be installed",
       "description": "The NWP500 integration is running without the hot water simulator: {packages} could not be installed. The Home Assistant log has the reason. Home Assistant tries the install again only after a restart: restart Home Assistant, or turn the simulator off in the integration's options."
+    },
+    "control_plan_entity_missing": {
+      "title": "External control's plan entity is missing",
+      "description": "External control reads its plans from {entity_id}, which Home Assistant doesn't have. Until it is back, the plan in force stays in force and no new plan is taken. If your scheduler's plan entity has a new name, choose it under External control in the integration's options."
     }
   }
 }

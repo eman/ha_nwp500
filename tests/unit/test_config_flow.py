@@ -627,24 +627,62 @@ class TestExternalControlOptions:
 
     @staticmethod
     def _control_input(**overrides):
-        """What the frontend sends for the second page, validated by it."""
-        return {
-            "control_intent_entity": "sensor.intent",
-            "control_mode": "shadow",
+        """What the frontend sends for the page, validated by it."""
+        schedule = {
             "control_reservation_entry_limit": 7.0,
             "control_reservation_entry_reserve": 2.0,
+        }
+        for key in list(overrides):
+            if key in schedule:
+                schedule[key] = overrides.pop(key)
+        return {
+            "control_enabled": True,
+            "control_intent_entity": "sensor.intent",
+            "control_mode": "shadow",
+            "schedule": schedule,
             **overrides,
         }
 
+    @staticmethod
+    def _suggested(form) -> dict:
+        """Each field's suggested value, the schedule section's among them."""
+        from homeassistant.data_entry_flow import section
+
+        found = {}
+
+        def walk(schema):
+            for key, value in schema.schema.items():
+                if isinstance(value, section):
+                    walk(value.schema)
+                elif key.description and "suggested_value" in key.description:
+                    found[str(key)] = key.description["suggested_value"]
+
+        walk(form["data_schema"])
+        return found
+
     @pytest.mark.asyncio
-    async def test_init_form_offers_the_toggle(self, hass: HomeAssistant):
+    async def test_the_menu_offers_external_control(self, hass: HomeAssistant):
         handler, _ = self._handler(hass)
 
         result = await handler.async_step_init()
 
-        assert result["type"] == FlowResultType.FORM
-        keys = {str(key) for key in result["data_schema"].schema}
-        assert keys == {"scan_interval", "control_enabled", "simulator_enabled"}
+        assert result["type"] == FlowResultType.MENU
+        assert "external_control" in result["menu_options"]
+
+    @pytest.mark.asyncio
+    async def test_its_page_turns_it_on_or_off(self, hass: HomeAssistant):
+        handler, _ = self._handler(hass)
+
+        result = await handler.async_step_external_control()
+
+        keys = [str(key) for key in result["data_schema"].schema]
+        assert keys[0] == "control_enabled"
+        assert keys == [
+            "control_enabled",
+            "control_intent_entity",
+            "control_mode",
+            "schedule",
+        ]
 
     @pytest.mark.asyncio
     async def test_toggle_off_keeps_the_other_options(
@@ -654,13 +692,12 @@ class TestExternalControlOptions:
             hass, {"control_enabled": True, "control_intent_entity": "sensor.i"}
         )
 
-        result = await handler.async_step_init(
-            {"scan_interval": 45, "control_enabled": False}
+        result = await handler.async_step_external_control(
+            {"control_enabled": False}
         )
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
         assert result["data"] == {
-            "scan_interval": 45,
             "control_enabled": False,
             "control_intent_entity": "sensor.i",
         }
@@ -672,65 +709,86 @@ class TestExternalControlOptions:
         """Spec 1.1.4: off, the options are what v0.21.1 stored."""
         handler, _ = self._handler(hass, {"scan_interval": 30})
 
-        result = await handler.async_step_init(
-            {"scan_interval": 45, "control_enabled": False}
+        result = await handler.async_step_external_control(
+            {"control_enabled": False}
         )
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
-        assert result["data"] == {"scan_interval": 45}
+        assert result["data"] == {"scan_interval": 30}
 
-    def test_the_first_page_reads_as_the_release_did(self):
-        """Spec 1.1.4: its text is v0.21.1's; only the toggles are added."""
+    def test_the_update_interval_reads_as_the_release_did(self):
+        """Spec 1.1.4: its page's text is v0.21.1's first page's."""
         import json
         from pathlib import Path as _Path
 
         root = _Path("custom_components/nwp500")
         for name in ("strings.json", "translations/en.json"):
-            init = json.loads((root / name).read_text())["options"]["step"][
-                "init"
-            ]
-            assert init["title"] == "NWP500 Options"
-            assert init["description"] == (
+            steps = json.loads((root / name).read_text())["options"]["step"]
+            settings = steps["settings"]
+            assert settings["title"] == "NWP500 Options"
+            assert settings["description"] == (
                 "Configure advanced settings for your Navien NWP500 "
                 "integration."
             )
-            assert init["data"]["scan_interval"] == "Update interval (seconds)"
-            assert init["data_description"]["scan_interval"] == (
+            assert settings["data"] == {
+                "scan_interval": "Update interval (seconds)"
+            }
+            assert settings["data_description"]["scan_interval"] == (
                 "How often to poll device status (10-300 seconds). Lower "
                 "values provide faster updates but may increase server "
                 "load. Default: 30 seconds."
             )
-            assert set(init["data"]) == {
-                "scan_interval",
-                "control_enabled",
-                "simulator_enabled",
-            }
-            # The toggle's help needs no knowledge of the feature.
-            assert init["data"]["control_enabled"] == "External control"
-            assert init["data_description"]["control_enabled"] == (
-                "Optional, and off unless you turn it on. Lets a scheduler "
-                "of your own, such as an automation or a Node-RED flow, set "
-                "this water heater's temperature and mode over time. Leave "
-                "it off if you don't have one."
+            # The feature's page says what it is before anything else.
+            assert steps["external_control"]["data"]["control_enabled"] == (
+                "External control"
             )
 
     @pytest.mark.asyncio
-    async def test_toggle_on_shows_the_control_form(self, hass: HomeAssistant):
+    async def test_on_without_a_plan_entity_asks_for_one(
+        self, hass: HomeAssistant
+    ):
         handler, _ = self._handler(hass)
+        user_input = self._control_input()
+        del user_input["control_intent_entity"]
 
-        result = await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
+        result = await handler.async_step_external_control(user_input)
 
         assert result["type"] == FlowResultType.FORM
-        assert result["step_id"] == "external_control"
+        assert result["errors"] == {
+            "control_intent_entity": "intent_entity_required"
+        }
+
+    @pytest.mark.asyncio
+    async def test_the_only_plan_entity_is_chosen_but_any_can_be(
+        self, hass: HomeAssistant
+    ):
+        plan = {"protocol": "1", "intent_id": "p", "segments": []}
+        hass.states.async_set("sensor.plan", "p", plan)
+        hass.states.async_set("sensor.unavailable_plan", "unavailable")
+        handler, _ = self._handler(hass)
+
+        form = await handler.async_step_external_control()
+
+        assert self._suggested(form)["control_intent_entity"] == "sensor.plan"
+        # A plan entity unavailable now carries no plan: still choosable.
+        user_input = form["data_schema"](
+            self._control_input(control_intent_entity="sensor.unavailable_plan")
+        )
+        assert user_input["control_intent_entity"] == "sensor.unavailable_plan"
+
+    @pytest.mark.asyncio
+    async def test_with_no_plan_entity_found_every_entity_is_offered(
+        self, hass: HomeAssistant
+    ):
+        handler, _ = self._handler(hass)
+
+        form = await handler.async_step_external_control()
+
+        assert "control_intent_entity" not in self._suggested(form)
 
     @pytest.mark.asyncio
     async def test_control_form_is_stored_normalised(self, hass: HomeAssistant):
         handler, _ = self._handler(hass)
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
         form = await handler.async_step_external_control()
         user_input = form["data_schema"](self._control_input())
 
@@ -738,7 +796,6 @@ class TestExternalControlOptions:
 
         assert result["type"] == FlowResultType.CREATE_ENTRY
         data = result["data"]
-        assert data["scan_interval"] == 30
         assert data["control_enabled"] is True
         assert data["control_intent_entity"] == "sensor.intent"
         assert data["control_mode"] == "shadow"
@@ -768,9 +825,6 @@ class TestExternalControlOptions:
                 "control_surplus_entity": "binary_sensor.surplus",
             },
         )
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
 
         result = await handler.async_step_external_control(
             self._control_input()
@@ -790,17 +844,10 @@ class TestExternalControlOptions:
                 "control_daily_revert_time": "04:30",
             },
         )
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
 
         form = await handler.async_step_external_control()
 
-        suggested = {
-            str(key): key.description.get("suggested_value")
-            for key in form["data_schema"].schema
-            if key.description
-        }
+        suggested = self._suggested(form)
         assert suggested["control_intent_entity"] == "sensor.i"
         assert suggested["control_reservation_entry_limit"] == 12
         # Options of earlier versions have no field any more.
@@ -813,7 +860,7 @@ class TestExternalControlOptions:
         [
             (
                 {"control_reservation_entry_reserve": 7.0},
-                "control_reservation_entry_reserve",
+                "base",
                 "reserve_exceeds_limit",
             ),
         ],
@@ -822,9 +869,6 @@ class TestExternalControlOptions:
         self, hass: HomeAssistant, overrides, field, error
     ):
         handler, _ = self._handler(hass)
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
 
         result = await handler.async_step_external_control(
             self._control_input(**overrides)
@@ -833,12 +877,15 @@ class TestExternalControlOptions:
         assert result["type"] == FlowResultType.FORM
         assert result["errors"] == {field: error}
         # The user's answers come back as suggestions rather than being lost.
-        suggested = {
-            str(key): key.description.get("suggested_value")
-            for key in result["data_schema"].schema
-            if key.description
-        }
+        suggested = self._suggested(result)
         assert suggested["control_intent_entity"] == "sensor.intent"
+        # The sizes it is about are in view.
+        schedule = next(
+            value
+            for key, value in result["data_schema"].schema.items()
+            if str(key) == "schedule"
+        )
+        assert schedule.options["collapsed"] is False
 
     @pytest.mark.asyncio
     async def test_live_is_not_offered_while_the_gate_is_closed(
@@ -848,9 +895,6 @@ class TestExternalControlOptions:
             "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", False
         )
         handler, _ = self._handler(hass)
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
         form = await handler.async_step_external_control()
 
         with pytest.raises(vol.Invalid):
@@ -876,9 +920,6 @@ class TestExternalControlOptions:
             "custom_components.nwp500.config_flow.CONTROL_LIVE_AVAILABLE", True
         )
         handler, _ = self._handler(hass)
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
         form = await handler.async_step_external_control()
         keys = {str(key) for key in form["data_schema"].schema}
         # One Mode choice stands for the mode and its two live switches.
@@ -889,9 +930,6 @@ class TestExternalControlOptions:
     @pytest.mark.asyncio
     async def test_the_control_form_links_the_guide(self, hass: HomeAssistant):
         handler, _ = self._handler(hass)
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
 
         form = await handler.async_step_external_control()
 
@@ -913,9 +951,6 @@ class TestExternalControlOptions:
             {"control_live_segments": True, "control_live_grants": True},
         )
         self._with_heater(entry, {"reservation_use": 1, "reservation": []})
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
 
         result = await handler.async_step_external_control(
             self._control_input(control_mode=choice)
@@ -950,17 +985,10 @@ class TestExternalControlOptions:
         self, hass: HomeAssistant, stored, choice
     ):
         handler, _ = self._handler(hass, {"control_enabled": True, **stored})
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
-        )
 
         form = await handler.async_step_external_control()
 
-        suggested = {
-            str(key): key.description["suggested_value"]
-            for key in form["data_schema"].schema
-            if key.description and "suggested_value" in key.description
-        }
+        suggested = self._suggested(form)
         assert suggested["control_mode"] == choice
         assert "control_live_segments" not in suggested
 
@@ -974,9 +1002,6 @@ class TestExternalControlOptions:
                 "control_tou_off_for_mode": False,
                 "control_baseline": {"mode": "energy_saver"},
             },
-        )
-        await handler.async_step_init(
-            {"scan_interval": 30, "control_enabled": True}
         )
 
         result = await handler.async_step_external_control(

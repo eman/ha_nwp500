@@ -1365,6 +1365,8 @@ DATA_CONTROL: Final = "control"
 
 # The Repairs issue raised while external control is on but failed to start.
 ISSUE_CONTROL_START_FAILED: Final = "control_start_failed"
+# The Repairs issue raised while external control's plan entity is missing.
+ISSUE_CONTROL_PLAN_ENTITY_MISSING: Final = "control_plan_entity_missing"
 
 # What external control leaves behind, known here so the off path can remove
 # it without importing the feature: its entities' unique ids carry this
