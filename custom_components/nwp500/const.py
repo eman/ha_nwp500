@@ -1441,14 +1441,6 @@ DRAW_FLOW_TANK: Final = "tank"
 # them in Home Assistant's volume unit. Without them, the library's.
 CONF_SIMULATOR_BATH_GAL: Final = "bath_gal"
 CONF_SIMULATOR_SHOWER_GAL: Final = "shower_gal"
-#: A bath's refill (a top-up after the fill), delivered gallons.
-CONF_SIMULATOR_REFILL_GAL: Final = "refill_gal"
-#: The refill when none is set: one household's metered top-ups of a
-#: filled bath, 15 to 90 minutes after it, ran 4.5 to 10.2 gal. The
-#: largest, as the library's bath is the larger of its two measured fills:
-#: a size set too small promises water the tank cannot give. The library's
-#: `ReadinessParams.top_up_gal` from its next release; this until then.
-DEFAULT_SIMULATOR_REFILL_GAL: Final = 10.2
 # What the heater's mixing valve delivers, °F as stored; the form takes it
 # in Home Assistant's temperature unit. Without it, no valve: the hot
 # water is reckoned at the tank's temperature.

@@ -236,7 +236,6 @@ async def test_setting_up_takes_the_hot_water_inputs(
                 draw_flow_entity="sensor.draw_flow",
                 draw_flow_volume="tank",
                 bath_gal=113.6,
-                refill_gal=30.0,
                 shower_gal=45.4,
                 mixing_valve_f=49.0,
             ),
@@ -251,7 +250,6 @@ async def test_setting_up_takes_the_hot_water_inputs(
         "draw_flow_entity": "sensor.draw_flow",
         "draw_flow_volume": "tank",
         "bath_gal": 30.01,
-        "refill_gal": 7.93,
         "shower_gal": 11.99,
         "mixing_valve_f": 120.2,
     }
@@ -691,7 +689,6 @@ async def test_options_show_the_sizes_in_home_assistants_unit(
             "simulator": {
                 MAC: {
                     "bath_gal": 30.0,
-                    "refill_gal": 10.0,
                     "shower_gal": 12.0,
                     "mixing_valve_f": 120.2,
                 }
@@ -703,7 +700,6 @@ async def test_options_show_the_sizes_in_home_assistants_unit(
         suggested = _suggested(result)
 
     assert suggested["bath_gal"] == 113.6
-    assert suggested["refill_gal"] == 37.9
     assert suggested["shower_gal"] == 45.4
     assert suggested["mixing_valve_f"] == 49.0
 

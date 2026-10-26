@@ -63,10 +63,8 @@ from ..const import (
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_MIXING_VALVE_F,
-    CONF_SIMULATOR_REFILL_GAL,
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
-    DEFAULT_SIMULATOR_REFILL_GAL,
     DOMAIN,
     DRAW_FLOW_DELIVERED,
 )
@@ -189,31 +187,29 @@ class Capacity:
     """What the tank's hot water is enough for now: baths, showers.
 
     Delivered gallons, as the library's readiness gives them. The first
-    bath is the library's own answer (its rounding and margin); a refill
-    is a top-up after the last whole bath, from what is left of the water
-    deliverable now. Showers are the library's whole showers.
+    bath is the library's own answer (its rounding and margin), and each
+    further whole bath's worth of the water deliverable now is another: a
+    top-up of a filled bath is a fill like any other. Showers are the
+    library's whole showers.
     """
 
     baths: int
-    refill: bool
     showers: int
     bath_gal: float
-    refill_gal: float
     shower_gal: float
 
     @property
     def summary(self) -> str:
-        """In words, for a dashboard: "1 bath and 1 refill", "3 showers"."""
+        """In words, for a dashboard: "2 baths", "3 showers"."""
         if self.baths:
-            baths = f"{self.baths} bath{'s' if self.baths > 1 else ''}"
-            return f"{baths} and 1 refill" if self.refill else baths
+            return f"{self.baths} bath{'s' if self.baths > 1 else ''}"
         if self.showers:
             return f"{self.showers} shower{'s' if self.showers > 1 else ''}"
         return "Less than a shower"
 
 
-def capacity_from(readiness: Readiness, refill_gal: float) -> Capacity:
-    """The baths, refill and showers the tank's hot water is enough for."""
+def capacity_from(readiness: Readiness) -> Capacity:
+    """The baths and showers the tank's hot water is enough for."""
     bath_gal = readiness.bath.volume_gal
     deliverable = readiness.deliverable_gal
     # A hair over, as the library's whole showers: gallons rounded to a
@@ -225,12 +221,8 @@ def capacity_from(readiness: Readiness, refill_gal: float) -> Capacity:
     )
     return Capacity(
         baths=baths,
-        # A hair under too: 67.6 - 2 * 28.7 is 10.1999… in binary.
-        refill=baths > 0
-        and deliverable - baths * bath_gal + 1e-9 >= refill_gal,
         showers=readiness.showers.ready_for_whole,
         bath_gal=bath_gal,
-        refill_gal=refill_gal,
         shower_gal=readiness.showers.volume_gal,
     )
 
@@ -350,7 +342,6 @@ class Answer:
                 else {
                     "summary": capacity.summary,
                     "baths": capacity.baths,
-                    "refill": capacity.refill,
                     "showers": capacity.showers,
                     "bath_ready": bath.ready,
                     # Ready now, the library's is the walk's start.
@@ -420,7 +411,6 @@ def answer_from(
     result: SimulationResult,
     inputs: Inputs,
     readiness: Readiness | None = None,
-    refill_gal: float = DEFAULT_SIMULATOR_REFILL_GAL,
 ) -> Answer:
     """The entities' answer from a walk, and its hot water's."""
     scenario = inputs.scenario
@@ -487,9 +477,7 @@ def answer_from(
         defaults_used=result.defaults_used,
         notes=inputs.notes,
         readiness=readiness,
-        capacity=(
-            None if readiness is None else capacity_from(readiness, refill_gal)
-        ),
+        capacity=(None if readiness is None else capacity_from(readiness)),
     )
 
 
@@ -951,16 +939,7 @@ class SimulatorRunner:
             )
             self._failure = None
         self.last_duration_s = (dt_util.utcnow() - started).total_seconds()
-        self._publish(
-            answer_from(
-                result,
-                inputs,
-                readiness,
-                refill_gal=self.options.get(
-                    CONF_SIMULATOR_REFILL_GAL, DEFAULT_SIMULATOR_REFILL_GAL
-                ),
-            )
-        )
+        self._publish(answer_from(result, inputs, readiness))
 
     @callback
     def _fail(

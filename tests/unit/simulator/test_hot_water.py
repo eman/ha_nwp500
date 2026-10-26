@@ -378,19 +378,21 @@ def _readiness(deliverable: float, *, bath: float = 28.7, shower: float = 12.0):
         (28.6, "2 showers"),
         (28.7, "1 bath"),
         (38.6, "1 bath"),
-        (38.7, "1 bath and 1 refill"),
+        # A top-up of a filled bath is a fill like any other: what is
+        # left after a bath, short of another, is no "refill".
+        (38.7, "1 bath"),
         (57.4, "2 baths"),
-        (67.4, "2 baths and 1 refill"),
+        (67.4, "2 baths"),
         # 86.1 // 28.7 is 2.0 in binary: still 3 baths.
         (86.1, "3 baths"),
     ],
 )
-def test_the_hot_water_is_counted_in_baths_a_refill_or_showers(
+def test_the_hot_water_is_counted_in_baths_or_showers(
     deliverable: float, summary: str
 ):
     from custom_components.nwp500.simulator.runner import capacity_from
 
-    capacity = capacity_from(_readiness(deliverable), 10.0)  # type: ignore[arg-type]
+    capacity = capacity_from(_readiness(deliverable))  # type: ignore[arg-type]
 
     assert capacity.summary == summary
 
@@ -403,10 +405,9 @@ def test_the_first_bath_is_the_librarys_answer():
     readiness = _readiness(30.0)
     readiness.bath.ready = False
 
-    capacity = capacity_from(readiness, 10.0)  # type: ignore[arg-type]
+    capacity = capacity_from(readiness)  # type: ignore[arg-type]
 
     assert capacity.baths == 0
-    assert not capacity.refill
     assert capacity.summary == "2 showers"
 
 
@@ -420,7 +421,7 @@ async def test_the_capacity_sensor_says_it_in_words_and_sizes(
     )
 
     hass.config.units = METRIC_SYSTEM
-    runner = await started(hass, coordinator, {"refill_gal": 8.0})
+    runner = await started(hass, coordinator, {})
     answer = runner.answer
     assert answer is not None and answer.capacity is not None
     capacity = answer.capacity
@@ -431,9 +432,12 @@ async def test_the_capacity_sensor_says_it_in_words_and_sizes(
     attributes = sensor.extra_state_attributes
     assert attributes["baths"] == capacity.baths
     assert attributes["showers"] == capacity.showers
-    # The refill configured, in litres where litres are used.
-    assert capacity.refill_gal == 8.0
-    assert attributes["refill_volume"] == round(8.0 * 3.785411784, 1)
+    # Each size in litres where litres are used; no refill of its own.
+    assert attributes["bath_volume"] == round(
+        capacity.bath_gal * 3.785411784, 1
+    )
+    assert "refill" not in attributes
+    assert "refill_volume" not in attributes
     assert attributes["volume_unit"] == "L"
     await stop(hass)
 
@@ -561,15 +565,6 @@ async def test_a_documents_own_sizes_are_not_the_heaters(
 
     assert answer["result"]["bath"]["volume_gal"] == 33.0
     await stop(hass)
-
-
-def test_a_default_refill_on_its_boundary_counts():
-    from custom_components.nwp500.simulator.runner import capacity_from
-
-    # 67.6 - 2 * 28.7 is 10.1999… in binary: the default refill fits.
-    capacity = capacity_from(_readiness(67.6), 10.2)  # type: ignore[arg-type]
-
-    assert capacity.summary == "2 baths and 1 refill"
 
 
 async def test_only_a_ready_since_time_is_stored_and_restored(

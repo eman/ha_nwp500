@@ -335,7 +335,7 @@ class NWP500TankCard extends HTMLElement {
   }
 
   // What the hot water is enough for now, and when a bath is ready if
-  // it isn't: "Hot water for 1 bath and 1 refill", "… · bath by 7:10 PM".
+  // it isn't: "Hot water for 2 baths", "… · bath by 7:10 PM".
   _hotWater(path) {
     const hw = path && !path.error && !path.waiting ? path.hot_water : null;
     if (!hw) return '';

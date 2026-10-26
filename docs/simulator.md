@@ -82,7 +82,7 @@ measures.
 | Circulation pump speed | The circulation's runs, left out of the supply probe's long draws | No runs left out: the probe and the hot water in use sensor still give the mains' temperature. A pump configured whose history can't be read gives none |
 | Hot water draw flow | The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn: the heat book (below) | No book: the hot water is judged from the tank's probes |
 | What the draw flow counts | Delivered water, measured at the taps after any mixing valve, or tank water, measured on the heater's hot outlet before the valve (the library's `flow_volume`). A tank-water gallon carries the tank's heat, more than a delivered one. The library's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration | Delivered water |
-| Bath size, bath refill size, shower size | The hot water a bath, a top-up of a filled bath, and a shower take, in Home Assistant's volume unit | The library's bath (28.7 gal, 109 L: the larger of two metered hot-only fills of one household's bath) and shower (12 gal, 45 L, assumed), which `defaults_used` names; a refill of 10.2 gal (39 L), the largest of that household's metered top-ups (4.5 to 10.2 gal, 15 to 90 minutes after the fill), as the library's `ReadinessParams.top_up_gal` will have it |
+| Bath size, shower size | The hot water a bath and a shower take, in Home Assistant's volume unit. A top-up of a filled bath is a fill like any other: it is counted as a bath | The library's bath (28.7 gal, 109 L: the larger of two metered hot-only fills of one household's bath) and shower (12 gal, 45 L, assumed), which `defaults_used` names |
 | Mixing valve temperature | What the heater's mixing valve delivers, in Home Assistant's temperature unit. A tank hotter than it gives more hot water, mixed down with cold: the walks, the book and the hot water sensors price each delivered gallon at it (the library's `delivery_intercept_f`, with no slope). The actions use it for the heater's parameters, not a document's own | No valve: water is delivered at the tank's temperature |
 
 The air's fit to the outdoor air is made at most once an hour, from the
@@ -144,7 +144,7 @@ defaults the simulator used instead.
 | Simulated hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
 | Simulated showers ready | Whole showers the tank has hot water for now. Its `shower_gal` attribute is a shower's size |
 | Simulated bath ready | On when the tank can fill a bath now. Its attributes: `bath_gal`, `margin_gal` (whole gallons), and `ready_at`, when the heat pump has it ready if not now |
-| Simulated hot water for | What the hot water the tank can deliver now is enough for, in words: "2 baths", "1 bath and 1 refill", "1 bath", "3 showers", "1 shower" or "Less than a shower". The first bath is the library's bath answer; a refill is a top-up after the last whole bath from what is left; showers are counted when there is no bath. Its attributes: `baths`, `refill`, `showers`, and `bath_volume`, `refill_volume`, `shower_volume` in `volume_unit` (Home Assistant's) |
+| Simulated hot water for | What the hot water the tank can deliver now is enough for, in words: "2 baths", "1 bath", "3 showers", "1 shower" or "Less than a shower". The first bath is the library's bath answer, and each further whole bath's worth of what is left is another (a top-up is a fill like any other); showers are counted when there is no bath. Its attributes: `baths`, `showers`, and `bath_volume`, `shower_volume` in `volume_unit` (Home Assistant's) |
 | Simulated bath ready at | When the tank holds a bath's hot water. Not ready now: when the heater on its own has it ready, unknown when not within 24 hours. Ready: since when, held while it stays ready (across a restart, and a walk with no answer), so a dashboard reads "10 minutes ago". Its `ready` attribute says which |
 
 The hot water sensors' `reasons` and `defaults_used` are `time_to_ready`'s.
@@ -232,7 +232,7 @@ dotted, the modelled heating is shaded, and two markers say when the tank
 comes to temperature and when the compressor next starts. Its heading
 says the same in words: "Heat pump running · at temperature by 3:40 PM",
 or "Heat pump off · next start 9:10 PM", and what the hot water is
-enough for: "Hot water for 1 bath and 1 refill", or "Hot water for 2
+enough for: "Hot water for 2 baths", or "Hot water for 2
 showers · a bath by 7:10 PM".
 
 ```yaml
@@ -276,7 +276,7 @@ The path is in Home Assistant's temperature unit:
 | `heating_start`, `heating_end`, `stop`, `source` | The current or next heating: when it starts, when it ends (none when the 24 hours cut it), why it ends and what heats |
 | `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`), none for one a TOU cap, a mode change or a setpoint write stops short |
 | `compressor_start`, `compressor_trigger` | As Simulated compressor start's |
-| `hot_water` | What the hot water is enough for, as Simulated hot water for: `summary`, `baths`, `refill`, `showers`; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |
+| `hot_water` | What the hot water is enough for, as Simulated hot water for: `summary`, `baths`, `showers`; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |
 | `unit` | °F or °C |
 | `points` | The tank along the next 24 hours at the library's points (about every 10 minutes): `at`, `upper`, `lower`, `setpoint` and `heating` |
 | `waiting`, `error` | Why there is no path (`no_status`, `no_answer`, or `simulator_off` once the simulator stops), or that the simulation failed |

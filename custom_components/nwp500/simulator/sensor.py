@@ -322,7 +322,7 @@ class SimulatorShowersReadySensor(NWP500HotWaterEntity, SensorEntity):  # type: 
 class SimulatorHotWaterCapacitySensor(NWP500HotWaterEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """What the tank's hot water is enough for now, in words.
 
-    "2 baths", "1 bath and 1 refill", "1 bath", "3 showers", or "Less
+    "2 baths", "1 bath", "3 showers", or "Less
     than a shower"; the counts and sizes are its attributes, the sizes in
     Home Assistant's volume unit.
     """
@@ -355,10 +355,8 @@ class SimulatorHotWaterCapacitySensor(NWP500HotWaterEntity, SensorEntity):  # ty
         if capacity is not None:
             attributes |= {
                 "baths": capacity.baths,
-                "refill": capacity.refill,
                 "showers": capacity.showers,
                 "bath_volume": self._volume(capacity.bath_gal),
-                "refill_volume": self._volume(capacity.refill_gal),
                 "shower_volume": self._volume(capacity.shower_gal),
                 "volume_unit": (
                     UnitOfVolume.LITERS
