@@ -5,11 +5,10 @@
 ### Added
 
 - **What the hot water is enough for.** A new simulator sensor, *Simulated
-  hot water for*, says it in words a dashboard can show: "1 bath", "1 bath
-  and 1 refill", "2 baths", "3 showers". Its attributes give the counts
-  and each size in Home Assistant's volume unit. A new option, *Bath
-  refill size*, sets the top-up, by default 10.2 gal (39 L), the largest of
-  one household's metered top-ups; the bath is the library's 28.7 gal
+  hot water for*, says it in words a dashboard can show: "1 bath", "2
+  baths", "3 showers". Its attributes give the counts and each size in
+  Home Assistant's volume unit. A top-up of a filled bath is a fill like
+  any other, so it counts as a bath; the bath is the library's 28.7 gal
   (109 L) unless set. The tank forecast card shows it under its heading,
   with when a bath will be ready if it isn't, and the path's websocket
   document carries it as `hot_water`.
@@ -176,7 +175,7 @@
   simulator and external control each have their own page, and saving one
   no longer walks every water heater's simulator page.
 - **The simulator's page asks less.** The sensors beside the heater come
-  first; hot water use and the bath, refill and shower sizes are folded
+  first; hot water use and the bath and shower sizes are folded
   away, their defaults named. The only weather entity, and (once the
   heater has an area) the only temperature and humidity sensors in it,
   are suggested the first time. A supply probe

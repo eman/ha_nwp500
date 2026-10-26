@@ -44,7 +44,6 @@ from .const import (
     CONF_SIMULATOR_HUMIDITY_ENTITY,
     CONF_SIMULATOR_INLET_ENTITY,
     CONF_SIMULATOR_MIXING_VALVE_F,
-    CONF_SIMULATOR_REFILL_GAL,
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
     CONTROL_LIVE_AVAILABLE,
@@ -133,7 +132,6 @@ _SIMULATOR_ENTITIES = (
 )
 _SIZES = (
     CONF_SIMULATOR_BATH_GAL,
-    CONF_SIMULATOR_REFILL_GAL,
     CONF_SIMULATOR_SHOWER_GAL,
 )
 
@@ -189,7 +187,6 @@ _SECTIONS: dict[str, tuple[str, ...]] = {
     ),
     SECTION_HOUSEHOLD: (
         CONF_SIMULATOR_BATH_GAL,
-        CONF_SIMULATOR_REFILL_GAL,
         CONF_SIMULATOR_SHOWER_GAL,
         CONF_SIMULATOR_MIXING_VALVE_F,
     ),
@@ -205,8 +202,8 @@ def _simulator_device_schema(
     """The simulator's form for one heater, every field optional.
 
     The sensors beside it and a weather forecast; the household's hot
-    water use and what its flow counts, folded away; a bath's, a refill's
-    and a shower's size and the mixing valve's setting, folded away.
+    water use and what its flow counts, folded away; a bath's and a
+    shower's size and the mixing valve's setting, folded away.
     Any entity may be chosen, the heater's own among them (its DHW in use
     and its inlet temperature can serve). A folded section in
     `open_sections` is shown open: one holding a value, so a field an
@@ -273,9 +270,6 @@ def _simulator_device_schema(
                 vol.Schema(
                     {
                         vol.Optional(CONF_SIMULATOR_BATH_GAL): _size_selector(
-                            metric=metric
-                        ),
-                        vol.Optional(CONF_SIMULATOR_REFILL_GAL): _size_selector(
                             metric=metric
                         ),
                         vol.Optional(CONF_SIMULATOR_SHOWER_GAL): _size_selector(

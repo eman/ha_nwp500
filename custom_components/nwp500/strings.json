@@ -16,7 +16,7 @@
               "control_enabled": "External control"
             },
             "data_description": {
-              "simulator_enabled": "How much hot water the tank holds now (\"1 bath and 1 refill\", \"3 showers\"), when it will be ready if it isn't, and when the heat pump next starts. Installs numpy, pandas and scipy if Home Assistant doesn't have them.",
+              "simulator_enabled": "How much hot water the tank holds now (\"2 baths\", \"3 showers\"), when it will be ready if it isn't, and when the heat pump next starts. Installs numpy, pandas and scipy if Home Assistant doesn't have them.",
               "control_enabled": "Lets a scheduler of your own, such as an automation or a Node-RED flow, program this water heater's temperature and mode over time. Leave it off if you don't have one."
             }
           }
@@ -76,16 +76,14 @@
           },
           "household": {
             "name": "Baths, showers and mixing valve",
-            "description": "Optional. The sizes behind \"1 bath and 1 refill\" and \"3 showers\". Leave them empty for the defaults.",
+            "description": "Optional. The sizes behind \"2 baths\" and \"3 showers\". Leave them empty for the defaults.",
             "data": {
               "bath_gal": "Bath size",
-              "refill_gal": "Bath refill size",
               "shower_gal": "Shower size",
               "mixing_valve_f": "Mixing valve temperature"
             },
             "data_description": {
               "bath_gal": "The hot water a bath takes. Without it, 28.7 gal (109 L): one household's bath, the larger of two metered hot-only fills.",
-              "refill_gal": "The hot water a top-up of a filled bath takes, for \"1 bath and 1 refill\". Without it, 10.2 gal (39 L): the largest of that household's metered top-ups.",
               "shower_gal": "The hot water a shower takes. Without it, 12 gal (45 L).",
               "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
             }
@@ -234,16 +232,14 @@
           },
           "household": {
             "name": "Baths, showers and mixing valve",
-            "description": "Optional. The sizes behind \"1 bath and 1 refill\" and \"3 showers\". Leave them empty for the defaults.",
+            "description": "Optional. The sizes behind \"2 baths\" and \"3 showers\". Leave them empty for the defaults.",
             "data": {
               "bath_gal": "Bath size",
-              "refill_gal": "Bath refill size",
               "shower_gal": "Shower size",
               "mixing_valve_f": "Mixing valve temperature"
             },
             "data_description": {
               "bath_gal": "The hot water a bath takes. Without it, 28.7 gal (109 L): one household's bath, the larger of two metered hot-only fills.",
-              "refill_gal": "The hot water a top-up of a filled bath takes, for \"1 bath and 1 refill\". Without it, 10.2 gal (39 L): the largest of that household's metered top-ups.",
               "shower_gal": "The hot water a shower takes. Without it, 12 gal (45 L).",
               "mixing_valve_f": "What the heater's mixing valve delivers, if it has one. A tank hotter than the valve gives more hot water, mixed down with cold. Without it, the hot water is reckoned at the tank's temperature."
             }
