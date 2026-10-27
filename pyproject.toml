@@ -23,7 +23,7 @@
 # pytest-homeassistant-custom-component's pins.
 sim = [
     "pandas==2.3.3",
-    "scipy>=1.11.0",
+    "scipy>=1.18.1",
 ]
 # The tests without the simulator's packages (tox -e py314-nosim): the
 # integration must run with the simulator off and pandas and scipy absent.
