@@ -22,7 +22,7 @@
 # Assistant's package_constraints.txt pins it; numpy comes from
 # pytest-homeassistant-custom-component's pins.
 sim = [
-    "pandas==3.1.0",
+    "pandas==2.3.3",
     "scipy>=1.18.1",
 ]
 # The tests without the simulator's packages (tox -e py314-nosim): the
