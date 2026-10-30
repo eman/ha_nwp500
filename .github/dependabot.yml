@@ -36,6 +36,10 @@ updates:
     # Only update to compatible versions
     versioning-strategy: increase
     ignore:
+      # pandas 3+ needs numpy>=2.3.3 on Python 3.14, but the Home Assistant
+      # test harness pins numpy==2.3.2. Revisit when that pin is compatible.
+      - dependency-name: "pandas"
+        versions: [">=3.0.0"]
       # The homeassistant floor in the mypy and basedpyright dependency
       # groups mirrors the minimum hacs.json declares for users. Type
       # checking against the oldest supported release is the point: it
