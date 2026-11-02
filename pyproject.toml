@@ -58,7 +58,7 @@ dev = [
     {include-group = "basedpyright"},
     {include-group = "lint"},
     "tox>=4.67.4",
-    "tox-uv>=1.37.0",
+    "tox-uv>=1.37.2",
 ]
 
 [tool.ruff]
