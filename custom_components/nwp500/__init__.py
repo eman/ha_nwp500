@@ -1,6 +1,6 @@
 """The Navien NWP500 integration.
 
-Requires Home Assistant 2026.3+ (Python 3.14).
+Requires Home Assistant 2026.11+.
 """
 
 import asyncio

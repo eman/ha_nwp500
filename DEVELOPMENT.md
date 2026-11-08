@@ -43,7 +43,7 @@ Device Control: HA Command → MQTT Message → Device Response → Status Updat
 
 ### Prerequisites
 - Python 3.14+
-- Home Assistant 2026.3.0+
+- Home Assistant 2026.11.0+
 - Virtual environment recommended
 
 ### Environment Setup

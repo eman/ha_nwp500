@@ -61,7 +61,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        assert heater.current_temperature == 120.0
+        assert heater.native_current_temperature == 120.0
 
     def test_current_temperature_missing(
         self,
@@ -78,7 +78,7 @@ class TestNWP500WaterHeater:
         # Remove dhw_temperature to simulate unavailable sensor
         delattr(mock_device_status, "dhw_temperature")
 
-        assert heater.current_temperature is None
+        assert heater.native_current_temperature is None
 
     def test_target_temperature(
         self,
@@ -92,7 +92,7 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        assert heater.target_temperature == 130.0
+        assert heater.native_target_temperature == 130.0
 
     def test_current_operation_heat_pump(
         self,

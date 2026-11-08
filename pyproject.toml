@@ -40,12 +40,12 @@ test = [
 ]
 mypy = [
     {include-group = "sim"},
-    "homeassistant>=2026.3.0",
+    "homeassistant>=2026.11.0",
     "mypy>=2.4.0",
 ]
 basedpyright = [
     {include-group = "sim"},
-    "homeassistant>=2026.3.0",
+    "homeassistant>=2026.11.0",
     "basedpyright>=1.40.2",
 ]
 lint = [
