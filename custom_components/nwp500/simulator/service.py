@@ -40,7 +40,7 @@ from ..const import (
     MAX_SIMULATE_HOURS,
     MODE_TO_DHW_ID,
 )
-from .runner import Inputs
+from .runner import Inputs, with_layers
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -135,40 +135,74 @@ async def async_inputs(
             translation_key="simulator_horizon_too_long",
             translation_placeholders={"hours": str(MAX_SIMULATE_HOURS)},
         )
-    # The heater's book is its tank's heat now: only for a scenario that
-    # starts then, with the heater's parameters.
-    book_notes: tuple[str, ...] = ()
-    book = None
-    inlet_measured = False
-    if live is not None and live.book is not None:
-        if (
-            built.scenario.start == live.scenario.start
-            and built.params == live.params
-        ):
-            book, inlet_measured = live.book, live.inlet_measured
+    # The heater's layers are its tank now: only for a scenario that
+    # starts then, from the heater's state, with its parameters. A
+    # document that names `state.layers_f` gives its own, as given: a
+    # list, or null to walk from the two probes.
+    raw_state = ((scenario or {}).get("scenario") or {}).get("state") or {}
+    layer_notes: tuple[str, ...] = ()
+    scenario_out = built.scenario
+    # The heater's scenario as composed, before the layers were laid on.
+    heaters = None if live is None or live.live is None else live.live.scenario
+    own = built.scenario.state.layers_f
+    # The scenario is the heater's now: its start, its state (whatever its
+    # layers) and its parameters.
+    heaters_now = (
+        live is not None
+        and heaters is not None
+        and built.scenario.start == heaters.start
+        and built.params == live.params
+        and built.scenario.state.model_copy(update={"layers_f": None})
+        == heaters.state
+    )
+    if own is not None and not (
+        heaters_now and live is not None and own == live.layers_f
+    ):
+        # A document's own layers, such as the scenario action's from an
+        # earlier walk or with its probes edited: the library reads the
+        # tank from them, not from the probes beside them.
+        layer_notes = (
+            (
+                "layers: the document's own; the walk reads the tank from "
+                "them, not from its probes (layers_f null walks from the "
+                "probes)"
+            ),
+        )
+    if (
+        live is not None
+        and live.layers_f is not None
+        and "layers_f" not in raw_state
+    ):
+        if heaters_now:
+            scenario_out = with_layers(built.scenario, live.layers_f)
         else:
-            book_notes = (
+            layer_notes = (
                 (
-                    "book: not used; the scenario's start or parameters "
-                    "are not the heater's"
+                    "layers: not used; the scenario's start, state or "
+                    "parameters are not the heater's"
                 ),
             )
     return Inputs(
-        scenario=built.scenario,
+        scenario=scenario_out,
         params=built.params,
         reasons=() if live is None else live.reasons,
         notes=(
             *(() if live is None else live.live_notes),
             *built.notes,
-            *book_notes,
+            *layer_notes,
         ),
-        book=book,
-        inlet_measured=inlet_measured,
+        layers_f=scenario_out.state.layers_f,
+        # The heater's inlet is measured; one the document gives is not
+        # known to be.
+        inlet_measured=live is not None
+        and live.inlet_measured
+        and built.scenario.environment.inlet_f
+        == live.scenario.environment.inlet_f,
         # A draw the heater reports now is the scenario's only from now.
         drawing=live is not None
         and live.drawing
         and built.scenario.start == live.scenario.start
-        and not ((scenario or {}).get("scenario") or {}).get("state"),
+        and not raw_state,
     )
 
 
@@ -202,7 +236,11 @@ async def async_get_scenario(
     scenario: dict[str, Any] | None = None,
     use_heater: bool = True,
 ) -> dict[str, Any]:
-    """The scenario the other actions would walk, as a document to edit."""
+    """The scenario the other actions would walk, as a document to edit.
+
+    With the heater's layers, when it has them: the document walks from
+    them sent back later, or with `use_heater` off.
+    """
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater
     )
@@ -240,7 +278,6 @@ async def async_simulate(
             sim.simulate,
             inputs.scenario,
             inputs.params,
-            book=inputs.book,
             inlet_measured=inputs.inlet_measured,
         ),
     )
@@ -278,7 +315,6 @@ async def async_time_to_ready(
             sim.time_to_ready,
             inputs.scenario,
             inputs.params,
-            book=inputs.book,
             bath_gal=(
                 bath_gal
                 if bath_gal is not None

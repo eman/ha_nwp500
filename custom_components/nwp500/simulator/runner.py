@@ -6,7 +6,9 @@ and the air beside it into a scenario, walks it for 24 hours with
 water, and keeps the answers: whether the tank is heating or when it next
 will, until when, when the compressor next starts, the tank's two
 temperatures along the day, the electricity over the day, and the hot
-water it can deliver, for showers and a bath.
+water it can deliver, for showers and a bath. With a draw flow, the walks
+start from the tank's layers its recorded history leaves
+(`nwp500.sim_home_assistant.HomeAssistantTank`).
 
 The scenario is built in the event loop, where the library's unit
 preference is stable; the walk runs in an executor.
@@ -34,14 +36,13 @@ from nwp500 import sim
 from nwp500 import sim_adapters as sa
 from nwp500.models import ReservationSchedule, TOUPeriod
 from nwp500.sim import codec
-from nwp500.sim.book import Booked
 from nwp500.sim.inputs import POWER_OFF, VACATION, Scenario, Schedules
 from nwp500.sim.location_air import FittedLocationAir
 from nwp500.sim_home_assistant import (
     Entities,
     HeaterEntities,
-    HomeAssistantBook,
     HomeAssistantEnvironment,
+    HomeAssistantTank,
     fit_location_air,
 )
 from nwp500.sim_live import (
@@ -143,10 +144,12 @@ class Inputs:
     #: Whether the household draws hot water now, as its demand entity
     #: says; False without one.
     drawing: bool = False
-    #: The tank's heat, booked from the heater's history and the draw
-    #: flow's (`HomeAssistantBook`); None without a draw flow, and whether
-    #: its gallons convert at the mains (`inlet_measured`).
-    book: Booked | None = None
+    #: The tank's layers its history leaves, °F, the bottom first
+    #: (`HomeAssistantTank`), which the scenario's state carries; None
+    #: without a draw flow, and the walks start from the two probes.
+    layers_f: tuple[float, ...] | None = None
+    #: Whether the scenario's inlet is the mains as measured, from the
+    #: inlet probe.
     inlet_measured: bool = False
 
 
@@ -481,6 +484,19 @@ def answer_from(
     )
 
 
+def with_layers(
+    scenario: Scenario, layers_f: tuple[float, ...] | None
+) -> Scenario:
+    """`scenario` starting from the tank's layers, when there are any."""
+    if layers_f is None:
+        return scenario
+    return scenario.model_copy(
+        update={
+            "state": scenario.state.model_copy(update={"layers_f": layers_f})
+        }
+    )
+
+
 def walk(
     inputs: Inputs, *, bath_gal: float | None, shower_gal: float | None
 ) -> tuple[SimulationResult, Readiness]:
@@ -489,13 +505,11 @@ def walk(
         sim.simulate(
             inputs.scenario,
             inputs.params,
-            book=inputs.book,
             inlet_measured=inputs.inlet_measured,
         ),
         sim.time_to_ready(
             inputs.scenario,
             inputs.params,
-            book=inputs.book,
             bath_gal=bath_gal,
             shower_gal=shower_gal,
             drawing=inputs.drawing,
@@ -538,8 +552,8 @@ class SimulatorRunner:
         # The walks' and the actions' reads of the environment, one at a
         # time: two callers finding a fit or the inlet due read it once.
         self._reading = asyncio.Lock()
-        # The book's keeper and the history it holds; made on first use.
-        self._book: HomeAssistantBook | None = None
+        # The tank's keeper and the history it holds; made on first use.
+        self._tank: HomeAssistantTank | None = None
         self._debouncer = Debouncer(
             hass,
             _LOGGER,
@@ -566,8 +580,9 @@ class SimulatorRunner:
         """The heater's own entities, as named here, for its history.
 
         Where no air sensor is chosen, the library fits the air on the
-        heater's own reading while the compressor runs; the book reads
-        them all. None when the heater's entities aren't registered yet.
+        heater's own reading while the compressor runs; the tank's replay
+        reads them all. None when the heater's entities aren't registered
+        yet.
         """
         registry = er.async_get(self.hass)
 
@@ -602,13 +617,14 @@ class SimulatorRunner:
             power=entity("sensor", "current_inst_power"),
             energy_to_setpoint=entity("sensor", "energy_to_setpoint"),
             ambient=entity("sensor", "ambient_temperature"),
+            setpoint=entity("sensor", "dhw_temperature_setting"),
         )
 
-    def _keeper(self) -> HomeAssistantBook | None:
-        """The book's keeper, made once the heater's entities are known.
+    def _keeper(self) -> HomeAssistantTank | None:
+        """The tank's keeper, made once the heater's entities are known.
 
-        None without a draw flow: there is no book, and the library
-        answers from the tank's probes. A heater entity renamed or
+        None without a draw flow: there are no layers, and the library
+        walks from the tank's two probes. A heater entity renamed or
         disabled makes a new keeper, which reads its history afresh. The
         flow's gallons count delivered water, or tank water when chosen
         (the library's `flow_volume`).
@@ -618,51 +634,59 @@ class SimulatorRunner:
             return None
         heater = self._heater_entities()
         if heater is None:
-            self._book = None
+            self._tank = None
             return None
         volume = self.options.get(
             CONF_SIMULATOR_DRAW_FLOW_VOLUME, DRAW_FLOW_DELIVERED
         )
+        e = self.entities
+        others = Entities(circulation_speed=e.circulation_speed, air=e.air)
+        tank = self._tank
         if (
-            self._book is None
-            or self._book.heater != heater
-            or self._book.flow_volume != volume
+            tank is None
+            or tank.heater != heater
+            or tank.flow != flow
+            or tank.flow_volume != volume
+            or tank.entities != others
         ):
-            e = self.entities
-            self._book = HomeAssistantBook(
+            tank = self._tank = HomeAssistantTank(
                 cast("HomeAssistantClient", InProcessClient(self.hass)),
                 heater,
                 flow,
-                Entities(
-                    circulation_speed=e.circulation_speed,
-                    inlet=e.inlet,
-                    demand=e.demand,
-                    air=e.air,
-                ),
+                others,
                 flow_volume=volume,
             )
-        return self._book
+        return tank
 
-    async def _async_book(
-        self, at: datetime, params: Any
-    ) -> tuple[Booked | None, bool, tuple[str, ...]]:
-        """The tank's heat at `at`, and whether it converts at the mains.
+    async def _async_layers(
+        self, at: datetime, built: Built
+    ) -> tuple[tuple[float, ...] | None, tuple[str, ...]]:
+        """The tank's layers at `at`, the scenario's probes laid over them.
 
-        The keeper reads only the history since its last read; booking
-        from what it holds is CPU work, run in the executor.
+        The keeper reads only the history since its last read; replaying
+        what it holds is CPU work, run in the executor. The flow is an
+        optional input: whatever the replay raises, the walks go on from
+        the two probes, and the notes say why.
         """
         keeper = self._keeper()
         if keeper is None:
             if self.options.get(CONF_SIMULATOR_DRAW_FLOW_ENTITY) is None:
-                return None, False, ()
-            return (
-                None,
-                False,
-                ("book: the heater's entities aren't registered",),
+                return None, ()
+            return None, ("layers: the heater's entities aren't registered",)
+        state = built.scenario.state
+        try:
+            await keeper.read(at)
+            answer = await self.hass.async_add_executor_job(
+                keeper.layers, at, built.params, (state.upper_f, state.lower_f)
             )
-        await keeper.read(at)
-        answer = await self.hass.async_add_executor_job(keeper.book, at, params)
-        return answer.booked, answer.inlet_measured, answer.notes
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug(
+                "The tank's layers for %s failed",
+                self.mac_address,
+                exc_info=True,
+            )
+            return None, (f"layers: not replayed ({err})",)
+        return answer.layers_f, answer.notes
 
     def _environment(
         self, start: datetime, until: datetime
@@ -827,25 +851,25 @@ class SimulatorRunner:
                 else {"environment": {"inlet_f": inlet_f}},
             )
             built = self.with_valve(built)
-            book, inlet_measured, book_notes = await self._async_book(
-                start, built.params
-            )
+            layers, layer_notes = await self._async_layers(start, built)
         live_notes = (
             *(environment.notes if environment else ()),
             *fit_notes,
             *inlet_notes,
-            *book_notes,
+            *layer_notes,
         )
         return Inputs(
-            scenario=built.scenario,
+            scenario=with_layers(built.scenario, layers),
             params=built.params,
             reasons=reasons,
             notes=(*live_notes, *built.notes),
+            # Without the layers: an action lays its document over this,
+            # and takes them only where they are still the tank's.
             live=dataclasses.replace(composed, scenario=built.scenario),
             live_notes=live_notes,
             drawing=self._drawing(),
-            book=book,
-            inlet_measured=inlet_measured,
+            layers_f=layers,
+            inlet_measured=inlet_f is not None,
         )
 
     def with_valve(self, built: Built) -> Built:

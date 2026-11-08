@@ -115,7 +115,7 @@ async def test_sensors_report_the_answer(
     attributes = heating.extra_state_attributes
     assert "model" not in attributes
     assert attributes["source"] == "compressor"
-    assert "no_heat_book" in attributes["reasons"]
+    assert "tank_profile_estimated" in attributes["reasons"]
     assert {"reasons", "defaults_used", "notes"} <= set(
         heating._unrecorded_attributes  # noqa: SLF001
     )

@@ -1429,7 +1429,7 @@ CONF_SIMULATOR_INLET_ENTITY: Final = "inlet_entity"
 CONF_SIMULATOR_DEMAND_ENTITY: Final = "demand_entity"
 CONF_SIMULATOR_CIRCULATION_ENTITY: Final = "circulation_speed_entity"
 # The household's hot water draw flow, the circulation's water not in it:
-# with it, the library books the tank's heat.
+# with it, the library replays the tank's layers from its history.
 CONF_SIMULATOR_DRAW_FLOW_ENTITY: Final = "draw_flow_entity"
 # What the draw flow's gallons count: water delivered at the taps, after
 # any mixing valve (the library's default, stored as nothing), or tank

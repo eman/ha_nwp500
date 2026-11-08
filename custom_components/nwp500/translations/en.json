@@ -68,8 +68,8 @@
             },
             "data_description": {
               "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
-              "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
-              "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
+              "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator replays the heater's recorded history and the flow's through the tank's layers, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
+              "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then takes the tank's water one for one.",
               "inlet_entity": "A temperature probe on the cold water supply. Needs the hot water in use sensor: the simulator reads the mains' temperature from the probe over long draws, which that sensor marks.",
               "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws."
             }
@@ -224,8 +224,8 @@
             },
             "data_description": {
               "demand_entity": "A binary sensor that is on while the household draws hot water, its circulation's water not counted. It says when water is being drawn, and which of the supply probe's readings are long draws.",
-              "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator books the tank's heat from the heater's recorded history and the flow's, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
-              "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then carries the tank's heat. The simulator's default empty tank was fitted to delivered water: for tank water, fit it to your heater with nwp500-python's calibration.",
+              "draw_flow_entity": "The household's hot water draw flow now, the circulation's water not in it, and 0 while nothing is drawn. With it, the simulator replays the heater's recorded history and the flow's through the tank's layers, so its hot water reads what is left, not only what the tank's probes show. It must be recorded.",
+              "draw_flow_volume": "Delivered water, the default, for a flow measured at the taps, after any mixing valve. Tank water for a flow measured on the heater's hot outlet, before the valve: each gallon then takes the tank's water one for one.",
               "inlet_entity": "A temperature probe on the cold water supply. Needs the hot water in use sensor: the simulator reads the mains' temperature from the probe over long draws, which that sensor marks.",
               "circulation_speed_entity": "The hot water circulation pump's speed. Its runs are left out of the supply probe's long draws."
             }

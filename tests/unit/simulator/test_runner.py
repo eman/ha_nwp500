@@ -227,7 +227,7 @@ async def test_a_run_answers_when_the_tank_next_heats(
     assert answer.source == "compressor"
     assert answer.energy_kwh is not None and answer.energy_kwh > 0
     assert REASON_RESERVATIONS_UNKNOWN in answer.reasons
-    assert "no_heat_book" in answer.reasons
+    assert "tank_profile_estimated" in answer.reasons
     assert seen
     assert r.last_duration_s is not None
     r.async_stop()
