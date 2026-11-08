@@ -240,15 +240,23 @@ integration's options. It runs the heater simulator from
 [nwp500-python](https://github.com/eman/nwp500-python) inside Home
 Assistant, from what the heater reports, and keeps these up to date:
 
-- **Simulated heating**: heating, will heat (within the next 24 hours), not
-  heating today, or heating off.
-- **Simulated hot water ready**: when the tank's current or next heating
-  ends: when it comes to temperature.
-- **Simulated compressor start**: when the heat pump's compressor next
-  starts, while it is off.
-- **Simulated energy, next 24 hours**: the electricity it is likely to use.
-- **Simulated hot water available**, **showers ready** and **bath ready**:
-  the hot water the tank can deliver now.
+What the tank holds now, from the heater's probes (and its replayed
+layers, with a draw flow):
+
+- **Hot water available**, **Showers ready**, **Bath ready** and
+  **Hot water for**: the hot water the tank can deliver now.
+
+What the heater will do, walked forward from there:
+
+- **Heating, next 24 hours**: heating, will heat, not heating today, or
+  heating off.
+- **Hot water ready at**: when the tank's current or next heating ends:
+  when it comes to temperature.
+- **Next compressor start**: when the heat pump's compressor next starts,
+  while it is off.
+- **Energy, next 24 hours**: the electricity it is likely to use.
+- **Bath ready at**: when the heater on its own has a bath's hot water
+  ready, or, while it does, since when.
 
 Every input beyond the heater is optional, and each adds what it measures:
 sensors for the air and humidity beside the heater, a weather forecast

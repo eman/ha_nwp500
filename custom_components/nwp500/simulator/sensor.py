@@ -178,7 +178,7 @@ class SimulatorCompressorStartSensor(NWP500SimulatorEntity, SensorEntity):  # ty
     """When the heat pump's compressor next starts, as modelled.
 
     The first compressor start the walk finds within the day. Unknown
-    while the compressor runs (Simulated hot water ready is then when it
+    while the compressor runs (Hot water ready at is then when it
     stops) and when no start falls within the day, such as in Electric
     or Vacation.
     """

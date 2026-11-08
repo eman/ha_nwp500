@@ -816,7 +816,7 @@
         }
       },
       "simulator_heating": {
-        "name": "Simulated heating",
+        "name": "Heating, next 24 hours",
         "state": {
           "heating": "Heating",
           "scheduled": "Will heat",
@@ -825,25 +825,25 @@
         }
       },
       "simulator_hot_water_ready": {
-        "name": "Simulated hot water ready"
+        "name": "Hot water ready at"
       },
       "simulator_compressor_start": {
-        "name": "Simulated compressor start"
+        "name": "Next compressor start"
       },
       "simulator_energy_next_24h": {
-        "name": "Simulated energy, next 24 hours"
+        "name": "Energy, next 24 hours"
       },
       "simulator_hot_water_available": {
-        "name": "Simulated hot water available"
+        "name": "Hot water available"
       },
       "simulator_showers_ready": {
-        "name": "Simulated showers ready"
+        "name": "Showers ready"
       },
       "simulator_hot_water_capacity": {
-        "name": "Simulated hot water for"
+        "name": "Hot water for"
       },
       "simulator_bath_ready_at": {
-        "name": "Simulated bath ready at"
+        "name": "Bath ready at"
       }
     },
     "binary_sensor": {
@@ -971,7 +971,7 @@
         }
       },
       "simulator_bath_ready": {
-        "name": "Simulated bath ready"
+        "name": "Bath ready"
       }
     },
     "switch": {

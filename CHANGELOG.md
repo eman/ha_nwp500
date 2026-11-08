@@ -4,15 +4,15 @@
 
 ### Added
 
-- **What the hot water is enough for.** A new simulator sensor, *Simulated
-  hot water for*, says it in words a dashboard can show: "1 bath", "2
+- **What the hot water is enough for.** A new simulator sensor, *Hot water
+  for*, says it in words a dashboard can show: "1 bath", "2
   baths", "3 showers". Its attributes give the counts and each size in
   Home Assistant's volume unit. A top-up of a filled bath is a fill like
   any other, so it counts as a bath; the bath is the library's 28.7 gal
   (109 L) unless set. The tank forecast card shows it under its heading,
   with when a bath will be ready if it isn't, and the path's websocket
   document carries it as `hot_water`.
-- **Simulated bath ready at**, a timestamp: when the heater on its own
+- **Bath ready at**, a timestamp: when the heater on its own
   has a bath's hot water ready, or, while it does, since when.
 - **The simulator takes the mixing valve's temperature.** An optional
   setting per heater, in Home Assistant's temperature unit: what the
@@ -21,9 +21,9 @@
   more hot water, showers and baths. Without it, nothing changes: water is
   delivered at the tank's temperature.
 - **When the tank comes to temperature, and when the compressor starts.**
-  With the simulator on, a new sensor, Simulated compressor start, says
+  With the simulator on, a new sensor, Next compressor start, says
   when the heat pump's compressor next starts while it is off (unknown
-  while it runs; Simulated hot water ready is then when it stops), with
+  while it runs; Hot water ready at is then when it stops), with
   the start's cause and trigger.
 - **The tank forecast card.** `custom:nwp500-tank-card`, loaded with the
   integration, draws the tank's upper and lower temperatures: recorded
@@ -37,12 +37,12 @@
   heater. A heating a TOU cap, a mode change or a setpoint write stops
   short is not "at temperature": the path's `ready_at` is only for one
   that reaches its target.
-- **Simulated hot water ready takes back-to-back heatings as one.** In
+- **Hot water ready at takes back-to-back heatings as one.** In
   Electric the library ends the upper element at its target and starts
   the lower at once: the sensor said the tank was ready at the hand-over.
-  It now says when the last of them ends, and Simulated heating's
+  It now says when the last of them ends, and Heating, next 24 hours'
   `energy_kwh` is theirs together.
-- **Simulated hot water ready is only for a heating that reaches its
+- **Hot water ready at is only for a heating that reaches its
   target.** One a TOU cap, a mode change or a setpoint write stops short
   leaves it unknown, its `stop` attribute saying why, as the card's path
   already did.
@@ -128,7 +128,7 @@
   runs, and projects the day's air from the hourly forecast. The fit is
   made at most hourly and kept between simulations. The simulator now
   lists `weather` among its after-dependencies.
-- **Simulated hot water.** With the simulator on, three more entities say
+- **Hot water now.** With the simulator on, three more entities say
   how much hot water the tank can deliver now, how many showers it holds
   and whether a bath is ready, as nwp500-python's `time_to_ready` answers
   from the heater's state. Each input beyond the heater is optional and
@@ -178,6 +178,12 @@
 
 ### Changed
 
+- **The simulator's entities are named for what they say.** No
+  "Simulated" prefix: the tank's hot water now (Hot water available,
+  Showers ready, Bath ready, Hot water for) is read from the heater as much
+  as DHW charge is, and the forecasts say they look ahead (Heating, next
+  24 hours; Hot water ready at; Next compressor start; Energy, next 24
+  hours; Bath ready at). Entity IDs already registered are kept.
 - **Requires Home Assistant 2026.11.0 or newer.** The water heater now
   provides `native_temperature_unit`, `native_current_temperature` and
   `native_target_temperature`. Home Assistant 2026.11 deprecated the
@@ -226,7 +232,7 @@
     installation's 72.4 °F, without a cold water supply probe.
   - **Two new ways a heating stops**: `envelope`, the air leaving the
     heat pump's operating range, and `heat_pump`, the heat pump taking
-    back a recovery an element was carrying. Simulated hot water ready's
+    back a recovery an element was carrying. Hot water ready at's
     `stop` attribute and the tank card name them.
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
