@@ -142,11 +142,25 @@ async def async_inputs(
     raw_state = ((scenario or {}).get("scenario") or {}).get("state") or {}
     layer_notes: tuple[str, ...] = ()
     scenario_out = built.scenario
+    # The heater's scenario as composed, before the layers were laid on.
+    heaters = None if live is None or live.live is None else live.live.scenario
     own = built.scenario.state.layers_f
-    if own is not None and (live is None or own != live.layers_f):
+    # The scenario is the heater's now: its start, its state (whatever its
+    # layers) and its parameters.
+    heaters_now = (
+        live is not None
+        and heaters is not None
+        and built.scenario.start == heaters.start
+        and built.params == live.params
+        and built.scenario.state.model_copy(update={"layers_f": None})
+        == heaters.state
+    )
+    if own is not None and not (
+        heaters_now and live is not None and own == live.layers_f
+    ):
         # A document's own layers, such as the scenario action's from an
-        # earlier walk: the library reads the tank from them, not from
-        # the probes beside them, which an edit may have changed.
+        # earlier walk or with its probes edited: the library reads the
+        # tank from them, not from the probes beside them.
         layer_notes = (
             (
                 "layers: the document's own; the walk reads the tank from "
@@ -159,14 +173,7 @@ async def async_inputs(
         and live.layers_f is not None
         and "layers_f" not in raw_state
     ):
-        # The heater's scenario as composed, before the layers were laid on.
-        heaters = live.live.scenario if live.live is not None else None
-        if (
-            heaters is not None
-            and built.scenario.start == heaters.start
-            and built.params == live.params
-            and built.scenario.state == heaters.state
-        ):
+        if heaters_now:
             scenario_out = with_layers(built.scenario, live.layers_f)
         else:
             layer_notes = (

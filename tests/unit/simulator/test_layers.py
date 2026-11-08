@@ -299,8 +299,14 @@ async def test_the_scenario_document_keeps_the_heaters_layers(
         alone = await service.async_inputs(
             hass, runner, scenario=earlier, use_heater=False
         )
-        # Its probes edited: still its layers, and the note says the walk
-        # reads the tank from them.
+        # Only its probes edited, its layers still the heater's: those
+        # layers, and the note says the walk reads the tank from them.
+        warmer = copy.deepcopy(document)
+        warmer["scenario"]["state"]["upper_f"] = 100.0
+        probed = await service.async_inputs(
+            hass, runner, scenario=warmer, use_heater=True
+        )
+        # Its probes and layers edited: its own, and the same note.
         probes = copy.deepcopy(document)
         probes["scenario"]["state"]["upper_f"] = 100.0
         probes["scenario"]["state"]["layers_f"] = [
@@ -318,6 +324,9 @@ async def test_the_scenario_document_keeps_the_heaters_layers(
     assert kept.layers_f == LAYERS
     assert alone.layers_f == LAYERS
     assert any("layers: the document's own" in n for n in alone.notes)
+    assert probed.layers_f == LAYERS
+    assert probed.scenario.state.upper_f == 100.0
+    assert any("layers: the document's own" in n for n in probed.notes)
     assert edited.layers_f == tuple(v - 1.0 for v in LAYERS)
     assert any("layers: the document's own" in n for n in edited.notes)
     await stop(hass)
