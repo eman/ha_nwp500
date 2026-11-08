@@ -275,8 +275,10 @@ async def test_the_actions_use_the_heaters_layers_for_its_own_scenario(
 
 
 async def test_the_scenario_document_keeps_the_heaters_layers(
-    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock, freezer
 ):
+    # One instant throughout: the heater's start is the document's.
+    freezer.move_to("2026-11-08T03:00:00Z")
     _register_heater(hass)
     reading, laying, _ = _patched()
     with reading, laying:
@@ -370,8 +372,9 @@ async def test_a_document_gives_its_own_layers_or_none(
 
 
 async def test_the_actions_inlet_is_measured_only_while_it_is_the_heaters(
-    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock, freezer
 ):
+    freezer.move_to("2026-11-08T03:00:00Z")
     runner = await started(hass, coordinator, {"inlet_entity": "sensor.supply"})
     with patch.object(
         type(runner), "_async_inlet", AsyncMock(return_value=(55.0, ()))
