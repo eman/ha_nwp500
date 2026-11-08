@@ -76,16 +76,18 @@ async def test_the_heater_alone_answers_for_its_hot_water(
     hass: HomeAssistant, hass_storage, coordinator
 ):
     runner = await started(hass, coordinator, {})
+    answer = runner.answer
+    assert answer is not None
 
-    inputs = await runner.async_inputs()
+    # The walk's own start: a second's tick between the two moves the
+    # bath's ready time.
+    inputs = await runner.async_inputs(start=answer.computed_at)
     assert isinstance(inputs, Inputs)
     entities = runner.entities
     assert entities.inlet is None
     assert entities.demand is None
     assert entities.circulation_speed is None
     assert inputs.drawing is False
-    answer = runner.answer
-    assert answer is not None
     assert answer.readiness is not None
     # The library's own answer from the heater's state.
     expected = sim.time_to_ready(inputs.scenario, inputs.params)

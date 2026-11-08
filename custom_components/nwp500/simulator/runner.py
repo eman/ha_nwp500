@@ -664,18 +664,28 @@ class SimulatorRunner:
         """The tank's layers at `at`, the scenario's probes laid over them.
 
         The keeper reads only the history since its last read; replaying
-        what it holds is CPU work, run in the executor.
+        what it holds is CPU work, run in the executor. The flow is an
+        optional input: whatever the replay raises, the walks go on from
+        the two probes, and the notes say why.
         """
         keeper = self._keeper()
         if keeper is None:
             if self.options.get(CONF_SIMULATOR_DRAW_FLOW_ENTITY) is None:
                 return None, ()
             return None, ("layers: the heater's entities aren't registered",)
-        await keeper.read(at)
         state = built.scenario.state
-        answer = await self.hass.async_add_executor_job(
-            keeper.layers, at, built.params, (state.upper_f, state.lower_f)
-        )
+        try:
+            await keeper.read(at)
+            answer = await self.hass.async_add_executor_job(
+                keeper.layers, at, built.params, (state.upper_f, state.lower_f)
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug(
+                "The tank's layers for %s failed",
+                self.mac_address,
+                exc_info=True,
+            )
+            return None, (f"layers: not replayed ({err})",)
         return answer.layers_f, answer.notes
 
     def _environment(

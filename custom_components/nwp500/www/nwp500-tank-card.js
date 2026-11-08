@@ -29,6 +29,8 @@ const STOP_LABELS = {
   cap: 'TOU cap stops it',
   mode: 'mode change stops it',
   write: 'setpoint change stops it',
+  envelope: 'heat pump out of its air range stops it',
+  heat_pump: 'heat pump takes over',
 };
 
 const COLORS = {

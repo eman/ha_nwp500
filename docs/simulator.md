@@ -138,7 +138,7 @@ defaults the simulator used instead.
 | Sensor | State |
 |---|---|
 | Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
-| Simulated hot water ready | When the tank comes to temperature: the end of the heating it is in, or of the next one within 24 hours, when that heating ends at its target. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why the heating ends: `target` (the tank is heated), `cap` (a TOU period's cap), `mode` (a mode change), `write` (a setpoint write) or `horizon` (the 24 hours run out first). Unknown when it won't heat within 24 hours, and when the heating stops short: any `stop` but `target`, except a setpoint write that ends it with the tank already at the new setpoint, which the library counts as reached |
+| Simulated hot water ready | When the tank comes to temperature: the end of the heating it is in, or of the next one within 24 hours, when that heating ends at its target. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why the heating ends: `target` (the tank is heated), `cap` (a TOU period's cap), `mode` (a mode change), `write` (a setpoint write), `envelope` (the air leaves the heat pump's operating range, 41 to 113 °F, and the elements take over), `heat_pump` (the heat pump takes back a recovery an element was carrying) or `horizon` (the 24 hours run out first). Unknown when it won't heat within 24 hours, and when the heating stops short: any `stop` but `target`, except a setpoint write that ends it with the tank already at the new setpoint, which the library counts as reached |
 | Simulated compressor start | When the heat pump's compressor next starts, as the walk finds it: the first heating interval whose source is the compressor. Its attributes: `running` (the heater reports the compressor running), and the start's `cause` and `trigger`. Unknown while the compressor runs (Simulated hot water ready is then when it stops), and when no start falls within 24 hours, such as in Electric or Vacation |
 | Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 | Simulated hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
@@ -193,10 +193,14 @@ the tank, not only what its two probes show.
 
 The actions use the heater's layers for a scenario on the heater's
 (`use_heater`) that still starts now, from the heater's state, with its
-parameters, and gives no layers of its own; for another start, state or
-tank, the layers are left out and a note says so. The scenario action's
-document carries the layers (`state.layers_f`, the bottom first), so a
-document sent back unchanged walks from them.
+parameters; for another start, state or tank, the layers are left out and
+a note says so. The scenario action's document leaves them out, so a
+document sent back unchanged walks from them, and one with its probes or
+tank edited walks from the probes it gives. A document can name its own:
+`state.layers_f`, a list of the tank's layers in °F, the bottom first,
+as many as its parameters' `tank.layers`, used as given (the library
+then reads the tank from them, not from the probes), or null to walk from
+the two probes.
 
 Each sensor has these attributes:
 
@@ -249,8 +253,8 @@ heater, and says so otherwise; it waits for a simulator that is still
 starting, and keeps its subscription across Home Assistant's restarts. Recorded history needs the tank
 sensors recorded (the recorder's default), and is drawn in Home
 Assistant's temperature unit whatever a sensor's own unit. A heating a
-TOU cap, a mode change or a setpoint write stops short is marked as
-stopping short, not as at temperature.
+TOU cap, a mode change, a setpoint write or the heat pump's operating
+range stops short is marked as stopping short, not as at temperature.
 
 ### The path over the websocket API
 
@@ -275,7 +279,7 @@ The path is in Home Assistant's temperature unit:
 | `state` | As Simulated heating's |
 | `compressor_running` | Whether the heater reports its compressor running |
 | `heating_start`, `heating_end`, `stop`, `source` | The current or next heating: when it starts, when it ends (none when the 24 hours cut it), why it ends and what heats |
-| `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`), none for one a TOU cap, a mode change or a setpoint write stops short |
+| `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`), none for one a TOU cap, a mode change, a setpoint write or the heat pump's operating range stops short |
 | `compressor_start`, `compressor_trigger` | As Simulated compressor start's |
 | `hot_water` | What the hot water is enough for, as Simulated hot water for: `summary`, `baths`, `showers`; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |
 | `unit` | °F or °C |

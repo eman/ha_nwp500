@@ -8,6 +8,7 @@ not an error: the library walks from the tank's two probes.
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -248,45 +249,106 @@ async def test_the_actions_use_the_heaters_layers_for_its_own_scenario(
         inputs = await service.async_inputs(
             hass, runner, scenario=None, use_heater=True
         )
-        # Another tank: the heater's layers aren't its.
+        # The scenario action's document leaves the layers out ...
         document = (await service.async_get_scenario(hass, runner))["result"]
-        document["scenario"]["state"]["layers_f"] = None
-        document["params"]["tank"]["volume_gal"] = 80.0
-        other = await service.async_inputs(
+        # ... and sent back unchanged, they are laid on again.
+        again = await service.async_inputs(
             hass, runner, scenario=document, use_heater=True
         )
+        # Another tank: the heater's layers aren't its.
+        tank = copy.deepcopy(document)
+        tank["params"]["tank"]["volume_gal"] = 80.0
+        other = await service.async_inputs(
+            hass, runner, scenario=tank, use_heater=True
+        )
         # Other probes: nor are they this state's.
-        probes = (await service.async_get_scenario(hass, runner))["result"]
-        probes["scenario"]["state"]["layers_f"] = None
+        probes = copy.deepcopy(document)
         probes["scenario"]["state"]["upper_f"] = 100.0
         warmer = await service.async_inputs(
-            hass,
-            runner,
-            scenario=probes,
-            use_heater=True,
+            hass, runner, scenario=probes, use_heater=True
         )
         alone = await service.async_inputs(
             hass, runner, scenario=document, use_heater=False
         )
-        # The heater's own document, as the scenario action gives it,
-        # brings its layers back.
-        again = await service.async_inputs(
-            hass,
-            runner,
-            scenario=(await service.async_get_scenario(hass, runner))["result"],
-            use_heater=True,
-        )
 
     assert inputs.layers_f == LAYERS
     assert inputs.scenario.state.layers_f == LAYERS
+    assert "layers_f" not in document["scenario"]["state"]
+    assert again.layers_f == LAYERS
+    assert not any("layers: not used" in n for n in again.notes)
     assert other.layers_f is None
     assert other.scenario.state.layers_f is None
     assert any("layers: not used" in n for n in other.notes)
     assert warmer.layers_f is None
+    assert warmer.scenario.state.upper_f == 100.0
     assert any("layers: not used" in n for n in warmer.notes)
     assert alone.layers_f is None
-    assert again.layers_f == LAYERS
-    assert not any("layers: not used" in n for n in again.notes)
+    await stop(hass)
+
+
+async def test_a_document_gives_its_own_layers_or_none(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    _register_heater(hass)
+    reading, laying, _ = _patched()
+    own = tuple(100.0 + i for i in range(12))
+    with reading, laying:
+        runner = await started(hass, coordinator, FLOW)
+        # Null: the two probes, the heater's own state otherwise.
+        probes = await service.async_inputs(
+            hass,
+            runner,
+            scenario={
+                "schema_version": 1,
+                "scenario": {"state": {"layers_f": None}},
+            },
+            use_heater=True,
+        )
+        # A list: those, as given.
+        given = await service.async_inputs(
+            hass,
+            runner,
+            scenario={
+                "schema_version": 1,
+                "scenario": {"state": {"layers_f": list(own)}},
+            },
+            use_heater=True,
+        )
+
+    assert probes.layers_f is None
+    assert probes.scenario.state.layers_f is None
+    assert not any("layers: not used" in n for n in probes.notes)
+    assert given.layers_f == own
+    assert given.scenario.state.layers_f == own
+    await stop(hass)
+
+
+async def test_the_actions_inlet_is_measured_only_while_it_is_the_heaters(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    runner = await started(hass, coordinator, {"inlet_entity": "sensor.supply"})
+    with patch.object(
+        type(runner), "_async_inlet", AsyncMock(return_value=(55.0, ()))
+    ):
+        heaters = await service.async_inputs(
+            hass, runner, scenario=None, use_heater=True
+        )
+        document = (await service.async_get_scenario(hass, runner))["result"]
+        again = await service.async_inputs(
+            hass, runner, scenario=document, use_heater=True
+        )
+        document["scenario"]["environment"]["inlet_f"] = 60.0
+        given = await service.async_inputs(
+            hass, runner, scenario=document, use_heater=True
+        )
+        alone = await service.async_inputs(
+            hass, runner, scenario=document, use_heater=False
+        )
+
+    assert heaters.inlet_measured is True
+    assert again.inlet_measured is True
+    assert given.inlet_measured is False
+    assert alone.inlet_measured is False
     await stop(hass)
 
 
@@ -369,4 +431,62 @@ async def test_a_renamed_heater_entity_makes_a_new_keeper(
 
     assert renamed is not None and renamed is not keeper
     assert renamed.heater.upper == "sensor.renamed_upper"
+    await stop(hass)
+
+
+async def test_the_replay_takes_the_mixing_valve(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    _register_heater(hass)
+    reading, laying, (_, layers) = _patched()
+    with reading, laying:
+        runner = await started(
+            hass, coordinator, {**FLOW, "mixing_valve_f": 120.0}
+        )
+        inputs = await runner.async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    params = layers.call_args.args[1]
+    assert params.draw.delivery_intercept_f == 120.0
+    assert params == inputs.params
+    await stop(hass)
+
+
+async def test_a_changed_air_sensor_makes_a_new_keeper(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    _register_heater(hass)
+    runner = await started(hass, coordinator, FLOW)
+    keeper = runner._keeper()  # noqa: SLF001
+    assert keeper is not None
+
+    runner.options = {**FLOW, "air_entity": "sensor.air"}
+    aired = runner._keeper()  # noqa: SLF001
+
+    assert aired is not None and aired is not keeper
+    assert aired.entities.air == "sensor.air"
+    await stop(hass)
+
+
+async def test_a_replay_that_fails_walks_from_the_probes(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    _register_heater(hass)
+    with (
+        patch.object(HomeAssistantTank, "read", AsyncMock()),
+        patch.object(
+            HomeAssistantTank, "layers", MagicMock(side_effect=KeyError("x"))
+        ),
+    ):
+        runner = await started(hass, coordinator, FLOW)
+        inputs = await runner.async_inputs()
+
+    assert isinstance(inputs, Inputs)
+    assert inputs.layers_f is None
+    assert any(n.startswith("layers: not replayed") for n in inputs.notes)
+    # The heater's answer still comes, from the probes.
+    answer = runner.answer
+    assert answer is not None and answer.ok
+    assert answer.readiness is not None
+    assert ESTIMATED in answer.readiness.reasons
     await stop(hass)

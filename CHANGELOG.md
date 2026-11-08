@@ -71,10 +71,18 @@
   runs and the air beside the heater when those are chosen, in the
   executor. The walks and the hot water sensors start from those layers
   (`HeaterState.layers_f`), the heater's probes laid over them, so the
-  gallons are what is left in the tank; the actions use them for the
-  heater's own scenario, and the scenario action's document carries
-  them. Without a draw flow, the walks start from the profile the two
-  probes stand for (`tank_profile_estimated`).
+  gallons are what is left in the tank. The actions use them for the
+  heater's own scenario (its start, state and parameters); the scenario
+  action's document leaves them out, so it walks from them sent back
+  unchanged and from its own probes edited, and a document can give its
+  own (`state.layers_f`, or null for the two probes). A replay that fails
+  leaves the walks to the probes, with a note. Without a draw flow, the
+  walks start from the profile the two probes stand for
+  (`tank_profile_estimated`).
+- **A measured inlet is said to be.** The walks tell the library the
+  scenario's inlet is the mains as measured whenever the cold water
+  supply probe gives it, so the answers drop `inlet_temp_modelled`; the
+  actions say so only while the scenario's inlet is the heater's.
 - **The air fit runs on its own cadence.** The air beside the heater is
   fitted to the weather by nwp500-python's `fit_location_air`, at most
   hourly and in the executor, and each simulation is given the fit: the
@@ -213,10 +221,12 @@
     documents are `heater-params/2`: an action given a `heater-params/1`
     document refuses it. The simulated times, energies and hot water move
     with the new model.
-  - **The scenario's inlet is said to be measured** when the cold water
-    supply probe gives the mains, so the answers drop
-    `inlet_temp_modelled`; without the probe, the library's mains is the
-    rating test's 58 °F, where it was one installation's 72.4 °F.
+  - **The default mains is the rating test's 58 °F**, where it was one
+    installation's 72.4 °F, without a cold water supply probe.
+  - **Two new ways a heating stops**: `envelope`, the air leaving the
+    heat pump's operating range, and `heat_pump`, the heat pump taking
+    back a recovery an element was carrying. Simulated hot water ready's
+    `stop` attribute and the tank card name them.
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
     scenario, naming the field.
