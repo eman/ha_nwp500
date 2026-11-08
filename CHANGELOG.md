@@ -59,19 +59,22 @@
 - **What the simulator's draw flow counts.** An optional setting per
   heater beside the draw flow: delivered water (the default), measured at
   the taps after any mixing valve, or tank water, measured on the
-  heater's hot outlet. nwp500-python 9.12.2's book prices a tank-water
-  gallon at the tank's upper probe (`flow_volume`). Its default empty tank
-  was fitted to delivered water: for tank water, fit it to the heater.
-- **The simulator books the tank's heat from a hot water draw flow.** An
-  optional draw flow entity per heater: the household's hot water draw
-  flow, the circulation's water not in it. With it, nwp500-python's
-  `HomeAssistantBook` books the tank's heat from the heater's own
-  entities' recorded history and the flow's (72 hours the first time,
-  then only what is new), with the circulation pump's runs and the mains'
-  temperature when those are chosen, in the executor. The hot water
-  sensors and the walks are given the book, so the gallons are what is
-  left in the tank; the actions use it for the heater's own scenario.
-  Without a draw flow there is no book, as before.
+  heater's hot outlet. nwp500-python's replay takes a tank-water gallon
+  from the tank one for one, a delivered one through the mixing valve
+  (`flow_volume`).
+- **The simulator starts from the tank's layers, from a hot water draw
+  flow.** An optional draw flow entity per heater: the household's hot
+  water draw flow, the circulation's water not in it. With it,
+  nwp500-python's `HomeAssistantTank` replays the heater's own entities'
+  recorded history and the flow's through the tank's layers (24 hours
+  the first time, then only what is new), with the circulation pump's
+  runs and the air beside the heater when those are chosen, in the
+  executor. The walks and the hot water sensors start from those layers
+  (`HeaterState.layers_f`), the heater's probes laid over them, so the
+  gallons are what is left in the tank; the actions use them for the
+  heater's own scenario, and the scenario action's document carries
+  them. Without a draw flow, the walks start from the profile the two
+  probes stand for (`tank_profile_estimated`).
 - **The air fit runs on its own cadence.** The air beside the heater is
   fitted to the weather by nwp500-python's `fit_location_air`, at most
   hourly and in the executor, and each simulation is given the fit: the
@@ -123,9 +126,9 @@
   passed to the library as given: a cold water supply probe, a sensor on
   while hot water is in use (whether water is drawn now, and with the
   probe and the circulation pump's speed, the mains' temperature from the
-  recorded long draws), and a bath's and a shower's size. Without a heat
-  book the gallons rest on the library's evidence for the tank's two
-  temperatures, and its reasons say so. The simulator now lists `recorder`
+  recorded long draws), and a bath's and a shower's size. Without the
+  tank's layers the gallons rest on the profile its two probes stand
+  for, and the reasons say so. The simulator now lists `recorder`
   among its after-dependencies, to read those histories in-process.
 - **External control reports its start.** The heartbeat entity's
   `started_at` attribute is when the feature last started: Home Assistant's
@@ -195,8 +198,25 @@
 - **A renamed plan entity is followed**, and a missing one raises a
   Repairs issue until it is back.
 
-- **Library Dependency: nwp500-python**: Upgraded to 9.12.2. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.13.0. What the
   integration did before is kept; the library's corrections change these:
+  - **The simulator's model is replaced.** The tank is stacked layers in
+    place of two zones, and the heat pump a performance map fitted on one
+    NWP500-65's runs in place of the refrigerant cycle: draws, losses,
+    circulation and each heat source act on the layers they reach, and
+    the probes read the layers at their heights. The heat book is gone,
+    and with it the reasons `no_heat_book`, `heat_book_aged` and
+    `book_uncalibrated`; a walk without layers says
+    `tank_profile_estimated`. The heat pump runs only with the air at 41 to
+    113 °F (`heat_pump_unavailable` outside it), Electric heats again
+    after its first run, and a draw runs over its time. Parameter
+    documents are `heater-params/2`: an action given a `heater-params/1`
+    document refuses it. The simulated times, energies and hot water move
+    with the new model.
+  - **The scenario's inlet is said to be measured** when the cold water
+    supply probe gives the mains, so the answers drop
+    `inlet_temp_modelled`; without the probe, the library's mains is the
+    rating test's 58 °F, where it was one installation's 72.4 °F.
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
     scenario, naming the field.
@@ -204,35 +224,29 @@
   - **Standby is walked as Power Off**, as the NaviLink app counts it:
     nothing heats. The simulator's sensors were unavailable in Standby and
     its actions refused it.
-  - **Hot water read from the probes alone** is the tank's heat as its
-    two probes place it, whatever they read, and the larger of that and
-    the library's evidence where it has some. A tank with its probes apart
-    no longer reads 0, and `no_evidence_for_state`,
+  - **Hot water from the tank's layers.** The gallons are the layers'
+    water leaving the top in turn, each through the mixing valve, to the
+    first the valve delivers under the line. `no_evidence_for_state`,
     `colder_than_all_evidence`, `thermocline_unlocated` and
     `estimated_from_probes` are gone from the hot water sensors' reasons.
-    The 50 and 80 gal tanks' defaults scale by their rated storage (45.2
-    and 76.1 gal).
-  - **The heater's own air in the book and the air fit.** Without an air
-    sensor, the book and the weather fit take the heater's own air reading
+    The 50 and 80 gal tanks' defaults are the 65's tank resized to their
+    own dimensions.
+  - **The heater's own air in the replay and the air fit.** Without an air
+    sensor, the replay and the weather fit take the heater's own air reading
     once its heat pump has run 5 minutes. An idle reading, the cabinet's,
     has 6.2 °F taken off for the cabinet's warmth, and is flagged
     `ambient_from_idle_cabinet`: without an air sensor the heater's air
     reads cooler while the heat pump is off, and the simulated recoveries
     run longer.
-  - **The heat book survives a restart.** Across a span the heater wasn't
-    heard from or an entity was unavailable, the book walks on, each value
-    held from before (the flow for a minute, the pump's speed for five),
-    where it used to have no book until the next anchor. It also anchors
-    while the heat pump runs alone with the probes alike, not only when a
-    recovery ends, and converts gallons at the mains read from the long
-    draws.
-  - **The model's corrections.** The refrigerant's properties are
-    CoolProp's, the evaporator follows the air 0.6 °F per °F, the standby
-    loss and the circulation's terms are refitted, High Demand's upper
-    element restarts about 4 °F short of the setpoint, Energy Saver holds
-    its lower trigger while the upper tank is at the setpoint, and a draw
-    moves the lower probe by how far apart the probes are. The simulated
-    times, energies and hot water move with them.
+  - **The tank's layers survive a restart.** Across a span the heater
+    wasn't heard from or an entity was unavailable, the replay walks on,
+    each value held from before (the flow for a minute, the pump's speed
+    for five).
+  - **The controller's corrections.** High Demand's upper element
+    restarts about 4 °F short of the setpoint, Energy Saver holds its
+    lower trigger while the upper tank is at the setpoint, and the
+    elements answer the lower trigger no nearer than 4.1 °F under the
+    setpoint.
   - **A draw window runs cold** as soon as the delivered water falls below
     the line; the allowance for a dip that no draw showed is gone.
   - **Reservations have no Vacation mode.** The library now numbers

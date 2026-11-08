@@ -255,7 +255,8 @@ sensors for the air and humidity beside the heater, a weather forecast
 to project that air over the day, a cold water supply
 probe, a sensor that is on while hot water is in use, the circulation
 pump's speed, the household's hot water draw flow (with it, the library
-books the tank's heat), a bath's and a shower's size, and the mixing
+replays the tank's layers from its history), a bath's and a shower's
+size, and the mixing
 valve's temperature.
 
 The **NWP500 Tank Forecast** card (`custom:nwp500-tank-card`), loaded

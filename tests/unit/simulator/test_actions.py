@@ -193,14 +193,14 @@ async def test_a_null_parameter_is_the_callers_mistake(
     hass: HomeAssistant, runner: SimulatorRunner
 ):
     document = await snapshot(hass, runner)
-    document["params"]["compressor"]["compressor_constant"] = None
+    document["params"]["compressor"]["heat_btu_h"] = None
 
     with pytest.raises(ServiceValidationError) as err:
         await service.async_simulate(
             hass, runner, scenario=document, use_heater=False
         )
     assert err.value.translation_key == "simulator_invalid_scenario"
-    assert "compressor_constant" in err.value.translation_placeholders["error"]
+    assert "heat_btu_h" in err.value.translation_placeholders["error"]
 
 
 async def test_a_walk_longer_than_a_week_is_refused(

@@ -342,9 +342,6 @@ async def test_a_mixing_valve_is_given_to_the_library(
     assert isinstance(inputs, Inputs)
     draw = inputs.params.draw
     assert (draw.delivery_intercept_f, draw.delivery_slope) == (120.0, 0.0)
-    # The book's terms take the same valve.
-    book = inputs.params.book_terms()
-    assert (book.delivery_intercept_f, book.delivery_slope) == (120.0, 0.0)
     answer = runner.answer
     assert answer is not None and answer.readiness is not None
     expected = sim.time_to_ready(inputs.scenario, inputs.params)

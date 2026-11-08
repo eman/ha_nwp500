@@ -40,7 +40,7 @@ from ..const import (
     MAX_SIMULATE_HOURS,
     MODE_TO_DHW_ID,
 )
-from .runner import Inputs
+from .runner import Inputs, with_layers
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -135,35 +135,48 @@ async def async_inputs(
             translation_key="simulator_horizon_too_long",
             translation_placeholders={"hours": str(MAX_SIMULATE_HOURS)},
         )
-    # The heater's book is its tank's heat now: only for a scenario that
-    # starts then, with the heater's parameters.
-    book_notes: tuple[str, ...] = ()
-    book = None
-    inlet_measured = False
-    if live is not None and live.book is not None:
+    # The heater's layers are its tank now: only for a scenario that
+    # starts then, from the heater's state, with its parameters, and
+    # gives no layers of its own.
+    layer_notes: tuple[str, ...] = ()
+    scenario_out = built.scenario
+    if (
+        live is not None
+        and live.layers_f is not None
+        and built.scenario.state.layers_f is None
+    ):
+        # The heater's scenario as composed, before the layers were laid on.
+        heaters = live.live.scenario if live.live is not None else None
         if (
-            built.scenario.start == live.scenario.start
+            heaters is not None
+            and built.scenario.start == heaters.start
             and built.params == live.params
+            and built.scenario.state == heaters.state
         ):
-            book, inlet_measured = live.book, live.inlet_measured
+            scenario_out = with_layers(built.scenario, live.layers_f)
         else:
-            book_notes = (
+            layer_notes = (
                 (
-                    "book: not used; the scenario's start or parameters "
-                    "are not the heater's"
+                    "layers: not used; the scenario's start, state or "
+                    "parameters are not the heater's"
                 ),
             )
     return Inputs(
-        scenario=built.scenario,
+        scenario=scenario_out,
         params=built.params,
         reasons=() if live is None else live.reasons,
         notes=(
             *(() if live is None else live.live_notes),
             *built.notes,
-            *book_notes,
+            *layer_notes,
         ),
-        book=book,
-        inlet_measured=inlet_measured,
+        layers_f=scenario_out.state.layers_f,
+        # The heater's inlet is measured; one the document gives is not
+        # known to be.
+        inlet_measured=live is not None
+        and live.inlet_measured
+        and built.scenario.environment.inlet_f
+        == live.scenario.environment.inlet_f,
         # A draw the heater reports now is the scenario's only from now.
         drawing=live is not None
         and live.drawing
@@ -240,7 +253,6 @@ async def async_simulate(
             sim.simulate,
             inputs.scenario,
             inputs.params,
-            book=inputs.book,
             inlet_measured=inputs.inlet_measured,
         ),
     )
@@ -278,7 +290,6 @@ async def async_time_to_ready(
             sim.time_to_ready,
             inputs.scenario,
             inputs.params,
-            book=inputs.book,
             bath_gal=(
                 bath_gal
                 if bath_gal is not None
