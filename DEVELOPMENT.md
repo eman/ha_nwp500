@@ -43,7 +43,7 @@ Device Control: HA Command → MQTT Message → Device Response → Status Updat
 
 ### Prerequisites
 - Python 3.14+
-- Home Assistant 2026.3.0+
+- Home Assistant 2026.11.0+
 - Virtual environment recommended
 
 ### Environment Setup
@@ -59,6 +59,11 @@ uv venv
 source .venv/bin/activate
 uv pip install -r requirements.txt --group dev
 ```
+
+The dev environment's Home Assistant comes from the test harness, which
+can trail the minimum Home Assistant the integration requires. Run the
+type checkers through tox (`tox -e mypy`, `tox -e basedpyright`), whose
+environments install a version that meets it.
 
 ## Testing
 

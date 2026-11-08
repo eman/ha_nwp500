@@ -166,6 +166,11 @@
 
 ### Changed
 
+- **Requires Home Assistant 2026.11.0 or newer.** The water heater now
+  provides `native_temperature_unit`, `native_current_temperature` and
+  `native_target_temperature`. Home Assistant 2026.11 deprecated the
+  names without `native_` (they stop working in 2027.11) and logged a
+  warning for each at startup.
 - **Setting up asks only for the sign-in.** The simulator's set-up-or-skip
   page is gone: the sign-in form folds a section, *Optional features*,
   with the hot water simulator and external control, so monitoring and

@@ -117,7 +117,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
         Converted here rather than read from the library's converted field,
         which follows the library's global unit system. The coordinator
-        updates that only on its next poll, while `temperature_unit` follows
+        updates that only on its next poll, while `native_temperature_unit` follows
         Home Assistant at once, so after a unit change the converted field
         would be in the other scale for up to a poll interval.
         """
@@ -126,7 +126,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
         if not isinstance(raw, int) or isinstance(raw, bool):
             return None
         return HalfCelsius(raw).to_preferred(
-            self.temperature_unit == UnitOfTemperature.CELSIUS
+            self.native_temperature_unit == UnitOfTemperature.CELSIUS
         )
 
     @property
@@ -143,7 +143,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             return limit
         return (
             float(MIN_TEMPERATURE_C)
-            if self.temperature_unit == UnitOfTemperature.CELSIUS
+            if self.native_temperature_unit == UnitOfTemperature.CELSIUS
             else float(MIN_TEMPERATURE_F)
         )
 
@@ -159,13 +159,13 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             return limit
         return (
             float(MAX_TEMPERATURE_C)
-            if self.temperature_unit == UnitOfTemperature.CELSIUS
+            if self.native_temperature_unit == UnitOfTemperature.CELSIUS
             else float(MAX_TEMPERATURE_F)
         )
 
     @property
     @override
-    def temperature_unit(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    def native_temperature_unit(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return Home Assistant's configured temperature unit.
 
         The library handles unit conversion based on HA's configured unit
@@ -175,7 +175,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
     @property
     @override
-    def current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    def native_current_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the current DHW output temperature."""
         if not (status := self._status):
             return None
@@ -187,7 +187,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
     @property
     @override
-    def target_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    def native_target_temperature(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the temperature we try to reach."""
         if not (status := self._status):
             return None

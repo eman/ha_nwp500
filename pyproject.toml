@@ -40,22 +40,26 @@ test = [
 ]
 mypy = [
     {include-group = "sim"},
-    "homeassistant>=2026.3.0",
+    "homeassistant>=2026.11.0",
     "mypy>=2.4.0",
 ]
 basedpyright = [
     {include-group = "sim"},
-    "homeassistant>=2026.3.0",
+    "homeassistant>=2026.11.0",
     "basedpyright>=1.40.2",
 ]
 lint = [
     "ruff>=0.17.3",
 ]
+# The dev env takes Home Assistant from the test harness, which can trail
+# the minimum the type-check groups require, so it carries the type
+# checkers without their homeassistant floor. Type check through tox
+# (tox -e mypy, tox -e basedpyright), whose envs meet that floor.
 dev = [
     {include-group = "test"},
-    {include-group = "mypy"},
-    {include-group = "basedpyright"},
     {include-group = "lint"},
+    "mypy>=2.4.0",
+    "basedpyright>=1.40.2",
     "tox>=4.67.4",
     "tox-uv>=1.37.2",
 ]
