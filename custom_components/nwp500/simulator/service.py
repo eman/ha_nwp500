@@ -45,8 +45,6 @@ from .runner import Inputs, with_layers
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-    from nwp500.sim.inputs import Scenario
-
     from .runner import SimulatorRunner
 
 # One walk at a time: a week's walk takes a CPU for a while.
@@ -87,21 +85,6 @@ async def async_inputs(
     Without a heater's runner (`use_heater` off and no heater named), the
     document alone.
     """
-    inputs, _ = await _async_inputs(
-        hass, runner, scenario=scenario, use_heater=use_heater, over=over
-    )
-    return inputs
-
-
-async def _async_inputs(
-    hass: HomeAssistant,
-    runner: SimulatorRunner | None,
-    *,
-    scenario: dict[str, Any] | None,
-    use_heater: bool,
-    over: dict[str, Any] | None = None,
-) -> tuple[Inputs, Scenario]:
-    """`async_inputs`, and its scenario without the heater's layers."""
     live: Inputs | None = None
     if use_heater:
         if runner is None:
@@ -159,6 +142,18 @@ async def _async_inputs(
     raw_state = ((scenario or {}).get("scenario") or {}).get("state") or {}
     layer_notes: tuple[str, ...] = ()
     scenario_out = built.scenario
+    own = built.scenario.state.layers_f
+    if own is not None and (live is None or own != live.layers_f):
+        # A document's own layers, such as the scenario action's from an
+        # earlier walk: the library reads the tank from them, not from
+        # the probes beside them, which an edit may have changed.
+        layer_notes = (
+            (
+                "layers: the document's own; the walk reads the tank from "
+                "them, not from its probes (layers_f null walks from the "
+                "probes)"
+            ),
+        )
     if (
         live is not None
         and live.layers_f is not None
@@ -180,7 +175,7 @@ async def _async_inputs(
                     "parameters are not the heater's"
                 ),
             )
-    inputs = Inputs(
+    return Inputs(
         scenario=scenario_out,
         params=built.params,
         reasons=() if live is None else live.reasons,
@@ -202,7 +197,6 @@ async def _async_inputs(
         and built.scenario.start == live.scenario.start
         and not raw_state,
     )
-    return inputs, built.scenario
 
 
 async def _async_call(hass: HomeAssistant, call: Callable[[], Any]) -> Any:
@@ -237,14 +231,15 @@ async def async_get_scenario(
 ) -> dict[str, Any]:
     """The scenario the other actions would walk, as a document to edit.
 
-    Without the heater's layers: sent back with the heater's start, state
-    and parameters, the actions lay them on again; edited, they are left
-    out, as the probes it gives would not be the layers'.
+    With the heater's layers, when it has them: the document walks from
+    them sent back later, or with `use_heater` off.
     """
-    inputs, bare = await _async_inputs(
+    inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater
     )
-    return _response(codec.scenario_to_document(bare, inputs.params), inputs)
+    return _response(
+        codec.scenario_to_document(inputs.scenario, inputs.params), inputs
+    )
 
 
 async def async_simulate(

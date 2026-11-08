@@ -194,13 +194,13 @@ the tank, not only what its two probes show.
 The actions use the heater's layers for a scenario on the heater's
 (`use_heater`) that still starts now, from the heater's state, with its
 parameters; for another start, state or tank, the layers are left out and
-a note says so. The scenario action's document leaves them out, so a
-document sent back unchanged walks from them, and one with its probes or
-tank edited walks from the probes it gives. A document can name its own:
-`state.layers_f`, a list of the tank's layers in °F, the bottom first,
-as many as its parameters' `tank.layers`, used as given (the library
-then reads the tank from them, not from the probes), or null to walk from
-the two probes.
+a note says so. The scenario action's document carries them
+(`state.layers_f`, the tank's layers in °F, the bottom first, as many as
+its parameters' `tank.layers`), so it walks from them sent back later or
+with `use_heater` off. A document's layers are used as given: the library
+reads the tank from them, not from the probes beside them, so a note says
+so when they aren't the heater's now. To walk from edited probes, set
+`layers_f` to null.
 
 Each sensor has these attributes:
 

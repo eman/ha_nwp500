@@ -73,9 +73,10 @@
   (`HeaterState.layers_f`), the heater's probes laid over them, so the
   gallons are what is left in the tank. The actions use them for the
   heater's own scenario (its start, state and parameters); the scenario
-  action's document leaves them out, so it walks from them sent back
-  unchanged and from its own probes edited, and a document can give its
-  own (`state.layers_f`, or null for the two probes). A replay that fails
+  action's document carries them, so it walks from them sent back later,
+  and a document's own layers (`state.layers_f`) are used as given, with
+  a note when they aren't the heater's now, or null walks from the two
+  probes. A replay that fails
   leaves the walks to the probes, with a note. Without a draw flow, the
   walks start from the profile the two probes stand for
   (`tank_profile_estimated`).

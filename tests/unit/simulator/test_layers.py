@@ -9,6 +9,7 @@ not an error: the library walks from the tank's two probes.
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -249,40 +250,76 @@ async def test_the_actions_use_the_heaters_layers_for_its_own_scenario(
         inputs = await service.async_inputs(
             hass, runner, scenario=None, use_heater=True
         )
-        # The scenario action's document leaves the layers out ...
-        document = (await service.async_get_scenario(hass, runner))["result"]
-        # ... and sent back unchanged, they are laid on again.
-        again = await service.async_inputs(
-            hass, runner, scenario=document, use_heater=True
-        )
-        # Another tank: the heater's layers aren't its.
-        tank = copy.deepcopy(document)
-        tank["params"]["tank"]["volume_gal"] = 80.0
-        other = await service.async_inputs(
-            hass, runner, scenario=tank, use_heater=True
-        )
-        # Other probes: nor are they this state's.
-        probes = copy.deepcopy(document)
-        probes["scenario"]["state"]["upper_f"] = 100.0
-        warmer = await service.async_inputs(
-            hass, runner, scenario=probes, use_heater=True
-        )
-        alone = await service.async_inputs(
-            hass, runner, scenario=document, use_heater=False
+        # Another start: the heater's layers aren't that instant's.
+        later = await service.async_inputs(
+            hass,
+            runner,
+            scenario={
+                "schema_version": 1,
+                "scenario": {
+                    "start": (
+                        inputs.scenario.start + timedelta(hours=1)
+                    ).isoformat()
+                },
+            },
+            use_heater=True,
         )
 
     assert inputs.layers_f == LAYERS
     assert inputs.scenario.state.layers_f == LAYERS
-    assert "layers_f" not in document["scenario"]["state"]
+    assert not any(n.startswith("layers: not used") for n in inputs.notes)
+    assert later.layers_f is None
+    assert later.scenario.state.layers_f is None
+    assert any("layers: not used" in n for n in later.notes)
+    await stop(hass)
+
+
+async def test_the_scenario_document_keeps_the_heaters_layers(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    _register_heater(hass)
+    reading, laying, _ = _patched()
+    with reading, laying:
+        runner = await started(hass, coordinator, FLOW)
+        document = (await service.async_get_scenario(hass, runner))["result"]
+        # Sent back unchanged: the heater's, and nothing to say.
+        again = await service.async_inputs(
+            hass, runner, scenario=document, use_heater=True
+        )
+        # Sent back after the clock has moved on: the document's start,
+        # walked from its own layers, and with the heater not used.
+        earlier = copy.deepcopy(document)
+        start = datetime.fromisoformat(earlier["scenario"]["start"])
+        earlier["scenario"]["start"] = (
+            start - timedelta(minutes=5)
+        ).isoformat()
+        kept = await service.async_inputs(
+            hass, runner, scenario=earlier, use_heater=True
+        )
+        alone = await service.async_inputs(
+            hass, runner, scenario=earlier, use_heater=False
+        )
+        # Its probes edited: still its layers, and the note says the walk
+        # reads the tank from them.
+        probes = copy.deepcopy(document)
+        probes["scenario"]["state"]["upper_f"] = 100.0
+        probes["scenario"]["state"]["layers_f"] = [
+            v - 1.0 for v in probes["scenario"]["state"]["layers_f"]
+        ]
+        edited = await service.async_inputs(
+            hass, runner, scenario=probes, use_heater=True
+        )
+
+    assert document["scenario"]["state"]["layers_f"] == list(LAYERS)
     assert again.layers_f == LAYERS
     assert not any("layers: not used" in n for n in again.notes)
-    assert other.layers_f is None
-    assert other.scenario.state.layers_f is None
-    assert any("layers: not used" in n for n in other.notes)
-    assert warmer.layers_f is None
-    assert warmer.scenario.state.upper_f == 100.0
-    assert any("layers: not used" in n for n in warmer.notes)
-    assert alone.layers_f is None
+    assert not any("layers: the document's own" in n for n in again.notes)
+    assert kept.scenario.start == start - timedelta(minutes=5)
+    assert kept.layers_f == LAYERS
+    assert alone.layers_f == LAYERS
+    assert any("layers: the document's own" in n for n in alone.notes)
+    assert edited.layers_f == tuple(v - 1.0 for v in LAYERS)
+    assert any("layers: the document's own" in n for n in edited.notes)
     await stop(hass)
 
 
