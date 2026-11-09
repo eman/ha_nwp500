@@ -1472,6 +1472,10 @@ ISSUE_SIMULATOR_INSTALL_FAILED: Final = "simulator_install_failed"
 # it without importing the simulator.
 SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
 
+# The simulator's calibration, per config entry: `<key>.<entry_id>`.
+SIMULATOR_CALIBRATION_STORAGE_KEY: Final = f"{DOMAIN}.simulator_calibration"
+SIMULATOR_CALIBRATION_STORAGE_VERSION: Final = 1
+
 # The simulator's entities an earlier version made, by domain and key
 # (unique ID `<mac>_simulator_<key>`): removed when it starts. Bath ready
 # is Hot water for baths above 0, and Hot water for its counts in words.

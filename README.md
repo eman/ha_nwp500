@@ -288,9 +288,14 @@ any tank from a document alone.
 Turning it on installs numpy, pandas and scipy if Home Assistant does not
 already have them; with it off, none of them is installed or loaded, and
 the integration works as it did before. Turning it off removes its sensors. The
-answers come from physics with the default parameters for the tank's size,
-and run short on long recoveries. An air temperature sensor beside the
-heater helps most. See [docs/simulator.md](docs/simulator.md).
+answers come from physics, on parameters the library fits to your heater:
+the integration hands nwp500-python's calibration the heater's history from
+Home Assistant's recorder about an hour after the simulator starts, then
+weekly, and when you press **Calibrate simulator** or call
+`nwp500.calibrate_simulator`; the **Simulator calibration** sensor says
+what was fitted. Until then it runs on the defaults for the tank's size. An
+air temperature sensor beside the heater helps most. See
+[docs/simulator.md](docs/simulator.md).
 
 ## Automation Examples
 

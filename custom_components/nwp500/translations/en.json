@@ -844,6 +844,38 @@
       },
       "simulator_bath_ready_at": {
         "name": "Bath ready"
+      },
+      "simulator_calibration": {
+        "name": "Simulator calibration",
+        "state_attributes": {
+          "last_attempt": {
+            "name": "Last attempt"
+          },
+          "error": {
+            "name": "Why the last attempt failed"
+          },
+          "history_from": {
+            "name": "History from"
+          },
+          "history_to": {
+            "name": "History to"
+          },
+          "refined": {
+            "name": "Refined the earlier calibration"
+          },
+          "fitted": {
+            "name": "Fitted"
+          },
+          "unfitted": {
+            "name": "Kept the defaults"
+          },
+          "judged": {
+            "name": "Kept or replaced"
+          },
+          "notes": {
+            "name": "Notes"
+          }
+        }
       }
     },
     "binary_sensor": {
@@ -986,6 +1018,9 @@
     "button": {
       "control_disable": {
         "name": "Stop external control"
+      },
+      "simulator_calibrate": {
+        "name": "Calibrate simulator"
       }
     }
   },
@@ -1308,7 +1343,7 @@
         },
         "scenario": {
           "name": "Scenario",
-          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the parameters for the heater's tank size."
+          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the heater's parameters: its calibration's, or the defaults for its tank's size."
         },
         "use_heater": {
           "name": "Start from the heater",
@@ -1330,7 +1365,7 @@
         },
         "scenario": {
           "name": "Scenario",
-          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the parameters for the heater's tank size."
+          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the heater's parameters: its calibration's, or the defaults for its tank's size."
         },
         "use_heater": {
           "name": "Start from the heater",
@@ -1360,7 +1395,7 @@
         },
         "scenario": {
           "name": "Scenario",
-          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the parameters for the heater's tank size."
+          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the heater's parameters: its calibration's, or the defaults for its tank's size."
         },
         "use_heater": {
           "name": "Start from the heater",
@@ -1382,7 +1417,7 @@
         },
         "scenario": {
           "name": "Scenario",
-          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the parameters for the heater's tank size."
+          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the heater's parameters: its calibration's, or the defaults for its tank's size."
         },
         "use_heater": {
           "name": "Start from the heater",
@@ -1416,7 +1451,7 @@
         },
         "scenario": {
           "name": "Scenario",
-          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the parameters for the heater's tank size."
+          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the heater's parameters: its calibration's, or the defaults for its tank's size."
         },
         "use_heater": {
           "name": "Start from the heater",
@@ -1438,11 +1473,29 @@
         },
         "scenario": {
           "name": "Scenario",
-          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the parameters for the heater's tank size."
+          "description": "A scenario document (nwp500-python's, schema_version 1), as get_scenario returns one, laid over the heater's scenario: objects merge key by key, and any other value replaces the heater's. Temperatures in °F, volumes in US gallons. A params section replaces the heater's parameters: its calibration's, or the defaults for its tank's size."
         },
         "use_heater": {
           "name": "Start from the heater",
           "description": "Start from the water heater's scenario now. Off: the scenario document alone, which must then give the whole scenario; the water heater may then be left out, so another integration can model any tank. On by default."
+        }
+      }
+    },
+    "calibrate_simulator": {
+      "name": "Calibrate simulator",
+      "description": "Fit the hot water simulator's parameters to the water heater's history in Home Assistant's recorder, with nwp500-python's calibration, and use them from now on. Refines the parameters kept from before, keeping the better of the two, unless From the defaults is on. Returns the parameters, the library's report on each term, and its notes. Changes nothing on the heater. Needs the hot water simulator turned on in the integration's options.",
+      "fields": {
+        "device_id": {
+          "name": "Device",
+          "description": "The target NWP500 water heater device"
+        },
+        "entity_id": {
+          "name": "Entity",
+          "description": "The entity ID of the water heater (alternative to Device ID)"
+        },
+        "from_defaults": {
+          "name": "From the defaults",
+          "description": "Calibrate from the library's defaults for the tank's size, not from the parameters kept from before. Off by default."
         }
       }
     }
@@ -1465,6 +1518,9 @@
     },
     "simulator_horizon_too_long": {
       "message": "The simulator walks at most {hours} hours ahead."
+    },
+    "simulator_calibration_failed": {
+      "message": "The simulator couldn't be calibrated: {reason}."
     }
   },
   "selector": {

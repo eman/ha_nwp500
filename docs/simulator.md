@@ -125,12 +125,67 @@ The simulator also reads, from the integration itself, the tank's
 temperatures, the mode and setpoint, the heater's reservation schedule and
 its time-of-use schedule.
 
-The heater's parameters are the library's defaults for its tank's size
+The heater's parameters are its calibration's once it has one (below),
+and until then the library's defaults for its tank's size
 (`nwp500.sim_adapters.params`). The heater is read as the library's own live
 source reads it (`nwp500.sim_live`). The heating history before now (when
 the compressor last stopped, when the tank last heated) is left unset, as
 the library leaves it for a one-shot read, and `defaults_used` names the
 defaults the simulator used instead.
+
+## Calibration
+
+The library's defaults are one NWP500-65's, fitted at one installation.
+The simulator fits them to your heater with nwp500-python's own
+calibration (`nwp500.sim_calibrate.calibrate_changes`, its guide's
+"Calibrate the Simulator to Your Heater"): the integration reads the
+heater's history from Home Assistant's recorder and hands it to the
+library, which does the fitting, and the simulator walks on what it
+returns. Nothing is installed or run outside Home Assistant.
+
+- **When:** about an hour after the simulator first runs, then once a
+  week, and whenever you press **Calibrate simulator** (on the heater's
+  device page) or call `nwp500.calibrate_simulator`. A failed attempt is
+  tried again a day later.
+- **From what:** the recorder's whole history of the heater's entities
+  (Tank upper and lower temperature, Last status and the others the
+  simulator reads, which it enables), up to 60 days, with the simulator's
+  air sensor, humidity, demand and circulation pump. Home Assistant keeps
+  10 days by default; raise the recorder's `purge_keep_days` to give the
+  fit more.
+- **Each time after the first,** the library refines the parameters kept
+  from before (its `keep_better`): a group of terms takes the new fit
+  only where it predicts better on the latest evidence, held out of it.
+  So the fit gathers evidence week by week, even on 10 days of history.
+  The action's `from_defaults` starts again from the defaults.
+- **What it needs:** quiet windows of 3 hours or more for the standby
+  loss, 5 recoveries that reached their target for the compressor, 10
+  compressor cycles for the power. A term without enough keeps the
+  default, and the report says why; the answers it reaches say so in
+  their `reasons`.
+- **Kept** in Home Assistant's storage, per heater, across restarts.
+  Turning the simulator off, or removing the integration, removes it.
+
+A scenario document's own `params` still wins over the calibration in an
+action, as over the defaults.
+
+The **Simulator calibration** sensor (diagnostic) is when the parameters
+in use were calibrated, unknown on the defaults. Its attributes are the
+library's report:
+
+| Attribute | Meaning |
+|---|---|
+| `fitted` | Each fitted term and its value |
+| `unfitted` | Each term that kept the default, and why |
+| `judged` | With a refinement: each group of terms, kept or replaced, with both errors |
+| `notes` | The library's notes on the history and the fit |
+| `history_from`, `history_to` | The history the calibration read |
+| `refined` | Whether it refined an earlier calibration |
+| `last_attempt`, `error` | The last attempt, and why it failed if it did |
+
+`nwp500.calibrate_simulator` returns the same, with the parameters
+themselves (`params`, a `HeaterParams` document as the library's
+`params_to_document` writes it), for a scenario of your own.
 
 ## Sensors
 
@@ -310,6 +365,7 @@ nothing on the heater. Each is one of nwp500-python's calls on a scenario:
 | `nwp500.next_recovery` | `sim.next_recovery` | `kind: recovery` |
 | `nwp500.forecast` | `sim.forecast` | `kind: forecast` |
 | `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile` |
+| `nwp500.calibrate_simulator` | `sim_calibrate.calibrate_changes` | the calibration kept (above) |
 
 They need the simulator running. While they read the heater, they refuse
 to answer before the heater has reported its status.
@@ -438,8 +494,8 @@ range, fails with the library's message.
 
 ## Accuracy
 
-These answers come from physics with the default parameters for the tank's
-size. Expect:
+These answers come from physics, on the default parameters for the
+tank's size until the heater is calibrated (above). Expect:
 
 - **Long recoveries run short.** Physics alone says a long recovery ends
   sooner than it does. At one installation, recoveries with more than three

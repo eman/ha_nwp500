@@ -40,6 +40,8 @@ _PLATFORMS = [
     Platform.SWITCH,
     Platform.NUMBER,
 ]
+# With the simulator on: its Calibrate simulator button too.
+_SIMULATOR_PLATFORMS = [*_PLATFORMS, Platform.BUTTON]
 
 # Everything the simulator imports that an install without it may lack.
 _HEAVY = (
@@ -191,7 +193,7 @@ async def test_the_simulator_starts_after_the_platforms_in_the_background(
         # Set-up is done, and the heater's platforms are forwarded, before
         # the simulator has started.
         mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
-            mock_entry, _PLATFORMS
+            mock_entry, _SIMULATOR_PLATFORMS
         )
         setup.assert_not_awaited()
         # Its inputs enabled and retired entities removed before the
@@ -442,6 +444,8 @@ async def _leftovers(
         translation_key="simulator_start_failed",
         translation_placeholders={"reason": "x"},
     )
+    key = f"nwp500.simulator_calibration.{entry.entry_id}"
+    hass_storage[key] = {"version": 1, "key": key, "data": {"heaters": {}}}
     return simulated, other
 
 
@@ -462,6 +466,8 @@ async def test_switching_it_off_removes_what_it_left(
     assert not ir.async_get(hass).async_get_issue(
         DOMAIN, f"simulator_start_failed_{entry.entry_id}"
     )
+    # Its calibration goes too.
+    assert f"nwp500.simulator_calibration.{entry.entry_id}" not in hass_storage
 
 
 @pytest.mark.asyncio
@@ -474,6 +480,7 @@ async def test_a_reload_with_it_on_keeps_it(hass: HomeAssistant, hass_storage):
         await async_reload_entry(hass, entry)
 
     assert er.async_get(hass).async_get(simulated.entity_id) is not None
+    assert f"nwp500.simulator_calibration.{entry.entry_id}" in hass_storage
 
 
 @pytest.mark.asyncio
@@ -489,6 +496,7 @@ async def test_removing_the_entry_removes_its_repairs_issue(
     assert not ir.async_get(hass).async_get_issue(
         DOMAIN, f"simulator_start_failed_{entry.entry_id}"
     )
+    assert f"nwp500.simulator_calibration.{entry.entry_id}" not in hass_storage
 
 
 _ACTIONS = (

@@ -38,6 +38,7 @@ from nwp500.models import ReservationSchedule, TOUPeriod
 from nwp500.sim import codec
 from nwp500.sim.inputs import POWER_OFF, VACATION, Scenario, Schedules
 from nwp500.sim.location_air import FittedLocationAir
+from nwp500.sim.params import HeaterParams
 from nwp500.sim_home_assistant import (
     Entities,
     HeaterEntities,
@@ -583,6 +584,9 @@ class SimulatorRunner:
         self.last_duration_s: float | None = None
         self._listeners: list[CALLBACK_TYPE] = []
         self._unsubs: list[CALLBACK_TYPE] = []
+        # The heater's calibrated parameters (`calibration.py`); None for
+        # the library's defaults for its tank's size.
+        self.calibrated_params: HeaterParams | None = None
         self._seen_update: float | None = None
         self._closed = False
         self._failure: str | None = None
@@ -622,7 +626,7 @@ class SimulatorRunner:
             weather=self.options.get(CONF_SIMULATOR_WEATHER_ENTITY),
         )
 
-    def _heater_entities(self) -> HeaterEntities | None:
+    def heater_entities(self) -> HeaterEntities | None:
         """The heater's own entities, as named here, for its history.
 
         Where no air sensor is chosen, the library fits the air on the
@@ -678,7 +682,7 @@ class SimulatorRunner:
         flow = self.options.get(CONF_SIMULATOR_DRAW_FLOW_ENTITY)
         if flow is None:
             return None
-        heater = self._heater_entities()
+        heater = self.heater_entities()
         if heater is None:
             self._tank = None
             return None
@@ -757,7 +761,7 @@ class SimulatorRunner:
             until=until,
             now=start,
             fitted_air=fitted,
-            heater=self._heater_entities() if fitted else None,
+            heater=self.heater_entities() if fitted else None,
             run=self.hass.async_add_executor_job,
         )
 
@@ -777,7 +781,7 @@ class SimulatorRunner:
                 cast("HomeAssistantClient", InProcessClient(self.hass)),
                 Entities(air=self.entities.air, weather=weather),
                 now=now,
-                heater=self._heater_entities(),
+                heater=self.heater_entities(),
                 run=self.hass.async_add_executor_job,
             )
             fit = self.air_fit = (now, fitted, tuple(notes))
@@ -811,6 +815,12 @@ class SimulatorRunner:
             unsub()
         self._unsubs.clear()
         self._debouncer.async_shutdown()
+
+    @callback
+    def async_refresh(self) -> None:
+        """Walk again now, as after a report."""
+        if not self._closed:
+            self.hass.async_create_task(self._debouncer.async_call())
 
     def _stopped(self) -> bool:
         return self._closed
@@ -885,10 +895,16 @@ class SimulatorRunner:
                 schedules=Given(schedules),
                 environment=environment,
             )
+            if self.calibrated_params is not None:
+                # The heater's own, in place of the defaults for its tank's
+                # size: an action's document with parameters still wins.
+                composed = dataclasses.replace(
+                    composed, params=self.calibrated_params
+                )
             inlet_f, inlet_notes = await self._async_inlet(start)
             # The inlet laid on as the CLI lays a given one, and the
-            # parameters the heater's tank size gives, or the library's
-            # defaults without it.
+            # heater's parameters: calibrated, or the ones its tank size
+            # gives, or the library's defaults without it.
             built = overlay(
                 composed,
                 now=start,

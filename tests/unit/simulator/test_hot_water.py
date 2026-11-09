@@ -231,9 +231,18 @@ async def test_the_hot_water_entities_wait_with_the_others(
     await started(hass, coordinator, {})
     feature = hass.data[DOMAIN]["entry1"][DATA_SIMULATOR]
 
+    from custom_components.nwp500.simulator.sensor import (
+        SimulatorCalibrationSensor,
+    )
+
     entities = create_simulator_sensors(feature)
 
-    assert not any(entity.available for entity in entities)
+    # The calibration is kept whatever the walk says.
+    assert not any(
+        entity.available
+        for entity in entities
+        if not isinstance(entity, SimulatorCalibrationSensor)
+    )
     await stop(hass)
 
 

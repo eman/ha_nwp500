@@ -15,8 +15,9 @@ from homeassistant.components.sensor import (
     SensorExtraStoredData,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfEnergy, UnitOfVolume
+from homeassistant.const import EntityCategory, UnitOfEnergy, UnitOfVolume
 from homeassistant.core import callback
+from homeassistant.util import dt as dt_util
 
 from ..entity import NWP500Entity
 from .runner import (
@@ -469,6 +470,82 @@ class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, RestoreSensor):  # type: 
         return attributes
 
 
+class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+    """When the heater's parameters were last calibrated to its history.
+
+    Unknown while the simulator runs on the library's defaults for the
+    tank's size. Its attributes are the library's report: each term's
+    value where it was fitted, or why it kept the default, and the
+    library's notes; and the last attempt, with why it failed if it did.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:tune-variant"
+    # Long, and in the store: kept off the recorder.
+    _unrecorded_attributes = frozenset(
+        {"fitted", "unfitted", "judged", "notes", "error"}
+    )
+
+    def __init__(
+        self, feature: SimulatorFeature, runner: SimulatorRunner
+    ) -> None:
+        """Bind to the heater's calibration."""
+        device = runner.coordinator.data[runner.mac_address]["device"]
+        super().__init__(runner.coordinator, runner.mac_address, device)
+        self.calibration = feature.calibration
+        self._attr_unique_id = f"{runner.mac_address}_simulator_calibration"
+        self._attr_translation_key = "simulator_calibration"
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """Follow the calibration as well as the coordinator."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self.calibration.async_add_listener(self.async_write_ha_state)
+        )
+
+    @property
+    def _record(self) -> dict[str, Any]:
+        return self.calibration.record(self.mac_address) or {}
+
+    @property
+    @override
+    def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """When the parameters in use were calibrated; None for defaults."""
+        if self.calibration.params(self.mac_address) is None:
+            return None
+        at = self._record.get("calibrated_at")
+        return dt_util.parse_datetime(at) if isinstance(at, str) else None
+
+    @property
+    @override
+    def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """The library's report on the calibration, and the last attempt."""
+        record = self._record
+        terms = record.get("terms") or []
+        in_use = self.calibration.params(self.mac_address) is not None
+        return {
+            "last_attempt": record.get("attempted_at"),
+            "error": record.get("error"),
+            "history_from": record.get("history_from") if in_use else None,
+            "history_to": record.get("history_to") if in_use else None,
+            "refined": record.get("refined") if in_use else None,
+            "fitted": {t["name"]: t["value"] for t in terms if t.get("fitted")}
+            if in_use
+            else {},
+            "unfitted": {
+                t["name"]: t.get("why", "")
+                for t in terms
+                if not t.get("fitted")
+            }
+            if in_use
+            else {},
+            "judged": record.get("judged", []) if in_use else [],
+            "notes": record.get("notes", []) if in_use else [],
+        }
+
+
 def create_simulator_sensors(feature: SimulatorFeature) -> list[SensorEntity]:
     """The sensors for each heater the simulator runs for."""
     entities: list[SensorEntity] = []
@@ -484,6 +561,7 @@ def create_simulator_sensors(feature: SimulatorFeature) -> list[SensorEntity]:
                 SimulatorShowersAvailableSensor(runner, "showers_ready"),
                 SimulatorBathsAvailableSensor(runner, "baths_available"),
                 SimulatorBathReadyAtSensor(runner, "bath_ready_at"),
+                SimulatorCalibrationSensor(feature, runner),
             ]
         )
     return entities

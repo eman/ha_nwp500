@@ -8,7 +8,7 @@ import contextlib
 import importlib
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 if TYPE_CHECKING:
     # Home Assistant 2026.9 and later validate with probatio, and import
@@ -73,6 +73,8 @@ from .const import (
     MIN_TEMPERATURE_F,
     MODE_TO_DHW_ID,
     RESERVATION_MODE_IDS,
+    SIMULATOR_CALIBRATION_STORAGE_KEY,
+    SIMULATOR_CALIBRATION_STORAGE_VERSION,
     SIMULATOR_HEATER_ENTITIES,
     SIMULATOR_RETIRED_ENTITIES,
     SIMULATOR_UNIQUE_ID_MARKER,
@@ -133,6 +135,7 @@ SERVICE_TIME_TO_READY = "time_to_ready"
 SERVICE_NEXT_RECOVERY = "next_recovery"
 SERVICE_FORECAST = "forecast"
 SERVICE_HEATER_PROFILE = "heater_profile"
+SERVICE_CALIBRATE_SIMULATOR = "calibrate_simulator"
 
 # Service attributes
 ATTR_ENABLED = "enabled"
@@ -150,6 +153,7 @@ ATTR_AT = "at"
 ATTR_INCLUDE_POINTS = "include_points"
 ATTR_SCENARIO = "scenario"
 ATTR_USE_HEATER = "use_heater"
+ATTR_FROM_DEFAULTS = "from_defaults"
 ATTR_BATH_GAL = "bath_gal"
 ATTR_SHOWER_GAL = "shower_gal"
 ATTR_TARGET_TIME = "target_time"
@@ -521,6 +525,17 @@ SERVICE_FORECAST_SCHEMA = _scenario_schema(
         vol.Optional(ATTR_TARGET_F): vol.Coerce(float),
         vol.Optional(ATTR_TARGET_LOWER_F): vol.Coerce(float),
     }
+)
+
+SERVICE_CALIBRATE_SIMULATOR_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): cv.string,
+            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_FROM_DEFAULTS, default=False): cv.boolean,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
 )
 
 SERVICE_SET_AIR_FILTER_LIFE_SCHEMA = vol.All(
@@ -1039,6 +1054,35 @@ class NWP500ServiceHandler:
         """Handle the heater_profile service call."""
         return await self._async_simulator_action(call, "async_heater_profile")
 
+    async def async_calibrate_simulator(
+        self, call: ServiceCall
+    ) -> ServiceResponse:
+        """Calibrate the simulator's parameters to the heater's history.
+
+        The library fits; this returns what was kept: the parameters, the
+        library's report on each term, and its notes.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        feature = simulator_feature(self.hass, coordinator.entry)
+        if feature is None or mac_address not in feature.runners:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_not_enabled",
+            )
+        from .simulator.calibration import CalibrationError
+
+        try:
+            record: dict[str, Any] = await feature.async_calibrate(
+                mac_address, from_defaults=call.data[ATTR_FROM_DEFAULTS]
+            )
+        except CalibrationError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_calibration_failed",
+                translation_placeholders={"reason": str(err)},
+            ) from err
+        return cast("ServiceResponse", record)
+
     async def async_get_energy_usage(
         self, call: ServiceCall
     ) -> ServiceResponse:
@@ -1376,6 +1420,10 @@ async def async_setup_entry(
         # Switched off after it failed to start: nothing is left to fix.
         ir.async_delete_issue(hass, DOMAIN, start_failed_issue)
 
+    if simulator_enabled(entry) and Platform.BUTTON not in platforms:
+        # Its Calibrate simulator button, added once it runs.
+        platforms.append(Platform.BUTTON)
+
     entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
     entry_data[DATA_PLATFORMS] = platforms
 
@@ -1392,8 +1440,8 @@ async def async_setup_entry(
     # Register services (only once)
     await _async_setup_services(hass)
 
-    # The hot water simulator is optional too, and adds no platforms: its
-    # sensors join the sensor platform once it runs. It starts after the
+    # The hot water simulator is optional too: its sensors join the sensor
+    # platform, and its button the button platform, once it runs. It starts after the
     # heater's platforms, in the background: installing its packages can
     # take minutes, and the water heater must not wait for it.
     if simulator_enabled(entry):
@@ -1589,7 +1637,7 @@ def _async_remove_retired_simulator_entities(
 async def _async_remove_simulator_leftovers(
     hass: HomeAssistant, entry_id: str
 ) -> None:
-    """The simulator's entities and Repairs issue."""
+    """The simulator's entities, Repairs issue and calibration."""
     registry = er.async_get(hass)
     for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
         if (
@@ -1600,6 +1648,12 @@ async def _async_remove_simulator_leftovers(
     ir.async_delete_issue(
         hass, DOMAIN, f"{ISSUE_SIMULATOR_START_FAILED}_{entry_id}"
     )
+    # Its calibration: the parameters fitted to the heater's history.
+    await Store[dict[str, Any]](
+        hass,
+        SIMULATOR_CALIBRATION_STORAGE_VERSION,
+        f"{SIMULATOR_CALIBRATION_STORAGE_KEY}.{entry_id}",
+    ).async_remove()
 
 
 def _control_was_on(entry: ConfigEntry) -> bool:
@@ -1645,6 +1699,11 @@ _RESPONSE_SERVICES: Final[frozenset[str]] = frozenset(
         SERVICE_FORECAST,
         SERVICE_HEATER_PROFILE,
     }
+)
+
+# Services that act, and answer the caller when asked.
+_OPTIONAL_RESPONSE_SERVICES: Final[frozenset[str]] = frozenset(
+    {SERVICE_CALIBRATE_SIMULATOR}
 )
 
 # (service name, handler attribute, schema). One table drives both
@@ -1760,6 +1819,11 @@ _SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
         "async_heater_profile",
         SERVICE_SCENARIO_SCHEMA,
     ),
+    (
+        SERVICE_CALIBRATE_SIMULATOR,
+        "async_calibrate_simulator",
+        SERVICE_CALIBRATE_SIMULATOR_SCHEMA,
+    ),
 )
 
 
@@ -1780,6 +1844,8 @@ async def _async_setup_services(hass: HomeAssistant) -> None:
             supports_response=(
                 SupportsResponse.ONLY
                 if service_name in _RESPONSE_SERVICES
+                else SupportsResponse.OPTIONAL
+                if service_name in _OPTIONAL_RESPONSE_SERVICES
                 else SupportsResponse.NONE
             ),
         )

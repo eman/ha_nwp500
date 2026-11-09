@@ -684,7 +684,8 @@ simulate:
         get_scenario returns one, laid over the heater's scenario: objects
         merge key by key, and any other value replaces the heater's.
         Temperatures in °F, volumes in US gallons. A params section replaces
-        the parameters for the heater's tank size.
+        the heater's parameters: its calibration's, or the defaults for its
+        tank's size.
       required: false
       selector:
         object:
@@ -734,7 +735,8 @@ get_scenario:
         get_scenario returns one, laid over the heater's scenario: objects
         merge key by key, and any other value replaces the heater's.
         Temperatures in °F, volumes in US gallons. A params section replaces
-        the parameters for the heater's tank size.
+        the heater's parameters: its calibration's, or the defaults for its
+        tank's size.
       required: false
       selector:
         object:
@@ -809,7 +811,8 @@ time_to_ready:
         get_scenario returns one, laid over the heater's scenario: objects
         merge key by key, and any other value replaces the heater's.
         Temperatures in °F, volumes in US gallons. A params section replaces
-        the parameters for the heater's tank size.
+        the heater's parameters: its calibration's, or the defaults for its
+        tank's size.
       required: false
       selector:
         object:
@@ -857,7 +860,8 @@ next_recovery:
         get_scenario returns one, laid over the heater's scenario: objects
         merge key by key, and any other value replaces the heater's.
         Temperatures in °F, volumes in US gallons. A params section replaces
-        the parameters for the heater's tank size.
+        the heater's parameters: its calibration's, or the defaults for its
+        tank's size.
       required: false
       selector:
         object:
@@ -939,7 +943,8 @@ forecast:
         get_scenario returns one, laid over the heater's scenario: objects
         merge key by key, and any other value replaces the heater's.
         Temperatures in °F, volumes in US gallons. A params section replaces
-        the parameters for the heater's tank size.
+        the heater's parameters: its calibration's, or the defaults for its
+        tank's size.
       required: false
       selector:
         object:
@@ -987,7 +992,8 @@ heater_profile:
         get_scenario returns one, laid over the heater's scenario: objects
         merge key by key, and any other value replaces the heater's.
         Temperatures in °F, volumes in US gallons. A params section replaces
-        the parameters for the heater's tank size.
+        the heater's parameters: its calibration's, or the defaults for its
+        tank's size.
       required: false
       selector:
         object:
@@ -1000,5 +1006,43 @@ heater_profile:
         default.
       required: false
       default: true
+      selector:
+        boolean:
+
+calibrate_simulator:
+  name: Calibrate simulator
+  description: >-
+    Fit the hot water simulator's parameters to the water heater's history in
+    Home Assistant's recorder, with nwp500-python's calibration, and use them
+    from now on. Refines the parameters kept from before, keeping the better
+    of the two, unless From the defaults is on. Returns the parameters, the
+    library's report on each term, and its notes. Changes nothing on the
+    heater. Needs the hot water simulator turned on in the integration's
+    options.
+  fields:
+    device_id:
+      name: Device
+      description: >-
+        The target NWP500 water heater device
+      required: false
+      selector:
+        device:
+          integration: nwp500
+    entity_id:
+      name: Entity
+      description: >-
+        The entity ID of the water heater (alternative to Device ID)
+      required: false
+      selector:
+        entity:
+          domain: water_heater
+          integration: nwp500
+    from_defaults:
+      name: From the defaults
+      description: >-
+        Calibrate from the library's defaults for the tank's size, not from
+        the parameters kept from before. Off by default.
+      required: false
+      default: false
       selector:
         boolean:

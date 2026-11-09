@@ -8,16 +8,20 @@ nothing heavy is imported later in the event loop.
 For each heater a runner keeps a 24-hour simulation up to date from the
 heater's reports (`runner.py`); the entities read its answer
 (`sensor.py`); the `nwp500.simulate` service walks a scenario on request
-(`service.py`).
+(`service.py`). Each heater's parameters are calibrated to its history by
+the library (`calibration.py`).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.util import dt as dt_util
 
 from ..const import (
     DATA_SIMULATOR,
@@ -28,7 +32,9 @@ from ..const import (
 
 # Imported with the package, in the import executor, rather than on the
 # first call of the service, in the event loop.
+from . import button as button
 from . import service as service
+from .calibration import CHECK_EVERY, CalibrationError, SimulatorCalibration
 from .runner import SimulatorRunner
 from .sensor import create_simulator_sensors
 
@@ -52,9 +58,14 @@ class SimulatorFeature:
         self.entry = entry
         self.coordinator = coordinator
         self.runners: dict[str, SimulatorRunner] = {}
+        self.calibration = SimulatorCalibration(hass, entry.entry_id)
+        self._started = dt_util.utcnow()
+        self._unsubs: list[CALLBACK_TYPE] = []
 
     async def async_start(self) -> None:
-        """Start a runner for each heater."""
+        """Start a runner for each heater, on its calibration if it has one."""
+        await self.calibration.async_load()
+        self._started = dt_util.utcnow()
         for mac_address in self.coordinator.data or {}:
             runner = SimulatorRunner(
                 self.hass,
@@ -62,11 +73,63 @@ class SimulatorFeature:
                 mac_address,
                 simulator_device_options(self.entry, mac_address),
             )
+            runner.calibrated_params = self.calibration.params(mac_address)
             self.runners[mac_address] = runner
             runner.async_start()
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass, self._async_calibrate_due, CHECK_EVERY
+            )
+        )
+
+    async def async_calibrate(
+        self, mac_address: str, *, from_defaults: bool = False
+    ) -> dict[str, Any]:
+        """Calibrate the heater's parameters, and walk again on them.
+
+        Raises `CalibrationError` saying why it could not.
+        """
+        runner = self.runners.get(mac_address)
+        if runner is None:
+            raise CalibrationError("the simulator doesn't run for this heater")
+        record = await self.calibration.async_calibrate(
+            runner, from_defaults=from_defaults
+        )
+        runner.calibrated_params = self.calibration.params(mac_address)
+        runner.async_refresh()
+        return record
+
+    @callback
+    def _async_calibrate_due(self, now: datetime) -> None:
+        """Calibrate, in the background, each heater that is due."""
+        for mac_address in self.runners:
+            if self.calibration.due(mac_address, now, self._started):
+                self.entry.async_create_background_task(
+                    self.hass,
+                    self._async_calibrate_quietly(mac_address),
+                    f"nwp500 simulator calibration {mac_address}",
+                )
+
+    async def _async_calibrate_quietly(self, mac_address: str) -> None:
+        """A scheduled calibration: a failure is kept and logged, not raised."""
+        try:
+            await self.async_calibrate(mac_address)
+        except CalibrationError as err:
+            _LOGGER.info(
+                "The simulator's calibration of %s was not made: %s",
+                mac_address,
+                err,
+            )
+        else:
+            _LOGGER.info(
+                "The simulator's calibration of %s is made", mac_address
+            )
 
     async def async_stop(self) -> None:
         """Stop the runners, and tell whoever follows them."""
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
         for runner in self.runners.values():
             runner.async_stop()
         async_dispatcher_send(
