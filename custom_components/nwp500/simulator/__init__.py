@@ -19,6 +19,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
 from homeassistant.core import (
     CALLBACK_TYPE,
     Event,
@@ -117,6 +118,13 @@ class SimulatorFeature:
                 self.hass, self._async_flush_records, FLUSH_EVERY
             )
         )
+        # Home Assistant stopping doesn't unload the entry: what waits is
+        # written as its own stores are.
+        self._unsubs.append(
+            self.hass.bus.async_listen(
+                EVENT_HOMEASSISTANT_FINAL_WRITE, self._async_final_write
+            )
+        )
 
     @callback
     def _start_record(self, mac_address: str, record: HeaterRecord) -> None:
@@ -142,6 +150,10 @@ class SimulatorFeature:
             self._unsubs.append(
                 async_track_state_change_event(self.hass, inputs, changed)
             )
+
+    async def _async_final_write(self, _: Event) -> None:
+        """Write what each heater's record has waiting, as Home Assistant stops."""
+        await self._async_flush_records(dt_util.utcnow())
 
     async def _async_flush_records(self, now: datetime) -> None:
         """Write what each heater's record has waiting."""

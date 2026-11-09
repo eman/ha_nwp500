@@ -11,8 +11,9 @@ import gzip
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from nwp500.models import DeviceStatus
@@ -200,6 +201,33 @@ async def test_a_write_cancelled_while_it_waits_keeps_its_lines(
         lambda: list(record.readings(T0))
     )
     assert [at for at, _ in readings] == [T0]
+
+
+async def test_a_cancelled_write_holds_the_file_until_its_thread_ends(
+    hass: HomeAssistant,
+):
+    """#274 review: no second write opens the file meanwhile."""
+    import asyncio
+
+    record = _record(hass)
+    record.add_status(T0, status_dict())
+    writing: asyncio.Future[Any] = hass.loop.create_future()
+    with patch.object(
+        hass, "async_add_executor_job", MagicMock(return_value=writing)
+    ):
+        task = hass.async_create_task(record.async_flush(T0 + FLUSH_EVERY))
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert record._writing.locked()  # noqa: SLF001
+
+        writing.set_result(T0)
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert not record._writing.locked()  # noqa: SLF001
+    assert record.since == T0
 
 
 async def test_nothing_is_written_once_closed(hass: HomeAssistant):

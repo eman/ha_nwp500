@@ -321,6 +321,34 @@ async def test_an_input_changed_before_the_first_write_keeps_its_start(
     assert [row["state"] for row in doc[0]] == ["60.0", "62.0"]
 
 
+async def test_the_record_is_written_as_home_assistant_stops(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: stopping doesn't unload the entry."""
+    from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
+
+    listeners: dict[str, Any] = {}
+    coordinator.async_add_raw_status_listener = MagicMock(
+        side_effect=lambda mac, listener: (
+            listeners.setdefault(mac, listener) and (lambda: None)
+        )
+    )
+    _register_heater(hass)
+    await _started(hass, coordinator)
+    now = dt_util.utcnow()
+    listeners[MAC](now, status_dict())
+
+    hass.bus.async_fire(EVENT_HOMEASSISTANT_FINAL_WRITE)
+    await hass.async_block_till_done()
+
+    record = HeaterRecord(hass, "entry1", MAC)
+    readings = await hass.async_add_executor_job(
+        lambda: list(record.readings(now))
+    )
+    assert [at for at, _ in readings] == [now]
+    await _stop(hass)
+
+
 async def test_a_failed_start_leaves_nothing_running(
     hass: HomeAssistant, hass_storage, coordinator
 ):

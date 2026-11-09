@@ -29,6 +29,7 @@ is about 0.3 MB.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import gzip
 import json
 import logging
@@ -214,9 +215,17 @@ class HeaterRecord:
             # waits leaves them for the next.
             statuses, self._statuses = self._statuses, []
             inputs, self._inputs = self._inputs, []
-            self.since = await self.hass.async_add_executor_job(
+            writing = self.hass.async_add_executor_job(
                 self._write, statuses, inputs, now
             )
+            try:
+                self.since = await asyncio.shield(writing)
+            except asyncio.CancelledError:
+                # The thread writes on: hold the lock until it ends, so no
+                # other write opens the same file meanwhile.
+                with contextlib.suppress(Exception):
+                    self.since = await writing
+                raise
 
     def closed(self) -> bool:
         """Whether nothing more is written."""
