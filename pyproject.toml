@@ -49,7 +49,7 @@ basedpyright = [
     "basedpyright>=1.40.2",
 ]
 lint = [
-    "ruff>=0.17.3",
+    "ruff>=0.17.4",
 ]
 # The dev env takes Home Assistant from the test harness, which can trail
 # the minimum the type-check groups require, so it carries the type
