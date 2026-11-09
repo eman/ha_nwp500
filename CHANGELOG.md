@@ -13,7 +13,7 @@
   says it in words under its heading ("Hot water for 2 baths"), with
   when a bath will be ready if it isn't, and the path's websocket
   document carries it as `hot_water`.
-- **Bath ready at**, a timestamp: when the heater on its own
+- **Bath ready**, a timestamp: when the heater on its own
   has a bath's hot water ready, or, while it does, since when.
 - **The simulator takes the mixing valve's temperature.** An optional
   setting per heater, in Home Assistant's temperature unit: what the
@@ -39,12 +39,12 @@
   "at temperature": the path's `ready_at` is only for one that reaches
   its target, and its `fully_heated_at` is when a later heating finishes
   the job, which the card says and marks.
-- **Fully heated at takes back-to-back heatings as one.** In
+- **Fully heated takes back-to-back heatings as one.** In
   Electric the library ends the upper element at its target and starts
   the lower at once: the sensor said the tank was ready at the hand-over.
   It now says when the last of them ends, and the Heating, next 24 hours
   sensor's `energy_kwh` is theirs together.
-- **Fully heated at is the first heating that reaches its target.** One
+- **Fully heated is the first heating that reaches its target.** One
   a mode change or a setpoint write stops short is not when the tank is
   heated: the sensor gives the end of a later heating within the day
   that gets there, and is unknown only when none does. Inside a TOU
@@ -204,10 +204,12 @@
   "Simulated" prefix: the tank's hot water now (Hot water available,
   Baths available, Showers available) is read from the heater as much as
   DHW charge is, and the forecasts say they look ahead (Heating, next 24
-  hours; Fully heated at; Next compressor start; Energy, next 24
-  hours; Bath ready at). Entity IDs already registered are kept. Bath
-  ready (Baths available above 0) and Hot water for (the two counts in
-  words) are gone, and removed when the simulator starts.
+  hours; Fully heated; Next compressor start; Energy, next 24 hours;
+  Bath ready). A timestamp's name reads with Home Assistant's relative
+  time: "Fully heated · in 1 hour", "Bath ready · 10 minutes ago". Entity
+  IDs already registered are kept. The on/off bath sensor (Baths
+  available above 0) and Hot water for (the two counts in words) are
+  gone, and removed when the simulator starts.
 - **Requires Home Assistant 2026.11.0 or newer.** The water heater now
   provides `native_temperature_unit`, `native_current_temperature` and
   `native_target_temperature`. Home Assistant 2026.11 deprecated the
@@ -256,7 +258,7 @@
     installation's 72.4 °F, without a cold water supply probe.
   - **Two new ways a heating stops**: `envelope`, the air leaving the
     heat pump's operating range, and `heat_pump`, the heat pump taking
-    back a recovery an element was carrying. The Fully heated at
+    back a recovery an element was carrying. The Fully heated
     sensor's `stop` attribute and the tank card name them.
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid

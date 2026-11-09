@@ -825,7 +825,7 @@
         }
       },
       "simulator_hot_water_ready": {
-        "name": "Fully heated at"
+        "name": "Fully heated"
       },
       "simulator_compressor_start": {
         "name": "Next compressor start"
@@ -843,7 +843,7 @@
         "name": "Baths available"
       },
       "simulator_bath_ready_at": {
-        "name": "Bath ready at"
+        "name": "Bath ready"
       }
     },
     "binary_sensor": {

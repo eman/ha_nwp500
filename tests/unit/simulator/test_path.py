@@ -1,7 +1,7 @@
 """The modelled path: the compressor's next start and the tank's probes.
 
 When the compressor runs, the path shows the probes rising to the
-setpoint and Fully heated at says when; when it doesn't, the
+setpoint and Fully heated says when; when it doesn't, the
 path shows them falling and Next compressor start says when it
 starts. Charts read the path over the websocket API.
 """

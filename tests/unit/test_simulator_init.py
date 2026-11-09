@@ -331,7 +331,7 @@ async def test_it_removes_the_entities_it_no_longer_makes(hass: HomeAssistant):
 
     bath = make("binary_sensor", "bath_ready")
     words = make("sensor", "hot_water_capacity")
-    # Kept: Bath ready at's key starts as Bath ready's did.
+    # Kept: the timestamp's key starts as the on/off sensor's did.
     ready_at = make("sensor", "bath_ready_at")
     showers = make("sensor", "showers_ready")
 

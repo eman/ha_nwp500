@@ -331,7 +331,7 @@ class SimulatorBathsAvailableSensor(NWP500HotWaterEntity, SensorEntity):  # type
 
     The first is the library's own answer (its rounding and margin), and
     each further whole bath's worth of the water deliverable now is
-    another. Above 0, a bath is ready; Bath ready at says since when, or
+    another. Above 0, a bath is ready; Bath ready says since when, or
     when one will be.
     """
 

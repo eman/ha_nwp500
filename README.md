@@ -251,13 +251,13 @@ What the heater will do, walked forward from there:
 
 - **Heating, next 24 hours**: heating, will heat, not heating today, or
   heating off.
-- **Fully heated at**: when the tank is next heated to its target: the
+- **Fully heated**: when the tank is next heated to its target: the
   setpoint, or inside a TOU period the heater's own, about 3.4 °F under
   it, where the heater stops a heat pump heating and the tank stays.
 - **Next compressor start**: when the heat pump's compressor next starts,
   while it is off.
 - **Energy, next 24 hours**: the electricity it is likely to use.
-- **Bath ready at**: when the heater on its own has a bath's hot water
+- **Bath ready**: when the heater on its own has a bath's hot water
   ready, or, while it does, since when.
 
 Every input beyond the heater is optional, and each adds what it measures:
