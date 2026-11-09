@@ -6,8 +6,8 @@
 
 - **The simulator calibrates itself to your heater.** nwp500-python's
   calibration (`sim_calibrate.calibrate_changes`) fits the heater's
-  standby loss, compressor and power to its history in Home Assistant's
-  recorder; the integration reads that history, with the simulator's air,
+  tank (its losses and probes), heat pump heat and power to its history
+  in Home Assistant's recorder; the integration reads that history, with the simulator's air,
   humidity, demand and circulation inputs, hands it to the library in a
   worker thread, keeps the parameters it returns per heater, and walks on
   them in place of the defaults for the tank's size. It runs about an

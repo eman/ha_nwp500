@@ -501,6 +501,12 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
         self._attr_unique_id = f"{runner.mac_address}_simulator_calibration"
         self._attr_translation_key = "simulator_calibration"
 
+    @property
+    @override
+    def available(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Always: the calibration reads the recorder, not the heater now."""
+        return True
+
     @override
     async def async_added_to_hass(self) -> None:
         """Follow the calibration as well as the coordinator."""

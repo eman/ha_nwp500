@@ -895,12 +895,15 @@ class SimulatorRunner:
                 schedules=Given(schedules),
                 environment=environment,
             )
-            if self.calibrated_params is not None:
+            calibrated = self.calibrated_params
+            if calibrated is not None and (
+                composed.params is None
+                or calibrated.tank.volume_gal == composed.params.tank.volume_gal
+            ):
                 # The heater's own, in place of the defaults for its tank's
-                # size: an action's document with parameters still wins.
-                composed = dataclasses.replace(
-                    composed, params=self.calibrated_params
-                )
+                # size, while they are for that size: an action's document
+                # with parameters still wins.
+                composed = dataclasses.replace(composed, params=calibrated)
             inlet_f, inlet_notes = await self._async_inlet(start)
             # The inlet laid on as the CLI lays a given one, and the
             # heater's parameters: calibrated, or the ones its tank size

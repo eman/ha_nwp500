@@ -11,9 +11,15 @@ size.
 A heater is calibrated once the simulator has run a while, then once a
 week, and when asked (the Calibrate simulator button, the
 `nwp500.calibrate_simulator` action). Each run after the first hands the
-library the kept parameters with `keep_better`: the library keeps the
-better of the two, group by group. Home Assistant keeps 10 days of history
-by default, so the fit gathers evidence over the weeks.
+library the kept parameters with `keep_better`: it refits on the history
+read, and each group of terms takes the refit only where it predicts the
+latest of that history better than the kept values do. A fit made on
+earlier history is kept until a later one beats it; the history itself
+does not accumulate, so the recorder's retention bounds what each refit
+sees.
+
+One heater is fitted at a time, across config entries: a fit holds the
+history in memory.
 """
 
 from __future__ import annotations
@@ -41,6 +47,7 @@ from nwp500.sim.params import (
 from nwp500.sim_home_assistant import (
     Entities,
     HomeAssistantClient,
+    HomeAssistantError,
     read_heater_history,
     record_inputs,
 )
@@ -68,6 +75,9 @@ CHECK_EVERY = timedelta(hours=1)
 #: The most history read: the recorder's retention, up to this. The
 #: library's own guide puts 60 days at about 180 MB.
 MAX_HISTORY = timedelta(days=60)
+
+# One fit at a time, whichever heater or config entry it is for.
+_FITTING = asyncio.Lock()
 
 
 class CalibrationError(Exception):
@@ -118,15 +128,30 @@ class SimulatorCalibration:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.warning(
                     "The simulator's calibration of %s is not readable "
-                    "and is dropped: %s",
+                    "and is dropped; it is calibrated again: %s",
                     mac_address,
                     err,
                 )
+                # Due again as if never calibrated, not a week after it.
                 record["params"] = None
+                record["attempted_at"] = None
+                record["error"] = None
 
     def params(self, mac_address: str) -> HeaterParams | None:
         """The heater's calibrated parameters; None for the defaults."""
         return self._params.get(mac_address)
+
+    def _kept(
+        self, runner: SimulatorRunner, from_defaults: bool
+    ) -> HeaterParams | None:
+        """The parameters to refine, if any: none for another tank's size."""
+        kept = None if from_defaults else self._params.get(runner.mac_address)
+        if kept is None:
+            return None
+        feature = runner.coordinator.device_features.get(runner.mac_address)
+        if feature is not None and not same_tank(kept, sa.params(feature)):
+            return None
+        return kept
 
     def record(self, mac_address: str) -> dict[str, Any] | None:
         """What is kept of the heater's calibration and its last attempt."""
@@ -183,11 +208,9 @@ class SimulatorCalibration:
         async with lock:
             now = dt_util.utcnow()
             try:
-                record = await self._async_run(runner, now, from_defaults)
-                if self._closed:
-                    raise CalibrationError(
-                        "the simulator stopped while it calibrated"
-                    )
+                async with _FITTING:
+                    record = await self._async_run(runner, now, from_defaults)
+                self._check_open()
             except CalibrationError as err:
                 self._failed(mac_address, now, str(err))
                 raise
@@ -215,35 +238,48 @@ class SimulatorCalibration:
                 "the heater's Last status, Tank upper temperature and Tank "
                 "lower temperature entities are needed, enabled"
             )
-        feature = runner.coordinator.device_features.get(runner.mac_address)
-        if feature is None:
-            raise CalibrationError(
-                "the heater's tank size isn't known yet: it hasn't sent its "
-                "device information"
-            )
-        kept = None if from_defaults else self._params.get(runner.mac_address)
-        base = kept if kept is not None else sa.params(feature)
-        keep_days = getattr(get_instance(self.hass), "keep_days", None)
+        self._check_open()
+        kept = self._kept(runner, from_defaults)
+        if kept is not None:
+            base = kept
+        else:
+            feature = runner.coordinator.device_features.get(runner.mac_address)
+            if feature is None:
+                raise CalibrationError(
+                    "the heater's tank size isn't known yet: it hasn't sent "
+                    "its device information"
+                )
+            base = sa.params(feature)
+        if "recorder" not in self.hass.config.components:
+            raise CalibrationError("Home Assistant's recorder isn't running")
+        recorder = get_instance(self.hass)
+        keep_days = getattr(recorder, "keep_days", None)
         span = (
             MAX_HISTORY
-            if not keep_days
+            if not getattr(recorder, "auto_purge", True) or not keep_days
             else min(MAX_HISTORY, timedelta(days=keep_days))
         )
         start = now - span
         client = cast("HomeAssistantClient", InProcessClient(self.hass))
-        history = await read_heater_history(client, heater, start, now)
         entities = runner.entities
-        record = await record_inputs(
-            client,
-            Entities(
-                air=entities.air,
-                humidity=entities.humidity,
-                demand=entities.demand,
-                circulation_speed=entities.circulation_speed,
-            ),
-            start,
-            now,
-        )
+        try:
+            history = await read_heater_history(client, heater, start, now)
+            record = await record_inputs(
+                client,
+                Entities(
+                    air=entities.air,
+                    humidity=entities.humidity,
+                    demand=entities.demand,
+                    circulation_speed=entities.circulation_speed,
+                ),
+                start,
+                now,
+            )
+        except HomeAssistantError as err:
+            # The library's reader says which entity, and why.
+            raise CalibrationError(str(err)) from err
+        # Stopped while it read: no fit for a simulator that is gone.
+        self._check_open()
         calibrate: Callable[[], sim_calibrate.Calibrated] = partial(
             sim_calibrate.calibrate_changes,
             history.rows,
@@ -272,6 +308,10 @@ class SimulatorCalibration:
             "notes": list(done.notes),
         }
 
+    def _check_open(self) -> None:
+        if self._closed:
+            raise CalibrationError("the simulator stopped while it calibrated")
+
     def _failed(self, mac_address: str, now: datetime, error: str) -> None:
         if self._closed:
             return
@@ -291,6 +331,11 @@ class SimulatorCalibration:
     def _notify(self) -> None:
         for listener in list(self._listeners):
             listener()
+
+
+def same_tank(params: HeaterParams, defaults: HeaterParams) -> bool:
+    """Whether `params` are for the tank the defaults are: its volume."""
+    return params.tank.volume_gal == defaults.tank.volume_gal
 
 
 __all__ = [

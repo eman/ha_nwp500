@@ -37,6 +37,12 @@ class SimulatorCalibrateButton(NWP500Entity, ButtonEntity):  # type: ignore[repo
         self._attr_unique_id = f"{runner.mac_address}_simulator_calibrate"
         self._attr_translation_key = "simulator_calibrate"
 
+    @property
+    @override
+    def available(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Always: the calibration reads the recorder, not the heater now."""
+        return True
+
     @override
     async def async_press(self) -> None:
         """Calibrate; say why when it can't."""

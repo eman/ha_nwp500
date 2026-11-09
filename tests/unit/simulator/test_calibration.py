@@ -80,6 +80,8 @@ async def _started(
         options={CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: {MAC: OPTIONS}},
     )
     entry.add_to_hass(hass)
+    # The recorder is the history's; `_Library` stands in for its reads.
+    hass.config.components.add("recorder")
     await async_setup_simulator(hass, entry, coordinator)
     await hass.async_block_till_done()
     return hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR]
@@ -292,6 +294,223 @@ async def test_unreadable_parameters_are_dropped(
 
     assert feature.runners[MAC].calibrated_params is None
     assert feature.calibration.record(MAC)["params"] is None
+    await _stop(hass)
+
+
+async def test_a_dropped_calibration_is_made_again_soon(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: not a week after the attempt that made it."""
+    attempted = (dt_util.utcnow() - timedelta(days=1)).isoformat()
+    hass_storage[KEY] = {
+        "version": 1,
+        "key": KEY,
+        "data": {
+            "heaters": {
+                MAC: {
+                    "params": {"schema": "retired"},
+                    "calibrated_at": attempted,
+                    "attempted_at": attempted,
+                    "error": None,
+                }
+            }
+        },
+    }
+    feature = await _started(hass, coordinator)
+    started = dt_util.utcnow()
+
+    assert feature.calibration.due(MAC, started + FIRST_AFTER, started)
+    await _stop(hass)
+
+
+async def test_what_the_library_and_the_recorder_say_is_passed_on(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: the library's reason, not its type's name."""
+    from nwp500.sim_home_assistant import HomeAssistantError as LibraryError
+
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+
+    with _Library() as library:
+        library.read.side_effect = LibraryError("sensor.x: does not exist")
+        with pytest.raises(CalibrationError) as caught:
+            await feature.async_calibrate(MAC)
+    assert str(caught.value) == "sensor.x: does not exist"
+
+    hass.config.components.remove("recorder")
+    with _Library(), pytest.raises(CalibrationError, match="recorder"):
+        await feature.async_calibrate(MAC)
+    await _stop(hass)
+
+
+async def test_a_refinement_needs_no_tank_size(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: only the defaults need the device information."""
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+    with _Library():
+        await feature.async_calibrate(MAC)
+
+    coordinator.device_features = {}
+    with _Library() as library:
+        await feature.async_calibrate(MAC)
+        assert library.fit.call_args.kwargs["keep_better"] is True
+    await _stop(hass)
+
+
+async def test_another_tanks_calibration_is_neither_used_nor_refined(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: a calibration is for the tank it was made on."""
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+    runner = feature.runners[MAC]
+    with _Library():
+        await feature.async_calibrate(MAC)
+
+    bigger = make_feature()
+    bigger.volume_code = 3
+    coordinator.device_features = {MAC: bigger}
+    inputs = await runner.async_inputs()
+    assert not isinstance(inputs, str)
+    assert inputs.params.tank.volume_gal == (sa.params(bigger).tank.volume_gal)
+    with _Library(params=sa.params(bigger)) as library:
+        await feature.async_calibrate(MAC)
+        kwargs = library.fit.call_args.kwargs
+        assert kwargs["params"] == sa.params(bigger)
+        assert kwargs["keep_better"] is False
+    await _stop(hass)
+
+
+async def test_a_recorder_that_never_purges_gives_the_most_history(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+
+    with (
+        _Library() as library,
+        patch(
+            "custom_components.nwp500.simulator.calibration.get_instance",
+            MagicMock(return_value=MagicMock(keep_days=10, auto_purge=False)),
+        ),
+    ):
+        await feature.async_calibrate(MAC)
+    _, _, start, end = library.read.await_args.args
+    assert end - start == timedelta(days=60)
+    await _stop(hass)
+
+
+async def test_the_calibration_entities_stay_available(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: they read the recorder, not the heater now."""
+    from custom_components.nwp500.entity import NWP500Entity
+
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+    runner = feature.runners[MAC]
+    sensor = SimulatorCalibrationSensor(feature, runner)
+    (button,) = create_simulator_buttons(feature)
+
+    with patch.object(NWP500Entity, "available", property(lambda self: False)):
+        assert sensor.available is True
+        assert button.available is True
+    await _stop(hass)
+
+
+async def test_the_hourly_check_runs_until_the_simulator_stops(
+    hass: HomeAssistant, hass_storage, coordinator, freezer
+):
+    from pytest_homeassistant_custom_component.common import (
+        async_fire_time_changed,
+    )
+
+    from custom_components.nwp500.simulator.calibration import CHECK_EVERY
+
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+    with _Library() as library:
+        freezer.tick(CHECK_EVERY)
+        async_fire_time_changed(hass)
+        # A scheduled calibration runs as the entry's background task.
+        await hass.async_block_till_done(wait_background_tasks=True)
+        library.fit.assert_called_once()
+        assert feature.runners[MAC].calibrated_params == _fitted()
+
+        await _stop(hass)
+        freezer.tick(CALIBRATE_EVERY + CHECK_EVERY)
+        async_fire_time_changed(hass)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        library.fit.assert_called_once()
+
+
+async def test_the_action_is_registered_and_answers(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """Through Home Assistant's own call: its schema and response."""
+    import json
+
+    from custom_components.nwp500 import _async_setup_services
+
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+    await _async_setup_services(hass)
+
+    with (
+        patch.object(
+            NWP500ServiceHandler,
+            "_get_coordinator_and_mac",
+            AsyncMock(return_value=(MagicMock(entry=feature.entry), MAC)),
+        ),
+        _Library() as library,
+    ):
+        response = await hass.services.async_call(
+            DOMAIN,
+            "calibrate_simulator",
+            {"device_id": "d"},
+            blocking=True,
+            return_response=True,
+        )
+        assert library.fit.call_args.kwargs["keep_better"] is False
+        # Without asking for the response, too.
+        await hass.services.async_call(
+            DOMAIN, "calibrate_simulator", {"device_id": "d"}, blocking=True
+        )
+        assert library.fit.call_args.kwargs["keep_better"] is True
+    assert response is not None
+    json.dumps(response)
+    assert response["params"] == params_to_document(_fitted())
+    await _stop(hass)
+
+
+async def test_the_button_platform_adds_the_button_once_it_starts(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.nwp500 import button as button_platform
+    from custom_components.nwp500.const import simulator_started_signal
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        entry_id="entry1",
+        options={CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: {MAC: OPTIONS}},
+    )
+    entry.add_to_hass(hass)
+    hass.config.components.add("recorder")
+    added: list[list] = []
+    await button_platform.async_setup_entry(
+        hass, entry, lambda entities, *a: added.append(list(entities))
+    )
+    assert added == []
+
+    await async_setup_simulator(hass, entry, coordinator)
+    async_dispatcher_send(hass, simulator_started_signal(entry.entry_id))
+
+    assert [type(b) for b in added[-1]] == [SimulatorCalibrateButton]
     await _stop(hass)
 
 
