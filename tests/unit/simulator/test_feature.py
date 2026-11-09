@@ -343,9 +343,14 @@ async def test_a_write_outside_the_walk_is_refused(
 
 @pytest.mark.asyncio
 async def test_an_unchanged_answer_leaves_the_attributes_alone(
-    hass: HomeAssistant, hass_storage, entry, coordinator
+    hass: HomeAssistant, hass_storage, entry, coordinator, freezer
 ):
-    """A walk a minute must not write a state a minute."""
+    """A walk a minute must not write a state a minute.
+
+    One instant for both walks: a minute's tick between them moves the
+    times, which is a changed answer.
+    """
+    freezer.move_to("2026-11-08T23:00:20Z")
     feature = await started(hass, entry, coordinator)
     runner = feature.runners[MAC]
     sensors = create_simulator_sensors(feature)

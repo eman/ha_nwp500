@@ -281,6 +281,37 @@ async def test_unload_stops_a_simulator_still_starting(hass: HomeAssistant):
     assert start.cancelled()
 
 
+def test_every_entity_the_simulator_reads_is_enabled_by_default():
+    """A fresh install records each from the start.
+
+    Setup's enabling finds nothing then: the entities are registered as
+    the platforms first load, after it.
+    """
+    from custom_components.nwp500.binary_sensor import (
+        BINARY_SENSOR_DESCRIPTIONS,
+    )
+    from custom_components.nwp500.const import (
+        SENSOR_CONFIGS,
+        SIMULATOR_HEATER_ENTITIES,
+    )
+    from custom_components.nwp500.sensor import NWP500LastStatusSensor
+
+    binary = {
+        d.key: d.entity_registry_enabled_default
+        for d in BINARY_SENSOR_DESCRIPTIONS
+    }
+    for domain, key in SIMULATOR_HEATER_ENTITIES:
+        if domain == "binary_sensor":
+            assert binary[key] is True, key
+        elif key == "last_status":
+            assert (
+                NWP500LastStatusSensor._attr_entity_registry_enabled_default
+                is not False
+            )
+        else:
+            assert SENSOR_CONFIGS[key].get("enabled") is True, key
+
+
 @pytest.mark.asyncio
 async def test_it_enables_the_heaters_entities_it_reads(hass: HomeAssistant):
     """Only those the integration disabled; a person's choice stays."""

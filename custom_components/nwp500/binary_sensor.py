@@ -167,7 +167,8 @@ def create_binary_sensor_descriptions() -> tuple[
             translation_key="anti_legionella_operation_busy",
             name="Anti-Legionella cycle running",
             device_class=BinarySensorDeviceClass.RUNNING,
-            entity_registry_enabled_default=False,
+            # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+            entity_registry_enabled_default=True,
             value_fn=lambda status: getattr(
                 status, "anti_legionella_operation_busy", None
             ),

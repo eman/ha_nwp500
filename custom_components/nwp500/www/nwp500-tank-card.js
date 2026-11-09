@@ -453,11 +453,18 @@ class NWP500TankCard extends HTMLElement {
     }
 
     // A label's row: the second of two markers close together sits below.
-    const marker = (iso, label, color, row = 0) => {
+    // Each label on the first row clear of the labels already placed: two
+    // within LABEL_GAP px of each other stack instead of overlapping.
+    const LABEL_GAP = 120;
+    const placed = [];
+    const marker = (iso, label, color) => {
       if (!iso) return '';
       const t = Date.parse(iso);
       if (!(t >= t0 && t <= t1)) return '';
       const px = x(t);
+      let row = 0;
+      while (placed.some((p) => p.row === row && Math.abs(p.px - px) < LABEL_GAP)) row += 1;
+      placed.push({ px, row });
       const anchor = px > W - 90 ? 'end' : 'start';
       const dx = anchor === 'end' ? -4 : 4;
       return `<line x1="${px}" x2="${px}" y1="${T}" y2="${H - B}" stroke="${color}" stroke-width="1.5" stroke-dasharray="2 3" />
@@ -472,11 +479,9 @@ class NWP500TankCard extends HTMLElement {
     );
     // A later heating that finishes what the first stops short of.
     const fullAt = path && !path.ready_at ? path.fully_heated_at : null;
-    const fullMarker = marker(fullAt, 'fully heated', COLORS.upper, 1);
+    const fullMarker = marker(fullAt, 'fully heated', COLORS.upper);
     const startAt = path && !path.compressor_running ? path.compressor_start : null;
-    const close = startAt && endAt
-      && Math.abs(x(Date.parse(startAt)) - x(Date.parse(endAt))) < 120;
-    const startMarker = marker(startAt, 'compressor starts', COLORS.lower, close ? 1 : 0);
+    const startMarker = marker(startAt, 'compressor starts', COLORS.lower);
 
     const svg = `
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Tank temperatures, recorded and modelled">

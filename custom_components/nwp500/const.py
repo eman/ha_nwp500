@@ -664,7 +664,8 @@ SENSOR_CONFIGS: Final = {
         "unit": "Wh",
         "state_class": "measurement",
         "precision": 0,
-        "enabled": False,
+        # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+        "enabled": True,
     },
     # Energy to recover a fully depleted tank to the current setpoint.
     "full_recovery_energy": {
