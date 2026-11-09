@@ -60,7 +60,7 @@ dev = [
     {include-group = "lint"},
     "mypy>=2.4.0",
     "basedpyright>=1.40.2",
-    "tox>=4.67.4",
+    "tox>=4.67.13",
     "tox-uv>=1.37.2",
 ]
 
