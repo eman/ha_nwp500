@@ -74,6 +74,7 @@ from .const import (
     MODE_TO_DHW_ID,
     RESERVATION_MODE_IDS,
     SIMULATOR_HEATER_ENTITIES,
+    SIMULATOR_RETIRED_ENTITIES,
     SIMULATOR_UNIQUE_ID_MARKER,
     control_enabled,
     control_feature,
@@ -1381,6 +1382,7 @@ async def async_setup_entry(
     if simulator_enabled(entry):
         # Before the platforms, so the entities come up enabled.
         _async_enable_simulator_inputs(hass, entry.entry_id)
+        _async_remove_retired_simulator_entities(hass, entry.entry_id)
 
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
 
@@ -1549,6 +1551,30 @@ def _async_enable_simulator_inputs(hass: HomeAssistant, entry_id: str) -> None:
             registry.async_update_entity(
                 entity_entry.entity_id, disabled_by=None
             )
+
+
+@callback
+def _async_remove_retired_simulator_entities(
+    hass: HomeAssistant, entry_id: str
+) -> None:
+    """Remove the simulator's entities an earlier version made."""
+    retired = {
+        (domain, f"simulator_{key}")
+        for domain, key in SIMULATOR_RETIRED_ENTITIES
+    }
+    registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
+        # `<mac>_simulator_<key>`: the MAC address has no underscore.
+        key = entity_entry.unique_id.partition("_")[2]
+        if (
+            entity_entry.platform == DOMAIN
+            and (entity_entry.domain, key) in retired
+        ):
+            _LOGGER.info(
+                "Removing %s: the simulator no longer makes it",
+                entity_entry.entity_id,
+            )
+            registry.async_remove(entity_entry.entity_id)
 
 
 async def _async_remove_simulator_leftovers(

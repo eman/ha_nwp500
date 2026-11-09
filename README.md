@@ -243,8 +243,9 @@ Assistant, from what the heater reports, and keeps these up to date:
 What the tank holds now, from the heater's probes (and its replayed
 layers, with a draw flow):
 
-- **Hot water available**, **Showers ready**, **Bath ready** and
-  **Hot water for**: the hot water the tank can deliver now.
+- **Hot water available**: the hot water the tank can deliver now.
+- **Baths available** and **Showers available**: the whole baths and
+  showers it is enough for. Above 0 baths, a bath is ready.
 
 What the heater will do, walked forward from there:
 

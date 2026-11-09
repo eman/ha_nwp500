@@ -4,13 +4,14 @@
 
 ### Added
 
-- **What the hot water is enough for.** A new simulator sensor, *Hot water
-  for*, says it in words a dashboard can show: "1 bath", "2
-  baths", "3 showers". Its attributes give the counts and each size in
-  Home Assistant's volume unit. A top-up of a filled bath is a fill like
-  any other, so it counts as a bath; the bath is the library's 28.7 gal
-  (109 L) unless set. The tank forecast card shows it under its heading,
-  with when a bath will be ready if it isn't, and the path's websocket
+- **What the hot water is enough for.** Two simulator sensors, *Baths
+  available* and *Showers available*, count the whole baths and showers
+  the tank's hot water is enough for now, each with its size in Home
+  Assistant's volume unit. Above 0 baths, a bath is ready. A top-up of a
+  filled bath is a fill like any other, so it counts as a bath; the bath
+  is the library's 28.7 gal (109 L) unless set. The tank forecast card
+  says it in words under its heading ("Hot water for 2 baths"), with
+  when a bath will be ready if it isn't, and the path's websocket
   document carries it as `hot_water`.
 - **Bath ready at**, a timestamp: when the heater on its own
   has a bath's hot water ready, or, while it does, since when.
@@ -129,8 +130,8 @@
   made at most hourly and kept between simulations. The simulator now
   lists `weather` among its after-dependencies.
 - **Hot water now.** With the simulator on, three more entities say
-  how much hot water the tank can deliver now, how many showers it holds
-  and whether a bath is ready, as nwp500-python's `time_to_ready` answers
+  how much hot water the tank can deliver now and how many whole showers
+  and baths it holds, as nwp500-python's `time_to_ready` answers
   from the heater's state. Each input beyond the heater is optional and
   passed to the library as given: a cold water supply probe, a sensor on
   while hot water is in use (whether water is drawn now, and with the
@@ -196,10 +197,12 @@
   version stored is dropped when it loads.
 - **The simulator's entities are named for what they say.** No
   "Simulated" prefix: the tank's hot water now (Hot water available,
-  Showers ready, Bath ready, Hot water for) is read from the heater as much
-  as DHW charge is, and the forecasts say they look ahead (Heating, next
-  24 hours; Hot water ready at; Next compressor start; Energy, next 24
-  hours; Bath ready at). Entity IDs already registered are kept.
+  Baths available, Showers available) is read from the heater as much as
+  DHW charge is, and the forecasts say they look ahead (Heating, next 24
+  hours; Hot water ready at; Next compressor start; Energy, next 24
+  hours; Bath ready at). Entity IDs already registered are kept. Bath
+  ready (Baths available above 0) and Hot water for (the two counts in
+  words) are gone, and removed when the simulator starts.
 - **Requires Home Assistant 2026.11.0 or newer.** The water heater now
   provides `native_temperature_unit`, `native_current_temperature` and
   `native_target_temperature`. Home Assistant 2026.11 deprecated the

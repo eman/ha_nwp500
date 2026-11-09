@@ -1471,6 +1471,14 @@ ISSUE_SIMULATOR_INSTALL_FAILED: Final = "simulator_install_failed"
 # it without importing the simulator.
 SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
 
+# The simulator's entities an earlier version made, by domain and key
+# (unique ID `<mac>_simulator_<key>`): removed when it starts. Bath ready
+# is Baths available above 0, and Hot water for its counts in words.
+SIMULATOR_RETIRED_ENTITIES: Final = (
+    ("binary_sensor", "bath_ready"),
+    ("sensor", "hot_water_capacity"),
+)
+
 # The heater's entities the simulator reads the history of, by domain and
 # key (unique ID `<mac>_<key>`), known here so setup can enable them
 # without importing the simulator. A disabled one records nothing.

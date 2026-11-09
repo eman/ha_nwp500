@@ -837,10 +837,10 @@
         "name": "Hot water available"
       },
       "simulator_showers_ready": {
-        "name": "Showers ready"
+        "name": "Showers available"
       },
-      "simulator_hot_water_capacity": {
-        "name": "Hot water for"
+      "simulator_baths_available": {
+        "name": "Baths available"
       },
       "simulator_bath_ready_at": {
         "name": "Bath ready at"
@@ -969,9 +969,6 @@
             "name": "Read at"
           }
         }
-      },
-      "simulator_bath_ready": {
-        "name": "Bath ready"
       }
     },
     "switch": {

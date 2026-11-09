@@ -141,9 +141,8 @@ defaults the simulator used instead.
 | Next compressor start | When the heat pump's compressor next starts, as the walk finds it: the first heating interval whose source is the compressor. Its attributes: `running` (the heater reports the compressor running), and the start's `cause` and `trigger`. Unknown while the compressor runs (Hot water ready at is then when it stops), and when no start falls within 24 hours, such as in Electric or Vacation |
 | Energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 | Hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
-| Showers ready | Whole showers the tank has hot water for now. Its `shower_gal` attribute is a shower's size |
-| Bath ready | On when the tank can fill a bath now. Its attributes: `bath_gal`, `margin_gal` (whole gallons), and `ready_at`, when the heat pump has it ready if not now |
-| Hot water for | What the hot water the tank can deliver now is enough for, in words: "2 baths", "1 bath", "3 showers", "1 shower" or "Less than a shower". The first bath is the library's bath answer, and each further whole bath's worth of what is left is another (a top-up is a fill like any other); showers are counted when there is no bath. Its attributes: `baths`, `showers`, and `bath_volume`, `shower_volume` in `volume_unit` (Home Assistant's) |
+| Baths available | Whole baths the tank has hot water for now: the first is the library's bath answer (its rounding and margin), and each further whole bath's worth of what is left is another (a top-up is a fill like any other). Above 0, a bath is ready. Its attributes: `bath_volume` in `volume_unit` (Home Assistant's), and `margin`, the first bath's margin in whole units |
+| Showers available | Whole showers the tank has hot water for now. Its attributes: `shower_volume` in `volume_unit` |
 | Bath ready at | When the tank holds a bath's hot water. Not ready now: when the heater on its own has it ready, unknown when not within 24 hours. Ready: since when, held while it stays ready (across a restart, and a walk with no answer), so a dashboard reads "10 minutes ago". Its `ready` attribute says which |
 
 The hot water sensors' `reasons` and `defaults_used` are `time_to_ready`'s.
@@ -286,7 +285,7 @@ The path is in Home Assistant's temperature unit:
 | `heating_start`, `heating_end`, `stop`, `source` | The current or next heating: when it starts, when it ends (none when the 24 hours cut it), why it ends and what heats |
 | `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`), none for one a TOU cap, a mode change, a setpoint write or the heat pump's operating range stops short |
 | `compressor_start`, `compressor_trigger` | As the Next compressor start sensor's |
-| `hot_water` | What the hot water is enough for, as the Hot water for sensor says: `summary`, `baths`, `showers`; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |
+| `hot_water` | What the hot water is enough for: `summary`, in words ("2 baths", "3 showers", "Less than a shower"), and `baths`, `showers` as Baths available and Showers available count them; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |
 | `unit` | °F or °C |
 | `points` | The tank along the next 24 hours at the library's points (about every 10 minutes): `at`, `upper`, `lower`, `setpoint` and `heating` |
 | `waiting`, `error` | Why there is no path (`no_status`, `no_answer`, or `simulator_off` once the simulator stops), or that the simulation failed |

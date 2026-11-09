@@ -18,6 +18,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.nwp500 import (
     NWP500ServiceHandler,
     _async_enable_simulator_inputs,
+    _async_remove_retired_simulator_entities,
     async_reload_entry,
     async_remove_entry,
     async_setup_entry,
@@ -63,7 +64,12 @@ def _no_registry_on_mock_hass():
 
     A mock `hass` has none; the enabling is tested on its own.
     """
-    with patch("custom_components.nwp500._async_enable_simulator_inputs"):
+    with (
+        patch("custom_components.nwp500._async_enable_simulator_inputs"),
+        patch(
+            "custom_components.nwp500._async_remove_retired_simulator_entities"
+        ),
+    ):
         yield
 
 
@@ -310,6 +316,31 @@ async def test_it_enables_the_heaters_entities_it_reads(hass: HomeAssistant):
     )
     assert registry.async_get(coil).disabled_by is integration
     assert registry.async_get(sub_error).disabled_by is integration
+
+
+@pytest.mark.asyncio
+async def test_it_removes_the_entities_it_no_longer_makes(hass: HomeAssistant):
+    entry = MockConfigEntry(domain=DOMAIN, options={"simulator_enabled": True})
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+
+    def make(domain: str, key: str) -> str:
+        return registry.async_get_or_create(
+            domain, DOMAIN, f"{MAC}_simulator_{key}", config_entry=entry
+        ).entity_id
+
+    bath = make("binary_sensor", "bath_ready")
+    words = make("sensor", "hot_water_capacity")
+    # Kept: Bath ready at's key starts as Bath ready's did.
+    ready_at = make("sensor", "bath_ready_at")
+    showers = make("sensor", "showers_ready")
+
+    _async_remove_retired_simulator_entities(hass, entry.entry_id)
+
+    assert registry.async_get(bath) is None
+    assert registry.async_get(words) is None
+    assert registry.async_get(ready_at) is not None
+    assert registry.async_get(showers) is not None
 
 
 async def _leftovers(
