@@ -332,7 +332,8 @@ class SimulatorBathsAvailableSensor(NWP500HotWaterEntity, SensorEntity):  # type
     The first is the library's own answer (its rounding and margin), and
     each further whole bath's worth of the water deliverable now is
     another. Above 0, a bath is ready; Bath ready says since when, or
-    when one will be.
+    when one will be. The same water Hot water for showers counts in
+    showers: the two are not added together.
     """
 
     _attr_state_class = SensorStateClass.MEASUREMENT

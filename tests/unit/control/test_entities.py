@@ -38,6 +38,7 @@ from custom_components.nwp500.control.engine import (
     State,
     Write,
 )
+from custom_components.nwp500.control.entity import ENTITY_OBJECT_IDS
 from custom_components.nwp500.control.entries import OwnedEntry
 from custom_components.nwp500.control.evaluate import NO_ACK, Ack, ItemAck
 from custom_components.nwp500.control.intent import ITEM_ID_MAX_LENGTH
@@ -444,15 +445,25 @@ def test_every_entity_suggests_its_documented_id(control):
         ),
         (ControlDisableButton(control, "disable"), "button", "disable"),
     ]
+    assert set(ENTITY_OBJECT_IDS) == ENTITY_KEYS
     for entity, domain, key in entities:
         assert entity.entity_id == (
-            f"{domain}.{slugify('Garage Heater')}_control_{key}"
+            f"{domain}.{slugify('Garage Heater')}_{ENTITY_OBJECT_IDS[key]}"
         )
-    assert {e.entity_id for e, _, _ in entities} >= {
-        "sensor.garage_heater_control_ack",
-        "sensor.garage_heater_control_intent",
-        "binary_sensor.garage_heater_control_override",
-        "button.garage_heater_control_disable",
+    assert {e.entity_id for e, _, _ in entities} == {
+        "sensor.garage_heater_external_control_capabilities",
+        "sensor.garage_heater_plan_id",
+        "sensor.garage_heater_plan_status",
+        "sensor.garage_heater_plan_fingerprint",
+        "sensor.garage_heater_plan_written_up_to",
+        "sensor.garage_heater_plan_next_change",
+        "sensor.garage_heater_plan_mode_now",
+        "sensor.garage_heater_plan_temperature_now",
+        "sensor.garage_heater_external_control_last_write",
+        "sensor.garage_heater_external_control_heartbeat",
+        "binary_sensor.garage_heater_heater_matches_plan",
+        "binary_sensor.garage_heater_plan_entry_removed",
+        "button.garage_heater_stop_external_control",
     }
 
 

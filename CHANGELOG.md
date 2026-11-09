@@ -4,9 +4,10 @@
 
 ### Added
 
-- **What the hot water is enough for.** Two simulator sensors, *Baths
-  available* and *Showers available*, count the whole baths and showers
-  the tank's hot water is enough for now, each with its size in Home
+- **What the hot water is enough for.** Two simulator sensors, *Hot water
+  for baths* and *Hot water for showers*, count the whole baths, or else
+  the whole showers, the tank's hot water is enough for now (the same
+  water two ways, not added together), each with its size in Home
   Assistant's volume unit. Above 0 baths, a bath is ready. A top-up of a
   filled bath is a fill like any other, so it counts as a bath; the bath
   is the library's 28.7 gal (109 L) unless set. The tank forecast card
@@ -42,7 +43,7 @@
 - **Fully heated takes back-to-back heatings as one.** In
   Electric the library ends the upper element at its target and starts
   the lower at once: the sensor said the tank was ready at the hand-over.
-  It now says when the last of them ends, and the Heating, next 24 hours
+  It now says when the last of them ends, and the Heating outlook
   sensor's `energy_kwh` is theirs together.
 - **Fully heated is the first heating that reaches its target.** One
   a mode change or a setpoint write stops short is not when the tank is
@@ -184,6 +185,19 @@
 
 ### Changed
 
+- **External control's entities are named, and their ids made, for what
+  they say.** Plan ID (was Plan), Heater matches plan (was Plan written to
+  heater, easily taken for Plan status's Written to heater), Plan
+  fingerprint, External control capabilities, and Plan entry removed (was
+  Manual change detected: the one report left is a person removing one
+  of the plan's entries), on or off. Each entity's id is its English
+  name's after the device's, fixed by its key whatever the display name:
+  `sensor.<device>_plan_id`, `sensor.<device>_plan_status`,
+  `binary_sensor.<device>_heater_matches_plan`,
+  `binary_sensor.<device>_plan_entry_removed`,
+  `button.<device>_stop_external_control`, and so on (spec section 4).
+  An entity still at the earlier `<device>_control_<key>` moves to its new
+  id once; one someone renamed stays. A scheduler reads the new ids.
 - **The simulator's heater entities are enabled.** Ambient temperature,
   DHW target temperature and HP lower off temperature setting were off by
   default, so they recorded nothing for the simulator to read: without an
@@ -193,7 +207,7 @@
   heater's entities it reads that the integration disabled; one you
   disabled stays disabled.
 - **The reservation switch is no longer a manual change.** External
-  control's Manual change detected reported the switch turned off as a
+  control's override entity (now Plan entry removed) reported the switch turned off as a
   person's change, though nothing tells who turned it off: the app, the
   heater's panel, or this integration's own reservation services. It held
   until the switch was on again, which the feature never does once it
@@ -201,14 +215,15 @@
   and mode are (Reservation schedule's `enabled`); a report an earlier
   version stored is dropped when it loads.
 - **The simulator's entities are named for what they say.** No
-  "Simulated" prefix: the tank's hot water now (Hot water available,
-  Baths available, Showers available) is read from the heater as much as
-  DHW charge is, and the forecasts say they look ahead (Heating, next 24
-  hours; Fully heated; Next compressor start; Energy, next 24 hours;
-  Bath ready). A timestamp's name reads with Home Assistant's relative
+  "Simulated" prefix: the tank's hot water now (Hot water available, Hot
+  water for baths, Hot water for showers) is read from the heater as much
+  as DHW charge is, and the forecasts say they look ahead (Heating
+  outlook, with Heating now, Will heat, None in 24 hours and Off; Fully
+  heated; Next compressor start; Electricity, next 24 hours; Bath
+  ready). A timestamp's name reads with Home Assistant's relative
   time: "Fully heated · in 1 hour", "Bath ready · 10 minutes ago". Entity
-  IDs already registered are kept. The on/off bath sensor (Baths
-  available above 0) and Hot water for (the two counts in words) are
+  IDs already registered are kept. The on/off bath sensor (Hot water for
+  baths above 0) and Hot water for (the two counts in words) are
   gone, and removed when the simulator starts.
 - **Requires Home Assistant 2026.11.0 or newer.** The water heater now
   provides `native_temperature_unit`, `native_current_temperature` and

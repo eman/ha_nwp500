@@ -155,15 +155,15 @@ def test_earlier_default_ids_move_to_the_documented_ones(
         "binary_sensor",
         "other",
         "x",
-        suggested_object_id="nwp500_control_in_sync",
+        suggested_object_id="nwp500_heater_matches_plan",
     )
     in_sync = register("binary_sensor", "in_sync", "nwp500_control_in_sync_2")
 
     ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
 
     assert registry.async_get(ack.entity_id) is None
-    assert registry.async_get("sensor.nwp500_control_ack") is not None
-    assert registry.async_get("button.nwp500_control_disable") is not None
+    assert registry.async_get("sensor.nwp500_plan_status") is not None
+    assert registry.async_get("button.nwp500_stop_external_control") is not None
     assert registry.async_get(disable.entity_id) is None
     assert registry.async_get(chosen.entity_id) is not None
     # Not the default made from the earlier name: left alone.
@@ -196,7 +196,7 @@ def test_a_renamed_devices_earlier_default_ids_move_too(
     ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
 
     assert registry.async_get(ack.entity_id) is None
-    assert registry.async_get("sensor.garage_heater_control_ack") is not None
+    assert registry.async_get("sensor.garage_heater_plan_status") is not None
 
 
 def test_a_removed_entity_comes_back_with_its_documented_id(
@@ -232,10 +232,51 @@ def test_a_removed_entity_comes_back_with_its_documented_id(
         f"{MAC}_control_ack",
         config_entry=entry,
         device_id=device.id,
-        suggested_object_id="nwp500_control_ack",
+        suggested_object_id="nwp500_plan_status",
     )
 
-    assert again.entity_id == "sensor.nwp500_control_ack"
+    assert again.entity_id == "sensor.nwp500_plan_status"
+
+
+def test_the_earlier_documented_ids_move_to_the_new_ones(
+    hass: HomeAssistant, entry, coordinator
+):
+    """`<device>_control_<key>` moves to the id its name gives."""
+    from homeassistant.helpers import device_registry as dr
+
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+
+    def register(domain: str, key: str, object_id: str):
+        return registry.async_get_or_create(
+            domain,
+            DOMAIN,
+            f"{MAC}_control_{key}",
+            config_entry=entry,
+            device_id=device.id,
+            suggested_object_id=object_id,
+        )
+
+    register("sensor", "intent", "nwp500_control_intent")
+    register("binary_sensor", "override", "nwp500_control_override")
+    register("button", "disable", "nwp500_control_disable")
+    chosen = register("sensor", "heartbeat", "my_heartbeat")
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+
+    assert registry.async_get("sensor.nwp500_control_intent") is None
+    assert registry.async_get("sensor.nwp500_plan_id") is not None
+    assert (
+        registry.async_get("binary_sensor.nwp500_plan_entry_removed")
+        is not None
+    )
+    assert registry.async_get("button.nwp500_stop_external_control") is not None
+    # An id someone chose stays.
+    assert registry.async_get(chosen.entity_id) is not None
 
 
 def test_the_documented_id_reads_the_entrys_own_device(
@@ -270,7 +311,7 @@ def test_the_documented_id_reads_the_entrys_own_device(
     ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
 
     assert registry.async_get(ack.entity_id) is None
-    assert registry.async_get("sensor.nwp500_control_ack") is not None
+    assert registry.async_get("sensor.nwp500_plan_status") is not None
 
 
 def test_the_documented_id_falls_back_before_scoped_lookups(
@@ -298,4 +339,4 @@ def test_the_documented_id_falls_back_before_scoped_lookups(
     ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
 
     assert registry.async_get(ack.entity_id) is None
-    assert registry.async_get("sensor.nwp500_control_ack") is not None
+    assert registry.async_get("sensor.nwp500_plan_status") is not None

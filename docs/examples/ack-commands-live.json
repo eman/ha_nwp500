@@ -1,5 +1,5 @@
 {
-  "entity_id": "sensor.water_heater_control_ack",
+  "entity_id": "sensor.water_heater_plan_status",
   "state": "programmed",
   "attributes": {
     "intent_id": "i-20261004T1300-9",

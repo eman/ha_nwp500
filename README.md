@@ -244,19 +244,20 @@ What the tank holds now, from the heater's probes (and its replayed
 layers, with a draw flow):
 
 - **Hot water available**: the hot water the tank can deliver now.
-- **Baths available** and **Showers available**: the whole baths and
-  showers it is enough for. Above 0 baths, a bath is ready.
+- **Hot water for baths** and **Hot water for showers**: the whole baths,
+  or else the whole showers, that hot water is enough for: the same water
+  counted two ways, not added together. Above 0 baths, a bath is ready.
 
 What the heater will do, walked forward from there:
 
-- **Heating, next 24 hours**: heating, will heat, not heating today, or
-  heating off.
+- **Heating outlook**: heating now, will heat (within 24 hours), none in
+  24 hours, or off.
 - **Fully heated**: when the tank is next heated to its target: the
   setpoint, or inside a TOU period the heater's own, about 3.4 °F under
   it, where the heater stops a heat pump heating and the tank stays.
 - **Next compressor start**: when the heat pump's compressor next starts,
   while it is off.
-- **Energy, next 24 hours**: the electricity it is likely to use.
+- **Electricity, next 24 hours**: the electricity it is likely to use.
 - **Bath ready**: when the heater on its own has a bath's hot water
   ready, or, while it does, since when.
 

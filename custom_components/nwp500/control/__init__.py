@@ -29,7 +29,7 @@ from ..const import (
     DOMAIN,
 )
 from .device import DeviceControl
-from .entity import control_entity_id
+from .entity import control_entity_id, earlier_control_entity_id
 from .plan_entity import PlanEntityWatch, plan_entity_issue_id
 from .store import ControlStore
 
@@ -231,18 +231,22 @@ class ControlFeature:
         earlier = _EARLIER_NAMES.get(key)
         if earlier is None:
             return None
-        object_id = entity_id.split(".", 1)[1]
-        name_part = slugify(earlier)
-        if object_id != name_part and not object_id.endswith(f"_{name_part}"):
-            # Chosen by someone, or already the documented id.
-            return None
         device = _entry_device(self.hass, self.entry.entry_id, mac_address)
         if device is None:
             return None
-        documented = control_entity_id(
-            domain, device.name_by_user or device.name or "", key
-        )
-        return None if documented == entity_id else documented
+        device_name = device.name_by_user or device.name or ""
+        documented = control_entity_id(domain, device_name, key)
+        if documented == entity_id:
+            return None
+        # The id an earlier version documented, `<device>_control_<key>`.
+        if entity_id == earlier_control_entity_id(domain, device_name, key):
+            return documented
+        object_id = entity_id.split(".", 1)[1]
+        name_part = slugify(earlier)
+        if object_id != name_part and not object_id.endswith(f"_{name_part}"):
+            # Chosen by someone.
+            return None
+        return documented
 
     def _remove_entities(self, *, stale_only: bool) -> None:
         """Remove the feature's entities: all of them, or only stale ones."""

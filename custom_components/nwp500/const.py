@@ -1474,7 +1474,7 @@ SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
 
 # The simulator's entities an earlier version made, by domain and key
 # (unique ID `<mac>_simulator_<key>`): removed when it starts. Bath ready
-# is Baths available above 0, and Hot water for its counts in words.
+# is Hot water for baths above 0, and Hot water for its counts in words.
 SIMULATOR_RETIRED_ENTITIES: Final = (
     ("binary_sensor", "bath_ready"),
     ("sensor", "hot_water_capacity"),
