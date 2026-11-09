@@ -243,15 +243,15 @@
       "properties": {
         "field": {
           "type": "string",
-          "description": "removed or reservations_switched_off. Treat a value you do not know as opaque."
+          "description": "removed. Treat a value you do not know as opaque."
         },
         "value": {
-          "description": "removed: an entry_item; reservations_switched_off: false."
+          "description": "removed: an entry_item."
         },
         "detected_at": { "type": "string", "format": "date-time" },
         "segment": {
           "type": ["string", "null"],
-          "description": "removed: the entry's serves; reservations_switched_off: null."
+          "description": "removed: the entry's serves."
         }
       },
       "allOf": [
@@ -261,15 +261,6 @@
             "properties": {
               "value": { "$ref": "#/$defs/entry_item" },
               "segment": { "type": "string" }
-            }
-          }
-        },
-        {
-          "if": { "properties": { "field": { "const": "reservations_switched_off" } } },
-          "then": {
-            "properties": {
-              "value": { "const": false },
-              "segment": { "type": "null" }
             }
           }
         }

@@ -346,16 +346,15 @@ class TestBinarySensors:
         entry = OwnedEntry("plan", "s1", WHEN, "heat_pump", 120)
         reports = [
             Report("removed", entry.as_attributes(), WHEN, "s1"),
-            Report("reservations_switched_off", False, WHEN, None),
         ]
         control.reports = {str(i): r for i, r in enumerate(reports)}
         sensor = ControlOverrideBinarySensor(control, "override")
         attrs = sensor.extra_state_attributes
         _override_schema().validate(attrs)
-        # A removed report's value is an entry item; the switch's is false.
+        # A removed report's value is an entry item, for a segment.
         broken = [
             {**attrs["reports"][0], "value": "not_an_entry"},
-            {**attrs["reports"][1], "value": True},
+            {**attrs["reports"][0], "segment": None},
         ]
         for report in broken:
             assert not _override_schema().is_valid(

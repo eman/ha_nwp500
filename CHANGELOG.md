@@ -178,6 +178,14 @@
 
 ### Changed
 
+- **The reservation switch is no longer a manual change.** External
+  control's Manual change detected reported the switch turned off as a
+  person's change, though nothing tells who turned it off: the app, the
+  heater's panel, or this integration's own reservation services. It held
+  until the switch was on again, which the feature never does once it
+  holds the list. The switch is the heater's to report, as its setpoint
+  and mode are (Reservation schedule's `enabled`); a report an earlier
+  version stored is dropped when it loads.
 - **Requires Home Assistant 2026.11.0 or newer.** The water heater now
   provides `native_temperature_unit`, `native_current_temperature` and
   `native_target_temperature`. Home Assistant 2026.11 deprecated the
