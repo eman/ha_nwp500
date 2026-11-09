@@ -9,7 +9,8 @@ For each heater a runner keeps a 24-hour simulation up to date from the
 heater's reports (`runner.py`); the entities read its answer
 (`sensor.py`); the `nwp500.simulate` service walks a scenario on request
 (`service.py`). Each heater's parameters are calibrated to its history by
-the library (`calibration.py`).
+the library (`calibration.py`), on the heater's own record of its statuses
+(`record.py`) once that reaches back further than the recorder's.
 """
 
 from __future__ import annotations
@@ -18,9 +19,18 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    callback,
+)
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.util import dt as dt_util
 
 from ..const import (
@@ -35,6 +45,7 @@ from ..const import (
 from . import button as button
 from . import service as service
 from .calibration import CHECK_EVERY, CalibrationError, SimulatorCalibration
+from .record import FLUSH_EVERY, HeaterRecord
 from .runner import SimulatorRunner
 from .sensor import create_simulator_sensors
 
@@ -58,6 +69,7 @@ class SimulatorFeature:
         self.entry = entry
         self.coordinator = coordinator
         self.runners: dict[str, SimulatorRunner] = {}
+        self.records: dict[str, HeaterRecord] = {}
         self.calibration = SimulatorCalibration(hass, entry.entry_id)
         self._started = dt_util.utcnow()
         self._unsubs: list[CALLBACK_TYPE] = []
@@ -76,11 +88,57 @@ class SimulatorFeature:
             runner.calibrated_params = self.calibration.params(mac_address)
             self.runners[mac_address] = runner
             runner.async_start()
+            await self._async_start_record(runner)
         self._unsubs.append(
             async_track_time_interval(
                 self.hass, self._async_calibrate_due, CHECK_EVERY
             )
         )
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass, self._async_flush_records, FLUSH_EVERY
+            )
+        )
+
+    async def _async_start_record(self, runner: SimulatorRunner) -> None:
+        """Keep the heater's statuses, and its inputs' changes."""
+        mac_address = runner.mac_address
+        entities = runner.entities
+        inputs = [
+            entity
+            for entity in (
+                entities.air,
+                entities.humidity,
+                entities.demand,
+                entities.circulation_speed,
+            )
+            if entity
+        ]
+        record = HeaterRecord(
+            self.hass, self.entry.entry_id, mac_address, inputs
+        )
+        await record.async_load()
+        self.records[mac_address] = record
+        self._unsubs.append(
+            self.coordinator.async_add_raw_status_listener(
+                mac_address, record.add_status
+            )
+        )
+        if inputs:
+
+            @callback
+            def changed(event: Event[EventStateChangedData]) -> None:
+                if (state := event.data["new_state"]) is not None:
+                    record.add_state(state)
+
+            self._unsubs.append(
+                async_track_state_change_event(self.hass, inputs, changed)
+            )
+
+    async def _async_flush_records(self, now: datetime) -> None:
+        """Write what each heater's record has waiting."""
+        for record in list(self.records.values()):
+            await record.async_flush(now)
 
     async def async_calibrate(
         self, mac_address: str, *, from_defaults: bool = False
@@ -93,7 +151,9 @@ class SimulatorFeature:
         if runner is None:
             raise CalibrationError("the simulator doesn't run for this heater")
         record = await self.calibration.async_calibrate(
-            runner, from_defaults=from_defaults
+            runner,
+            heater_record=self.records.get(mac_address),
+            from_defaults=from_defaults,
         )
         runner.calibrated_params = self.calibration.params(mac_address)
         runner.async_refresh()
@@ -130,6 +190,9 @@ class SimulatorFeature:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        now = dt_util.utcnow()
+        for record in self.records.values():
+            await record.async_close(now)
         await self.calibration.async_close()
         for runner in self.runners.values():
             runner.async_stop()

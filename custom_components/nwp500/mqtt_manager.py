@@ -6,9 +6,12 @@ import time
 import types
 from collections import deque
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Final
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from nwp500.exceptions import DeviceCapabilityError, InvalidCredentialsError
+from nwp500.mqtt.utils import get_response_data
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -100,6 +103,32 @@ def _raised_inside_aws_sdk(err: BaseException) -> bool:
     return False
 
 
+#: A heater's status as it sent it: its address, when it arrived, and the
+#: payload.
+RawStatusCallback = Callable[[str, datetime, dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
+class _RawStatusHandler:
+    """A heater's status messages, as sent, for its own record.
+
+    Equal for the same heater and callback, so a resubscription on the same
+    client registers it once.
+    """
+
+    mac_address: str
+    callback: RawStatusCallback
+
+    def __call__(self, topic: str, message: dict[str, Any]) -> None:
+        data = get_response_data(message, "status")
+        if isinstance(data, dict) and data:
+            self.callback(
+                self.mac_address,
+                datetime.now(UTC),
+                dict(cast(dict[str, Any], data)),
+            )
+
+
 class NWP500MqttManager:
     """Class to manage MQTT connection and events."""
 
@@ -120,6 +149,7 @@ class NWP500MqttManager:
         on_reconnected: Callable[[], None] | None = None,
         on_reconnection_failed: Callable[[int], None] | None = None,
         ha_instance_id: str | None = None,
+        on_raw_status: RawStatusCallback | None = None,
     ) -> None:
         """Initialize the MQTT manager."""
         self.loop = hass_loop
@@ -134,6 +164,7 @@ class NWP500MqttManager:
         self._on_energy_usage_callback = on_energy_usage
         self._on_diagnostics_callback = on_diagnostics
         self._on_recirculation_schedule_callback = on_recirculation_schedule
+        self._on_raw_status_callback = on_raw_status
         self._on_reconnected_callback = on_reconnected
 
         self._on_reconnection_failed_callback = on_reconnection_failed
@@ -425,6 +456,15 @@ class NWP500MqttManager:
                 device,
                 self._on_device_feature_update_direct,
             )
+            if self._on_raw_status_callback is not None:
+                # The same messages, unparsed: the simulator's record
+                # keeps them as the heater sent them.
+                await self.mqtt_client.subscribe_device(
+                    device,
+                    _RawStatusHandler(
+                        mac_address, self._on_raw_status_callback
+                    ),
+                )
             # Subscribe to reservation responses using the typed API.
             # The library handles topic construction and response parsing.
             await self.mqtt_client.subscribe_reservation_response(

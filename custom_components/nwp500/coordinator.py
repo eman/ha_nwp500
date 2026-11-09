@@ -6,13 +6,13 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final
 
 from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import instance_id as ha_instance_id
 from homeassistant.helpers.update_coordinator import (
@@ -132,6 +132,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else "us_customary"
         )
         self.devices: list[Device] = []
+        # Who keeps each heater's statuses as sent (the simulator's record).
+        self._raw_status_listeners: dict[
+            str, list[Callable[[datetime, dict[str, Any]], None]]
+        ] = {}
         self._devices_by_mac: dict[str, Device] = {}  # O(1) device lookup cache
         self.device_features: dict[str, DeviceFeature] = {}
         self.reservation_schedules: dict[str, dict[str, Any]] = {}
@@ -959,6 +963,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 on_reconnected=_on_mqtt_reconnected,
                 on_reconnection_failed=_on_mqtt_reconnection_failed,
                 ha_instance_id=ha_id,
+                on_raw_status=self._on_raw_status,
             )
 
             # Connect to MQTT
@@ -1444,6 +1449,42 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug(
                 "Initial TOU read failed for %s: %s", mac_address, err
             )
+
+    @callback
+    def async_add_raw_status_listener(
+        self,
+        mac_address: str,
+        listener: Callable[[datetime, dict[str, Any]], None],
+    ) -> CALLBACK_TYPE:
+        """Call `listener` with each status the heater sends, as sent.
+
+        In the event loop, with the instant it arrived.
+        """
+        listeners = self._raw_status_listeners.setdefault(mac_address, [])
+        listeners.append(listener)
+
+        @callback
+        def remove() -> None:
+            if listener in listeners:
+                listeners.remove(listener)
+
+        return remove
+
+    def _on_raw_status(
+        self, mac_address: str, at: datetime, payload: dict[str, Any]
+    ) -> None:
+        """A status as sent, from the MQTT client's thread."""
+        if self._raw_status_listeners.get(mac_address):
+            self.hass.loop.call_soon_threadsafe(
+                self._dispatch_raw_status, mac_address, at, payload
+            )
+
+    @callback
+    def _dispatch_raw_status(
+        self, mac_address: str, at: datetime, payload: dict[str, Any]
+    ) -> None:
+        for listener in list(self._raw_status_listeners.get(mac_address, [])):
+            listener(at, payload)
 
     def _on_device_status_update(
         self, mac_address: str, status: DeviceStatus

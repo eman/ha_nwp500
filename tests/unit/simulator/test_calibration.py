@@ -7,7 +7,8 @@ integration hands them, what it keeps, and that the runner walks on it.
 from __future__ import annotations
 
 import dataclasses
-from datetime import timedelta
+import functools
+from datetime import datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -49,11 +50,12 @@ from custom_components.nwp500.simulator.calibration import (
     RETRY_AFTER,
     CalibrationError,
 )
+from custom_components.nwp500.simulator.record import HeaterRecord
 from custom_components.nwp500.simulator.sensor import (
     SimulatorCalibrationSensor,
 )
 
-from .conftest import MAC, make_feature
+from .conftest import MAC, make_feature, status_dict
 
 KEY = "nwp500.simulator_calibration.entry1"
 OPTIONS = {
@@ -122,6 +124,8 @@ class _Library:
         self.fit = MagicMock(
             side_effect=error, return_value=_done(params or _fitted())
         )
+        # On the heater's own record: its statuses.
+        self.fit_statuses = MagicMock(return_value=_done(params or _fitted()))
         self.report = MagicMock(
             return_value=[
                 sim_calibrate.Term("UA", "1.2", "40", "0.1", True),
@@ -133,6 +137,7 @@ class _Library:
             patch(f"{base}.read_heater_history", self.read),
             patch(f"{base}.record_inputs", self.inputs),
             patch(f"{base}.sim_calibrate.calibrate_changes", self.fit),
+            patch(f"{base}.sim_calibrate.calibrate", self.fit_statuses),
             patch(f"{base}.sim_calibrate.report", self.report),
             patch(
                 f"{base}.get_instance",
@@ -195,6 +200,106 @@ async def test_a_calibration_is_the_librarys_and_the_runner_walks_on_it(
     assert inputs.params == fitted
     assert inputs.live.params == fitted
     await _stop(hass)
+
+
+async def _recorded(hass: HomeAssistant, *ago: timedelta) -> list[datetime]:
+    """A record of the heater from before the simulator starts."""
+    now = dt_util.utcnow()
+    record = HeaterRecord(hass, "entry1", MAC)
+    instants = [now - a for a in ago]
+    for at in instants:
+        record.add_status(at, status_dict())
+    await record.async_close(now)
+    return instants
+
+
+async def test_the_heaters_own_record_once_it_reaches_further_back(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """30 days of the heater's own record, against the recorder's 10."""
+    from custom_components.nwp500.simulator.ha_client import RecordClient
+
+    _register_heater(hass)
+    instants = await _recorded(
+        hass, timedelta(days=30), timedelta(days=29, hours=23)
+    )
+    feature = await _started(hass, coordinator)
+    assert feature.records[MAC].since == instants[0]
+
+    with _Library() as library:
+        record = await feature.async_calibrate(MAC)
+    library.read.assert_not_awaited()
+    library.fit.assert_not_called()
+    args, kwargs = library.fit_statuses.call_args
+    assert [at for at, _ in args[0]] == instants
+    assert kwargs["params"] == sa.params(make_feature())
+    assert kwargs["record"] is library.record
+    # The inputs from the record too, over the same span.
+    client, entities, start, end = library.inputs.await_args.args
+    assert isinstance(client, RecordClient)
+    assert entities.air == "sensor.air"
+    assert start == instants[0]
+    assert record["source"] == "record"
+    assert record["history_from"] == instants[0].isoformat()
+    sensor = SimulatorCalibrationSensor(feature, feature.runners[MAC])
+    attributes = sensor.extra_state_attributes
+    assert attributes["source"] == "record"
+    assert attributes["record_since"] == instants[0].isoformat()
+
+    # And without the recorder.
+    hass.config.components.remove("recorder")
+    with _Library() as library:
+        await feature.async_calibrate(MAC)
+    library.fit_statuses.assert_called_once()
+    await _stop(hass)
+
+
+async def test_a_record_younger_than_the_recorders_history_waits(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    _register_heater(hass)
+    await _recorded(hass, timedelta(days=3))
+    feature = await _started(hass, coordinator)
+
+    with _Library() as library:
+        record = await feature.async_calibrate(MAC)
+    library.fit_statuses.assert_not_called()
+    library.fit.assert_called_once()
+    assert record["source"] == "recorder"
+    await _stop(hass)
+
+
+async def test_the_simulator_records_the_heater_and_its_inputs(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    listeners: dict[str, Any] = {}
+
+    def add(mac: str, listener: Any) -> Any:
+        listeners[mac] = listener
+        return lambda: listeners.pop(mac)
+
+    coordinator.async_add_raw_status_listener = MagicMock(side_effect=add)
+    _register_heater(hass)
+    await _started(hass, coordinator)
+    now = dt_util.utcnow()
+
+    listeners[MAC](now, status_dict(macAddress=MAC))
+    hass.states.async_set("sensor.air", "61.5", {"unit_of_measurement": "°F"})
+    await hass.async_block_till_done()
+    await _stop(hass)
+    # Stopped, it no longer listens to the heater.
+    assert listeners == {}
+
+    record = HeaterRecord(hass, "entry1", MAC)
+    readings = await hass.async_add_executor_job(
+        lambda: list(record.readings(now))
+    )
+    assert [at for at, _ in readings] == [now]
+    doc = await hass.async_add_executor_job(
+        record.history_document, ["sensor.air"], now, dt_util.utcnow()
+    )
+    ((row,),) = doc
+    assert (row["entity_id"], row["state"]) == ("sensor.air", "61.5")
 
 
 async def test_a_later_calibration_refines_the_kept_one(
@@ -400,14 +505,22 @@ async def test_a_cancelled_calibration_holds_the_fit_until_its_thread_ends(
     _register_heater(hass)
     feature = await _started(hass, coordinator)
     fitting: asyncio.Future[Any] = hass.loop.create_future()
+    run = hass.async_add_executor_job
+    fits: list[Any] = []
+
+    def executor(target, *args):
+        # The fit is held; the record's writes run.
+        if isinstance(target, functools.partial):
+            fits.append(target)
+            return fitting
+        return run(target, *args)
+
     with (
         _Library() as library,
-        patch.object(
-            hass, "async_add_executor_job", MagicMock(return_value=fitting)
-        ),
+        patch.object(hass, "async_add_executor_job", executor),
     ):
         task = hass.async_create_task(feature.async_calibrate(MAC))
-        while not hass.async_add_executor_job.called:  # type: ignore[attr-defined]
+        while not fits:
             await asyncio.sleep(0)
         task.cancel()
         await asyncio.sleep(0)
@@ -589,15 +702,16 @@ async def test_the_hourly_check_calibrates_what_is_due(
     _register_heater(hass)
     feature = await _started(hass, coordinator)
 
+    # A scheduled calibration is the entry's background task.
     with _Library() as library:
         feature._async_calibrate_due(dt_util.utcnow())  # noqa: SLF001
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         library.fit.assert_not_called()
 
         feature._async_calibrate_due(  # noqa: SLF001
             dt_util.utcnow() + FIRST_AFTER
         )
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
         library.fit.assert_called_once()
     assert feature.runners[MAC].calibrated_params == _fitted()
 
@@ -606,7 +720,7 @@ async def test_the_hourly_check_calibrates_what_is_due(
         feature._async_calibrate_due(  # noqa: SLF001
             dt_util.utcnow() + CALIBRATE_EVERY + FIRST_AFTER
         )
-        await hass.async_block_till_done()
+        await hass.async_block_till_done(wait_background_tasks=True)
     assert feature.calibration.record(MAC)["error"] == "x"
     await _stop(hass)
 

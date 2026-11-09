@@ -479,8 +479,9 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
     with why (a refinement keeps the earlier calibration's values where
     its refit does no better, a first calibration the defaults); which
     groups of terms are still on the defaults (the parameters' own
-    `unfitted`); the library's notes; and the last attempt, with why it
-    failed if it did.
+    `unfitted`); the library's notes; what it read (the heater's own record
+    or the recorder's history); and the last attempt, with why it failed if
+    it did. `record_since` is where the heater's own record begins.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -498,6 +499,7 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
         device = runner.coordinator.data[runner.mac_address]["device"]
         super().__init__(runner.coordinator, runner.mac_address, device)
         self.calibration = feature.calibration
+        self.records = feature.records
         self.runner = runner
         self._attr_unique_id = f"{runner.mac_address}_simulator_calibration"
         self._attr_translation_key = "simulator_calibration"
@@ -538,9 +540,13 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
         # Not one for another tank's size, which the runner doesn't use.
         params = self.calibration.usable(self.runner)
         in_use = params is not None
+        heater_record = self.records.get(self.mac_address)
+        since = None if heater_record is None else heater_record.since
         return {
             "last_attempt": record.get("attempted_at"),
             "error": record.get("error"),
+            "record_since": None if since is None else since.isoformat(),
+            "source": record.get("source") if in_use else None,
             "history_from": record.get("history_from") if in_use else None,
             "history_to": record.get("history_to") if in_use else None,
             "refined": record.get("refined") if in_use else None,

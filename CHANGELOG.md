@@ -19,6 +19,15 @@
   says when, what the latest calibration fitted and what it kept, and
   why, and which terms are still on the defaults. Turning
   the simulator off removes the calibration.
+- **The heater's own record, for the calibration.** The recorder keeps 10
+  days by default, and the fit wants weeks. While the simulator runs, it
+  records each heater's statuses as sent (the library's
+  `status_history` format) and the changes of its input entities, a
+  gzipped file a day under `.storage/nwp500/simulator_record/`, up to 60
+  days (about 12 MB a heater). Once the record reaches back further than
+  the recorder, the calibration reads it, through the library's
+  `sim_calibrate.calibrate`. The sensor's `source` and `record_since`
+  say which it read and where the record begins.
 - **What the hot water is enough for.** Two simulator sensors, *Hot water
   for baths* and *Hot water for showers*, count the whole baths and the
   whole showers the tank's hot water is enough for now: each on its own,

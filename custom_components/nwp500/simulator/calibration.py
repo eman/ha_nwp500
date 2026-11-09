@@ -1,12 +1,18 @@
-"""The simulator's calibration: nwp500-python's, on Home Assistant's history.
+"""The simulator's calibration: nwp500-python's, on the heater's history.
 
-The library fits (`nwp500.sim_calibrate.calibrate_changes`). This reads
-what it fits from: the heater's history and the simulator's inputs, as the
-recorder holds them (`sim_home_assistant.read_heater_history` and
-`record_inputs`, through the in-process client). It runs the library in
-an executor, keeps the parameters the library returns, per heater, and
-gives them to the heater's runner in place of the defaults for its tank's
-size.
+The library fits. This reads what it fits from, the heater's history and
+the simulator's inputs over the same span, from one of two sources:
+
+- the heater's own record (`record.py`), once it reaches back further than
+  the recorder's history: its statuses for `sim_calibrate.calibrate`, its
+  inputs through `ha_client.RecordClient`;
+- until then, the recorder: `sim_home_assistant.read_heater_history` for
+  `sim_calibrate.calibrate_changes`, and `record_inputs`, through the
+  in-process client.
+
+It runs the library in an executor, keeps the parameters the library
+returns, per heater, and gives them to the heater's runner in place of the
+defaults for its tank's size.
 
 A heater is calibrated once the simulator has run a while, then once a
 week, and when asked (the Calibrate simulator button, the
@@ -14,9 +20,7 @@ week, and when asked (the Calibrate simulator button, the
 library the kept parameters with `keep_better`: it refits on the history
 read, and each group of terms takes the refit only where it predicts the
 latest of that history better than the kept values do. A fit made on
-earlier history is kept until a later one beats it; the history itself
-does not accumulate, so the recorder's retention bounds what each refit
-sees.
+earlier history is kept until a later one beats it.
 
 One heater is fitted at a time, across config entries: a fit holds the
 history in memory.
@@ -57,9 +61,10 @@ from ..const import (
     SIMULATOR_CALIBRATION_STORAGE_KEY,
     SIMULATOR_CALIBRATION_STORAGE_VERSION,
 )
-from .ha_client import InProcessClient
+from .ha_client import InProcessClient, RecordClient
 
 if TYPE_CHECKING:
+    from .record import HeaterRecord
     from .runner import SimulatorRunner
 
 _LOGGER = logging.getLogger(__name__)
@@ -197,13 +202,19 @@ class SimulatorCalibration:
             pass
 
     async def async_calibrate(
-        self, runner: SimulatorRunner, *, from_defaults: bool = False
+        self,
+        runner: SimulatorRunner,
+        *,
+        heater_record: HeaterRecord | None = None,
+        from_defaults: bool = False,
     ) -> dict[str, Any]:
         """Calibrate the heater, keep the result, and return what is kept.
 
         From the kept parameters with the library's `keep_better`, or from
         the defaults for the tank's size with `from_defaults` or when none
-        are kept. Raises `CalibrationError` saying why it could not; the
+        are kept. On the heater's own record (`heater_record`) once it
+        reaches back further than the recorder's history, else on the
+        recorder's. Raises `CalibrationError` saying why it could not; the
         parameters kept before stay.
         """
         mac_address = runner.mac_address
@@ -214,7 +225,9 @@ class SimulatorCalibration:
             now = dt_util.utcnow()
             try:
                 async with _FITTING:
-                    record = await self._async_run(runner, now, from_defaults)
+                    record = await self._async_run(
+                        runner, now, from_defaults, heater_record
+                    )
                 self._check_open()
             except CalibrationError as err:
                 self._failed(mac_address, now, str(err))
@@ -235,7 +248,11 @@ class SimulatorCalibration:
             return record
 
     async def _async_run(
-        self, runner: SimulatorRunner, now: datetime, from_defaults: bool
+        self,
+        runner: SimulatorRunner,
+        now: datetime,
+        from_defaults: bool,
+        heater_record: HeaterRecord | None,
     ) -> dict[str, Any]:
         heater = runner.heater_entities()
         if heater is None:
@@ -255,45 +272,62 @@ class SimulatorCalibration:
                     "its device information"
                 )
             base = sa.params(feature)
-        if "recorder" not in self.hass.config.components:
-            raise CalibrationError("Home Assistant's recorder isn't running")
-        recorder = get_instance(self.hass)
-        keep_days = getattr(recorder, "keep_days", None)
-        span = (
-            MAX_HISTORY
-            if not getattr(recorder, "auto_purge", True) or not keep_days
-            else min(MAX_HISTORY, timedelta(days=keep_days))
+        start = self._recorder_start(now)
+        if heater_record is not None:
+            # What arrived since the last write is read too.
+            await heater_record.async_flush(now)
+        since = None if heater_record is None else heater_record.since
+        # The record, where it reaches back further than the recorder.
+        record_from = (
+            max(since, now - MAX_HISTORY)
+            if since is not None and (start is None or since < start)
+            else None
         )
-        start = now - span
-        client = cast("HomeAssistantClient", InProcessClient(self.hass))
         entities = runner.entities
+        inputs = Entities(
+            air=entities.air,
+            humidity=entities.humidity,
+            demand=entities.demand,
+            circulation_speed=entities.circulation_speed,
+        )
+        calibrate: Callable[[], sim_calibrate.Calibrated]
         try:
-            history = await read_heater_history(client, heater, start, now)
-            record = await record_inputs(
-                client,
-                Entities(
-                    air=entities.air,
-                    humidity=entities.humidity,
-                    demand=entities.demand,
-                    circulation_speed=entities.circulation_speed,
-                ),
-                start,
-                now,
-            )
+            if heater_record is not None and record_from is not None:
+                start = record_from
+                client = cast(
+                    "HomeAssistantClient",
+                    RecordClient(self.hass, heater_record),
+                )
+                record = await record_inputs(client, inputs, start, now)
+                calibrate = partial(
+                    sim_calibrate.calibrate,
+                    heater_record.readings(start),
+                    record=record,
+                    params=base,
+                    keep_better=kept is not None,
+                )
+            elif start is None:
+                raise CalibrationError(
+                    "Home Assistant's recorder isn't running"
+                )
+            else:
+                client = cast("HomeAssistantClient", InProcessClient(self.hass))
+                history = await read_heater_history(client, heater, start, now)
+                record = await record_inputs(client, inputs, start, now)
+                calibrate = partial(
+                    sim_calibrate.calibrate_changes,
+                    history.rows,
+                    history.observed,
+                    record=record,
+                    notes=history.notes,
+                    params=base,
+                    keep_better=kept is not None,
+                )
         except HomeAssistantError as err:
             # The library's reader says which entity, and why.
             raise CalibrationError(str(err)) from err
         # Stopped while it read: no fit for a simulator that is gone.
         self._check_open()
-        calibrate: Callable[[], sim_calibrate.Calibrated] = partial(
-            sim_calibrate.calibrate_changes,
-            history.rows,
-            history.observed,
-            record=record,
-            notes=history.notes,
-            params=base,
-            keep_better=kept is not None,
-        )
         try:
             future = self.hass.async_add_executor_job(calibrate)
             try:
@@ -311,6 +345,7 @@ class SimulatorCalibration:
             "calibrated_at": now.isoformat(),
             "attempted_at": now.isoformat(),
             "error": None,
+            "source": "recorder" if record_from is None else "record",
             "history_from": start.isoformat(),
             "history_to": now.isoformat(),
             "refined": kept is not None,
@@ -320,6 +355,22 @@ class SimulatorCalibration:
             "judged": [dataclasses.asdict(judged) for judged in done.judged],
             "notes": list(done.notes),
         }
+
+    def _recorder_start(self, now: datetime) -> datetime | None:
+        """Where the recorder's history begins; None without a recorder.
+
+        Its retention, up to `MAX_HISTORY`, or that with no purge.
+        """
+        if "recorder" not in self.hass.config.components:
+            return None
+        recorder = get_instance(self.hass)
+        keep_days = getattr(recorder, "keep_days", None)
+        span = (
+            MAX_HISTORY
+            if not getattr(recorder, "auto_purge", True) or not keep_days
+            else min(MAX_HISTORY, timedelta(days=keep_days))
+        )
+        return now - span
 
     def _check_open(self) -> None:
         if self._closed:

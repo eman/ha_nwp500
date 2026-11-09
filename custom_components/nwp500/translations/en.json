@@ -854,6 +854,16 @@
           "error": {
             "name": "Why the last attempt failed"
           },
+          "source": {
+            "name": "Read from",
+            "state": {
+              "record": "The heater's own record",
+              "recorder": "The recorder's history"
+            }
+          },
+          "record_since": {
+            "name": "Heater's record since"
+          },
           "history_from": {
             "name": "History from"
           },

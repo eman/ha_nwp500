@@ -1,5 +1,6 @@
 """Constants for the Navien NWP500 integration."""
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 from homeassistant.components.water_heater import (
@@ -8,10 +9,13 @@ from homeassistant.components.water_heater import (
     STATE_HEAT_PUMP,
     STATE_HIGH_DEMAND,
 )
+from homeassistant.helpers.storage import STORAGE_DIR
 
 from nwp500.enums import CurrentOperationMode, DhwOperationSetting
 
 if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
     from nwp500 import (  # type: ignore[attr-defined]
         Device,
         DeviceFeature,
@@ -1475,6 +1479,19 @@ SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
 # The simulator's calibration, per config entry: `<key>.<entry_id>`.
 SIMULATOR_CALIBRATION_STORAGE_KEY: Final = f"{DOMAIN}.simulator_calibration"
 SIMULATOR_CALIBRATION_STORAGE_VERSION: Final = 1
+#: The heaters' own records of their statuses, for the calibration: a
+#: directory per config entry under `.storage/nwp500/`.
+SIMULATOR_RECORD_DIRECTORY: Final = "simulator_record"
+
+
+def simulator_record_directory(hass: HomeAssistant, entry_id: str) -> Path:
+    """Where a config entry's heaters' records are kept."""
+    return Path(
+        hass.config.path(
+            STORAGE_DIR, DOMAIN, SIMULATOR_RECORD_DIRECTORY, entry_id
+        )
+    )
+
 
 # The simulator's entities an earlier version made, by domain and key
 # (unique ID `<mac>_simulator_<key>`): removed when it starts. Bath ready

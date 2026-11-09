@@ -7,6 +7,8 @@ import asyncio
 import contextlib
 import importlib
 import logging
+import shutil
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -83,6 +85,7 @@ from .const import (
     control_storage_key,
     simulator_enabled,
     simulator_feature,
+    simulator_record_directory,
     simulator_started_signal,
 )
 from .coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
@@ -1637,7 +1640,7 @@ def _async_remove_retired_simulator_entities(
 async def _async_remove_simulator_leftovers(
     hass: HomeAssistant, entry_id: str
 ) -> None:
-    """The simulator's entities, Repairs issue and calibration."""
+    """The simulator's entities, Repairs issue, calibration and record."""
     registry = er.async_get(hass)
     for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
         if (
@@ -1654,6 +1657,14 @@ async def _async_remove_simulator_leftovers(
         SIMULATOR_CALIBRATION_STORAGE_VERSION,
         f"{SIMULATOR_CALIBRATION_STORAGE_KEY}.{entry_id}",
     ).async_remove()
+    # The heaters' own records of their statuses.
+    await hass.async_add_executor_job(
+        partial(
+            shutil.rmtree,
+            simulator_record_directory(hass, entry_id),
+            ignore_errors=True,
+        )
+    )
 
 
 def _control_was_on(entry: ConfigEntry) -> bool:
