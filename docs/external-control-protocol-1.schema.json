@@ -114,7 +114,7 @@
     },
     "entry_item": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: one of the feature's own entries, as an item of control_last_write's added and removed (spec section 4.2). New keys may be added (spec section 1.3).",
+      "description": "Entity attributes, not part of a plan: one of the feature's own entries, as an item of external_control_last_write's added and removed (spec section 4.2). New keys may be added (spec section 1.3).",
       "required": ["kind", "owner", "serves", "fires_at", "mode", "setpoint_f", "setpoint_c", "setpoint_raw", "week", "hour", "min"],
       "properties": {
         "kind": {
@@ -128,7 +128,7 @@
         },
         "serves": {
           "type": "string",
-          "description": "The id of the segment it serves. The same string as control_next_entry's serves."
+          "description": "The id of the segment it serves. The same string as plan_next_change's serves."
         },
         "fires_at": {
           "$ref": "#/$defs/timestamp",
@@ -175,7 +175,7 @@
     "program_item": {
       "$ref": "#/$defs/device_entry",
       "type": "object",
-      "description": "Entity attributes, not part of a plan: an item of control_program_hash's entries. A device entry, plus owner. An entry of the feature's own also carries every key of entry_item, except that mode stays the device's mode id, and mode_name holds the mode name. The Reservation Schedule sensor's own mode_name is a display label, not this.",
+      "description": "Entity attributes, not part of a plan: an item of plan_fingerprint's entries. A device entry, plus owner. An entry of the feature's own also carries every key of entry_item, except that mode stays the device's mode id, and mode_name holds the mode name. The Reservation Schedule sensor's own mode_name is a display label, not this.",
       "required": ["owner"],
       "properties": {
         "owner": {
@@ -202,7 +202,7 @@
     },
     "last_write_attributes": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: control_last_write's attributes once a write has been made. Before the first write they are only reason: null.",
+      "description": "Entity attributes, not part of a plan: external_control_last_write's attributes once a write has been made. Before the first write they are only reason: null.",
       "required": ["reason", "added", "removed", "added_count", "removed_count", "truncated", "confirmed", "simulated"],
       "properties": {
         "reason": {
@@ -238,20 +238,20 @@
     },
     "override_report": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: a person's change to the reservation list on control_override (spec section 4.2). One report per key: field; for removed, field, segment and value's kind.",
+      "description": "Entity attributes, not part of a plan: a person's removal of one of the plan's entries, on plan_entry_removed (spec section 4.2). One report per key: field; for removed, field, segment and value's kind.",
       "required": ["field", "value", "detected_at", "segment"],
       "properties": {
         "field": {
           "type": "string",
-          "description": "removed or reservations_switched_off. Treat a value you do not know as opaque."
+          "description": "removed. Treat a value you do not know as opaque."
         },
         "value": {
-          "description": "removed: an entry_item; reservations_switched_off: false."
+          "description": "removed: an entry_item."
         },
         "detected_at": { "type": "string", "format": "date-time" },
         "segment": {
           "type": ["string", "null"],
-          "description": "removed: the entry's serves; reservations_switched_off: null."
+          "description": "removed: the entry's serves."
         }
       },
       "allOf": [
@@ -263,22 +263,13 @@
               "segment": { "type": "string" }
             }
           }
-        },
-        {
-          "if": { "properties": { "field": { "const": "reservations_switched_off" } } },
-          "then": {
-            "properties": {
-              "value": { "const": false },
-              "segment": { "type": "null" }
-            }
-          }
         }
       ],
       "additionalProperties": true
     },
     "override_attributes": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: control_override's attributes. The latest report's keys at the top level, and every report in force. Off, no report is in force: the report keys are null, reports is empty and report_count is 0.",
+      "description": "Entity attributes, not part of a plan: plan_entry_removed's attributes. The latest report's keys at the top level, and every report in force. Off, no report is in force: the report keys are null, reports is empty and report_count is 0.",
       "required": ["field", "value", "detected_at", "segment", "reports", "report_count", "truncated"],
       "properties": {
         "reports": {
@@ -311,7 +302,7 @@
     },
     "ack_attributes": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: control_ack's attributes (spec section 4.2). The entity's state is none, rejected, shadow, pending, partly_programmed or programmed.",
+      "description": "Entity attributes, not part of a plan: plan_status's attributes (spec section 4.2). The entity's state is none, rejected, shadow, pending, partly_programmed or programmed.",
       "required": ["intent_id", "reason", "detail", "segments", "commands", "rejected"],
       "properties": {
         "intent_id": {"type": ["string", "null"], "description": "The plan in force's, or, with none in force, the rejected document's."},
@@ -335,7 +326,7 @@
     },
     "segment_ack": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: one segment on control_ack (spec section 4.2), with the segment's opaque keys.",
+      "description": "Entity attributes, not part of a plan: one segment on plan_status (spec section 4.2), with the segment's opaque keys.",
       "required": ["id", "status", "reason", "warnings", "fires_at", "in_force"],
       "properties": {
         "id": {"type": "string"},
@@ -349,7 +340,7 @@
     },
     "command_ack": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: one device command on control_ack (spec sections 3.7 and 4.2), with the command's opaque keys, which never include its own keys' names. A command that is not supported has its other keys echoed as opaque.",
+      "description": "Entity attributes, not part of a plan: one device command on plan_status (spec sections 3.7 and 4.2), with the command's opaque keys, which never include its own keys' names. A command that is not supported has its other keys echoed as opaque.",
       "required": ["id", "command", "status", "reason", "warnings"],
       "properties": {
         "id": {"type": "string"},

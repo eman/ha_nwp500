@@ -1,8 +1,8 @@
 """The modelled path: the compressor's next start and the tank's probes.
 
 When the compressor runs, the path shows the probes rising to the
-setpoint and Simulated hot water ready says when; when it doesn't, the
-path shows them falling and Simulated compressor start says when it
+setpoint and Fully heated says when; when it doesn't, the
+path shows them falling and Next compressor start says when it
 starts. Charts read the path over the websocket API.
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -362,7 +363,7 @@ async def test_a_subscription_hears_the_simulator_stop(
     assert runner._listeners == []  # noqa: SLF001
 
 
-@pytest.mark.parametrize("stop", ["cap", "mode", "write"])
+@pytest.mark.parametrize("stop", ["mode", "write"])
 async def test_a_heating_stopped_short_is_not_at_temperature(
     hass: HomeAssistant, feature: SimulatorFeature, stop: str
 ):
@@ -377,6 +378,14 @@ async def test_a_heating_stopped_short_is_not_at_temperature(
     assert document["ready_at"] is None
     assert document["heating_end"] == answer.end.isoformat()
     assert document["stop"] == stop
+    # The answer's fully heated time is carried (computed in the runner).
+    later = answer.end + timedelta(hours=3)
+    assert (
+        replace(answer, fully_heated_at=later).path_document("°F")[
+            "fully_heated_at"
+        ]
+        == later.isoformat()
+    )
     at_target = replace(
         answer, stop="target", at_temperature=True
     ).path_document("°F")
@@ -535,4 +544,6 @@ async def test_a_write_that_ends_a_heating_at_its_new_setpoint_is_at_temperature
     # The library counts it reached: the tank was at the new setpoint.
     assert _at_temperature(reached, write)
     assert not _at_temperature(short, write)
-    assert not _at_temperature(reached, replace(write, stop="cap"))
+    assert not _at_temperature(reached, replace(write, stop="mode"))
+    # Inside a TOU period the heater's own target is its cap's.
+    assert _at_temperature(short, replace(write, stop="cap"))

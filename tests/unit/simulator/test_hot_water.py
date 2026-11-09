@@ -25,17 +25,14 @@ from custom_components.nwp500.simulator import (
     async_setup_simulator,
     async_unload_simulator,
 )
-from custom_components.nwp500.simulator.binary_sensor import (
-    SimulatorBathReadyBinarySensor,
-    create_simulator_binary_sensors,
-)
 from custom_components.nwp500.simulator.runner import (
     Inputs,
     SimulatorRunner,
 )
 from custom_components.nwp500.simulator.sensor import (
+    SimulatorBathsAvailableSensor,
     SimulatorHotWaterAvailableSensor,
-    SimulatorShowersReadySensor,
+    SimulatorShowersAvailableSensor,
     create_simulator_sensors,
 )
 
@@ -158,11 +155,7 @@ async def test_the_hot_water_entities_report_the_answer(
     runner = await started(hass, coordinator, {})
     feature = hass.data[DOMAIN]["entry1"][DATA_SIMULATOR]
     by_type = {
-        type(entity): entity
-        for entity in (
-            *create_simulator_sensors(feature),
-            *create_simulator_binary_sensors(feature),
-        )
+        type(entity): entity for entity in create_simulator_sensors(feature)
     }
     answer = runner.answer
     assert answer is not None
@@ -180,17 +173,23 @@ async def test_the_hot_water_entities_report_the_answer(
         readiness.reasons
     )
 
-    showers = by_type[SimulatorShowersReadySensor]
+    showers = by_type[SimulatorShowersAvailableSensor]
+    # Its earlier name's key: the same unique ID, and its history.
+    assert showers.unique_id == f"{MAC}_simulator_showers_ready"
     assert showers.native_value == readiness.showers.ready_for_whole
-    assert (
-        showers.extra_state_attributes["shower_gal"]
-        == readiness.showers.volume_gal
+    assert showers.extra_state_attributes["shower_volume"] == round(
+        readiness.showers.volume_gal * 3.785411784, 1
     )
 
-    bath = by_type[SimulatorBathReadyBinarySensor]
-    assert bath.unique_id == f"{MAC}_simulator_bath_ready"
-    assert bath.is_on is readiness.bath.ready
-    assert bath.extra_state_attributes["bath_gal"] == readiness.bath.volume_gal
+    baths = by_type[SimulatorBathsAvailableSensor]
+    assert baths.unique_id == f"{MAC}_simulator_baths_available"
+    assert baths.native_value == answer.capacity.baths
+    # Above 0 exactly when the library has a bath ready.
+    assert (baths.native_value > 0) is readiness.bath.ready
+    assert baths.extra_state_attributes["bath_volume"] == round(
+        readiness.bath.volume_gal * 3.785411784, 1
+    )
+    assert baths.extra_state_attributes["volume_unit"] == "L"
     await stop(hass)
 
 
@@ -225,28 +224,6 @@ async def test_the_hot_water_is_in_whole_litres_where_litres_are_used(
     await stop(hass)
 
 
-async def test_a_ready_bath_has_no_ready_at_to_move(
-    hass: HomeAssistant, hass_storage, coordinator
-):
-    from dataclasses import replace
-
-    runner = await started(hass, coordinator, {})
-    feature = hass.data[DOMAIN]["entry1"][DATA_SIMULATOR]
-    (bath,) = create_simulator_binary_sensors(feature)
-    answer = runner.answer
-    assert answer is not None and answer.readiness is not None
-    readiness = answer.readiness
-    ready_bath = replace(readiness.bath, ready=True, ready_at=readiness.at)
-    runner.answer = replace(
-        answer, readiness=replace(readiness, bath=ready_bath)
-    )
-
-    assert bath.is_on is True
-    # The library dates a ready bath by the walk's start: no news.
-    assert bath.extra_state_attributes["ready_at"] is None
-    await stop(hass)
-
-
 async def test_the_hot_water_entities_wait_with_the_others(
     hass: HomeAssistant, hass_storage, coordinator
 ):
@@ -254,10 +231,7 @@ async def test_the_hot_water_entities_wait_with_the_others(
     await started(hass, coordinator, {})
     feature = hass.data[DOMAIN]["entry1"][DATA_SIMULATOR]
 
-    entities = [
-        *create_simulator_sensors(feature),
-        *create_simulator_binary_sensors(feature),
-    ]
+    entities = create_simulator_sensors(feature)
 
     assert not any(entity.available for entity in entities)
     await stop(hass)
@@ -410,34 +384,36 @@ def test_the_first_bath_is_the_librarys_answer():
     assert capacity.summary == "2 showers"
 
 
-async def test_the_capacity_sensor_says_it_in_words_and_sizes(
+async def test_the_counts_are_whole_and_their_sizes_in_the_unit(
     hass: HomeAssistant, hass_storage, coordinator
 ):
-    from homeassistant.util.unit_system import METRIC_SYSTEM
+    from dataclasses import replace
 
-    from custom_components.nwp500.simulator.sensor import (
-        SimulatorHotWaterCapacitySensor,
-    )
+    from homeassistant.util.unit_system import US_CUSTOMARY_SYSTEM
 
-    hass.config.units = METRIC_SYSTEM
+    hass.config.units = US_CUSTOMARY_SYSTEM
     runner = await started(hass, coordinator, {})
     answer = runner.answer
     assert answer is not None and answer.capacity is not None
     capacity = answer.capacity
-    sensor = SimulatorHotWaterCapacitySensor(runner, "hot_water_capacity")
+    baths = SimulatorBathsAvailableSensor(runner, "baths_available")
+    showers = SimulatorShowersAvailableSensor(runner, "showers_ready")
 
-    assert sensor.unique_id == f"{MAC}_simulator_hot_water_capacity"
-    assert sensor.native_value == capacity.summary
-    attributes = sensor.extra_state_attributes
-    assert attributes["baths"] == capacity.baths
-    assert attributes["showers"] == capacity.showers
-    # Each size in litres where litres are used; no refill of its own.
-    assert attributes["bath_volume"] == round(
-        capacity.bath_gal * 3.785411784, 1
+    assert baths.native_value == capacity.baths
+    assert showers.native_value == capacity.showers
+    assert baths.extra_state_attributes["bath_volume"] == round(
+        capacity.bath_gal, 1
     )
-    assert "refill" not in attributes
-    assert "refill_volume" not in attributes
-    assert attributes["volume_unit"] == "L"
+    assert baths.extra_state_attributes["volume_unit"] == "gal"
+    assert showers.extra_state_attributes["shower_volume"] == round(
+        capacity.shower_gal, 1
+    )
+    # The library's whole counts, as they are.
+    runner.answer = replace(
+        answer, capacity=replace(capacity, baths=2, showers=5)
+    )
+    assert baths.native_value == 2
+    assert showers.native_value == 5
     await stop(hass)
 
 

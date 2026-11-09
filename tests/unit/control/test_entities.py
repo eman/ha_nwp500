@@ -38,6 +38,7 @@ from custom_components.nwp500.control.engine import (
     State,
     Write,
 )
+from custom_components.nwp500.control.entity import ENTITY_OBJECT_IDS
 from custom_components.nwp500.control.entries import OwnedEntry
 from custom_components.nwp500.control.evaluate import NO_ACK, Ack, ItemAck
 from custom_components.nwp500.control.intent import ITEM_ID_MAX_LENGTH
@@ -346,16 +347,15 @@ class TestBinarySensors:
         entry = OwnedEntry("plan", "s1", WHEN, "heat_pump", 120)
         reports = [
             Report("removed", entry.as_attributes(), WHEN, "s1"),
-            Report("reservations_switched_off", False, WHEN, None),
         ]
         control.reports = {str(i): r for i, r in enumerate(reports)}
         sensor = ControlOverrideBinarySensor(control, "override")
         attrs = sensor.extra_state_attributes
         _override_schema().validate(attrs)
-        # A removed report's value is an entry item; the switch's is false.
+        # A removed report's value is an entry item, for a segment.
         broken = [
             {**attrs["reports"][0], "value": "not_an_entry"},
-            {**attrs["reports"][1], "value": True},
+            {**attrs["reports"][0], "segment": None},
         ]
         for report in broken:
             assert not _override_schema().is_valid(
@@ -445,15 +445,25 @@ def test_every_entity_suggests_its_documented_id(control):
         ),
         (ControlDisableButton(control, "disable"), "button", "disable"),
     ]
+    assert set(ENTITY_OBJECT_IDS) == ENTITY_KEYS
     for entity, domain, key in entities:
         assert entity.entity_id == (
-            f"{domain}.{slugify('Garage Heater')}_control_{key}"
+            f"{domain}.{slugify('Garage Heater')}_{ENTITY_OBJECT_IDS[key]}"
         )
-    assert {e.entity_id for e, _, _ in entities} >= {
-        "sensor.garage_heater_control_ack",
-        "sensor.garage_heater_control_intent",
-        "binary_sensor.garage_heater_control_override",
-        "button.garage_heater_control_disable",
+    assert {e.entity_id for e, _, _ in entities} == {
+        "sensor.garage_heater_external_control_capabilities",
+        "sensor.garage_heater_plan_id",
+        "sensor.garage_heater_plan_status",
+        "sensor.garage_heater_plan_fingerprint",
+        "sensor.garage_heater_plan_written_up_to",
+        "sensor.garage_heater_plan_next_change",
+        "sensor.garage_heater_plan_mode_now",
+        "sensor.garage_heater_plan_temperature_now",
+        "sensor.garage_heater_external_control_last_write",
+        "sensor.garage_heater_external_control_heartbeat",
+        "binary_sensor.garage_heater_heater_matches_plan",
+        "binary_sensor.garage_heater_plan_entry_removed",
+        "button.garage_heater_stop_external_control",
     }
 
 

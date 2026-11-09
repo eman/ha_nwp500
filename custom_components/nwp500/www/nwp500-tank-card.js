@@ -24,9 +24,9 @@ const HISTORY_REFRESH_MS = 5 * 60 * 1000;
 const RETRY_FIRST_MS = 5 * 1000;
 const RETRY_LAST_MS = 5 * 60 * 1000;
 
-// Why a heating ends short of its target, as the path's `stop` says.
+// Why a heating ends short of its target, as the path's `stop` says. A
+// TOU cap is not one: the heater's target inside a TOU period is the cap.
 const STOP_LABELS = {
-  cap: 'TOU cap stops it',
   mode: 'mode change stops it',
   write: 'setpoint change stops it',
   envelope: 'heat pump out of its air range stops it',
@@ -313,10 +313,18 @@ class NWP500TankCard extends HTMLElement {
     if (path.waiting) return { text: 'Waiting for the heater to report.', kind: 'muted' };
     // How the heating it is in ends: at temperature, or stopped short.
     const ending = () => {
-      if (path.ready_at) return ` · at temperature by ${when(hass, new Date(path.ready_at))}`;
+      if (path.ready_at) {
+        // Inside a TOU period the heater's target is its cap short of the setpoint.
+        const what = path.stop === 'cap' ? 'at its TOU temperature' : 'at temperature';
+        return ` · ${what} by ${when(hass, new Date(path.ready_at))}`;
+      }
       if (path.heating_end) {
         const why = STOP_LABELS[path.stop] || 'it stops';
-        return ` · ${why} at ${when(hass, new Date(path.heating_end))}, short of temperature`;
+        // A later heating may finish what this one stops short of.
+        const full = path.fully_heated_at
+          ? `; fully heated by ${when(hass, new Date(path.fully_heated_at))}`
+          : '';
+        return ` · ${why} at ${when(hass, new Date(path.heating_end))}, short of temperature${full}`;
       }
       return ' · not at temperature within the forecast';
     };
@@ -444,14 +452,31 @@ class NWP500TankCard extends HTMLElement {
       ticks.push(`<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid" /><text x="${L - 6}" y="${y(v) + 4}" class="tick" text-anchor="end">${Math.round(v)}°</text>`);
     }
 
-    // A label's row: the second of two markers close together sits below.
-    const marker = (iso, label, color, row = 0) => {
+    // Each label on the first row where it clears the labels already
+    // placed. A label's extent is estimated from its length (10px bold is
+    // under CHAR_W a character), on whichever side of its line it is drawn,
+    // so two that would overlap stack instead.
+    const CHAR_W = 6.5;
+    const LABEL_SPACE = 8;
+    const placed = [];
+    const marker = (iso, label, color) => {
       if (!iso) return '';
       const t = Date.parse(iso);
       if (!(t >= t0 && t <= t1)) return '';
       const px = x(t);
-      const anchor = px > W - 90 ? 'end' : 'start';
+      const width = label.length * CHAR_W;
+      // Drawn after its line unless that runs past the chart's edge.
+      const anchor = px + 4 + width > W ? 'end' : 'start';
       const dx = anchor === 'end' ? -4 : 4;
+      const x0 = anchor === 'end' ? px + dx - width : px + dx;
+      const x1 = x0 + width;
+      let row = 0;
+      while (
+        placed.some(
+          (p) => p.row === row && x0 < p.x1 + LABEL_SPACE && p.x0 < x1 + LABEL_SPACE,
+        )
+      ) row += 1;
+      placed.push({ x0, x1, row });
       return `<line x1="${px}" x2="${px}" y1="${T}" y2="${H - B}" stroke="${color}" stroke-width="1.5" stroke-dasharray="2 3" />
         <text x="${px + dx}" y="${T + 12 + row * 13}" class="marker" fill="${color}" text-anchor="${anchor}">${esc(label)}</text>`;
     };
@@ -459,13 +484,16 @@ class NWP500TankCard extends HTMLElement {
     const endAt = path?.ready_at || path?.heating_end;
     const readyMarker = marker(
       endAt,
-      path?.ready_at ? 'at temperature' : STOP_LABELS[path?.stop] || 'heating stops',
+      path?.ready_at
+        ? path.stop === 'cap' ? 'at TOU temperature' : 'at temperature'
+        : STOP_LABELS[path?.stop] || 'heating stops',
       COLORS.upper,
     );
+    // A later heating that finishes what the first stops short of.
+    const fullAt = path && !path.ready_at ? path.fully_heated_at : null;
+    const fullMarker = marker(fullAt, 'fully heated', COLORS.upper);
     const startAt = path && !path.compressor_running ? path.compressor_start : null;
-    const close = startAt && endAt
-      && Math.abs(x(Date.parse(startAt)) - x(Date.parse(endAt))) < 120;
-    const startMarker = marker(startAt, 'compressor starts', COLORS.lower, close ? 1 : 0);
+    const startMarker = marker(startAt, 'compressor starts', COLORS.lower);
 
     const svg = `
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Tank temperatures, recorded and modelled">
@@ -478,6 +506,7 @@ class NWP500TankCard extends HTMLElement {
         <path d="${line(modelled, 'lower')}" stroke="${COLORS.lower}" stroke-width="2" stroke-dasharray="6 4" fill="none" />
         <line x1="${x(now)}" x2="${x(now)}" y1="${T}" y2="${H - B}" stroke="${COLORS.now}" stroke-width="1" opacity="0.5" />
         ${readyMarker}
+        ${fullMarker}
         ${startMarker}
       </svg>`;
 

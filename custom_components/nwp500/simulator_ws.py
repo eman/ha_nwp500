@@ -75,7 +75,8 @@ def _heater(hass: HomeAssistant, msg: dict[str, Any]) -> tuple[str, str]:
     entries = [
         entry.entry_id
         for entry in hass.config_entries.async_entries(DOMAIN)
-        if entry.entry_id in device.config_entries
+        # A device belongs to one config entry (Home Assistant 2026.11).
+        if entry.entry_id == device.config_entry_id
     ]
     if not macs or not entries:
         raise _NoHeaterError

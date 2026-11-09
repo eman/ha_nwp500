@@ -659,10 +659,10 @@
         "name": "Abnormal suction temperature count"
       },
       "control_capabilities": {
-        "name": "External control interface"
+        "name": "External control capabilities"
       },
       "control_intent": {
-        "name": "Plan",
+        "name": "Plan ID",
         "state": {
           "none": "No plan"
         },
@@ -728,7 +728,7 @@
         }
       },
       "control_program_hash": {
-        "name": "External control schedule fingerprint",
+        "name": "Plan fingerprint",
         "state_attributes": {
           "entries": {
             "name": "Schedule entries"
@@ -816,34 +816,34 @@
         }
       },
       "simulator_heating": {
-        "name": "Simulated heating",
+        "name": "Heating outlook",
         "state": {
-          "heating": "Heating",
+          "heating": "Heating now",
           "scheduled": "Will heat",
-          "idle": "Not heating today",
-          "disabled": "Heating off"
+          "idle": "None in 24 hours",
+          "disabled": "Off"
         }
       },
       "simulator_hot_water_ready": {
-        "name": "Simulated hot water ready"
+        "name": "Fully heated"
       },
       "simulator_compressor_start": {
-        "name": "Simulated compressor start"
+        "name": "Next compressor start"
       },
       "simulator_energy_next_24h": {
-        "name": "Simulated energy, next 24 hours"
+        "name": "Electricity, next 24 hours"
       },
       "simulator_hot_water_available": {
-        "name": "Simulated hot water available"
+        "name": "Hot water available"
       },
       "simulator_showers_ready": {
-        "name": "Simulated showers ready"
+        "name": "Hot water for showers"
       },
-      "simulator_hot_water_capacity": {
-        "name": "Simulated hot water for"
+      "simulator_baths_available": {
+        "name": "Hot water for baths"
       },
       "simulator_bath_ready_at": {
-        "name": "Simulated bath ready at"
+        "name": "Bath ready"
       }
     },
     "binary_sensor": {
@@ -926,17 +926,13 @@
         "name": "TOU status"
       },
       "control_override": {
-        "name": "Manual change detected",
-        "state": {
-          "on": "Detected",
-          "off": "None"
-        },
+        "name": "Plan entry removed",
         "state_attributes": {
           "field": {
-            "name": "Changed"
+            "name": "Kind"
           },
           "value": {
-            "name": "New value"
+            "name": "Entry"
           },
           "detected_at": {
             "name": "Detected at"
@@ -956,7 +952,7 @@
         }
       },
       "control_in_sync": {
-        "name": "Plan written to heater",
+        "name": "Heater matches plan",
         "state": {
           "on": "Yes",
           "off": "No"
@@ -969,9 +965,6 @@
             "name": "Read at"
           }
         }
-      },
-      "simulator_bath_ready": {
-        "name": "Simulated bath ready"
       }
     },
     "switch": {

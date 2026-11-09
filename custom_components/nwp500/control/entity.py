@@ -32,13 +32,33 @@ DEFAULT_DEVICE_NAME = "Navien NWP500"
 MQTT_CONNECTION_STATE = "mqtt_connection_state"
 
 
-def control_entity_id(domain: str, device_name: str, key: str) -> str:
-    """The entity id spec section 4 documents: `<domain>.<device>_control_<key>`.
+# Each entity's documented id after the device's (spec section 4), by key:
+# its English name's, fixed here so a translation or a rename of the name
+# does not move it.
+ENTITY_OBJECT_IDS: dict[str, str] = {
+    "capabilities": "external_control_capabilities",
+    "intent": "plan_id",
+    "ack": "plan_status",
+    "program_hash": "plan_fingerprint",
+    "in_sync": "heater_matches_plan",
+    "programmed_until": "plan_written_up_to",
+    "next_entry": "plan_next_change",
+    "wanted_mode": "plan_mode_now",
+    "wanted_setpoint": "plan_temperature_now",
+    "last_write": "external_control_last_write",
+    "override": "plan_entry_removed",
+    "heartbeat": "external_control_heartbeat",
+    "disable": "stop_external_control",
+}
 
-    Fixed by the key, not by the entity's display name, so a scheduler
-    finds the entity whatever it is called.
+
+def control_entity_id(domain: str, device_name: str, key: str) -> str:
+    """The entity id spec section 4 documents: `<domain>.<device>_<id>`.
+
+    Fixed by the key (`ENTITY_OBJECT_IDS`), not by the entity's display
+    name, so a scheduler finds the entity whatever it is called.
     """
-    return f"{domain}.{slugify(device_name)}_control_{key}"
+    return f"{domain}.{slugify(device_name)}_{ENTITY_OBJECT_IDS[key]}"
 
 
 def _platform_domain(entity: object) -> str:

@@ -188,7 +188,7 @@ device's name. Key facts are entity **states**, not only attributes, so that
 | `issued_at` | ISO 8601 with offset | yes | When the scheduler made it. An older document never replaces a newer one |
 | `segments` | list | yes | The timeline (section 3.2). **An empty list stops the plan**: every programmed entry is withdrawn, and the heater keeps the state it is in |
 | `commands` | list | no | Protocol 1.3. Device commands, each applied once (section 3.7) |
-| any other key | any | no | Opaque. Echoed unchanged on the feature's plan entity, `sensor.<device>_control_intent` (section 4.2), for example `plan_id`, unless it has the name of one of that entity's own attributes (section 4.2), which win |
+| any other key | any | no | Opaque. Echoed unchanged on the feature's plan entity, `sensor.<device>_plan_id` (section 4.2), for example `plan_id`, unless it has the name of one of that entity's own attributes (section 4.2), which win |
 
 There is no validity period. A plan's last segment holds until a new plan
 arrives, so a scheduler MUST make its last segment a state it is willing to
@@ -383,12 +383,31 @@ setting back sends the command in a new plan.
 ## 4. Entities the feature creates
 
 All belong to the device. Unique ids are `<mac>_control_<key>`, and entity
-ids `<domain>.<device>_control_<key>`, fixed by the key. Display names,
+ids `<domain>.<device>_<id>`, the id fixed by the key (below): its English
+display name's, kept when a name is translated or changed.
+
+| Key | Entity id (after `<domain>.<device>_`) |
+|---|---|
+| `capabilities` | `external_control_capabilities` |
+| `intent` | `plan_id` |
+| `ack` | `plan_status` |
+| `program_hash` | `plan_fingerprint` |
+| `in_sync` | `heater_matches_plan` |
+| `programmed_until` | `plan_written_up_to` |
+| `next_entry` | `plan_next_change` |
+| `wanted_mode` | `plan_mode_now` |
+| `wanted_setpoint` | `plan_temperature_now` |
+| `last_write` | `external_control_last_write` |
+| `override` | `plan_entry_removed` |
+| `heartbeat` | `external_control_heartbeat` |
+| `disable` | `stop_external_control` |
+
+Display names,
 translated state labels, attribute display names and entity categories are
 not part of the protocol: a scheduler reads ids, raw states and attribute
 keys and values, which are as documented here.
 
-### 4.1 Capabilities: `sensor.<device>_control_capabilities`
+### 4.1 Capabilities: `sensor.<device>_external_control_capabilities`
 
 - **State:** the declaration's **version**, a short hash of the attributes
   below. It changes whenever the declaration does, so a consumer watching
@@ -420,19 +439,19 @@ without retained copies has them all again. Only the state's timestamps
 
 | Entity | State | Attributes |
 |---|---|---|
-| `sensor.<device>_control_intent`, the plan entity (not the input intent entity of section 2.1) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque top-level keys |
-| `sensor.<device>_control_ack` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, set only in the `rejected` state; `segments` (below); `commands` (below, protocol 1.3); `rejected` (below) |
-| `sensor.<device>_control_program_hash` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
-| `binary_sensor.<device>_control_in_sync` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
-| `sensor.<device>_control_programmed_until` | Timestamp: the start of the first segment still to be written that is not on the device yet, or of the last segment once all are; unknown without a plan. A `merged` segment, or one a person removed, is not to be written | `complete` (every segment to be written is programmed), `scheduled` (segments waiting for the horizon or for room) |
-| `sensor.<device>_control_next_entry` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
-| `sensor.<device>_control_wanted_mode` | The mode of the plan's segment in force: the last segment that has started, a merged one counting as the one it merged into. Unknown before the first segment starts | none |
-| `sensor.<device>_control_wanted_setpoint` | The setpoint of the plan's segment in force, as for the mode, in Home Assistant's unit | `segment` (the plan's segment in force) |
-| `sensor.<device>_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term` or `takeover`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated` (below) |
-| `binary_sensor.<device>_control_override` | On while a person's change to the reservation list is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
-| `sensor.<device>_control_heartbeat` | Timestamp, updated at least every **15 min** | `started_at` |
+| `sensor.<device>_plan_id`, the plan entity (not the input intent entity of section 2.1) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque top-level keys |
+| `sensor.<device>_plan_status` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, set only in the `rejected` state; `segments` (below); `commands` (below, protocol 1.3); `rejected` (below) |
+| `sensor.<device>_plan_fingerprint` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
+| `binary_sensor.<device>_heater_matches_plan` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
+| `sensor.<device>_plan_written_up_to` | Timestamp: the start of the first segment still to be written that is not on the device yet, or of the last segment once all are; unknown without a plan. A `merged` segment, or one a person removed, is not to be written | `complete` (every segment to be written is programmed), `scheduled` (segments waiting for the horizon or for room) |
+| `sensor.<device>_plan_next_change` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
+| `sensor.<device>_plan_mode_now` | The mode of the plan's segment in force: the last segment that has started, a merged one counting as the one it merged into. Unknown before the first segment starts | none |
+| `sensor.<device>_plan_temperature_now` | The setpoint of the plan's segment in force, as for the mode, in Home Assistant's unit | `segment` (the plan's segment in force) |
+| `sensor.<device>_external_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term` or `takeover`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated` (below) |
+| `binary_sensor.<device>_plan_entry_removed` | On while a person's removal of one of the plan's entries is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
+| `sensor.<device>_external_control_heartbeat` | Timestamp, updated at least every **15 min** | `started_at` |
 
-**Entry items.** Each item of `control_last_write`'s `added` and `removed`
+**Entry items.** Each item of `external_control_last_write`'s `added` and `removed`
 is one of the feature's own entries, which that write put on the device's
 list or took off it:
 
@@ -440,14 +459,14 @@ list or took off it:
 |---|---|---|
 | `kind` | string | What the entry is for: `plan` or `near_term` |
 | `owner` | string | The program's label for the kind: the kind itself |
-| `serves` | string | The `id` of the segment it serves. It is the same string as `control_next_entry`'s `serves` |
+| `serves` | string | The `id` of the segment it serves. It is the same string as `plan_next_change`'s `serves` |
 | `fires_at` | string, ISO 8601 with the local offset | The minute the entry is written for: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). A near-term entry confirmed only after its minute never fired; it is issued again, for a later minute, in a later write. An entry left on the device fires again a week later |
 | `mode` | string | The mode it sets, as a name (section 3.4) |
 | `setpoint_f`, `setpoint_c` | number | The setpoint it sets, to one decimal |
 | `setpoint_raw` | integer | The same setpoint as the device holds it, in half-degrees Celsius |
 | `week`, `hour`, `min` | integer | The device slot, under the device's key names: the weekday bit of `fires_at`'s local date (Monday 64, Tuesday 32, Wednesday 16, Thursday 8, Friday 4, Saturday 2, Sunday 128) and its local hour and minute |
 
-**Program items.** Each item of `control_program_hash`'s `entries` is an
+**Program items.** Each item of `plan_fingerprint`'s `entries` is an
 entry of the list the feature wants on the device, with the device's keys:
 `enable` (2 on, 1 off), `week`, `hour`, `min`, `mode` (the device's mode id)
 and `param`. It adds `owner`: `foreign` for an entry the feature does not
@@ -490,7 +509,6 @@ and `segment`:
 | `field` | `value` | `segment` | Ends when |
 |---|---|---|---|
 | `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment | A new plan is adopted (section 5.6) |
-| `reservations_switched_off` | `false` | `null` | The reservation switch is on again |
 
 The list holds the changes in force, not a history:
 
@@ -500,8 +518,8 @@ The list holds the changes in force, not a history:
 - **Lifetime.** Each report ends by its own rule, above. Nothing else empties
   the list: a new plan ends only the `removed` reports above, and reports
   are kept across a reload or a restart of Home Assistant.
-- **Bound.** At most one `reservations_switched_off`, and one `removed`
-  per kind of entry for each segment of the plan in force. `report_count` gives the number. If the attributes would come
+- **Bound.** At most one `removed` per kind of entry for each segment of
+  the plan in force. `report_count` gives the number. If the attributes would come
   within 1 KiB of the recorder's 16 KiB limit, the oldest reports are left
   out of `reports`, and `truncated` is `true`. The latest is always in the
   entity's own attributes.
@@ -595,7 +613,7 @@ audit.
 
 ### 4.4 Controls
 
-`button.<device>_control_disable` switches the feature to `disabled`: it
+`button.<device>_stop_external_control` switches the feature to `disabled`: it
 stops applying plans (section 6.6). Nothing on the dashboard switches it to
 `live`.
 
@@ -783,9 +801,12 @@ scheduler decides.
   - An entry a person adds is not the feature's: it is kept as read
     (section 5.1), counts against the budget, and fires as the person set
     it.
-  - A person turning the reservation switch off stops every entry. It is
-    reported as `reservations_switched_off`, and the feature does not turn it
-    back on.
+  - The reservation switch is the heater's to report, as its setpoint and
+    mode are: the reservation schedule's `enabled`. Turned off, it stops
+    every entry. Nothing tells who turned it off (the app, the heater's
+    panel, or this integration's own reservation services), so it is not
+    reported as a person's change. Once the feature holds the list it keeps
+    the switch as read: it does not turn it back on.
 
 ### 5.11 Read-back
 
@@ -802,7 +823,7 @@ scheduler decides.
 
 ### 5.12 Heartbeat
 
-`sensor.<device>_control_heartbeat` updates at least every 15 min, including
+`sensor.<device>_external_control_heartbeat` updates at least every 15 min, including
 in shadow. That is how a consumer knows the feature is alive. Its
 `started_at` attribute is when the feature last started (section 6.5): set
 once each time the entry is set up or reloaded, a Home Assistant restart

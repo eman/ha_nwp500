@@ -4,15 +4,17 @@
 
 ### Added
 
-- **What the hot water is enough for.** A new simulator sensor, *Simulated
-  hot water for*, says it in words a dashboard can show: "1 bath", "2
-  baths", "3 showers". Its attributes give the counts and each size in
-  Home Assistant's volume unit. A top-up of a filled bath is a fill like
-  any other, so it counts as a bath; the bath is the library's 28.7 gal
-  (109 L) unless set. The tank forecast card shows it under its heading,
-  with when a bath will be ready if it isn't, and the path's websocket
+- **What the hot water is enough for.** Two simulator sensors, *Hot water
+  for baths* and *Hot water for showers*, count the whole baths and the
+  whole showers the tank's hot water is enough for now: each on its own,
+  the same water counted two ways, not added together, each with its size in Home
+  Assistant's volume unit. Above 0 baths, a bath is ready. A top-up of a
+  filled bath is a fill like any other, so it counts as a bath; the bath
+  is the library's 28.7 gal (109 L) unless set. The tank forecast card
+  says it in words under its heading ("Hot water for 2 baths"), with
+  when a bath will be ready if it isn't, and the path's websocket
   document carries it as `hot_water`.
-- **Simulated bath ready at**, a timestamp: when the heater on its own
+- **Bath ready**, a timestamp: when the heater on its own
   has a bath's hot water ready, or, while it does, since when.
 - **The simulator takes the mixing valve's temperature.** An optional
   setting per heater, in Home Assistant's temperature unit: what the
@@ -21,9 +23,9 @@
   more hot water, showers and baths. Without it, nothing changes: water is
   delivered at the tank's temperature.
 - **When the tank comes to temperature, and when the compressor starts.**
-  With the simulator on, a new sensor, Simulated compressor start, says
+  With the simulator on, a new sensor, Next compressor start, says
   when the heat pump's compressor next starts while it is off (unknown
-  while it runs; Simulated hot water ready is then when it stops), with
+  while it runs), with
   the start's cause and trigger.
 - **The tank forecast card.** `custom:nwp500-tank-card`, loaded with the
   integration, draws the tank's upper and lower temperatures: recorded
@@ -34,18 +36,23 @@
   `nwp500/simulator/subscribe_path` (the path again with each
   simulation, across a reload, and an empty one when the simulator
   stops), which other cards can use too, for a user who can read the
-  heater. A heating a TOU cap, a mode change or a setpoint write stops
-  short is not "at temperature": the path's `ready_at` is only for one
-  that reaches its target.
-- **Simulated hot water ready takes back-to-back heatings as one.** In
+  heater. A heating a mode change or a setpoint write stops short is not
+  "at temperature": the path's `ready_at` is only for one that reaches
+  its target, and its `fully_heated_at` is when a later heating finishes
+  the job, which the card says and marks.
+- **Fully heated takes back-to-back heatings as one.** In
   Electric the library ends the upper element at its target and starts
   the lower at once: the sensor said the tank was ready at the hand-over.
-  It now says when the last of them ends, and Simulated heating's
-  `energy_kwh` is theirs together.
-- **Simulated hot water ready is only for a heating that reaches its
-  target.** One a TOU cap, a mode change or a setpoint write stops short
-  leaves it unknown, its `stop` attribute saying why, as the card's path
-  already did.
+  It now says when the last of them ends, and the Heating outlook
+  sensor's `energy_kwh` is theirs together.
+- **Fully heated is the first heating that reaches its target.** One
+  a mode change or a setpoint write stops short is not when the tank is
+  heated: the sensor gives the end of a later heating within the day
+  that gets there, and is unknown only when none does. Inside a TOU
+  period the target is the heater's own: it stops a heat pump heating
+  about 3.4 °F under the setpoint and the tank stays there (measured in
+  nwp500-python's `tou-recovery-cap`), so that heating is finished, its
+  `stop` attribute `cap`; the tank card says "at its TOU temperature".
 - **The `time_to_ready` action uses the heater's own bath and shower
   sizes** when the call gives none, as the bath and shower sensors do,
   and a draw the heater reports now: it answered with the library's
@@ -128,9 +135,9 @@
   runs, and projects the day's air from the hourly forecast. The fit is
   made at most hourly and kept between simulations. The simulator now
   lists `weather` among its after-dependencies.
-- **Simulated hot water.** With the simulator on, three more entities say
-  how much hot water the tank can deliver now, how many showers it holds
-  and whether a bath is ready, as nwp500-python's `time_to_ready` answers
+- **Hot water now.** With the simulator on, three more entities say
+  how much hot water the tank can deliver now and how many whole showers
+  and baths it holds, as nwp500-python's `time_to_ready` answers
   from the heater's state. Each input beyond the heater is optional and
   passed to the library as given: a cold water supply probe, a sensor on
   while hot water is in use (whether water is drawn now, and with the
@@ -178,6 +185,46 @@
 
 ### Changed
 
+- **External control's entities are named, and their ids made, for what
+  they say.** Plan ID (was Plan), Heater matches plan (was Plan written to
+  heater, easily taken for Plan status's Written to heater), Plan
+  fingerprint, External control capabilities, and Plan entry removed (was
+  Manual change detected: the one report left is a person removing one
+  of the plan's entries), on or off. Each entity's id is its English
+  name's after the device's, fixed by its key whatever the display name:
+  `sensor.<device>_plan_id`, `sensor.<device>_plan_status`,
+  `binary_sensor.<device>_heater_matches_plan`,
+  `binary_sensor.<device>_plan_entry_removed`,
+  `button.<device>_stop_external_control`, and so on (spec section 4).
+- **The simulator's heater entities are enabled.** Ambient temperature,
+  DHW target temperature, HP lower off temperature setting, Energy to
+  setpoint and Anti-legionella operation busy were off by default, so
+  they recorded nothing for the simulator to read: without an air sensor
+  the tank's replay and the air's fit went without the heater's own air,
+  and the replay without its setpoint. They are now on by default, for
+  every install, and with the simulator on, setup enables any of the
+  heater's entities it reads that the integration disabled; one you
+  disabled stays disabled, and nothing is enabled while the entry's
+  "Enable newly added entities" is off.
+- **The reservation switch is no longer a manual change.** External
+  control's override entity (now Plan entry removed) reported the switch turned off as a
+  person's change, though nothing tells who turned it off: the app, the
+  heater's panel, or this integration's own reservation services. It held
+  until the switch was on again, which the feature never does once it
+  holds the list. The switch is the heater's to report, as its setpoint
+  and mode are (Reservation schedule's `enabled`); a report an earlier
+  version stored is dropped when it loads.
+- **The simulator's entities are named for what they say.** No
+  "Simulated" prefix: the tank's hot water now (Hot water available, Hot
+  water for baths, Hot water for showers) is read from the heater as much
+  as DHW charge is, and the forecasts say they look ahead (Heating
+  outlook, with Heating now, Will heat, None in 24 hours and Off; Fully
+  heated; Next compressor start; Electricity, next 24 hours; Bath
+  ready). A timestamp's name reads with Home Assistant's relative
+  time: "Fully heated · in 1 hour", "Bath ready · 10 minutes ago". Entity
+  IDs already registered are kept. The on/off bath sensor (Hot water for
+  baths above 0) and Hot water for (the two counts in words) are
+  gone, and removed when the simulator starts.
 - **Requires Home Assistant 2026.11.0 or newer.** The water heater now
   provides `native_temperature_unit`, `native_current_temperature` and
   `native_target_temperature`. Home Assistant 2026.11 deprecated the
@@ -226,8 +273,8 @@
     installation's 72.4 °F, without a cold water supply probe.
   - **Two new ways a heating stops**: `envelope`, the air leaving the
     heat pump's operating range, and `heat_pump`, the heat pump taking
-    back a recovery an element was carrying. Simulated hot water ready's
-    `stop` attribute and the tank card name them.
+    back a recovery an element was carrying. The Fully heated
+    sensor's `stop` attribute and the tank card name them.
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
     scenario, naming the field.
@@ -326,11 +373,6 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
-- **A Home Assistant deprecation warning at start-up with external control**
-  on (#234). Moving an entity to its documented id looked the heater's
-  device up with `async_get_device`, which Home Assistant 2026.8 deprecated
-  and removes in 2027.8. It now uses the lookup scoped to the integration's
-  own entry, and the old one on releases before 2026.8.
 - **The schedule card saves again.** It sent the entries it was given back
   with their display fields (`days`, `time`, `mode_name` and others), which
   Update all reservations refuses, so every edit, deletion, copy and switch

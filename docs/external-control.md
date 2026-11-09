@@ -261,24 +261,25 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
 ## Entities
 
 All belong to the device. Unique ids are `<mac>_control_<key>`, and entity
-ids `<domain>.<device>_control_<key>` whatever the display name (spec section
-4). The four marked *diagnostic* are under the device's Diagnostic section;
+ids `<domain>.<device>_<id>`, the id its English name gives, fixed whatever
+the display name (spec section 4): `sensor.<device>_plan_status`,
+`binary_sensor.<device>_plan_entry_removed`, and so on. The four marked *diagnostic* are under the device's Diagnostic section;
 they stay enabled. States and attribute names have display labels, such as
 "Preview only" for `shadow`; the raw values below are what a scheduler
 reads.
 
 | Entity (key) | State | Attributes |
 |---|---|---|
-| External control interface (`capabilities`), diagnostic | The declaration's version | The declaration (below) |
-| Plan (`intent`) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque keys |
+| External control capabilities (`capabilities`), diagnostic | The declaration's version | The declaration (below) |
+| Plan ID (`intent`) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque keys |
 | Plan status (`ack`) | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force` and its opaque keys; `commands` (above) |
-| External control schedule fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `foreign` (not the feature's), `plan` or `near_term`; the feature's own also say what they serve and when they fire (spec section 4.2) |
-| Plan written to heater (`in_sync`) | On when the device's list hashes the same as the program, the reservation switch included; so in Preview it is off whenever the plan has entries of its own | `device_hash`, `read_at` |
+| Plan fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `foreign` (not the feature's), `plan` or `near_term`; the feature's own also say what they serve and when they fire (spec section 4.2) |
+| Heater matches plan (`in_sync`) | On when the device's list hashes the same as the program, the reservation switch included; so in Preview it is off whenever the plan has entries of its own | `device_hash`, `read_at` |
 | Plan written up to (`programmed_until`) | How far the device's copy of the plan reaches | `complete`, `scheduled` |
 | Plan next change (`next_entry`) | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
 | Plan mode now, Plan temperature now (`wanted_mode`, `wanted_setpoint`) | The state of the plan's segment in force; unknown before its first segment | `segment` (on the temperature: the segment in force) |
 | External control last write (`last_write`), diagnostic | When the list was last written | `reason`, `added`, `removed` (each entry with `kind`, `serves`, `fires_at`, its mode and setpoint, spec section 4.2), `added_count`, `removed_count`, `truncated` (a list left out to stay within the recorder's size limit), `confirmed`, `simulated`. Example: `docs/examples/last-write-plan.json` |
-| Manual change detected (`override`) | On while a person's change to the reservation list is reported: a deleted entry, or the switch turned off | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
+| Plan entry removed (`override`) | On while a person's deletion of one of the plan's entries is reported, until a new plan is adopted | `field`, `value`, `detected_at`, `segment` (the latest), `reports` (every change in force, not a history; how long each lasts is in spec section 4.2), `report_count`, `truncated` |
 | External control heartbeat (`heartbeat`), diagnostic | Updated at least every 15 minutes | `started_at`: when the feature last started (set-up or reload) |
 | Stop external control (`disable`, button) | | Sets Mode to Stopped: the feature stops applying plans |
 
@@ -335,13 +336,11 @@ Live mode writes the plan into the heater's reservation list.
 
 In Preview (`shadow`) the program entities show the list the feature would
 write, and the last write entity shows each write it would have made.
-Compare the schedule fingerprint with the device's own Reservation Schedule
-sensor: Plan written to heater is off whenever they differ, which in shadow
+Compare the plan fingerprint with the device's own Reservation Schedule
+sensor: Heater matches plan is off whenever they differ, which in shadow
 means the plan has entries of its own.
 The acknowledgement shows each segment's status, when its entry fires, and
 any warning.
-
-The feature also reports the reservation switch turned off in shadow.
 
 ## Behaviour in brief
 

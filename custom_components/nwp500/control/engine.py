@@ -75,11 +75,14 @@ WRITE_NEAR_TERM = "near_term"
 WRITE_TAKEOVER = "takeover"
 
 # People's changes, as the override entity reports them (section 5.10).
-REPORT_SWITCHED_OFF = "reservations_switched_off"
 REPORT_REMOVED = "removed"
 # Reported by an earlier version only; dropped when its state loads.
 REPORT_FOREIGN = "foreign_entry"
-_EARLIER_REPORTS = frozenset({REPORT_FOREIGN, "setpoint", "mode"})
+# The reservation switch is the heater's to report, as its setpoint and
+# mode are: nothing tells who turned it off.
+_EARLIER_REPORTS = frozenset(
+    {REPORT_FOREIGN, "setpoint", "mode", "reservations_switched_off"}
+)
 
 # The reason a write reports, by the most telling kind of entry it adds.
 _WRITE_REASONS = (
@@ -245,7 +248,6 @@ class Planner:
         self._programmed_until: datetime | None = None
         self._complete = False
         self._scheduled = 0
-        self._reservations_on: bool | None = None
         # The owned plan entries that are the plan in force's, by check key:
         # written for it, or found at its adoption to be what it wants. An
         # entry is recognised by this, not by where it would be placed now:
@@ -266,7 +268,6 @@ class Planner:
             "last_write": self.last_write.as_document()
             if self.last_write
             else None,
-            "reservations_on": self._reservations_on,
             "took_over": self.took_over,
             "unconfirmed": [
                 {"write": w.as_document(), "hash": h}
@@ -311,7 +312,6 @@ class Planner:
         self.removed_segments = set(document.get("removed_segments", []))
         if raw_write := document.get("last_write"):
             self.last_write = Write.from_document(raw_write)
-        self._reservations_on = document.get("reservations_on")
         self.took_over = bool(document.get("took_over", False))
         raw_unconfirmed = document.get("unconfirmed") or []
         if isinstance(raw_unconfirmed, Mapping):
@@ -692,15 +692,6 @@ class Planner:
     # People's changes (section 5.10)
 
     def _track_list_changes(self, now: datetime, observed: Observed) -> None:
-        on = observed.reservations_enabled
-        if on is not None:
-            if self._reservations_on is True and on is False:
-                self.reports[REPORT_SWITCHED_OFF] = Report(
-                    REPORT_SWITCHED_OFF, False, now, None
-                )
-            elif on:
-                self.reports.pop(REPORT_SWITCHED_OFF, None)
-            self._reservations_on = on
         if observed.reservations is None:
             return
 

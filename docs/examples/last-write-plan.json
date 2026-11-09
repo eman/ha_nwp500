@@ -1,5 +1,5 @@
 {
-  "entity_id": "sensor.water_heater_control_last_write",
+  "entity_id": "sensor.water_heater_external_control_last_write",
   "state": "2026-10-04T12:00:12+00:00",
   "attributes": {
     "reason": "near_term",

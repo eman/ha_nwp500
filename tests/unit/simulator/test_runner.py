@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -372,3 +372,59 @@ async def test_any_failure_of_the_walk_replaces_the_last_answer(
 
     assert r.answer is not None and r.answer.error == FAILED
     assert not r.answer.ok
+
+
+def test_fully_heated_is_the_first_heating_that_reaches_its_target():
+    """Not the first heating when a mode change stops it short."""
+    from types import SimpleNamespace
+
+    from custom_components.nwp500.simulator.runner import (
+        _heatings,
+        fully_heated_at,
+    )
+
+    t0 = datetime(2026, 11, 9, 1, 30, tzinfo=UTC)
+
+    def interval(start: int, end: int, stop: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            start=SimpleNamespace(at=t0 + timedelta(minutes=start)),
+            end=t0 + timedelta(minutes=end),
+            stop=stop,
+        )
+
+    stopped = interval(0, 100, "mode")
+    # Electric's chained lower element ends the second heating.
+    upper = interval(210, 260, "target")
+    lower = interval(260, 300, "target")
+    result = SimpleNamespace(
+        heating=[stopped, upper, lower], simulation=SimpleNamespace(reached=[])
+    )
+
+    heatings = _heatings(result)  # type: ignore[arg-type]
+    assert [last for _, last in heatings] == [stopped, lower]
+    assert fully_heated_at(result, heatings) == lower.end  # type: ignore[arg-type]
+    only_short = SimpleNamespace(
+        heating=[stopped], simulation=SimpleNamespace(reached=[])
+    )
+    assert fully_heated_at(only_short, _heatings(only_short)) is None  # type: ignore[arg-type]
+
+
+def test_a_tou_capped_heating_is_fully_heated():
+    """Inside a TOU period the heater's target is its cap short."""
+    from types import SimpleNamespace
+
+    from custom_components.nwp500.simulator.runner import (
+        _heatings,
+        fully_heated_at,
+    )
+
+    t0 = datetime(2026, 11, 9, 1, 30, tzinfo=UTC)
+    capped = SimpleNamespace(
+        start=SimpleNamespace(at=t0),
+        end=t0 + timedelta(minutes=100),
+        stop="cap",
+    )
+    result = SimpleNamespace(
+        heating=[capped], simulation=SimpleNamespace(reached=[])
+    )
+    assert fully_heated_at(result, _heatings(result)) == capped.end  # type: ignore[arg-type]
