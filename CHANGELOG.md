@@ -178,6 +178,14 @@
 
 ### Changed
 
+- **The simulator's heater entities are enabled.** Ambient temperature,
+  DHW target temperature and HP lower off temperature setting were off by
+  default, so they recorded nothing for the simulator to read: without an
+  air sensor the tank's replay and the air's fit went without the
+  heater's own air, and the replay without its setpoint. They are now on
+  by default, and with the simulator on, setup enables any of the
+  heater's entities it reads that the integration disabled; one you
+  disabled stays disabled.
 - **The reservation switch is no longer a manual change.** External
   control's Manual change detected reported the switch turned off as a
   person's change, though nothing tells who turned it off: the app, the

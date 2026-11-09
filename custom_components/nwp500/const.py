@@ -584,7 +584,8 @@ SENSOR_CONFIGS: Final = {
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
-        "enabled": False,
+        # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+        "enabled": True,
     },
     "dhw_temperature": {
         "attr": "dhw_temperature",
@@ -839,7 +840,8 @@ SENSOR_CONFIGS: Final = {
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
-        "enabled": False,
+        # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+        "enabled": True,
     },
     # Heat pump temperature settings
     "hp_upper_on_temp_setting": {
@@ -872,7 +874,8 @@ SENSOR_CONFIGS: Final = {
         "device_class": "temperature",
         "unit": None,
         "state_class": "measurement",
-        "enabled": False,
+        # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+        "enabled": True,
     },
     # Differential temperature settings (relative values, not absolute)
     # Note: device_class is intentionally omitted from differential temp sensors.
@@ -1467,6 +1470,28 @@ ISSUE_SIMULATOR_INSTALL_FAILED: Final = "simulator_install_failed"
 # What the simulator leaves behind, known here so the off path can remove
 # it without importing the simulator.
 SIMULATOR_UNIQUE_ID_MARKER: Final = "_simulator_"
+
+# The heater's entities the simulator reads the history of, by domain and
+# key (unique ID `<mac>_<key>`), known here so setup can enable them
+# without importing the simulator. A disabled one records nothing.
+SIMULATOR_HEATER_ENTITIES: Final = (
+    ("sensor", "last_status"),
+    ("sensor", "tank_upper_temperature"),
+    ("sensor", "tank_lower_temperature"),
+    ("binary_sensor", "comp_use"),
+    ("binary_sensor", "heat_upper_use"),
+    ("binary_sensor", "heat_lower_use"),
+    ("sensor", "current_heat_use"),
+    ("binary_sensor", "dhw_use"),
+    ("sensor", "hp_lower_off_temp_setting"),
+    ("sensor", "operation_mode"),
+    ("binary_sensor", "anti_legionella_operation_busy"),
+    ("sensor", "error_code"),
+    ("sensor", "current_inst_power"),
+    ("sensor", "energy_to_setpoint"),
+    ("sensor", "ambient_temperature"),
+    ("sensor", "dhw_temperature_setting"),
+)
 
 
 def simulator_started_signal(entry_id: str) -> str:

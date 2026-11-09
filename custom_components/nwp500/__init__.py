@@ -31,6 +31,7 @@ from homeassistant.core import (
     ServiceCall,
     ServiceResponse,
     SupportsResponse,
+    callback,
 )
 from homeassistant.exceptions import (
     ConfigEntryNotReady,
@@ -72,6 +73,7 @@ from .const import (
     MIN_TEMPERATURE_F,
     MODE_TO_DHW_ID,
     RESERVATION_MODE_IDS,
+    SIMULATOR_HEATER_ENTITIES,
     SIMULATOR_UNIQUE_ID_MARKER,
     control_enabled,
     control_feature,
@@ -1376,6 +1378,10 @@ async def async_setup_entry(
     entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
     entry_data[DATA_PLATFORMS] = platforms
 
+    if simulator_enabled(entry):
+        # Before the platforms, so the entities come up enabled.
+        _async_enable_simulator_inputs(hass, entry.entry_id)
+
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
 
     # Register update listener for options changes
@@ -1516,6 +1522,33 @@ def _simulator_was_on(entry: ConfigEntry) -> bool:
     As for external control, the option is stored only once it has been.
     """
     return CONF_SIMULATOR_ENABLED in entry.options
+
+
+@callback
+def _async_enable_simulator_inputs(hass: HomeAssistant, entry_id: str) -> None:
+    """Enable the heater's entities the simulator reads the history of.
+
+    Only those the integration disabled by default: one a person disabled
+    stays so, and the simulator does without it. Home Assistant reloads the
+    entry once after an entity is enabled, as from its settings.
+    """
+    wanted = set(SIMULATOR_HEATER_ENTITIES)
+    registry = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
+        # `<mac>_<key>`: the MAC address has no underscore.
+        key = entity_entry.unique_id.partition("_")[2]
+        if (
+            entity_entry.platform == DOMAIN
+            and entity_entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+            and (entity_entry.domain, key) in wanted
+        ):
+            _LOGGER.info(
+                "Enabling %s: the hot water simulator reads its history",
+                entity_entry.entity_id,
+            )
+            registry.async_update_entity(
+                entity_entry.entity_id, disabled_by=None
+            )
 
 
 async def _async_remove_simulator_leftovers(

@@ -17,6 +17,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.nwp500 import (
     NWP500ServiceHandler,
+    _async_enable_simulator_inputs,
     async_reload_entry,
     async_remove_entry,
     async_setup_entry,
@@ -54,6 +55,16 @@ _HEAVY = (
     "pandas",
     "scipy",
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_registry_on_mock_hass():
+    """No registry for set-up to enable the simulator's inputs in.
+
+    A mock `hass` has none; the enabling is tested on its own.
+    """
+    with patch("custom_components.nwp500._async_enable_simulator_inputs"):
+        yield
 
 
 def _hass_for_setup() -> MagicMock:
@@ -262,6 +273,43 @@ async def test_unload_stops_a_simulator_still_starting(hass: HomeAssistant):
         assert await async_unload_entry(hass, mock_entry) is True
 
     assert start.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_it_enables_the_heaters_entities_it_reads(hass: HomeAssistant):
+    """Only those the integration disabled; a person's choice stays."""
+    entry = MockConfigEntry(domain=DOMAIN, options={"simulator_enabled": True})
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+
+    def make(domain: str, key: str, by: er.RegistryEntryDisabler | None):
+        return registry.async_get_or_create(
+            domain,
+            DOMAIN,
+            f"{MAC}_{key}",
+            config_entry=entry,
+            disabled_by=by,
+        ).entity_id
+
+    integration = er.RegistryEntryDisabler.INTEGRATION
+    ambient = make("sensor", "ambient_temperature", integration)
+    setpoint = make("sensor", "dhw_temperature_setting", integration)
+    target = make(
+        "sensor", "hp_lower_off_temp_setting", er.RegistryEntryDisabler.USER
+    )
+    # Not read by the simulator; and `sub_error_code` ends as `error_code`.
+    coil = make("sensor", "evaporator_temperature", integration)
+    sub_error = make("sensor", "sub_error_code", integration)
+
+    _async_enable_simulator_inputs(hass, entry.entry_id)
+
+    assert registry.async_get(ambient).disabled_by is None
+    assert registry.async_get(setpoint).disabled_by is None
+    assert (
+        registry.async_get(target).disabled_by is er.RegistryEntryDisabler.USER
+    )
+    assert registry.async_get(coil).disabled_by is integration
+    assert registry.async_get(sub_error).disabled_by is integration
 
 
 async def _leftovers(
