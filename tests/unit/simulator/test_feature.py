@@ -29,6 +29,7 @@ from custom_components.nwp500.simulator.runner import Answer
 from custom_components.nwp500.simulator.sensor import (
     SimulatorBathReadyAtSensor,
     SimulatorBathsAvailableSensor,
+    SimulatorCalibrationSensor,
     SimulatorCompressorStartSensor,
     SimulatorEnergySensor,
     SimulatorHeatingSensor,
@@ -147,7 +148,12 @@ async def test_sensors_are_unavailable_without_an_answer(
 
     runner.answer = Answer(computed_at=dt_util.utcnow(), waiting="no_status")
 
-    assert not any(sensor.available for sensor in sensors)
+    # The calibration is kept whatever the walk says.
+    assert not any(
+        sensor.available
+        for sensor in sensors
+        if not isinstance(sensor, SimulatorCalibrationSensor)
+    )
     await async_unload_simulator(hass, entry)
 
 
@@ -458,6 +464,7 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
         SimulatorShowersAvailableSensor,
         SimulatorBathsAvailableSensor,
         SimulatorBathReadyAtSensor,
+        SimulatorCalibrationSensor,
     }
     await async_unload_simulator(hass, entry)
 

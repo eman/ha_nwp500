@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder import history as recorder_history
@@ -42,6 +42,51 @@ from nwp500.sim_home_assistant import (
     parse_units,
     to_f,
 )
+
+if TYPE_CHECKING:
+    from .record import HeaterRecord
+
+
+class RecordClient:
+    """`InProcessClient`, with the history from a heater's own record.
+
+    `record.HeaterRecord`'s, instead of the recorder's.
+    """
+
+    def __init__(self, hass: HomeAssistant, record: HeaterRecord) -> None:
+        """Read the history from `record`, the rest as `InProcessClient`."""
+        self._hass = hass
+        self._record = record
+        self._live = InProcessClient(hass)
+
+    async def state(self, entity: str) -> State:
+        """The entity's value now."""
+        return await self._live.state(entity)
+
+    async def read_history(
+        self, entities: Iterable[str], start: datetime, end: datetime
+    ) -> History:
+        """Each entity's changes from `start` to `end`, from the record."""
+        names = sorted(set(entities))
+        if not names:
+            return History({}, {})
+        try:
+            # Read and parsed off the event loop: weeks of changes.
+            return await self._hass.async_add_executor_job(
+                self._history, names, start, end
+            )
+        except HomeAssistantError:
+            raise
+        except Exception as err:
+            raise HomeAssistantError(
+                f"the heater's record is not read: {err}"
+            ) from err
+
+    def _history(
+        self, names: list[str], start: datetime, end: datetime
+    ) -> History:
+        doc = self._record.history_document(names, start, end)
+        return history_from_document(doc, names, end)
 
 
 class InProcessClient:
@@ -194,7 +239,16 @@ def _history(
     A day of a heater's history is tens of thousands of rows: parsed here,
     not in the event loop.
     """
-    doc = _history_document(hass, start, end, names)
+    return history_from_document(
+        _history_document(hass, start, end, names), names, end
+    )
+
+
+def history_from_document(doc: Any, names: list[str], end: datetime) -> History:
+    """`/api/history/period`'s answer for `names` to `end`, parsed.
+
+    By the library's own parsers, as its REST client parses it.
+    """
     outages = parse_outages(doc, end)
     units = parse_units(doc)
     states = parse_states(doc)

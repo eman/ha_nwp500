@@ -122,7 +122,7 @@ async def test_setup_enables_every_entity_the_simulator_reads(
     """The list setup enables is every one the runner names, and only those."""
     _register_heater(hass)
     runner = await started(hass, coordinator, FLOW)
-    heater = runner._heater_entities()  # noqa: SLF001
+    heater = runner.heater_entities()
 
     assert heater is not None
     named = {

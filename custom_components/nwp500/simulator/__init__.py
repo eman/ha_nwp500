@@ -8,16 +8,31 @@ nothing heavy is imported later in the event loop.
 For each heater a runner keeps a 24-hour simulation up to date from the
 heater's reports (`runner.py`); the entities read its answer
 (`sensor.py`); the `nwp500.simulate` service walks a scenario on request
-(`service.py`).
+(`service.py`). Each heater's parameters are calibrated to its history by
+the library (`calibration.py`), on the heater's own record of its statuses
+(`record.py`) once that reaches back further than the recorder's.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_FINAL_WRITE
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    callback,
+)
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
+from homeassistant.util import dt as dt_util
 
 from ..const import (
     DATA_SIMULATOR,
@@ -28,7 +43,10 @@ from ..const import (
 
 # Imported with the package, in the import executor, rather than on the
 # first call of the service, in the event loop.
+from . import button as button
 from . import service as service
+from .calibration import CHECK_EVERY, CalibrationError, SimulatorCalibration
+from .record import FLUSH_EVERY, HeaterRecord
 from .runner import SimulatorRunner
 from .sensor import create_simulator_sensors
 
@@ -52,9 +70,20 @@ class SimulatorFeature:
         self.entry = entry
         self.coordinator = coordinator
         self.runners: dict[str, SimulatorRunner] = {}
+        self.records: dict[str, HeaterRecord] = {}
+        self.calibration = SimulatorCalibration(hass, entry.entry_id)
+        self._started = dt_util.utcnow()
+        self._unsubs: list[CALLBACK_TYPE] = []
 
     async def async_start(self) -> None:
-        """Start a runner for each heater."""
+        """Start a runner for each heater, on its calibration if it has one.
+
+        Everything is read before anything starts: a failed or cancelled
+        read leaves nothing running that an unload wouldn't stop.
+        """
+        await self.calibration.async_load()
+        runners: list[SimulatorRunner] = []
+        records: list[HeaterRecord] = []
         for mac_address in self.coordinator.data or {}:
             runner = SimulatorRunner(
                 self.hass,
@@ -62,16 +91,149 @@ class SimulatorFeature:
                 mac_address,
                 simulator_device_options(self.entry, mac_address),
             )
-            self.runners[mac_address] = runner
+            record = HeaterRecord(
+                self.hass,
+                self.entry.entry_id,
+                mac_address,
+                _inputs(runner),
+            )
+            await record.async_load()
+            runners.append(runner)
+            records.append(record)
+        self._started = dt_util.utcnow()
+        for runner, record in zip(runners, records, strict=True):
+            runner.calibrated_params = self.calibration.params(
+                runner.mac_address
+            )
+            self.runners[runner.mac_address] = runner
             runner.async_start()
+            self._start_record(runner.mac_address, record)
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass, self._async_calibrate_due, CHECK_EVERY
+            )
+        )
+        self._unsubs.append(
+            async_track_time_interval(
+                self.hass, self._async_flush_records, FLUSH_EVERY
+            )
+        )
+        # Home Assistant stopping doesn't unload the entry: what waits is
+        # written as its own stores are.
+        self._unsubs.append(
+            self.hass.bus.async_listen(
+                EVENT_HOMEASSISTANT_FINAL_WRITE, self._async_final_write
+            )
+        )
+
+    @callback
+    def _start_record(self, mac_address: str, record: HeaterRecord) -> None:
+        """Keep the heater's statuses, and its inputs' changes.
+
+        From their states now: the value in force when the first status
+        arrives.
+        """
+        self.records[mac_address] = record
+        record.add_current_states(dt_util.utcnow())
+        self._unsubs.append(
+            self.coordinator.async_add_raw_status_listener(
+                mac_address, record.add_status
+            )
+        )
+        if inputs := list(record.inputs):
+
+            @callback
+            def changed(event: Event[EventStateChangedData]) -> None:
+                if (state := event.data["new_state"]) is not None:
+                    record.add_state(state)
+
+            self._unsubs.append(
+                async_track_state_change_event(self.hass, inputs, changed)
+            )
+
+    async def _async_final_write(self, _: Event) -> None:
+        """Write what each heater's record has waiting, as Home Assistant stops."""
+        await self._async_flush_records(dt_util.utcnow())
+
+    async def _async_flush_records(self, now: datetime) -> None:
+        """Write what each heater's record has waiting."""
+        for record in list(self.records.values()):
+            await record.async_flush(now)
+
+    async def async_calibrate(
+        self, mac_address: str, *, from_defaults: bool = False
+    ) -> dict[str, Any]:
+        """Calibrate the heater's parameters, and walk again on them.
+
+        Raises `CalibrationError` saying why it could not.
+        """
+        runner = self.runners.get(mac_address)
+        if runner is None:
+            raise CalibrationError("the simulator doesn't run for this heater")
+        record = await self.calibration.async_calibrate(
+            runner,
+            heater_record=self.records.get(mac_address),
+            from_defaults=from_defaults,
+        )
+        runner.calibrated_params = self.calibration.params(mac_address)
+        runner.async_refresh()
+        return record
+
+    @callback
+    def _async_calibrate_due(self, now: datetime) -> None:
+        """Calibrate, in the background, each heater that is due."""
+        for mac_address in self.runners:
+            if self.calibration.due(mac_address, now, self._started):
+                self.entry.async_create_background_task(
+                    self.hass,
+                    self._async_calibrate_quietly(mac_address),
+                    f"nwp500 simulator calibration {mac_address}",
+                )
+
+    async def _async_calibrate_quietly(self, mac_address: str) -> None:
+        """A scheduled calibration: a failure is kept and logged, not raised."""
+        try:
+            await self.async_calibrate(mac_address)
+        except CalibrationError as err:
+            _LOGGER.info(
+                "The simulator's calibration of %s was not made: %s",
+                mac_address,
+                err,
+            )
+        else:
+            _LOGGER.info(
+                "The simulator's calibration of %s is made", mac_address
+            )
 
     async def async_stop(self) -> None:
         """Stop the runners, and tell whoever follows them."""
+        for unsub in self._unsubs:
+            unsub()
+        self._unsubs.clear()
+        now = dt_util.utcnow()
+        for record in self.records.values():
+            await record.async_close(now)
+        await self.calibration.async_close()
         for runner in self.runners.values():
             runner.async_stop()
         async_dispatcher_send(
             self.hass, simulator_stopped_signal(self.entry.entry_id)
         )
+
+
+def _inputs(runner: SimulatorRunner) -> list[str]:
+    """The runner's input entities, whose changes its record keeps."""
+    entities = runner.entities
+    return [
+        entity
+        for entity in (
+            entities.air,
+            entities.humidity,
+            entities.demand,
+            entities.circulation_speed,
+        )
+        if entity
+    ]
 
 
 async def async_setup_simulator(
