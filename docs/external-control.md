@@ -160,9 +160,10 @@ to the minute.
 Every mode is applied as given; what it does is your scheduler's to know.
 The heater skips entries during Vacation, so a later entry of the plan does
 not end it. A power-off entry carries the reservation mode 5 (6 before
-nwp500-python 9.5.0). Whether such an entry powers the heater off is
-untested, and the mode command with 6 switched the unit tested to Energy
-Saver (#160).
+nwp500-python 9.5.0). On the heater tested, such an entry powered it off
+at its minute, and the heater kept its own setpoint, not the entry's; the
+next step's entry turned it on again (spec section 8.3). The mode command
+with 6 switched the unit tested to Energy Saver (#160).
 
 ### Commands
 
@@ -315,7 +316,9 @@ Live mode writes the plan into the heater's reservation list.
 - **Read-back.** After each entry's minute, plus the poll interval and a
   minute, the heater's setpoint and mode are compared with the entry's,
   once. A difference makes the segment `failed` with
-  `not_applied_on_device`, a mode held by a TOU window included.
+  `not_applied_on_device`, a mode held by a TOU window included. A
+  power-off entry is checked by its mode alone, since the heater keeps its
+  own setpoint while off.
 - **Statuses** become `pending`, `programmed`, `in_force`, `failed` and
   `removed`, and the acknowledgement's state `programmed`,
   `partly_programmed` or `pending`.
