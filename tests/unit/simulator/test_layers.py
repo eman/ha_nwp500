@@ -19,7 +19,7 @@ from homeassistant.util import dt as dt_util
 from nwp500 import sim
 from nwp500.sim_home_assistant import HomeAssistantTank, LayersAnswer
 
-from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.const import DOMAIN, SIMULATOR_HEATER_ENTITIES
 from custom_components.nwp500.simulator import service
 from custom_components.nwp500.simulator.runner import Inputs
 
@@ -33,24 +33,7 @@ ANSWER = LayersAnswer(LAYERS, ("layers: replayed 24 h",))
 ESTIMATED = "tank_profile_estimated"
 
 # Each of the heater's entities, as this integration registers them.
-HEATER = (
-    ("sensor", "last_status"),
-    ("sensor", "tank_upper_temperature"),
-    ("sensor", "tank_lower_temperature"),
-    ("binary_sensor", "comp_use"),
-    ("binary_sensor", "heat_upper_use"),
-    ("binary_sensor", "heat_lower_use"),
-    ("sensor", "current_heat_use"),
-    ("binary_sensor", "dhw_use"),
-    ("sensor", "hp_lower_off_temp_setting"),
-    ("sensor", "operation_mode"),
-    ("binary_sensor", "anti_legionella_operation_busy"),
-    ("sensor", "error_code"),
-    ("sensor", "current_inst_power"),
-    ("sensor", "energy_to_setpoint"),
-    ("sensor", "ambient_temperature"),
-    ("sensor", "dhw_temperature_setting"),
-)
+HEATER = SIMULATOR_HEATER_ENTITIES
 
 
 def _register_heater(hass: HomeAssistant) -> dict[str, str]:
@@ -130,6 +113,24 @@ async def test_every_input_is_given_to_the_tanks_keeper(
     assert heater.setpoint == ids["dhw_temperature_setting"]
     # One keeper, holding its history from walk to walk.
     assert runner._keeper() is keeper  # noqa: SLF001
+    await stop(hass)
+
+
+async def test_setup_enables_every_entity_the_simulator_reads(
+    hass: HomeAssistant, hass_storage, coordinator: MagicMock
+):
+    """The list setup enables is every one the runner names, and only those."""
+    _register_heater(hass)
+    runner = await started(hass, coordinator, FLOW)
+    heater = runner._heater_entities()  # noqa: SLF001
+
+    assert heater is not None
+    named = {
+        name: value
+        for name, value in vars(heater).items()
+        if isinstance(value, str)
+    }
+    assert len(named) == len(SIMULATOR_HEATER_ENTITIES)
     await stop(hass)
 
 

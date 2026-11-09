@@ -88,10 +88,9 @@ measures.
 The air's fit to the outdoor air is made at most once an hour, from the
 recorded history of the air sensor (or of the heater's own air and
 compressor entities) and of the weather entity, and kept for the
-simulations between. Without an air sensor, enable the heater's Ambient
-temperature entity, which is off by default: a disabled entity records
-nothing to fit on. Either way the fit waits for a day of recorded
-history.
+simulations between. Without an air sensor, the fit is made on the
+heater's Ambient temperature entity. Either way the fit waits for a day
+of recorded history.
 
 Between fits, each simulation is given the kept fit: the library repeats
 its note, anchors the projection to the air reading beside the heater (or
@@ -178,9 +177,15 @@ the tank, not only what its two probes show.
   recorded history, so the flow and the heater's entities must be
   recorded (the recorder's default). The heater is heard from by its
   Last status sensor, and its setpoint read from its DHW target
-  temperature sensor, which is off by default: enable it to give the
-  replay the setpoint's changes. The first simulation reads 24 hours of
-  history; each one after reads only what is new.
+  temperature sensor. The first simulation reads 24 hours of history;
+  each one after reads only what is new.
+- **The heater's entities it reads are enabled.** With the simulator on,
+  setup enables each of the heater's entities it reads the history of
+  that the integration disabled by default (Ambient temperature, DHW
+  target temperature, HP lower off temperature setting): a disabled
+  entity records nothing. One you disabled stays disabled, and the
+  simulator does without it. Home Assistant reloads the integration once
+  after enabling them.
 - **Without layers**, such as with no draw flow, while the flow is
   unknown now, before the heater was heard from long enough, or after a
   recorder read fails until one succeeds, the simulations start from
