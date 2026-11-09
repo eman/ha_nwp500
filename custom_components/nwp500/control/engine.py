@@ -64,6 +64,9 @@ FIRED_GRACE = timedelta(minutes=1)
 # Read-back of an entry is skipped once it is this far past its window: the
 # device's state then says nothing about that entry (a restart, an outage).
 READBACK_STALE = timedelta(minutes=15)
+
+# The mode a power-off entry sets, as the heater reports it.
+MODE_POWER_OFF = "power_off"
 # How many unconfirmed writes are kept for reconciling.
 UNCONFIRMED_KEPT = 5
 
@@ -805,9 +808,11 @@ class Planner:
         self._checked.update(self._check_key(e) for e in due)
         if latest.serves is None or stale:
             return
-        if (observed.mode, observed.setpoint_raw) == (
-            latest.mode,
-            latest.setpoint_raw,
+        # A heater a power-off entry turned off keeps its own setpoint
+        # (spec section 8.3): only the mode tells whether it applied.
+        if observed.mode == latest.mode and (
+            latest.mode == MODE_POWER_OFF
+            or observed.setpoint_raw == latest.setpoint_raw
         ):
             self.readback.pop(latest.serves, None)
             return

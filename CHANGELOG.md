@@ -397,6 +397,12 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **External control: a power-off step is not failed by read-back.** A
+  heater a `power_off` entry turns off keeps its own setpoint, so
+  read-back, which compared the entry's setpoint too, marked the step
+  `not_applied_on_device` and the plan `partly_programmed` until the next
+  step. A `power_off` entry is now checked by its mode alone. Found on the
+  heater, where the entry did power it off (spec section 8.3).
 - **The schedule card saves again.** It sent the entries it was given back
   with their display fields (`days`, `time`, `mode_name` and others), which
   Update all reservations refuses, so every edit, deletion, copy and switch

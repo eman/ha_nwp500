@@ -252,7 +252,7 @@ class TestReadBack:
             planner,
             [
                 segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
-                segment(NOW, "b", 10, mode="heat_pump", **segment_state),
+                segment(NOW, "b", 10, **{"mode": "heat_pump", **segment_state}),
             ],
         )
         assert any(e.serves == "b" for e in planner.owned)
@@ -284,6 +284,24 @@ class TestReadBack:
         """Whatever the heater's TOU program: only its report counts."""
         planner = self._planner(setpoint_c=59.5)
         planner.step(minutes(11.6), device_obs(planner, tou_on=True))
+        assert planner.readback == {"b": REASON_NOT_APPLIED}
+        assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
+
+    def test_a_power_off_entry_is_checked_by_its_mode_alone(self):
+        """A heater the entry powered off keeps its own setpoint (8.3)."""
+        planner = self._planner(mode="power_off", setpoint_f=131)
+        off = device_obs(planner, mode="power_off", setpoint_raw=123)
+        planner.step(minutes(10.5), off)
+        planner.step(minutes(11.6), off)
+        assert planner.readback == {}
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+
+    def test_a_power_off_entry_that_left_the_heater_on_is_failed(self):
+        planner = self._planner(mode="power_off", setpoint_f=131)
+        planner.step(
+            minutes(11.6),
+            device_obs(planner, mode="heat_pump", setpoint_raw=110),
+        )
         assert planner.readback == {"b": REASON_NOT_APPLIED}
         assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
 

@@ -231,9 +231,10 @@ An entry has no Vacation mode, so `vacation` is not a segment mode; the
 Vacation (section 8), so a plan's later entry does not end it. A `power_off`
 segment's entry carries the reservation mode 5, Power Off in the NaviLink
 app's numbering (nwp500-python 9.5.0); before 9.5.0 it carried 6, which the
-library now refuses. Whether such an entry powers the heater off is
-untested; the mode command with 6 switched the unit tested to Energy Saver
-(#160).
+library now refuses. Such an entry powers the heater off at its minute,
+and the heater keeps its own setpoint, not the entry's; the next segment's
+entry turns it on again (section 8.3). The mode command with 6 switched the
+unit tested to Energy Saver (#160).
 
 ### 3.3 Surplus grants (removed)
 
@@ -819,7 +820,9 @@ scheduler decides.
   While none comes, as when the heater is unreachable, the check waits,
   for 15 minutes at most; an entry not checked by then is not checked. Setpoints are compared within the device's half-degree resolution.
   A setpoint or mode that does not match marks the segment with reason
-  `not_applied_on_device`. Each entry is checked once.
+  `not_applied_on_device`. A `power_off` entry is checked by its mode
+  alone: the heater it turns off keeps its own setpoint (section 8.3).
+  Each entry is checked once.
 
 ### 5.12 Heartbeat
 
@@ -996,6 +999,15 @@ whose minute passed in Vacation and which the heater skipped, was checked
 after Vacation ended and flagged `not_applied_on_device`. Read-back did not
 yet leave out an entry skipped in Vacation (#182, since fixed). Here `v2`
 was removed afterwards, which its status shows instead.
+
+### 8.3 The release test (2026-11-09)
+
+Run on the same heater from 2026-11-09, live, with main at eedbf97, through
+a test plan entity and the scheduler's test runner.
+
+| Test | What was published | Result |
+|---|---|---|
+| Power-off | A `power_off` segment at 131.0 °F at 15:25 PST, then `heat_pump` at 135.5 °F at 15:28 | The write was confirmed, with the entry's mode 5 on the list. At 15:25:02 the heater powered off: power off and the operation setting `POWER_OFF`. It kept its own setpoint, 143 °F, not the entry's. At 15:28:01 the next entry turned it on, in Heat Pump at 135.5 °F. Read-back compared the setpoint too and marked the power-off segment `not_applied_on_device`; a `power_off` entry is now checked by its mode alone (section 5.11) |
 
 ---
 
