@@ -40,8 +40,8 @@
 - **Hot water ready at takes back-to-back heatings as one.** In
   Electric the library ends the upper element at its target and starts
   the lower at once: the sensor said the tank was ready at the hand-over.
-  It now says when the last of them ends, and Heating, next 24 hours'
-  `energy_kwh` is theirs together.
+  It now says when the last of them ends, and the Heating, next 24 hours
+  sensor's `energy_kwh` is theirs together.
 - **Hot water ready at is only for a heating that reaches its
   target.** One a TOU cap, a mode change or a setpoint write stops short
   leaves it unknown, its `stop` attribute saying why, as the card's path
@@ -232,8 +232,8 @@
     installation's 72.4 °F, without a cold water supply probe.
   - **Two new ways a heating stops**: `envelope`, the air leaving the
     heat pump's operating range, and `heat_pump`, the heat pump taking
-    back a recovery an element was carrying. Hot water ready at's
-    `stop` attribute and the tank card name them.
+    back a recovery an element was carrying. the Hot water ready at
+    sensor's `stop` attribute and the tank card name them.
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid
     scenario, naming the field.

@@ -137,15 +137,15 @@ defaults the simulator used instead.
 
 | Sensor | State |
 |---|---|
-| Simulated heating | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
-| Simulated hot water ready | When the tank comes to temperature: the end of the heating it is in, or of the next one within 24 hours, when that heating ends at its target. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why the heating ends: `target` (the tank is heated), `cap` (a TOU period's cap), `mode` (a mode change), `write` (a setpoint write), `envelope` (the air leaves the heat pump's operating range, 41 to 113 °F, and the elements take over), `heat_pump` (the heat pump takes back a recovery an element was carrying) or `horizon` (the 24 hours run out first). Unknown when it won't heat within 24 hours, and when the heating stops short: any `stop` but `target`, except a setpoint write that ends it with the tank already at the new setpoint, which the library counts as reached |
-| Simulated compressor start | When the heat pump's compressor next starts, as the walk finds it: the first heating interval whose source is the compressor. Its attributes: `running` (the heater reports the compressor running), and the start's `cause` and `trigger`. Unknown while the compressor runs (Simulated hot water ready is then when it stops), and when no start falls within 24 hours, such as in Electric or Vacation |
-| Simulated energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
-| Simulated hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
-| Simulated showers ready | Whole showers the tank has hot water for now. Its `shower_gal` attribute is a shower's size |
-| Simulated bath ready | On when the tank can fill a bath now. Its attributes: `bath_gal`, `margin_gal` (whole gallons), and `ready_at`, when the heat pump has it ready if not now |
-| Simulated hot water for | What the hot water the tank can deliver now is enough for, in words: "2 baths", "1 bath", "3 showers", "1 shower" or "Less than a shower". The first bath is the library's bath answer, and each further whole bath's worth of what is left is another (a top-up is a fill like any other); showers are counted when there is no bath. Its attributes: `baths`, `showers`, and `bath_volume`, `shower_volume` in `volume_unit` (Home Assistant's) |
-| Simulated bath ready at | When the tank holds a bath's hot water. Not ready now: when the heater on its own has it ready, unknown when not within 24 hours. Ready: since when, held while it stays ready (across a restart, and a walk with no answer), so a dashboard reads "10 minutes ago". Its `ready` attribute says which |
+| Heating, next 24 hours | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
+| Hot water ready at | When the tank comes to temperature: the end of the heating it is in, or of the next one within 24 hours, when that heating ends at its target. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why the heating ends: `target` (the tank is heated), `cap` (a TOU period's cap), `mode` (a mode change), `write` (a setpoint write), `envelope` (the air leaves the heat pump's operating range, 41 to 113 °F, and the elements take over), `heat_pump` (the heat pump takes back a recovery an element was carrying) or `horizon` (the 24 hours run out first). Unknown when it won't heat within 24 hours, and when the heating stops short: any `stop` but `target`, except a setpoint write that ends it with the tank already at the new setpoint, which the library counts as reached |
+| Next compressor start | When the heat pump's compressor next starts, as the walk finds it: the first heating interval whose source is the compressor. Its attributes: `running` (the heater reports the compressor running), and the start's `cause` and `trigger`. Unknown while the compressor runs (Hot water ready at is then when it stops), and when no start falls within 24 hours, such as in Electric or Vacation |
+| Energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
+| Hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
+| Showers ready | Whole showers the tank has hot water for now. Its `shower_gal` attribute is a shower's size |
+| Bath ready | On when the tank can fill a bath now. Its attributes: `bath_gal`, `margin_gal` (whole gallons), and `ready_at`, when the heat pump has it ready if not now |
+| Hot water for | What the hot water the tank can deliver now is enough for, in words: "2 baths", "1 bath", "3 showers", "1 shower" or "Less than a shower". The first bath is the library's bath answer, and each further whole bath's worth of what is left is another (a top-up is a fill like any other); showers are counted when there is no bath. Its attributes: `baths`, `showers`, and `bath_volume`, `shower_volume` in `volume_unit` (Home Assistant's) |
+| Bath ready at | When the tank holds a bath's hot water. Not ready now: when the heater on its own has it ready, unknown when not within 24 hours. Ready: since when, held while it stays ready (across a restart, and a walk with no answer), so a dashboard reads "10 minutes ago". Its `ready` attribute says which |
 
 The hot water sensors' `reasons` and `defaults_used` are `time_to_ready`'s.
 
@@ -208,7 +208,7 @@ Each sensor has these attributes:
 - `defaults_used` lists each default the answer used, as `name=value`.
 - `notes` says what the air and humidity rest on.
 
-Simulated heating also has the next heating interval's start (`starts_at`, none while it is heating), its `source` (compressor or element), `cause`, `trigger`, `energy_kwh`, `tou_capped` and `confidence`. Energies are to a tenth of a kWh, so an answer that hasn't changed adds nothing to history.
+The Heating, next 24 hours sensor also has the next heating interval's start (`starts_at`, none while it is heating), its `source` (compressor or element), `cause`, `trigger`, `energy_kwh`, `tou_capped` and `confidence`. Energies are to a tenth of a kWh, so an answer that hasn't changed adds nothing to history.
 
 `reasons`, `defaults_used` and `notes` are not recorded in history.
 
@@ -276,12 +276,12 @@ The path is in Home Assistant's temperature unit:
 | Field | Meaning |
 |---|---|
 | `computed_at` | When the simulation started |
-| `state` | As Simulated heating's |
+| `state` | As the Heating, next 24 hours sensor's |
 | `compressor_running` | Whether the heater reports its compressor running |
 | `heating_start`, `heating_end`, `stop`, `source` | The current or next heating: when it starts, when it ends (none when the 24 hours cut it), why it ends and what heats |
 | `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`), none for one a TOU cap, a mode change, a setpoint write or the heat pump's operating range stops short |
-| `compressor_start`, `compressor_trigger` | As Simulated compressor start's |
-| `hot_water` | What the hot water is enough for, as Simulated hot water for: `summary`, `baths`, `showers`; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |
+| `compressor_start`, `compressor_trigger` | As the Next compressor start sensor's |
+| `hot_water` | What the hot water is enough for, as the Hot water for sensor says: `summary`, `baths`, `showers`; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |
 | `unit` | °F or °C |
 | `points` | The tank along the next 24 hours at the library's points (about every 10 minutes): `at`, `upper`, `lower`, `setpoint` and `heating` |
 | `waiting`, `error` | Why there is no path (`no_status`, `no_answer`, or `simulator_off` once the simulator stops), or that the simulation failed |
