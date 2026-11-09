@@ -16,7 +16,8 @@
   **Calibrate simulator** button and the `nwp500.calibrate_simulator`
   action, which returns the parameters and the library's report
   (`from_defaults` starts again). The **Simulator calibration** sensor
-  says when, what was fitted and what kept the default, and why. Turning
+  says when, what the latest calibration fitted and what it kept, and
+  why, and which terms are still on the defaults. Turning
   the simulator off removes the calibration.
 - **What the hot water is enough for.** Two simulator sensors, *Hot water
   for baths* and *Hot water for showers*, count the whole baths and the

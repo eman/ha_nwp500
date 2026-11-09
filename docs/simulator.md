@@ -175,8 +175,9 @@ library's report:
 
 | Attribute | Meaning |
 |---|---|
-| `fitted` | Each fitted term and its value |
-| `unfitted` | Each term that kept the default, and why |
+| `fitted` | Each term the latest calibration fitted, and its value |
+| `kept` | Each term it kept, and why: a refinement keeps the earlier calibration's value where its refit does no better, a first calibration the default |
+| `on_defaults` | The groups of terms still on the library's defaults (the parameters' own `unfitted`), which the answers' `reasons` name |
 | `judged` | With a refinement: each group of terms, kept or replaced, with both errors |
 | `notes` | The library's notes on the history and the fit |
 | `history_from`, `history_to` | The history the calibration read |

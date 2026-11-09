@@ -369,11 +369,48 @@ async def test_the_sensor_says_when_and_what_was_fitted(
     )
     attributes = sensor.extra_state_attributes
     assert attributes["fitted"] == {"UA": "1.2"}
-    assert attributes["unfitted"] == {"COP scale": "few"}
+    # What the latest calibration kept, and why; and what the parameters
+    # themselves say is still on the defaults.
+    assert attributes["kept"] == {"COP scale": "few"}
+    assert attributes["on_defaults"] == [UNFITTED_TERMS[0]]
     assert attributes["notes"] == ["a note"]
     assert attributes["error"] is None
     assert attributes["refined"] is False
     await _stop(hass)
+
+
+async def test_a_calibration_under_way_keeps_nothing_once_stopped(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: switched off, or reloaded, while it calibrates."""
+    import asyncio
+
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+    reading = asyncio.Event()
+    release = asyncio.Event()
+    with _Library() as library:
+        record = library.record
+
+        async def slow(*_: Any) -> RecordInputs:
+            reading.set()
+            await release.wait()
+            return record
+
+        library.inputs.side_effect = slow
+        calibrating = hass.async_create_task(feature.async_calibrate(MAC))
+        await reading.wait()
+        entry = hass.config_entries.async_get_entry("entry1")
+        assert entry is not None
+        await async_unload_simulator(hass, entry)
+        release.set()
+        with pytest.raises(CalibrationError, match="stopped"):
+            await calibrating
+    await hass.async_block_till_done()
+
+    assert KEY not in hass_storage
+    assert feature.runners[MAC].calibrated_params is None
+    assert feature.calibration.record(MAC) is None
 
 
 async def test_the_button_calibrates_and_says_why_it_cant(

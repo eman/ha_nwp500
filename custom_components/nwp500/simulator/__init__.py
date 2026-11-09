@@ -130,6 +130,7 @@ class SimulatorFeature:
         for unsub in self._unsubs:
             unsub()
         self._unsubs.clear()
+        await self.calibration.async_close()
         for runner in self.runners.values():
             runner.async_stop()
         async_dispatcher_send(

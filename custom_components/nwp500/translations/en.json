@@ -864,16 +864,19 @@
             "name": "Refined the earlier calibration"
           },
           "fitted": {
-            "name": "Fitted"
-          },
-          "unfitted": {
-            "name": "Kept the defaults"
+            "name": "Fitted in the latest calibration"
           },
           "judged": {
             "name": "Kept or replaced"
           },
           "notes": {
             "name": "Notes"
+          },
+          "kept": {
+            "name": "Kept in the latest calibration"
+          },
+          "on_defaults": {
+            "name": "Still on the defaults"
           }
         }
       }

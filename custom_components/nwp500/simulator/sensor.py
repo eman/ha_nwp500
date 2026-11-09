@@ -474,9 +474,13 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
     """When the heater's parameters were last calibrated to its history.
 
     Unknown while the simulator runs on the library's defaults for the
-    tank's size. Its attributes are the library's report: each term's
-    value where it was fitted, or why it kept the default, and the
-    library's notes; and the last attempt, with why it failed if it did.
+    tank's size. Its attributes are the library's report on the latest
+    calibration: each term it fitted, with its value, and each it kept,
+    with why (a refinement keeps the earlier calibration's values where
+    its refit does no better, a first calibration the defaults); which
+    groups of terms are still on the defaults (the parameters' own
+    `unfitted`); the library's notes; and the last attempt, with why it
+    failed if it did.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -484,7 +488,7 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
     _attr_icon = "mdi:tune-variant"
     # Long, and in the store: kept off the recorder.
     _unrecorded_attributes = frozenset(
-        {"fitted", "unfitted", "judged", "notes", "error"}
+        {"fitted", "kept", "on_defaults", "judged", "notes", "error"}
     )
 
     def __init__(
@@ -524,7 +528,8 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
         """The library's report on the calibration, and the last attempt."""
         record = self._record
         terms = record.get("terms") or []
-        in_use = self.calibration.params(self.mac_address) is not None
+        params = self.calibration.params(self.mac_address)
+        in_use = params is not None
         return {
             "last_attempt": record.get("attempted_at"),
             "error": record.get("error"),
@@ -534,13 +539,14 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
             "fitted": {t["name"]: t["value"] for t in terms if t.get("fitted")}
             if in_use
             else {},
-            "unfitted": {
+            "kept": {
                 t["name"]: t.get("why", "")
                 for t in terms
                 if not t.get("fitted")
             }
             if in_use
             else {},
+            "on_defaults": list(params.unfitted) if params is not None else [],
             "judged": record.get("judged", []) if in_use else [],
             "notes": record.get("notes", []) if in_use else [],
         }

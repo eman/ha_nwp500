@@ -98,6 +98,11 @@ class SimulatorCalibration:
         self._params: dict[str, HeaterParams] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._listeners: list[CALLBACK_TYPE] = []
+        # Once closed, nothing more is kept: a calibration still running
+        # when the simulator stops would otherwise write after its store
+        # is removed, or into a reloaded simulator's.
+        self._closed = False
+        self._saving = asyncio.Lock()
 
     async def async_load(self) -> None:
         """Read what was kept. Parameters the library can't read are dropped."""
@@ -155,6 +160,12 @@ class SimulatorCalibration:
 
         return remove
 
+    async def async_close(self) -> None:
+        """Keep nothing more, once a save under way has finished."""
+        self._closed = True
+        async with self._saving:
+            pass
+
     async def async_calibrate(
         self, runner: SimulatorRunner, *, from_defaults: bool = False
     ) -> dict[str, Any]:
@@ -173,6 +184,10 @@ class SimulatorCalibration:
             now = dt_util.utcnow()
             try:
                 record = await self._async_run(runner, now, from_defaults)
+                if self._closed:
+                    raise CalibrationError(
+                        "the simulator stopped while it calibrated"
+                    )
             except CalibrationError as err:
                 self._failed(mac_address, now, str(err))
                 raise
@@ -258,6 +273,8 @@ class SimulatorCalibration:
         }
 
     def _failed(self, mac_address: str, now: datetime, error: str) -> None:
+        if self._closed:
+            return
         record = dict(self._records.get(mac_address) or {})
         record["attempted_at"] = now.isoformat()
         record["error"] = error
@@ -266,7 +283,9 @@ class SimulatorCalibration:
         self._notify()
 
     async def _async_save(self) -> None:
-        await self._store.async_save({"heaters": self._records})
+        async with self._saving:
+            if not self._closed:
+                await self._store.async_save({"heaters": self._records})
 
     @callback
     def _notify(self) -> None:
