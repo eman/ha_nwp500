@@ -237,8 +237,9 @@ The integration ships a Lovelace card, **NWP500 Tank Forecast**
 tank's upper and lower temperatures: as recorded over the last hours,
 from the heater's Tank upper and Tank lower temperature sensors, and as
 the simulator models them over the next day, dashed. The setpoint is
-dotted, the modelled heating is shaded, and two markers say when the tank
-comes to temperature and when the compressor next starts. Its heading
+dotted, the modelled heating is shaded, and markers say when the tank
+comes to temperature (or what stops the heating short, and when a later
+heating has it fully heated) and when the compressor next starts. Its heading
 says the same in words: "Heat pump running · at temperature by 3:40 PM",
 or "Heat pump off · next start 9:10 PM", and what the hot water is
 enough for: "Hot water for 2 baths", or "Hot water for 2

@@ -245,8 +245,8 @@ layers, with a draw flow):
 
 - **Hot water available**: the hot water the tank can deliver now.
 - **Hot water for baths** and **Hot water for showers**: the whole baths,
-  or else the whole showers, that hot water is enough for: the same water
-  counted two ways, not added together. Above 0 baths, a bath is ready.
+  and the whole showers, that hot water is enough for, each on its own:
+  the same water counted two ways, not added together. Above 0 baths, a bath is ready.
 
 What the heater will do, walked forward from there:
 

@@ -378,7 +378,7 @@ async def test_a_heating_stopped_short_is_not_at_temperature(
     assert document["ready_at"] is None
     assert document["heating_end"] == answer.end.isoformat()
     assert document["stop"] == stop
-    # A later heating that reaches the setpoint is when it is fully heated.
+    # The answer's fully heated time is carried (computed in the runner).
     later = answer.end + timedelta(hours=3)
     assert (
         replace(answer, fully_heated_at=later).path_document("°F")[

@@ -5,9 +5,9 @@
 ### Added
 
 - **What the hot water is enough for.** Two simulator sensors, *Hot water
-  for baths* and *Hot water for showers*, count the whole baths, or else
-  the whole showers, the tank's hot water is enough for now (the same
-  water two ways, not added together), each with its size in Home
+  for baths* and *Hot water for showers*, count the whole baths and the
+  whole showers the tank's hot water is enough for now: each on its own,
+  the same water counted two ways, not added together, each with its size in Home
   Assistant's volume unit. Above 0 baths, a bath is ready. A top-up of a
   filled bath is a fill like any other, so it counts as a bath; the bath
   is the library's 28.7 gal (109 L) unless set. The tank forecast card
@@ -197,13 +197,15 @@
   `binary_sensor.<device>_plan_entry_removed`,
   `button.<device>_stop_external_control`, and so on (spec section 4).
 - **The simulator's heater entities are enabled.** Ambient temperature,
-  DHW target temperature and HP lower off temperature setting were off by
-  default, so they recorded nothing for the simulator to read: without an
-  air sensor the tank's replay and the air's fit went without the
-  heater's own air, and the replay without its setpoint. They are now on
-  by default, and with the simulator on, setup enables any of the
+  DHW target temperature, HP lower off temperature setting, Energy to
+  setpoint and Anti-legionella operation busy were off by default, so
+  they recorded nothing for the simulator to read: without an air sensor
+  the tank's replay and the air's fit went without the heater's own air,
+  and the replay without its setpoint. They are now on by default, for
+  every install, and with the simulator on, setup enables any of the
   heater's entities it reads that the integration disabled; one you
-  disabled stays disabled.
+  disabled stays disabled, and nothing is enabled while the entry's
+  "Enable newly added entities" is off.
 - **The reservation switch is no longer a manual change.** External
   control's override entity (now Plan entry removed) reported the switch turned off as a
   person's change, though nothing tells who turned it off: the app, the

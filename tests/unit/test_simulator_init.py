@@ -65,12 +65,12 @@ def _no_registry_on_mock_hass():
     A mock `hass` has none; the enabling is tested on its own.
     """
     with (
-        patch("custom_components.nwp500._async_enable_simulator_inputs"),
+        patch("custom_components.nwp500._async_enable_simulator_inputs") as e,
         patch(
             "custom_components.nwp500._async_remove_retired_simulator_entities"
-        ),
+        ) as r,
     ):
-        yield
+        yield e, r
 
 
 def _hass_for_setup() -> MagicMock:
@@ -108,10 +108,13 @@ def _capture_background(entry: MagicMock) -> list:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("options", [{}, {"simulator_enabled": False}])
-async def test_setup_with_the_simulator_off_imports_nothing_of_it(options):
+async def test_setup_with_the_simulator_off_imports_nothing_of_it(
+    options, _no_registry_on_mock_hass
+):
     """With it off, nothing of the simulator or its packages is imported.
 
-    Each of them raises on import here.
+    Each of them raises on import here. Nor are its inputs enabled or its
+    retired entities removed.
     """
     mock_hass = _hass_for_setup()
     mock_entry = _entry(options)
@@ -137,6 +140,9 @@ async def test_setup_with_the_simulator_off_imports_nothing_of_it(options):
         "platforms": _PLATFORMS
     }
     assert started == []
+    enable, retire = _no_registry_on_mock_hass
+    enable.assert_not_called()
+    retire.assert_not_called()
     if options:
         # Switched off: what it left goes, even if no reload removed it.
         remove.assert_awaited_once_with(mock_hass, mock_entry.entry_id)
@@ -152,10 +158,19 @@ async def test_setup_with_the_simulator_off_imports_nothing_of_it(options):
 
 @needs_sim
 @pytest.mark.asyncio
-async def test_the_simulator_starts_after_the_platforms_in_the_background():
+async def test_the_simulator_starts_after_the_platforms_in_the_background(
+    _no_registry_on_mock_hass,
+):
     mock_hass = _hass_for_setup()
     mock_entry = _entry({"simulator_enabled": True})
     started = _capture_background(mock_entry)
+    enable, retire = _no_registry_on_mock_hass
+    order: list[str] = []
+    enable.side_effect = lambda *_: order.append("enable")
+    retire.side_effect = lambda *_: order.append("retire")
+    mock_hass.config_entries.async_forward_entry_setups.side_effect = (
+        lambda *_: order.append("forward")
+    )
 
     with (
         patch("custom_components.nwp500.NWP500DataUpdateCoordinator") as cls,
@@ -179,6 +194,11 @@ async def test_the_simulator_starts_after_the_platforms_in_the_background():
             mock_entry, _PLATFORMS
         )
         setup.assert_not_awaited()
+        # Its inputs enabled and retired entities removed before the
+        # platforms, so the entities come up as they should.
+        enable.assert_called_once_with(mock_hass, mock_entry)
+        retire.assert_called_once_with(mock_hass, mock_entry.entry_id)
+        assert order == ["enable", "retire", "forward"]
         (start,) = started
         await start
 
@@ -338,7 +358,7 @@ async def test_it_enables_the_heaters_entities_it_reads(hass: HomeAssistant):
     coil = make("sensor", "evaporator_temperature", integration)
     sub_error = make("sensor", "sub_error_code", integration)
 
-    _async_enable_simulator_inputs(hass, entry.entry_id)
+    _async_enable_simulator_inputs(hass, entry)
 
     assert registry.async_get(ambient).disabled_by is None
     assert registry.async_get(setpoint).disabled_by is None
@@ -347,6 +367,35 @@ async def test_it_enables_the_heaters_entities_it_reads(hass: HomeAssistant):
     )
     assert registry.async_get(coil).disabled_by is integration
     assert registry.async_get(sub_error).disabled_by is integration
+
+
+@pytest.mark.asyncio
+async def test_it_enables_nothing_while_new_entities_come_disabled(
+    hass: HomeAssistant,
+):
+    """Review of #271: the entry's "Enable newly added entities" is off.
+
+    Home Assistant registers every new entity disabled by the integration
+    then, though it is the person's choice.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        options={"simulator_enabled": True},
+        pref_disable_new_entities=True,
+    )
+    entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    upper = registry.async_get_or_create(
+        "sensor", DOMAIN, f"{MAC}_tank_upper_temperature", config_entry=entry
+    )
+    assert upper.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+
+    _async_enable_simulator_inputs(hass, entry)
+
+    assert (
+        registry.async_get(upper.entity_id).disabled_by
+        is er.RegistryEntryDisabler.INTEGRATION
+    )
 
 
 @pytest.mark.asyncio

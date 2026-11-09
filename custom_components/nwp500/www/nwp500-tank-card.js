@@ -24,9 +24,9 @@ const HISTORY_REFRESH_MS = 5 * 60 * 1000;
 const RETRY_FIRST_MS = 5 * 1000;
 const RETRY_LAST_MS = 5 * 60 * 1000;
 
-// Why a heating ends short of its target, as the path's `stop` says.
+// Why a heating ends short of its target, as the path's `stop` says. A
+// TOU cap is not one: the heater's target inside a TOU period is the cap.
 const STOP_LABELS = {
-  cap: 'TOU cap stops it',
   mode: 'mode change stops it',
   write: 'setpoint change stops it',
   envelope: 'heat pump out of its air range stops it',
@@ -452,21 +452,31 @@ class NWP500TankCard extends HTMLElement {
       ticks.push(`<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid" /><text x="${L - 6}" y="${y(v) + 4}" class="tick" text-anchor="end">${Math.round(v)}°</text>`);
     }
 
-    // A label's row: the second of two markers close together sits below.
-    // Each label on the first row clear of the labels already placed: two
-    // within LABEL_GAP px of each other stack instead of overlapping.
-    const LABEL_GAP = 120;
+    // Each label on the first row where it clears the labels already
+    // placed. A label's extent is estimated from its length (10px bold is
+    // under CHAR_W a character), on whichever side of its line it is drawn,
+    // so two that would overlap stack instead.
+    const CHAR_W = 6.5;
+    const LABEL_SPACE = 8;
     const placed = [];
     const marker = (iso, label, color) => {
       if (!iso) return '';
       const t = Date.parse(iso);
       if (!(t >= t0 && t <= t1)) return '';
       const px = x(t);
-      let row = 0;
-      while (placed.some((p) => p.row === row && Math.abs(p.px - px) < LABEL_GAP)) row += 1;
-      placed.push({ px, row });
-      const anchor = px > W - 90 ? 'end' : 'start';
+      const width = label.length * CHAR_W;
+      // Drawn after its line unless that runs past the chart's edge.
+      const anchor = px + 4 + width > W ? 'end' : 'start';
       const dx = anchor === 'end' ? -4 : 4;
+      const x0 = anchor === 'end' ? px + dx - width : px + dx;
+      const x1 = x0 + width;
+      let row = 0;
+      while (
+        placed.some(
+          (p) => p.row === row && x0 < p.x1 + LABEL_SPACE && p.x0 < x1 + LABEL_SPACE,
+        )
+      ) row += 1;
+      placed.push({ x0, x1, row });
       return `<line x1="${px}" x2="${px}" y1="${T}" y2="${H - B}" stroke="${color}" stroke-width="1.5" stroke-dasharray="2 3" />
         <text x="${px + dx}" y="${T + 12 + row * 13}" class="marker" fill="${color}" text-anchor="${anchor}">${esc(label)}</text>`;
     };
@@ -474,7 +484,9 @@ class NWP500TankCard extends HTMLElement {
     const endAt = path?.ready_at || path?.heating_end;
     const readyMarker = marker(
       endAt,
-      path?.ready_at ? 'at temperature' : STOP_LABELS[path?.stop] || 'heating stops',
+      path?.ready_at
+        ? path.stop === 'cap' ? 'at TOU temperature' : 'at temperature'
+        : STOP_LABELS[path?.stop] || 'heating stops',
       COLORS.upper,
     );
     // A later heating that finishes what the first stops short of.

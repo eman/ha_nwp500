@@ -392,19 +392,19 @@ def test_fully_heated_is_the_first_heating_that_reaches_its_target():
             stop=stop,
         )
 
-    capped = interval(0, 100, "mode")
+    stopped = interval(0, 100, "mode")
     # Electric's chained lower element ends the second heating.
     upper = interval(210, 260, "target")
     lower = interval(260, 300, "target")
     result = SimpleNamespace(
-        heating=[capped, upper, lower], simulation=SimpleNamespace(reached=[])
+        heating=[stopped, upper, lower], simulation=SimpleNamespace(reached=[])
     )
 
     heatings = _heatings(result)  # type: ignore[arg-type]
-    assert [last for _, last in heatings] == [capped, lower]
+    assert [last for _, last in heatings] == [stopped, lower]
     assert fully_heated_at(result, heatings) == lower.end  # type: ignore[arg-type]
     only_short = SimpleNamespace(
-        heating=[capped], simulation=SimpleNamespace(reached=[])
+        heating=[stopped], simulation=SimpleNamespace(reached=[])
     )
     assert fully_heated_at(only_short, _heatings(only_short)) is None  # type: ignore[arg-type]
 

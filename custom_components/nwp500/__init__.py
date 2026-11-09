@@ -1381,7 +1381,7 @@ async def async_setup_entry(
 
     if simulator_enabled(entry):
         # Before the platforms, so the entities come up enabled.
-        _async_enable_simulator_inputs(hass, entry.entry_id)
+        _async_enable_simulator_inputs(hass, entry)
         _async_remove_retired_simulator_entities(hass, entry.entry_id)
 
     await hass.config_entries.async_forward_entry_setups(entry, platforms)
@@ -1527,16 +1527,25 @@ def _simulator_was_on(entry: ConfigEntry) -> bool:
 
 
 @callback
-def _async_enable_simulator_inputs(hass: HomeAssistant, entry_id: str) -> None:
+def _async_enable_simulator_inputs(
+    hass: HomeAssistant, entry: ConfigEntry
+) -> None:
     """Enable the heater's entities the simulator reads the history of.
 
     Only those the integration disabled by default: one a person disabled
-    stays so, and the simulator does without it. Home Assistant reloads the
-    entry once after an entity is enabled, as from its settings.
+    stays so, and the simulator does without it. Nothing is enabled while
+    the entry's "Enable newly added entities" is off: Home Assistant then
+    disables every new entity as the integration's, which is the person's
+    choice too. Home Assistant reloads the entry once after an entity is
+    enabled, as from its settings.
     """
+    if entry.pref_disable_new_entities:
+        return
     wanted = set(SIMULATOR_HEATER_ENTITIES)
     registry = er.async_get(hass)
-    for entity_entry in er.async_entries_for_config_entry(registry, entry_id):
+    for entity_entry in er.async_entries_for_config_entry(
+        registry, entry.entry_id
+    ):
         # `<mac>_<key>`: the MAC address has no underscore.
         key = entity_entry.unique_id.partition("_")[2]
         if (

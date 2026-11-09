@@ -448,10 +448,10 @@ without retained copies has them all again. Only the state's timestamps
 | `sensor.<device>_plan_mode_now` | The mode of the plan's segment in force: the last segment that has started, a merged one counting as the one it merged into. Unknown before the first segment starts | none |
 | `sensor.<device>_plan_temperature_now` | The setpoint of the plan's segment in force, as for the mode, in Home Assistant's unit | `segment` (the plan's segment in force) |
 | `sensor.<device>_external_control_last_write` | Timestamp of the last list write | `reason` (`plan`, `cleanup`, `near_term` or `takeover`); `added` and `removed`, lists of entry items (below); `added_count`, `removed_count`, `truncated`, `confirmed`, `simulated` (below) |
-| `binary_sensor.<device>_plan_entry_removed` | On while a person's change to the reservation list is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
+| `binary_sensor.<device>_plan_entry_removed` | On while a person's removal of one of the plan's entries is being reported (section 5.10) | The latest report's `field`, `value`, `detected_at` and `segment`; `reports`, every report in force, oldest first; `report_count`, `truncated` (below) |
 | `sensor.<device>_external_control_heartbeat` | Timestamp, updated at least every **15 min** | `started_at` |
 
-**Entry items.** Each item of `control_last_write`'s `added` and `removed`
+**Entry items.** Each item of `external_control_last_write`'s `added` and `removed`
 is one of the feature's own entries, which that write put on the device's
 list or took off it:
 
@@ -459,14 +459,14 @@ list or took off it:
 |---|---|---|
 | `kind` | string | What the entry is for: `plan` or `near_term` |
 | `owner` | string | The program's label for the kind: the kind itself |
-| `serves` | string | The `id` of the segment it serves. It is the same string as `control_next_entry`'s `serves` |
+| `serves` | string | The `id` of the segment it serves. It is the same string as `plan_next_change`'s `serves` |
 | `fires_at` | string, ISO 8601 with the local offset | The minute the entry is written for: after any `moved_1_min` shift, and for a near-term entry its near-term minute (section 5.2). A near-term entry confirmed only after its minute never fired; it is issued again, for a later minute, in a later write. An entry left on the device fires again a week later |
 | `mode` | string | The mode it sets, as a name (section 3.4) |
 | `setpoint_f`, `setpoint_c` | number | The setpoint it sets, to one decimal |
 | `setpoint_raw` | integer | The same setpoint as the device holds it, in half-degrees Celsius |
 | `week`, `hour`, `min` | integer | The device slot, under the device's key names: the weekday bit of `fires_at`'s local date (Monday 64, Tuesday 32, Wednesday 16, Thursday 8, Friday 4, Saturday 2, Sunday 128) and its local hour and minute |
 
-**Program items.** Each item of `control_program_hash`'s `entries` is an
+**Program items.** Each item of `plan_fingerprint`'s `entries` is an
 entry of the list the feature wants on the device, with the device's keys:
 `enable` (2 on, 1 off), `week`, `hour`, `min`, `mode` (the device's mode id)
 and `param`. It adds `owner`: `foreign` for an entry the feature does not

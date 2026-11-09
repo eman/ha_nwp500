@@ -408,7 +408,7 @@ async def test_the_counts_are_whole_and_their_sizes_in_the_unit(
     assert showers.extra_state_attributes["shower_volume"] == round(
         capacity.shower_gal, 1
     )
-    # Two and a bit baths' worth is 2.
+    # The library's whole counts, as they are.
     runner.answer = replace(
         answer, capacity=replace(capacity, baths=2, showers=5)
     )
