@@ -290,6 +290,8 @@ async def test_the_coordinator_hands_raw_statuses_to_the_loop(
     assert got == [(T0, {"dhwUse": 1})]
 
     remove()
+    # No heater left behind with no one listening.
+    assert coordinator._raw_status_listeners == {}  # noqa: SLF001
     NWP500DataUpdateCoordinator._on_raw_status(  # noqa: SLF001
         coordinator, MAC, T0, {"dhwUse": 2}
     )

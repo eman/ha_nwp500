@@ -281,7 +281,7 @@ async def test_async_unload_entry_removes_services_when_last():
 
     await async_unload_entry(mock_hass, mock_entry)
 
-    # All 16 services should be removed
+    # All 23 services should be removed
     assert mock_hass.services.async_remove.call_count == 23
 
 

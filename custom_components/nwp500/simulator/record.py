@@ -48,8 +48,9 @@ from ..const import simulator_record_directory
 
 _LOGGER = logging.getLogger(__name__)
 
-#: How long the record is kept: the most history the calibration reads,
-#: and the day it is in.
+#: How long the record is kept: the most history the calibration reads
+#: (`calibration.MAX_HISTORY`, 60 days), and a day more. Days are dropped
+#: whole, so the day the 60 days begin in must outlast them.
 KEEP = timedelta(days=61)
 #: How often what was recorded is written.
 FLUSH_EVERY = timedelta(minutes=15)
@@ -332,38 +333,29 @@ class HeaterRecord:
         state in force at `start`, dated `start`, then its changes.
         """
         names = set(entities)
-        rows: dict[str, dict[str, dict[str, Any]]] = {n: {} for n in names}
+        # Each row once, by its instant, parsed once: a state kept twice
+        # (the day's opening states) is one row.
+        rows: dict[str, dict[datetime, dict[str, Any]]] = {n: {} for n in names}
         for _, path in _files(self.directory / _INPUTS):
             for text in _lines(path):
                 try:
                     row = cast(dict[str, Any], json.loads(text))
                     entity = row["entity_id"]
-                    stamp = row["last_updated"]
+                    at = datetime.fromisoformat(row["last_updated"])
                 except ValueError, KeyError, TypeError:
                     continue
                 if entity in rows:
-                    rows[entity][stamp] = row
+                    rows[entity][at] = row
         doc: list[list[dict[str, Any]]] = []
         for entity in sorted(names):
-            series = sorted(
-                rows[entity].values(),
-                key=lambda r: datetime.fromisoformat(r["last_updated"]),
-            )
-            before = [
-                r
-                for r in series
-                if datetime.fromisoformat(r["last_updated"]) <= start
-            ]
+            series = sorted(rows[entity].items(), key=lambda item: item[0])
+            before = [row for at, row in series if at <= start]
             out = (
                 [{**before[-1], "last_updated": start.isoformat()}]
                 if before
                 else []
             )
-            out.extend(
-                r
-                for r in series
-                if start < datetime.fromisoformat(r["last_updated"]) <= end
-            )
+            out.extend(row for at, row in series if start < at <= end)
             if out:
                 doc.append(out)
         return doc

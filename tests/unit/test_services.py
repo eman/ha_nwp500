@@ -148,7 +148,7 @@ class TestReservationServices:
 
     @pytest.mark.asyncio
     async def test_setup_services_registers_all(self, mock_hass):
-        """Test that all 16 services are registered."""
+        """Test that all 23 services are registered."""
         await _async_setup_services(mock_hass)
 
         assert mock_hass.services.async_register.call_count == 23

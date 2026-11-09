@@ -550,13 +550,18 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
             "history_from": record.get("history_from") if in_use else None,
             "history_to": record.get("history_to") if in_use else None,
             "refined": record.get("refined") if in_use else None,
-            "fitted": {t["name"]: t["value"] for t in terms if t.get("fitted")}
+            # Read with care: the store is a file anyone can edit.
+            "fitted": {
+                t["name"]: t.get("value")
+                for t in terms
+                if isinstance(t, dict) and "name" in t and t.get("fitted")
+            }
             if in_use
             else {},
             "kept": {
                 t["name"]: t.get("why", "")
                 for t in terms
-                if not t.get("fitted")
+                if isinstance(t, dict) and "name" in t and not t.get("fitted")
             }
             if in_use
             else {},

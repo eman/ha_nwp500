@@ -1467,6 +1467,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         def remove() -> None:
             if listener in listeners:
                 listeners.remove(listener)
+            if not listeners:
+                self._raw_status_listeners.pop(mac_address, None)
 
         return remove
 

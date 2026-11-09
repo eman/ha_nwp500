@@ -337,6 +337,25 @@ async def test_a_failed_start_leaves_nothing_running(
     coordinator.async_add_raw_status_listener.assert_not_called()
 
 
+async def test_the_sensor_reads_an_edited_store_with_care(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: a term without its name is left out, not raised on."""
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+    with _Library():
+        await feature.async_calibrate(MAC)
+    terms = feature.calibration.record(MAC)["terms"]
+    terms.extend([{"value": "1", "fitted": True}, "not a term"])
+
+    attributes = SimulatorCalibrationSensor(
+        feature, feature.runners[MAC]
+    ).extra_state_attributes
+    assert attributes["fitted"] == {"UA": "1.2"}
+    assert attributes["kept"] == {"COP scale": "few"}
+    await _stop(hass)
+
+
 async def test_a_later_calibration_refines_the_kept_one(
     hass: HomeAssistant, hass_storage, coordinator
 ):
