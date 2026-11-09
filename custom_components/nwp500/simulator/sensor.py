@@ -142,12 +142,14 @@ class SimulatorHeatingSensor(NWP500SimulatorEntity, SensorEntity):  # type: igno
 
 
 class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """When the tank is next fully heated, to its setpoint.
+    """When the tank is next fully heated.
 
     The end of the first heating within the day that ends at its target:
-    the one it is in, or a later one when that one stops short (a TOU cap,
-    a mode change or a setpoint write). Unknown when none does within the
-    day. `stop` says how the heating it is in, or the next, ends.
+    the setpoint, or inside a TOU period the heater's own target, its cap
+    short of it (`stop` is `cap`). The heating it is in, or a later one
+    when that one stops short (a mode change or a setpoint write).
+    Unknown when none does within the day. `stop` says how the heating it
+    is in, or the next, ends.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP

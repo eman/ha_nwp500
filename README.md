@@ -251,9 +251,9 @@ What the heater will do, walked forward from there:
 
 - **Heating, next 24 hours**: heating, will heat, not heating today, or
   heating off.
-- **Fully heated at**: when the tank is next heated to its setpoint: the
-  end of the first heating within the day that gets there, a later one
-  when a TOU period stops the current one short.
+- **Fully heated at**: when the tank is next heated to its target: the
+  setpoint, or inside a TOU period the heater's own, about 3.4 °F under
+  it, where the heater stops a heat pump heating and the tank stays.
 - **Next compressor start**: when the heat pump's compressor next starts,
   while it is off.
 - **Energy, next 24 hours**: the electricity it is likely to use.

@@ -375,7 +375,7 @@ async def test_any_failure_of_the_walk_replaces_the_last_answer(
 
 
 def test_fully_heated_is_the_first_heating_that_reaches_its_target():
-    """Not the first heating when a TOU cap stops it short."""
+    """Not the first heating when a mode change stops it short."""
     from types import SimpleNamespace
 
     from custom_components.nwp500.simulator.runner import (
@@ -392,7 +392,7 @@ def test_fully_heated_is_the_first_heating_that_reaches_its_target():
             stop=stop,
         )
 
-    capped = interval(0, 100, "cap")
+    capped = interval(0, 100, "mode")
     # Electric's chained lower element ends the second heating.
     upper = interval(210, 260, "target")
     lower = interval(260, 300, "target")
@@ -403,7 +403,28 @@ def test_fully_heated_is_the_first_heating_that_reaches_its_target():
     heatings = _heatings(result)  # type: ignore[arg-type]
     assert [last for _, last in heatings] == [capped, lower]
     assert fully_heated_at(result, heatings) == lower.end  # type: ignore[arg-type]
-    only_capped = SimpleNamespace(
+    only_short = SimpleNamespace(
         heating=[capped], simulation=SimpleNamespace(reached=[])
     )
-    assert fully_heated_at(only_capped, _heatings(only_capped)) is None  # type: ignore[arg-type]
+    assert fully_heated_at(only_short, _heatings(only_short)) is None  # type: ignore[arg-type]
+
+
+def test_a_tou_capped_heating_is_fully_heated():
+    """Inside a TOU period the heater's target is its cap short."""
+    from types import SimpleNamespace
+
+    from custom_components.nwp500.simulator.runner import (
+        _heatings,
+        fully_heated_at,
+    )
+
+    t0 = datetime(2026, 11, 9, 1, 30, tzinfo=UTC)
+    capped = SimpleNamespace(
+        start=SimpleNamespace(at=t0),
+        end=t0 + timedelta(minutes=100),
+        stop="cap",
+    )
+    result = SimpleNamespace(
+        heating=[capped], simulation=SimpleNamespace(reached=[])
+    )
+    assert fully_heated_at(result, _heatings(result)) == capped.end  # type: ignore[arg-type]

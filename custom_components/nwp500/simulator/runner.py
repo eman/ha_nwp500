@@ -107,6 +107,10 @@ STOP_HORIZON = "horizon"
 STOP_TARGET = "target"
 #: A setpoint write ended it.
 STOP_WRITE = "write"
+#: Inside a TOU period the heater stops a heat pump heating its cap short
+#: of the setpoint, and the tank stays there: the heater's own target
+#: then (nwp500-python's `docs/explanation/tou-recovery-cap.rst`).
+STOP_CAP = "cap"
 
 # What heats in a heating interval, as the library names the heat pump.
 SOURCE_COMPRESSOR = "compressor"
@@ -243,14 +247,14 @@ class Answer:
     start: datetime | None = None
     end: datetime | None = None
     stop: str | None = None
-    #: Whether it ends with the tank at temperature: at its target, or a
+    #: Whether it ends with the tank at temperature: at its target, at the
+    #: TOU cap's (the heater's own target inside a TOU period), or a
     #: setpoint write ending it with the tank already at the new one (the
-    #: library's `reached`). Not when a TOU cap, a mode change or the
-    #: horizon ends it.
+    #: library's `reached`). Not when a mode change or the horizon ends it.
     at_temperature: bool | None = None
     #: When the tank is next fully heated: the end of the first heating
     #: within the walk that ends at temperature, this one or a later one.
-    #: None when none does, such as each stopped short by a TOU cap.
+    #: None when none does within the walk.
     fully_heated_at: datetime | None = None
     source: str | None = None
     cause: str | None = None
@@ -317,8 +321,10 @@ class Answer:
 
         When the current or next heating ends (none when the walk's
         horizon cuts it) and why; when the tank comes to temperature,
-        only for a heating that ends at its target, not one a TOU cap, a
-        mode change or a write stops short; when the compressor next
+        only for a heating that ends at its target (a TOU period's
+        included), not one a mode change or a write stops short; when it
+        is next fully heated, by a later heating if not this one; when
+        the compressor next
         starts; and the two probes along the walk. Why there is none,
         when there isn't.
         """
@@ -412,8 +418,12 @@ def heater_schedules(
 def _at_temperature(
     result: SimulationResult, interval: HeatingInterval
 ) -> bool:
-    """Whether a heating ends with the tank at temperature."""
-    if interval.stop == STOP_TARGET:
+    """Whether a heating ends with the tank at temperature.
+
+    At its target, or, inside a TOU period, at the heater's own: its cap
+    short of the setpoint.
+    """
+    if interval.stop in (STOP_TARGET, STOP_CAP):
         return True
     # A write ending it at the new setpoint: the library counts it reached.
     return interval.stop == STOP_WRITE and any(

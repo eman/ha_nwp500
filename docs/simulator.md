@@ -137,7 +137,7 @@ defaults the simulator used instead.
 | Sensor | State |
 |---|---|
 | Heating, next 24 hours | `heating`, `scheduled` (will heat within 24 hours), `idle` (won't), or `disabled` (Vacation or powered off) |
-| Fully heated at | When the tank is next heated to its setpoint: the end of the first heating within 24 hours that ends at its target. That is the heating it is in, or the next; or, when that one stops short (a TOU period's cap, a mode change, a setpoint write), a later one. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why the heating it is in, or the next, ends: `target` (the tank is heated), `cap` (a TOU period's cap), `mode` (a mode change), `write` (a setpoint write), `envelope` (the air leaves the heat pump's operating range, 41 to 113 °F, and the elements take over), `heat_pump` (the heat pump takes back a recovery an element was carrying) or `horizon` (the 24 hours run out first). A setpoint write that ends a heating with the tank already at the new setpoint counts as reaching it, as the library has it. Unknown when no heating within 24 hours reaches its target |
+| Fully heated at | When the tank is next heated to its target: the end of the first heating within 24 hours that ends there. The target is the setpoint, or inside a TOU period the heater's own: the NWP500 stops a heat pump heating its cap short of the setpoint (about 3.4 °F, the library's `tou_cap_f`) and the tank stays there, so that heating is finished (`stop` is `cap`). The heating it is in, or the next; or, when a mode change or a setpoint write stops that one short, a later one. Heatings one after another are one: in Electric, the upper element's and then the lower's. Its `stop` attribute says why the heating it is in, or the next, ends: `target` (the tank is heated), `cap` (a TOU period's cap), `mode` (a mode change), `write` (a setpoint write), `envelope` (the air leaves the heat pump's operating range, 41 to 113 °F, and the elements take over), `heat_pump` (the heat pump takes back a recovery an element was carrying) or `horizon` (the 24 hours run out first). A setpoint write that ends a heating with the tank already at the new setpoint counts as reaching it, as the library has it. Unknown when no heating within 24 hours reaches its target |
 | Next compressor start | When the heat pump's compressor next starts, as the walk finds it: the first heating interval whose source is the compressor. Its attributes: `running` (the heater reports the compressor running), and the start's `cause` and `trigger`. Unknown while the compressor runs, and when no start falls within 24 hours, such as in Electric or Vacation |
 | Energy, next 24 hours | kWh. A forecast, not a meter: it has no state class, so it stays out of long-term statistics and the Energy dashboard |
 | Hot water available | The hot water the tank can deliver now, in whole gallons or litres, as the library's `time_to_ready` says |
@@ -257,8 +257,10 @@ heater, and says so otherwise; it waits for a simulator that is still
 starting, and keeps its subscription across Home Assistant's restarts. Recorded history needs the tank
 sensors recorded (the recorder's default), and is drawn in Home
 Assistant's temperature unit whatever a sensor's own unit. A heating a
-TOU cap, a mode change, a setpoint write or the heat pump's operating
-range stops short is marked as stopping short, not as at temperature.
+mode change, a setpoint write or the heat pump's operating range stops
+short is marked as stopping short, not as at temperature. One a TOU
+period ends at the heater's own target, its cap short of the setpoint,
+is at its TOU temperature.
 
 ### The path over the websocket API
 
@@ -283,7 +285,7 @@ The path is in Home Assistant's temperature unit:
 | `state` | As the Heating, next 24 hours sensor's |
 | `compressor_running` | Whether the heater reports its compressor running |
 | `heating_start`, `heating_end`, `stop`, `source` | The current or next heating: when it starts, when it ends (none when the 24 hours cut it), why it ends and what heats |
-| `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`), none for one a TOU cap, a mode change, a setpoint write or the heat pump's operating range stops short |
+| `ready_at` | When the tank comes to temperature: `heating_end` for a heating that ends at its target (`stop` is `target`, or `cap`: inside a TOU period, the heater's own), none for one a mode change, a setpoint write or the heat pump's operating range stops short |
 | `fully_heated_at` | When the tank is next fully heated, as the Fully heated at sensor says: `ready_at` when this heating gets there, or a later heating's end when it stops short; none when none does within 24 hours |
 | `compressor_start`, `compressor_trigger` | As the Next compressor start sensor's |
 | `hot_water` | What the hot water is enough for: `summary`, in words ("2 baths", "3 showers", "Less than a shower"), and `baths`, `showers` as Baths available and Showers available count them; and `bath_ready` and `bath_ready_at` (when the heater on its own has a bath ready, none while it is ready) |

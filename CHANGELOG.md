@@ -35,20 +35,23 @@
   `nwp500/simulator/subscribe_path` (the path again with each
   simulation, across a reload, and an empty one when the simulator
   stops), which other cards can use too, for a user who can read the
-  heater. A heating a TOU cap, a mode change or a setpoint write stops
-  short is not "at temperature": the path's `ready_at` is only for one
-  that reaches its target, and its `fully_heated_at` is when a later
-  heating finishes the job, which the card says and marks.
+  heater. A heating a mode change or a setpoint write stops short is not
+  "at temperature": the path's `ready_at` is only for one that reaches
+  its target, and its `fully_heated_at` is when a later heating finishes
+  the job, which the card says and marks.
 - **Fully heated at takes back-to-back heatings as one.** In
   Electric the library ends the upper element at its target and starts
   the lower at once: the sensor said the tank was ready at the hand-over.
   It now says when the last of them ends, and the Heating, next 24 hours
   sensor's `energy_kwh` is theirs together.
 - **Fully heated at is the first heating that reaches its target.** One
-  a TOU cap, a mode change or a setpoint write stops short is not when
-  the tank is heated: the sensor gives the end of a later heating within
-  the day that gets there, and is unknown only when none does. Its `stop`
-  attribute says why the heating it is in, or the next, ends.
+  a mode change or a setpoint write stops short is not when the tank is
+  heated: the sensor gives the end of a later heating within the day
+  that gets there, and is unknown only when none does. Inside a TOU
+  period the target is the heater's own: it stops a heat pump heating
+  about 3.4 °F under the setpoint and the tank stays there (measured in
+  nwp500-python's `tou-recovery-cap`), so that heating is finished, its
+  `stop` attribute `cap`; the tank card says "at its TOU temperature".
 - **The `time_to_ready` action uses the heater's own bath and shower
   sizes** when the call gives none, as the bath and shower sensors do,
   and a draw the heater reports now: it answered with the library's

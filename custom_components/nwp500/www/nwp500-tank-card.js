@@ -313,7 +313,11 @@ class NWP500TankCard extends HTMLElement {
     if (path.waiting) return { text: 'Waiting for the heater to report.', kind: 'muted' };
     // How the heating it is in ends: at temperature, or stopped short.
     const ending = () => {
-      if (path.ready_at) return ` · at temperature by ${when(hass, new Date(path.ready_at))}`;
+      if (path.ready_at) {
+        // Inside a TOU period the heater's target is its cap short of the setpoint.
+        const what = path.stop === 'cap' ? 'at its TOU temperature' : 'at temperature';
+        return ` · ${what} by ${when(hass, new Date(path.ready_at))}`;
+      }
       if (path.heating_end) {
         const why = STOP_LABELS[path.stop] || 'it stops';
         // A later heating may finish what this one stops short of.

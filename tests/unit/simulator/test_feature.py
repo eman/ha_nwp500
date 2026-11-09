@@ -152,7 +152,7 @@ async def test_sensors_are_unavailable_without_an_answer(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stop", ["horizon", "cap", "mode", "write"])
+@pytest.mark.parametrize("stop", ["horizon", "mode", "write"])
 async def test_a_heating_stopped_short_is_fully_heated_by_a_later_one(
     hass: HomeAssistant, hass_storage, entry, coordinator, stop: str
 ):

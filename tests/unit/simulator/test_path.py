@@ -363,7 +363,7 @@ async def test_a_subscription_hears_the_simulator_stop(
     assert runner._listeners == []  # noqa: SLF001
 
 
-@pytest.mark.parametrize("stop", ["cap", "mode", "write"])
+@pytest.mark.parametrize("stop", ["mode", "write"])
 async def test_a_heating_stopped_short_is_not_at_temperature(
     hass: HomeAssistant, feature: SimulatorFeature, stop: str
 ):
@@ -544,4 +544,6 @@ async def test_a_write_that_ends_a_heating_at_its_new_setpoint_is_at_temperature
     # The library counts it reached: the tank was at the new setpoint.
     assert _at_temperature(reached, write)
     assert not _at_temperature(short, write)
-    assert not _at_temperature(reached, replace(write, stop="cap"))
+    assert not _at_temperature(reached, replace(write, stop="mode"))
+    # Inside a TOU period the heater's own target is its cap's.
+    assert _at_temperature(short, replace(write, stop="cap"))
