@@ -384,7 +384,7 @@ def _heater_device(
             "dr.DeviceEntry | None", by_identifier(identifier, entry_id)
         )
     device = registry.async_get_device(identifiers={identifier})
-    if device is None or entry_id not in device.config_entries:
+    if device is None or device.config_entry_id != entry_id:
         return None
     return device
 
