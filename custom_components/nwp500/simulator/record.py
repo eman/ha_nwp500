@@ -205,12 +205,14 @@ class HeaterRecord:
             return
         if now.astimezone(UTC).date() != self._seeded:
             self.add_current_states(now)
-        statuses, self._statuses = self._statuses, []
-        inputs, self._inputs = self._inputs, []
         async with self._writing:
             # Closed while an earlier write held it.
             if self.closed():
                 return
+            # Taken once it is this write's turn: a write cancelled while it
+            # waits leaves them for the next.
+            statuses, self._statuses = self._statuses, []
+            inputs, self._inputs = self._inputs, []
             self.since = await self.hass.async_add_executor_job(
                 self._write, statuses, inputs, now
             )

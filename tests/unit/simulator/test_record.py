@@ -182,6 +182,26 @@ async def test_days_past_keeping_are_dropped(hass: HomeAssistant):
     assert record.since == T0 + timedelta(days=2)
 
 
+async def test_a_write_cancelled_while_it_waits_keeps_its_lines(
+    hass: HomeAssistant,
+):
+    import asyncio
+
+    record = _record(hass)
+    record.add_status(T0, status_dict())
+    async with record._writing:  # noqa: SLF001
+        waiting = hass.async_create_task(record.async_flush(T0 + FLUSH_EVERY))
+        await asyncio.sleep(0)
+        waiting.cancel()
+        await asyncio.sleep(0)
+    await record.async_flush(T0 + FLUSH_EVERY)
+
+    readings = await hass.async_add_executor_job(
+        lambda: list(record.readings(T0))
+    )
+    assert [at for at, _ in readings] == [T0]
+
+
 async def test_nothing_is_written_once_closed(hass: HomeAssistant):
     record = _record(hass)
     await record.async_close(T0)
