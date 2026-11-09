@@ -20,7 +20,6 @@ from jsonschema import Draft202012Validator
 from custom_components.nwp500.control.engine import (
     REPORT_FOREIGN,
     REPORT_REMOVED,
-    REPORT_SWITCHED_OFF,
     WRITE_NEAR_TERM,
     WRITE_PLAN,
     Planner,
@@ -584,12 +583,15 @@ class TestPeoplesChanges:
         assert run(planner, minutes(6), obs(mode="vacation")) is None
         assert planner.reports == {}
 
-    def test_switching_reservations_off_is_reported(self):
+    def test_switching_reservations_off_is_not_reported(self):
+        """The switch is the heater's to report, as its setpoint and mode.
+
+        Nothing tells who turned it off: the app, the panel, or this
+        integration's own reservation services.
+        """
         planner = planner_with(observed=obs(reservations_enabled=True))
         run(planner, minutes(1), obs(reservations_enabled=False))
-        assert REPORT_SWITCHED_OFF in planner.reports
-        run(planner, minutes(2), obs(reservations_enabled=True))
-        assert REPORT_SWITCHED_OFF not in planner.reports
+        assert planner.reports == {}
 
     def test_live_a_deleted_entry_is_not_restored(self):
         planner = planner_with(
@@ -774,7 +776,11 @@ class TestPeoplesChanges:
                     Report(
                         REPORT_FOREIGN, added, NOW, "(2, 7, 0)"
                     ).as_document(),
-                ]
+                    Report(
+                        "reservations_switched_off", False, NOW, None
+                    ).as_document(),
+                ],
+                "reservations_on": False,
             }
         )
         removed = planner.reports[f"{REPORT_REMOVED}:{KIND_PLAN}:a"]
@@ -784,6 +790,8 @@ class TestPeoplesChanges:
         assert not [
             r for r in planner.reports.values() if r.field == REPORT_FOREIGN
         ]
+        # The switch was reported by an earlier version: its report goes.
+        assert list(planner.reports) == [f"{REPORT_REMOVED}:{KIND_PLAN}:a"]
 
     def test_a_new_plan_is_the_answer_to_a_removal(self):
         """Section 5.6: a new plan is programmed as it stands.

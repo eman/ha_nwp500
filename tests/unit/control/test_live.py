@@ -31,7 +31,6 @@ from custom_components.nwp500.control.device import (
     DeviceControl,
 )
 from custom_components.nwp500.control.engine import (
-    REPORT_SWITCHED_OFF,
     WRITE_TAKEOVER,
     Planner,
 )
@@ -170,7 +169,7 @@ class TestPlannerLive:
         off = device_obs(planner, reservations_enabled=False)
         planner.step(minutes(1), off)
         assert planner.program(off)["reservation_use"] == 1
-        assert REPORT_SWITCHED_OFF in planner.reports
+        assert planner.reports == {}
 
     def test_a_rejected_near_term_moves_past_the_retry(self):
         planner = planner_with(shadow=False, **LIVE)
@@ -747,7 +746,7 @@ class TestLiveWrites:
         heater, control = await live_factory()
         heater.person_sets({**heater.schedule, "reservation_use": 1})
         await control._async_evaluate(dt_util.utcnow())
-        assert REPORT_SWITCHED_OFF in control.reports
+        assert control.reports == {}
 
         _publish(
             hass,

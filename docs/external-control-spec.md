@@ -490,7 +490,6 @@ and `segment`:
 | `field` | `value` | `segment` | Ends when |
 |---|---|---|---|
 | `removed` | The entry a person removed, as an entry item. Live only | Its `serves`: a segment | A new plan is adopted (section 5.6) |
-| `reservations_switched_off` | `false` | `null` | The reservation switch is on again |
 
 The list holds the changes in force, not a history:
 
@@ -500,8 +499,8 @@ The list holds the changes in force, not a history:
 - **Lifetime.** Each report ends by its own rule, above. Nothing else empties
   the list: a new plan ends only the `removed` reports above, and reports
   are kept across a reload or a restart of Home Assistant.
-- **Bound.** At most one `reservations_switched_off`, and one `removed`
-  per kind of entry for each segment of the plan in force. `report_count` gives the number. If the attributes would come
+- **Bound.** At most one `removed` per kind of entry for each segment of
+  the plan in force. `report_count` gives the number. If the attributes would come
   within 1 KiB of the recorder's 16 KiB limit, the oldest reports are left
   out of `reports`, and `truncated` is `true`. The latest is always in the
   entity's own attributes.
@@ -783,9 +782,12 @@ scheduler decides.
   - An entry a person adds is not the feature's: it is kept as read
     (section 5.1), counts against the budget, and fires as the person set
     it.
-  - A person turning the reservation switch off stops every entry. It is
-    reported as `reservations_switched_off`, and the feature does not turn it
-    back on.
+  - The reservation switch is the heater's to report, as its setpoint and
+    mode are: the reservation schedule's `enabled`. Turned off, it stops
+    every entry. Nothing tells who turned it off (the app, the heater's
+    panel, or this integration's own reservation services), so it is not
+    reported as a person's change. Once the feature holds the list it keeps
+    the switch as read: it does not turn it back on.
 
 ### 5.11 Read-back
 
