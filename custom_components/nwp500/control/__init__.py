@@ -13,14 +13,11 @@ program, and reports it, writing nothing. Live writes the list;
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-import attr
 from homeassistant.const import Platform
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-from homeassistant.util import slugify
 
 from ..const import (
     CONTROL_UNIQUE_ID_MARKER,
@@ -29,7 +26,6 @@ from ..const import (
     DOMAIN,
 )
 from .device import DeviceControl
-from .entity import control_entity_id, earlier_control_entity_id
 from .plan_entity import PlanEntityWatch, plan_entity_issue_id
 from .store import ControlStore
 
@@ -69,43 +65,6 @@ ENTITY_KEYS = frozenset(
 )
 
 
-# The English names the entities had before their ids were fixed to the
-# documented ones (spec section 4). An entity whose id is still the default
-# Home Assistant made from one of these is moved to its documented id once;
-# an id someone chose is left alone.
-_EARLIER_NAMES: dict[str, str] = {
-    "capabilities": "Control Capabilities",
-    "intent": "Control Plan",
-    "ack": "Control Acknowledgement",
-    "heartbeat": "Control Heartbeat",
-    "wanted_mode": "Control Wanted Mode",
-    "wanted_setpoint": "Control Wanted Setpoint",
-    "program_hash": "Control Program Hash",
-    "programmed_until": "Control Programmed Until",
-    "next_entry": "Control Next Entry",
-    "last_write": "Control Last Write",
-    "override": "Control Override",
-    "in_sync": "Control In Sync",
-    "disable": "Disable External Control",
-}
-
-
-def _entry_device(
-    hass: HomeAssistant, entry_id: str, mac_address: str
-) -> dr.DeviceEntry | None:
-    """The heater's device, as the config entry registered it."""
-    registry = dr.async_get(hass)
-    identifier = (DOMAIN, mac_address)
-    # Home Assistant 2026.8 scopes the lookup to the entry; before it,
-    # async_get_device is the only lookup there is.
-    by_identifier = getattr(registry, "async_get_device_by_identifier", None)
-    if by_identifier is not None:
-        return cast(
-            "dr.DeviceEntry | None", by_identifier(identifier, entry_id)
-        )
-    return registry.async_get_device(identifiers={identifier})
-
-
 class ControlFeature:
     """The external control feature for one config entry.
 
@@ -130,7 +89,6 @@ class ControlFeature:
     async def async_start(self) -> None:
         """Load the stored state and start a controller per device."""
         self._remove_entities(stale_only=True)
-        self._move_to_documented_ids()
         await self.store.async_load()
         try:
             for mac_address, device_data in self.coordinator.data.items():
@@ -171,87 +129,6 @@ class ControlFeature:
         ir.async_delete_issue(
             self.hass, DOMAIN, plan_entity_issue_id(self.entry.entry_id)
         )
-
-    def _move_to_documented_ids(self) -> None:
-        """Give entities the documented ids they lacked before (section 4).
-
-        An id is moved only if it is still a default Home Assistant made
-        from an earlier name: its name part is that name's, whatever the
-        device was called then. It moves to an id that is free. The
-        registry's records of removed entities are moved too, since it
-        gives a removed entity its old id back when it comes again.
-        """
-        registry = er.async_get(self.hass)
-        for entity_entry in er.async_entries_for_config_entry(
-            registry, self.entry.entry_id
-        ):
-            if entity_entry.platform != DOMAIN:
-                continue
-            documented = self._documented_id(
-                entity_entry.domain,
-                entity_entry.unique_id,
-                entity_entry.entity_id,
-            )
-            if documented is None or registry.async_get(documented) is not None:
-                continue
-            registry.async_update_entity(
-                entity_entry.entity_id, new_entity_id=documented
-            )
-            _LOGGER.info(
-                "External control: %s is now %s, its documented id",
-                entity_entry.entity_id,
-                documented,
-            )
-        moved = False
-        for key, deleted in list(registry.deleted_entities.items()):
-            if (
-                deleted.platform != DOMAIN
-                or deleted.config_entry_id != self.entry.entry_id
-            ):
-                continue
-            documented = self._documented_id(
-                deleted.domain, deleted.unique_id, deleted.entity_id
-            )
-            if documented is None or registry.async_get(documented) is not None:
-                continue
-            registry.deleted_entities[key] = attr.evolve(
-                deleted, entity_id=documented
-            )
-            moved = True
-        if moved:
-            registry.async_schedule_save()
-
-    def _documented_id(
-        self, domain: str, unique_id: str, entity_id: str
-    ) -> str | None:
-        """The documented id to move an earlier default id to, if any."""
-        if UNIQUE_ID_MARKER not in unique_id:
-            return None
-        mac_address, key = unique_id.split(UNIQUE_ID_MARKER, 1)
-        earlier = _EARLIER_NAMES.get(key)
-        if earlier is None:
-            return None
-        device = _entry_device(self.hass, self.entry.entry_id, mac_address)
-        if device is None:
-            return None
-        device_name = device.name_by_user or device.name or ""
-        documented = control_entity_id(domain, device_name, key)
-        if documented == entity_id:
-            return None
-        # The id an earlier version documented, `<device>_control_<key>`,
-        # under the device's name now or its own from before a person
-        # renamed it.
-        if entity_id in {
-            earlier_control_entity_id(domain, name, key)
-            for name in (device_name, device.name or "")
-        }:
-            return documented
-        object_id = entity_id.split(".", 1)[1]
-        name_part = slugify(earlier)
-        if object_id != name_part and not object_id.endswith(f"_{name_part}"):
-            # Chosen by someone.
-            return None
-        return documented
 
     def _remove_entities(self, *, stale_only: bool) -> None:
         """Remove the feature's entities: all of them, or only stale ones."""

@@ -263,8 +263,7 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
 All belong to the device. Unique ids are `<mac>_control_<key>`, and entity
 ids `<domain>.<device>_<id>`, the id its English name gives, fixed whatever
 the display name (spec section 4): `sensor.<device>_plan_status`,
-`binary_sensor.<device>_plan_entry_removed`, and so on. Ids at the earlier
-`<device>_control_<key>` move to these once. The four marked *diagnostic* are under the device's Diagnostic section;
+`binary_sensor.<device>_plan_entry_removed`, and so on. The four marked *diagnostic* are under the device's Diagnostic section;
 they stay enabled. States and attribute names have display labels, such as
 "Preview only" for `shadow`; the raw values below are what a scheduler
 reads.

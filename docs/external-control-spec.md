@@ -384,9 +384,7 @@ setting back sends the command in a new plan.
 
 All belong to the device. Unique ids are `<mac>_control_<key>`, and entity
 ids `<domain>.<device>_<id>`, the id fixed by the key (below): its English
-display name's, kept when a name is translated or changed. An entity still
-at the id an earlier version documented, `<domain>.<device>_control_<key>`,
-is moved to it once; an id someone chose is left alone.
+display name's, kept when a name is translated or changed.
 
 | Key | Entity id (after `<domain>.<device>_`) |
 |---|---|

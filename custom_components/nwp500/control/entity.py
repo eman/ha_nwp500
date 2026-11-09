@@ -61,11 +61,6 @@ def control_entity_id(domain: str, device_name: str, key: str) -> str:
     return f"{domain}.{slugify(device_name)}_{ENTITY_OBJECT_IDS[key]}"
 
 
-def earlier_control_entity_id(domain: str, device_name: str, key: str) -> str:
-    """The id an earlier version documented: `<domain>.<device>_control_<key>`."""
-    return f"{domain}.{slugify(device_name)}_control_{key}"
-
-
 def _platform_domain(entity: object) -> str:
     for domain, base in (
         ("binary_sensor", BinarySensorEntity),
