@@ -71,16 +71,22 @@ class RecordClient:
         if not names:
             return History({}, {})
         try:
-            doc = await self._hass.async_add_executor_job(
-                self._record.history_document, names, start, end
+            # Read and parsed off the event loop: weeks of changes.
+            return await self._hass.async_add_executor_job(
+                self._history, names, start, end
             )
-            return history_from_document(doc, names, end)
         except HomeAssistantError:
             raise
         except Exception as err:
             raise HomeAssistantError(
                 f"the heater's record is not read: {err}"
             ) from err
+
+    def _history(
+        self, names: list[str], start: datetime, end: datetime
+    ) -> History:
+        doc = self._record.history_document(names, start, end)
+        return history_from_document(doc, names, end)
 
 
 class InProcessClient:

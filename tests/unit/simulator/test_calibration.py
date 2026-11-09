@@ -302,6 +302,41 @@ async def test_the_simulator_records_the_heater_and_its_inputs(
     assert (row["entity_id"], row["state"]) == ("sensor.air", "61.5")
 
 
+async def test_an_input_changed_before_the_first_write_keeps_its_start(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: the value in force when the record starts."""
+    hass.states.async_set("sensor.air", "60.0", {"unit_of_measurement": "°F"})
+    _register_heater(hass)
+    start = dt_util.utcnow()
+    await _started(hass, coordinator)
+    hass.states.async_set("sensor.air", "62.0", {"unit_of_measurement": "°F"})
+    await hass.async_block_till_done()
+    await _stop(hass)
+
+    record = HeaterRecord(hass, "entry1", MAC)
+    doc = await hass.async_add_executor_job(
+        record.history_document, ["sensor.air"], start, dt_util.utcnow()
+    )
+    assert [row["state"] for row in doc[0]] == ["60.0", "62.0"]
+
+
+async def test_a_failed_start_leaves_nothing_running(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: nothing starts before everything is read."""
+    _register_heater(hass)
+    with (
+        patch.object(
+            HeaterRecord, "async_load", AsyncMock(side_effect=OSError("disk"))
+        ),
+        pytest.raises(OSError, match="disk"),
+    ):
+        await _started(hass, coordinator)
+    coordinator.async_add_listener.assert_not_called()
+    coordinator.async_add_raw_status_listener.assert_not_called()
+
+
 async def test_a_later_calibration_refines_the_kept_one(
     hass: HomeAssistant, hass_storage, coordinator
 ):

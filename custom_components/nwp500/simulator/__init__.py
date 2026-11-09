@@ -75,9 +75,14 @@ class SimulatorFeature:
         self._unsubs: list[CALLBACK_TYPE] = []
 
     async def async_start(self) -> None:
-        """Start a runner for each heater, on its calibration if it has one."""
+        """Start a runner for each heater, on its calibration if it has one.
+
+        Everything is read before anything starts: a failed or cancelled
+        read leaves nothing running that an unload wouldn't stop.
+        """
         await self.calibration.async_load()
-        self._started = dt_util.utcnow()
+        runners: list[SimulatorRunner] = []
+        records: list[HeaterRecord] = []
         for mac_address in self.coordinator.data or {}:
             runner = SimulatorRunner(
                 self.hass,
@@ -85,10 +90,23 @@ class SimulatorFeature:
                 mac_address,
                 simulator_device_options(self.entry, mac_address),
             )
-            runner.calibrated_params = self.calibration.params(mac_address)
-            self.runners[mac_address] = runner
+            record = HeaterRecord(
+                self.hass,
+                self.entry.entry_id,
+                mac_address,
+                _inputs(runner),
+            )
+            await record.async_load()
+            runners.append(runner)
+            records.append(record)
+        self._started = dt_util.utcnow()
+        for runner, record in zip(runners, records, strict=True):
+            runner.calibrated_params = self.calibration.params(
+                runner.mac_address
+            )
+            self.runners[runner.mac_address] = runner
             runner.async_start()
-            await self._async_start_record(runner)
+            self._start_record(runner.mac_address, record)
         self._unsubs.append(
             async_track_time_interval(
                 self.hass, self._async_calibrate_due, CHECK_EVERY
@@ -100,31 +118,21 @@ class SimulatorFeature:
             )
         )
 
-    async def _async_start_record(self, runner: SimulatorRunner) -> None:
-        """Keep the heater's statuses, and its inputs' changes."""
-        mac_address = runner.mac_address
-        entities = runner.entities
-        inputs = [
-            entity
-            for entity in (
-                entities.air,
-                entities.humidity,
-                entities.demand,
-                entities.circulation_speed,
-            )
-            if entity
-        ]
-        record = HeaterRecord(
-            self.hass, self.entry.entry_id, mac_address, inputs
-        )
-        await record.async_load()
+    @callback
+    def _start_record(self, mac_address: str, record: HeaterRecord) -> None:
+        """Keep the heater's statuses, and its inputs' changes.
+
+        From their states now: the value in force when the first status
+        arrives.
+        """
         self.records[mac_address] = record
+        record.add_current_states(dt_util.utcnow())
         self._unsubs.append(
             self.coordinator.async_add_raw_status_listener(
                 mac_address, record.add_status
             )
         )
-        if inputs:
+        if inputs := list(record.inputs):
 
             @callback
             def changed(event: Event[EventStateChangedData]) -> None:
@@ -199,6 +207,21 @@ class SimulatorFeature:
         async_dispatcher_send(
             self.hass, simulator_stopped_signal(self.entry.entry_id)
         )
+
+
+def _inputs(runner: SimulatorRunner) -> list[str]:
+    """The runner's input entities, whose changes its record keeps."""
+    entities = runner.entities
+    return [
+        entity
+        for entity in (
+            entities.air,
+            entities.humidity,
+            entities.demand,
+            entities.circulation_speed,
+        )
+        if entity
+    ]
 
 
 async def async_setup_simulator(

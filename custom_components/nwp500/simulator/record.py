@@ -23,7 +23,7 @@ Two series, a file of each per UTC day, gzipped, under
 
 Lines are kept in memory and written every `FLUSH_EVERY`, and when the
 simulator stops, each write a gzip member of its own. A day of statuses
-is about 0.2 MB.
+is about 0.3 MB.
 """
 
 from __future__ import annotations
@@ -64,24 +64,40 @@ def _heater_directory(hass: HomeAssistant, entry_id: str, mac: str) -> Path:
     return simulator_record_directory(hass, entry_id) / slug
 
 
-def _day(path: Path) -> date | None:
-    """The UTC day a file holds, from its name."""
+def _name(path: Path) -> tuple[date, int] | None:
+    """The UTC day a file holds and its part, from its name.
+
+    ``2026-10-01.jsonl.gz`` is the day's first part, ``2026-10-01.1.jsonl.gz``
+    the next: one is begun after a damaged write.
+    """
+    day, _, part = path.name.removesuffix(_SUFFIX).partition(".")
     try:
-        return date.fromisoformat(path.name.removesuffix(_SUFFIX))
+        return date.fromisoformat(day), int(part) if part else 0
     except ValueError:
         return None
 
 
 def _files(directory: Path) -> list[tuple[date, Path]]:
-    """A series' files, by day."""
+    """A series' files, by day and part."""
     if not directory.is_dir():
         return []
     found = [
-        (day, path)
+        (name, path)
         for path in directory.glob(f"*{_SUFFIX}")
-        if (day := _day(path)) is not None
+        if (name := _name(path)) is not None
     ]
-    return sorted(found)
+    return [(day, path) for (day, _), path in sorted(found)]
+
+
+def _sound(path: Path) -> bool:
+    """Whether the file reads through to its end."""
+    try:
+        with gzip.open(path, "rb") as f:
+            while f.read(1 << 20):
+                pass
+    except EOFError, OSError, zlib.error:
+        return False
+    return True
 
 
 def _lines(path: Path) -> Iterator[str]:
@@ -95,19 +111,6 @@ def _lines(path: Path) -> Iterator[str]:
             yield from f
     except (EOFError, OSError, zlib.error, UnicodeDecodeError) as err:
         _LOGGER.debug("%s is read up to a damaged write: %s", path, err)
-
-
-def _append(directory: Path, lines: Iterable[tuple[datetime, str]]) -> None:
-    """Append `lines` to their days' files, a gzip member to each."""
-    by_day: dict[date, list[str]] = {}
-    for at, text in lines:
-        by_day.setdefault(at.astimezone(UTC).date(), []).append(text)
-    if not by_day:
-        return
-    directory.mkdir(parents=True, exist_ok=True)
-    for day, texts in by_day.items():
-        with gzip.open(directory / f"{day.isoformat()}{_SUFFIX}", "at") as f:
-            f.write("".join(f"{text}\n" for text in texts))
 
 
 def _state_row(state: State) -> dict[str, Any]:
@@ -155,6 +158,9 @@ class HeaterRecord:
         self._inputs: list[tuple[datetime, str]] = []
         self._seeded: date | None = None
         self._writing = asyncio.Lock()
+        # The files this process found whole, or began: written to without
+        # checking again. Only `_write` touches it, one at a time.
+        self._checked: set[Path] = set()
         # Once closed, nothing more is written: the simulator turned off
         # removes the record, and a late write would bring it back.
         self._closed = False
@@ -172,6 +178,18 @@ class HeaterRecord:
         if self.since is None:
             self.since = at
 
+    def add_current_states(self, now: datetime) -> None:
+        """Keep the input entities' states now, written in `now`'s day.
+
+        When the record starts, and as each day's file opens: the value in
+        force from then on, until a change, once the days before are
+        dropped.
+        """
+        self._seeded = now.astimezone(UTC).date()
+        for entity in self.inputs:
+            if (state := self.hass.states.get(entity)) is not None:
+                self._inputs.append((now, json.dumps(_state_row(state))))
+
     def add_state(self, state: State) -> None:
         """Keep a change of an input entity."""
         self._inputs.append((state.last_updated, json.dumps(_state_row(state))))
@@ -185,12 +203,8 @@ class HeaterRecord:
         """
         if self._closed:
             return
-        day = now.astimezone(UTC).date()
-        if day != self._seeded:
-            self._seeded = day
-            for entity in self.inputs:
-                if (state := self.hass.states.get(entity)) is not None:
-                    self._inputs.append((now, json.dumps(_state_row(state))))
+        if now.astimezone(UTC).date() != self._seeded:
+            self.add_current_states(now)
         statuses, self._statuses = self._statuses, []
         inputs, self._inputs = self._inputs, []
         async with self._writing:
@@ -216,13 +230,8 @@ class HeaterRecord:
         inputs: list[tuple[datetime, str]],
         now: datetime,
     ) -> datetime | None:
-        try:
-            _append(self.directory / _STATUSES, statuses)
-            _append(self.directory / _INPUTS, inputs)
-        except OSError as err:
-            _LOGGER.warning(
-                "The simulator's record of the heater is not written: %s", err
-            )
+        self._append(self.directory / _STATUSES, statuses)
+        self._append(self.directory / _INPUTS, inputs)
         oldest = (now - KEEP).astimezone(UTC).date()
         dropped = False
         for name in (_STATUSES, _INPUTS):
@@ -231,6 +240,54 @@ class HeaterRecord:
                     path.unlink(missing_ok=True)
                     dropped = True
         return self.first() if dropped or self.since is None else self.since
+
+    def _append(
+        self, directory: Path, lines: Iterable[tuple[datetime, str]]
+    ) -> None:
+        """Append `lines` to their days' files, a gzip member to each."""
+        by_day: dict[date, list[str]] = {}
+        for at, text in lines:
+            by_day.setdefault(at.astimezone(UTC).date(), []).append(text)
+        for day, texts in by_day.items():
+            path = None
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+                path = self._target(directory, day)
+                with gzip.open(path, "at", encoding="utf-8") as f:
+                    f.write("".join(f"{text}\n" for text in texts))
+                self._checked.add(path)
+            except OSError as err:
+                # The file may end in a damaged member now: checked again
+                # before the next write to it.
+                if path is not None:
+                    self._checked.discard(path)
+                _LOGGER.warning(
+                    "The simulator's record of the heater is not written: %s",
+                    err,
+                )
+
+    def _target(self, directory: Path, day: date) -> Path:
+        """The file to append `day`'s lines to.
+
+        Its latest part, unless that ends in a damaged write (a crash, a
+        full disk): what is appended behind one can't be read, so a new
+        part is begun. A part is checked once, the first time this
+        process writes to it.
+        """
+        parts = [path for d, path in _files(directory) if d == day]
+        if not parts:
+            return directory / f"{day.isoformat()}{_SUFFIX}"
+        latest = parts[-1]
+        if latest in self._checked or _sound(latest):
+            self._checked.add(latest)
+            return latest
+        _LOGGER.warning(
+            "%s ends in a damaged write; the record goes on in a new file",
+            latest,
+        )
+        named = _name(latest)
+        part = 1 if named is None else named[1] + 1
+        return directory / f"{day.isoformat()}.{part}{_SUFFIX}"
 
     def first(self) -> datetime | None:
         """The instant of the earliest status kept."""

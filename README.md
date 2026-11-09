@@ -294,7 +294,7 @@ an hour after the simulator starts, then weekly, and when you press
 **Calibrate simulator** or call `nwp500.calibrate_simulator`; the
 **Simulator calibration** sensor says what was fitted. The history is the
 recorder's at first, then the simulator's own record of the heater's
-statuses, which it keeps for up to 60 days (about 12 MB a heater) so the
+statuses, which it keeps for up to 60 days (about 20 MB a heater) so the
 fit sees weeks without raising the recorder's retention. Until then it runs on the defaults for the tank's size. An
 air temperature sensor beside the heater helps most. See
 [docs/simulator.md](docs/simulator.md).

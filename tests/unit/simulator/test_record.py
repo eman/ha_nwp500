@@ -133,6 +133,43 @@ async def test_a_damaged_write_loses_only_itself(hass: HomeAssistant):
     assert [at for at, _ in readings] == [T0, T0 + timedelta(days=1, hours=1)]
 
 
+async def test_after_a_damaged_write_the_day_goes_on_in_a_new_part(
+    hass: HomeAssistant,
+):
+    """#274 review: what is appended behind a damaged member is lost."""
+    record = _record(hass)
+    record.add_status(T0, status_dict())
+    await record.async_close(T0 + FLUSH_EVERY)
+    path = (
+        simulator_record_directory(hass, "entry1")
+        / "aabbccddeeff"
+        / "statuses"
+        / "2026-10-01.jsonl.gz"
+    )
+    # The host stopped mid-write.
+    member = gzip.compress(b'{"t": "2026-10-01T12:20:00+00:00"}\n')
+    with path.open("ab") as f:
+        f.write(member[: len(member) // 2])
+
+    # Started again, the same day.
+    again = _record(hass)
+    await again.async_load()
+    later = [T0 + timedelta(hours=1), T0 + timedelta(hours=2)]
+    again.add_status(later[0], status_dict())
+    await again.async_flush(later[0] + FLUSH_EVERY)
+    again.add_status(later[1], status_dict())
+    await again.async_flush(later[1] + FLUSH_EVERY)
+
+    assert _files(hass, "statuses") == [
+        "2026-10-01.1.jsonl.gz",
+        "2026-10-01.jsonl.gz",
+    ]
+    readings = await hass.async_add_executor_job(
+        lambda: list(again.readings(T0))
+    )
+    assert [at for at, _ in readings] == [T0, *later]
+
+
 async def test_days_past_keeping_are_dropped(hass: HomeAssistant):
     record = _record(hass)
     record.add_status(T0, status_dict())

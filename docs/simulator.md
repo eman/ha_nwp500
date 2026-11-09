@@ -159,7 +159,7 @@ days, without raising the recorder's retention for everything else:
 It is written every 15 minutes and when the simulator stops, a gzipped
 file per series per day, under
 `.storage/nwp500/simulator_record/<entry>/<heater>/`. A day of statuses
-is about 0.2 MB, so 60 days are about 12 MB a heater. Days older than 60
+is about 0.3 MB (on dev, 9,400 statuses), so 60 days are about 20 MB a heater. Days older than 60
 are dropped. Turning the simulator off, or removing the integration,
 removes the record.
 

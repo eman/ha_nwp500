@@ -24,7 +24,7 @@
   records each heater's statuses as sent (the library's
   `status_history` format) and the changes of its input entities, a
   gzipped file a day under `.storage/nwp500/simulator_record/`, up to 60
-  days (about 12 MB a heater). Once the record reaches back further than
+  days (about 20 MB a heater). Once the record reaches back further than
   the recorder, the calibration reads it, through the library's
   `sim_calibrate.calibrate`. The sensor's `source` and `record_since`
   say which it read and where the record begins.
