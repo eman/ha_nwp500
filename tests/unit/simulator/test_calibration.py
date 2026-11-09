@@ -376,11 +376,51 @@ async def test_another_tanks_calibration_is_neither_used_nor_refined(
     inputs = await runner.async_inputs()
     assert not isinstance(inputs, str)
     assert inputs.params.tank.volume_gal == (sa.params(bigger).tank.volume_gal)
+    # Nor shown as in use (#274 review).
+    sensor = SimulatorCalibrationSensor(feature, runner)
+    assert sensor.native_value is None
+    assert sensor.extra_state_attributes["fitted"] == {}
+    assert sensor.extra_state_attributes["on_defaults"] == []
     with _Library(params=sa.params(bigger)) as library:
         await feature.async_calibrate(MAC)
         kwargs = library.fit.call_args.kwargs
         assert kwargs["params"] == sa.params(bigger)
         assert kwargs["keep_better"] is False
+    await _stop(hass)
+
+
+async def test_a_cancelled_calibration_holds_the_fit_until_its_thread_ends(
+    hass: HomeAssistant, hass_storage, coordinator
+):
+    """#274 review: the executor's thread fits on after a cancel."""
+    import asyncio
+
+    from custom_components.nwp500.simulator import calibration
+
+    _register_heater(hass)
+    feature = await _started(hass, coordinator)
+    fitting: asyncio.Future[Any] = hass.loop.create_future()
+    with (
+        _Library() as library,
+        patch.object(
+            hass, "async_add_executor_job", MagicMock(return_value=fitting)
+        ),
+    ):
+        task = hass.async_create_task(feature.async_calibrate(MAC))
+        while not hass.async_add_executor_job.called:  # type: ignore[attr-defined]
+            await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        # Cancelled, but the fit still runs: the lock is still held.
+        assert not task.done()
+        assert calibration._FITTING.locked()  # noqa: SLF001
+
+        fitting.set_result(library.fit.return_value)
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert not calibration._FITTING.locked()  # noqa: SLF001
+    assert feature.runners[MAC].calibrated_params is None
     await _stop(hass)
 
 

@@ -498,6 +498,7 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
         device = runner.coordinator.data[runner.mac_address]["device"]
         super().__init__(runner.coordinator, runner.mac_address, device)
         self.calibration = feature.calibration
+        self.runner = runner
         self._attr_unique_id = f"{runner.mac_address}_simulator_calibration"
         self._attr_translation_key = "simulator_calibration"
 
@@ -523,7 +524,7 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
     @override
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """When the parameters in use were calibrated; None for defaults."""
-        if self.calibration.params(self.mac_address) is None:
+        if self.calibration.usable(self.runner) is None:
             return None
         at = self._record.get("calibrated_at")
         return dt_util.parse_datetime(at) if isinstance(at, str) else None
@@ -534,7 +535,8 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
         """The library's report on the calibration, and the last attempt."""
         record = self._record
         terms = record.get("terms") or []
-        params = self.calibration.params(self.mac_address)
+        # Not one for another tank's size, which the runner doesn't use.
+        params = self.calibration.usable(self.runner)
         in_use = params is not None
         return {
             "last_attempt": record.get("attempted_at"),

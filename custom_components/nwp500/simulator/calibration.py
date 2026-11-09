@@ -25,6 +25,7 @@ history in memory.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import dataclasses
 import logging
 from collections.abc import Callable
@@ -141,10 +142,14 @@ class SimulatorCalibration:
         """The heater's calibrated parameters; None for the defaults."""
         return self._params.get(mac_address)
 
-    def _kept(
-        self, runner: SimulatorRunner, from_defaults: bool
+    def usable(
+        self, runner: SimulatorRunner, *, from_defaults: bool = False
     ) -> HeaterParams | None:
-        """The parameters to refine, if any: none for another tank's size."""
+        """The heater's kept parameters while they are for its tank's size.
+
+        None without any, or for another size: the runner then walks on the
+        defaults, and the next calibration starts from them.
+        """
         kept = None if from_defaults else self._params.get(runner.mac_address)
         if kept is None:
             return None
@@ -239,7 +244,7 @@ class SimulatorCalibration:
                 "lower temperature entities are needed, enabled"
             )
         self._check_open()
-        kept = self._kept(runner, from_defaults)
+        kept = self.usable(runner, from_defaults=from_defaults)
         if kept is not None:
             base = kept
         else:
@@ -290,7 +295,15 @@ class SimulatorCalibration:
             keep_better=kept is not None,
         )
         try:
-            done = await self.hass.async_add_executor_job(calibrate)
+            future = self.hass.async_add_executor_job(calibrate)
+            try:
+                done = await asyncio.shield(future)
+            except asyncio.CancelledError:
+                # The thread fits on whatever happens here: hold the
+                # one-fit lock until it ends, then drop its result.
+                with contextlib.suppress(Exception):
+                    await future
+                raise
         except sim_calibrate.CalibrationInputError as err:
             raise CalibrationError(str(err)) from err
         return {
