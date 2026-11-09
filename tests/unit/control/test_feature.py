@@ -279,6 +279,45 @@ def test_the_earlier_documented_ids_move_to_the_new_ones(
     assert registry.async_get(chosen.entity_id) is not None
 
 
+def test_a_renamed_devices_earlier_documented_ids_move_too(
+    hass: HomeAssistant, entry, coordinator
+):
+    """#271 review: the device renamed, its entities not."""
+    from homeassistant.helpers import device_registry as dr
+
+    devices = dr.async_get(hass)
+    device = devices.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, MAC)},
+        name="NWP500",
+    )
+    registry = er.async_get(hass)
+    for domain, key in (
+        ("sensor", "ack"),
+        ("sensor", "intent"),
+        ("button", "disable"),
+    ):
+        registry.async_get_or_create(
+            domain,
+            DOMAIN,
+            f"{MAC}_control_{key}",
+            config_entry=entry,
+            device_id=device.id,
+            suggested_object_id=f"nwp500_control_{key}",
+        )
+    devices.async_update_device(device.id, name_by_user="Garage Heater")
+
+    ControlFeature(hass, entry, coordinator)._move_to_documented_ids()
+
+    assert registry.async_get("sensor.nwp500_control_ack") is None
+    assert registry.async_get("sensor.garage_heater_plan_status") is not None
+    assert registry.async_get("sensor.garage_heater_plan_id") is not None
+    assert (
+        registry.async_get("button.garage_heater_stop_external_control")
+        is not None
+    )
+
+
 def test_the_documented_id_reads_the_entrys_own_device(
     hass: HomeAssistant, entry, coordinator
 ):

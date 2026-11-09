@@ -238,8 +238,13 @@ class ControlFeature:
         documented = control_entity_id(domain, device_name, key)
         if documented == entity_id:
             return None
-        # The id an earlier version documented, `<device>_control_<key>`.
-        if entity_id == earlier_control_entity_id(domain, device_name, key):
+        # The id an earlier version documented, `<device>_control_<key>`,
+        # under the device's name now or its own from before a person
+        # renamed it.
+        if entity_id in {
+            earlier_control_entity_id(domain, name, key)
+            for name in (device_name, device.name or "")
+        }:
             return documented
         object_id = entity_id.split(".", 1)[1]
         name_part = slugify(earlier)
