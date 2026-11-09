@@ -316,7 +316,11 @@ class NWP500TankCard extends HTMLElement {
       if (path.ready_at) return ` · at temperature by ${when(hass, new Date(path.ready_at))}`;
       if (path.heating_end) {
         const why = STOP_LABELS[path.stop] || 'it stops';
-        return ` · ${why} at ${when(hass, new Date(path.heating_end))}, short of temperature`;
+        // A later heating may finish what this one stops short of.
+        const full = path.fully_heated_at
+          ? `; fully heated by ${when(hass, new Date(path.fully_heated_at))}`
+          : '';
+        return ` · ${why} at ${when(hass, new Date(path.heating_end))}, short of temperature${full}`;
       }
       return ' · not at temperature within the forecast';
     };
@@ -462,6 +466,9 @@ class NWP500TankCard extends HTMLElement {
       path?.ready_at ? 'at temperature' : STOP_LABELS[path?.stop] || 'heating stops',
       COLORS.upper,
     );
+    // A later heating that finishes what the first stops short of.
+    const fullAt = path && !path.ready_at ? path.fully_heated_at : null;
+    const fullMarker = marker(fullAt, 'fully heated', COLORS.upper, 1);
     const startAt = path && !path.compressor_running ? path.compressor_start : null;
     const close = startAt && endAt
       && Math.abs(x(Date.parse(startAt)) - x(Date.parse(endAt))) < 120;
@@ -478,6 +485,7 @@ class NWP500TankCard extends HTMLElement {
         <path d="${line(modelled, 'lower')}" stroke="${COLORS.lower}" stroke-width="2" stroke-dasharray="6 4" fill="none" />
         <line x1="${x(now)}" x2="${x(now)}" y1="${T}" y2="${H - B}" stroke="${COLORS.now}" stroke-width="1" opacity="0.5" />
         ${readyMarker}
+        ${fullMarker}
         ${startMarker}
       </svg>`;
 

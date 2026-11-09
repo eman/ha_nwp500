@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -372,3 +372,38 @@ async def test_any_failure_of_the_walk_replaces_the_last_answer(
 
     assert r.answer is not None and r.answer.error == FAILED
     assert not r.answer.ok
+
+
+def test_fully_heated_is_the_first_heating_that_reaches_its_target():
+    """Not the first heating when a TOU cap stops it short."""
+    from types import SimpleNamespace
+
+    from custom_components.nwp500.simulator.runner import (
+        _heatings,
+        fully_heated_at,
+    )
+
+    t0 = datetime(2026, 11, 9, 1, 30, tzinfo=UTC)
+
+    def interval(start: int, end: int, stop: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            start=SimpleNamespace(at=t0 + timedelta(minutes=start)),
+            end=t0 + timedelta(minutes=end),
+            stop=stop,
+        )
+
+    capped = interval(0, 100, "cap")
+    # Electric's chained lower element ends the second heating.
+    upper = interval(210, 260, "target")
+    lower = interval(260, 300, "target")
+    result = SimpleNamespace(
+        heating=[capped, upper, lower], simulation=SimpleNamespace(reached=[])
+    )
+
+    heatings = _heatings(result)  # type: ignore[arg-type]
+    assert [last for _, last in heatings] == [capped, lower]
+    assert fully_heated_at(result, heatings) == lower.end  # type: ignore[arg-type]
+    only_capped = SimpleNamespace(
+        heating=[capped], simulation=SimpleNamespace(reached=[])
+    )
+    assert fully_heated_at(only_capped, _heatings(only_capped)) is None  # type: ignore[arg-type]

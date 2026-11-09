@@ -1,7 +1,7 @@
 """The modelled path: the compressor's next start and the tank's probes.
 
 When the compressor runs, the path shows the probes rising to the
-setpoint and Hot water ready at says when; when it doesn't, the
+setpoint and Fully heated at says when; when it doesn't, the
 path shows them falling and Next compressor start says when it
 starts. Charts read the path over the websocket API.
 """
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import replace
+from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -377,6 +378,14 @@ async def test_a_heating_stopped_short_is_not_at_temperature(
     assert document["ready_at"] is None
     assert document["heating_end"] == answer.end.isoformat()
     assert document["stop"] == stop
+    # A later heating that reaches the setpoint is when it is fully heated.
+    later = answer.end + timedelta(hours=3)
+    assert (
+        replace(answer, fully_heated_at=later).path_document("°F")[
+            "fully_heated_at"
+        ]
+        == later.isoformat()
+    )
     at_target = replace(
         answer, stop="target", at_temperature=True
     ).path_document("°F")

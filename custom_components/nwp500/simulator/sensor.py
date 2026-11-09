@@ -142,13 +142,12 @@ class SimulatorHeatingSensor(NWP500SimulatorEntity, SensorEntity):  # type: igno
 
 
 class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-    """When the tank next comes to temperature.
+    """When the tank is next fully heated, to its setpoint.
 
-    The end of the heating it is in, or of the next one within the day,
-    when that heating ends at its target. Unknown when there is none
-    within the day, and when a heating ends short of it: the day runs out
-    first (`stop` is `horizon`), a TOU cap stops it (`cap`), or a mode
-    change or setpoint write does. `stop` says which.
+    The end of the first heating within the day that ends at its target:
+    the one it is in, or a later one when that one stops short (a TOU cap,
+    a mode change or a setpoint write). Unknown when none does within the
+    day. `stop` says how the heating it is in, or the next, ends.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -156,13 +155,11 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
 
     @property
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """The end of the next heating, when it reaches its target."""
+        """The end of the first heating that reaches its target."""
         answer = self.answer
-        # Stopped short, or cut by the walk's horizon, the tank is not at
-        # temperature when the heating ends.
-        if answer is None or not answer.at_temperature:
+        if answer is None or answer.fully_heated_at is None:
             return None
-        return _minute(answer.end)
+        return _minute(answer.fully_heated_at)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -178,9 +175,8 @@ class SimulatorCompressorStartSensor(NWP500SimulatorEntity, SensorEntity):  # ty
     """When the heat pump's compressor next starts, as modelled.
 
     The first compressor start the walk finds within the day. Unknown
-    while the compressor runs (Hot water ready at is then when it
-    stops) and when no start falls within the day, such as in Electric
-    or Vacation.
+    while the compressor runs, and when no start falls within the day,
+    such as in Electric or Vacation.
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP

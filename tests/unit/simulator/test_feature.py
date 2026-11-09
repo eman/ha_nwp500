@@ -122,8 +122,11 @@ async def test_sensors_report_the_answer(
 
     ready = by_type[SimulatorHotWaterReadySensor]
     assert ready.device_class is SensorDeviceClass.TIMESTAMP
-    assert answer.end is not None
-    assert ready.native_value == answer.end.replace(second=0, microsecond=0)
+    assert ready.translation_key == "simulator_hot_water_ready"
+    assert answer.fully_heated_at is not None
+    assert ready.native_value == answer.fully_heated_at.replace(
+        second=0, microsecond=0
+    )
     assert ready.extra_state_attributes["stop"] == answer.stop
 
     energy = by_type[SimulatorEnergySensor]
@@ -150,7 +153,7 @@ async def test_sensors_are_unavailable_without_an_answer(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stop", ["horizon", "cap", "mode", "write"])
-async def test_a_heating_that_ends_short_has_no_ready_time(
+async def test_a_heating_stopped_short_is_fully_heated_by_a_later_one(
     hass: HomeAssistant, hass_storage, entry, coordinator, stop: str
 ):
     feature = await started(hass, entry, coordinator)
@@ -160,15 +163,18 @@ async def test_a_heating_that_ends_short_has_no_ready_time(
         for sensor in create_simulator_sensors(feature)
         if isinstance(sensor, SimulatorHotWaterReadySensor)
     )
-    assert runner.answer is not None
-    at_target = replace(runner.answer, stop="target", at_temperature=True)
-    runner.answer = at_target
-    assert ready.native_value == at_target.end.replace(second=0, microsecond=0)  # type: ignore[union-attr]
-    runner.answer = replace(at_target, stop=stop, at_temperature=False)
-
+    assert runner.answer is not None and runner.answer.end is not None
+    later = runner.answer.end + timedelta(hours=3, seconds=20)
+    # This heating stops short; a later one reaches the setpoint.
+    runner.answer = replace(
+        runner.answer, stop=stop, at_temperature=False, fully_heated_at=later
+    )
     assert ready.available
-    assert ready.native_value is None
+    assert ready.native_value == later.replace(second=0, microsecond=0)
     assert ready.extra_state_attributes["stop"] == stop
+    # None does within the day.
+    runner.answer = replace(runner.answer, fully_heated_at=None)
+    assert ready.native_value is None
     await async_unload_simulator(hass, entry)
 
 

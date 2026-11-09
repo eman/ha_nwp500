@@ -24,7 +24,7 @@
 - **When the tank comes to temperature, and when the compressor starts.**
   With the simulator on, a new sensor, Next compressor start, says
   when the heat pump's compressor next starts while it is off (unknown
-  while it runs; Hot water ready at is then when it stops), with
+  while it runs), with
   the start's cause and trigger.
 - **The tank forecast card.** `custom:nwp500-tank-card`, loaded with the
   integration, draws the tank's upper and lower temperatures: recorded
@@ -37,16 +37,18 @@
   stops), which other cards can use too, for a user who can read the
   heater. A heating a TOU cap, a mode change or a setpoint write stops
   short is not "at temperature": the path's `ready_at` is only for one
-  that reaches its target.
-- **Hot water ready at takes back-to-back heatings as one.** In
+  that reaches its target, and its `fully_heated_at` is when a later
+  heating finishes the job, which the card says and marks.
+- **Fully heated at takes back-to-back heatings as one.** In
   Electric the library ends the upper element at its target and starts
   the lower at once: the sensor said the tank was ready at the hand-over.
   It now says when the last of them ends, and the Heating, next 24 hours
   sensor's `energy_kwh` is theirs together.
-- **Hot water ready at is only for a heating that reaches its
-  target.** One a TOU cap, a mode change or a setpoint write stops short
-  leaves it unknown, its `stop` attribute saying why, as the card's path
-  already did.
+- **Fully heated at is the first heating that reaches its target.** One
+  a TOU cap, a mode change or a setpoint write stops short is not when
+  the tank is heated: the sensor gives the end of a later heating within
+  the day that gets there, and is unknown only when none does. Its `stop`
+  attribute says why the heating it is in, or the next, ends.
 - **The `time_to_ready` action uses the heater's own bath and shower
   sizes** when the call gives none, as the bath and shower sensors do,
   and a draw the heater reports now: it answered with the library's
@@ -199,7 +201,7 @@
   "Simulated" prefix: the tank's hot water now (Hot water available,
   Baths available, Showers available) is read from the heater as much as
   DHW charge is, and the forecasts say they look ahead (Heating, next 24
-  hours; Hot water ready at; Next compressor start; Energy, next 24
+  hours; Fully heated at; Next compressor start; Energy, next 24
   hours; Bath ready at). Entity IDs already registered are kept. Bath
   ready (Baths available above 0) and Hot water for (the two counts in
   words) are gone, and removed when the simulator starts.
@@ -251,7 +253,7 @@
     installation's 72.4 °F, without a cold water supply probe.
   - **Two new ways a heating stops**: `envelope`, the air leaving the
     heat pump's operating range, and `heat_pump`, the heat pump taking
-    back a recovery an element was carrying. the Hot water ready at
+    back a recovery an element was carrying. The Fully heated at
     sensor's `stop` attribute and the tank card name them.
   - **A malformed scenario's parameters are the caller's mistake.** A null
     where a number goes is refused when the scenario is laid, as an invalid

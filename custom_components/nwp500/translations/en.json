@@ -825,7 +825,7 @@
         }
       },
       "simulator_hot_water_ready": {
-        "name": "Hot water ready at"
+        "name": "Fully heated at"
       },
       "simulator_compressor_start": {
         "name": "Next compressor start"

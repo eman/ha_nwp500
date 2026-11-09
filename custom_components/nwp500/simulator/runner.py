@@ -248,6 +248,10 @@ class Answer:
     #: library's `reached`). Not when a TOU cap, a mode change or the
     #: horizon ends it.
     at_temperature: bool | None = None
+    #: When the tank is next fully heated: the end of the first heating
+    #: within the walk that ends at temperature, this one or a later one.
+    #: None when none does, such as each stopped short by a TOU cap.
+    fully_heated_at: datetime | None = None
     source: str | None = None
     cause: str | None = None
     trigger: str | None = None
@@ -284,7 +288,13 @@ class Answer:
     def as_document(self) -> dict[str, Any]:
         """For diagnostics."""
         doc = dataclasses.asdict(self)
-        for key in ("computed_at", "start", "end", "compressor_start"):
+        for key in (
+            "computed_at",
+            "start",
+            "end",
+            "fully_heated_at",
+            "compressor_start",
+        ):
             doc[key] = _iso(doc[key])
         # Long: how many points, and the first and last.
         path = self.path
@@ -335,6 +345,7 @@ class Answer:
             "heating_start": _iso(self.start),
             "heating_end": _iso(end),
             "ready_at": _iso(ready),
+            "fully_heated_at": _iso(self.fully_heated_at),
             "stop": self.stop,
             "source": self.source,
             "compressor_start": _iso(self.compressor_start),
@@ -410,6 +421,37 @@ def _at_temperature(
     )
 
 
+def _heatings(
+    result: SimulationResult,
+) -> list[tuple[list[HeatingInterval], HeatingInterval]]:
+    """The walk's heatings, each with the interval that reaches furthest.
+
+    A heating is its intervals one after another (`CHAINED`). An element
+    can run inside a longer compressor run, and end first.
+    """
+    heatings: list[tuple[list[HeatingInterval], HeatingInterval]] = []
+    for interval in result.heating:
+        if heatings and interval.start.at <= heatings[-1][1].end + CHAINED:
+            chain, last = heatings[-1]
+            chain.append(interval)
+            if interval.end >= last.end:
+                heatings[-1] = (chain, interval)
+        else:
+            heatings.append(([interval], interval))
+    return heatings
+
+
+def fully_heated_at(
+    result: SimulationResult,
+    heatings: list[tuple[list[HeatingInterval], HeatingInterval]],
+) -> datetime | None:
+    """The end of the first heating that ends with the tank at temperature."""
+    return next(
+        (last.end for _, last in heatings if _at_temperature(result, last)),
+        None,
+    )
+
+
 def answer_from(
     result: SimulationResult,
     inputs: Inputs,
@@ -419,17 +461,10 @@ def answer_from(
     scenario = inputs.scenario
     state = scenario.state
     first = result.heating[0] if result.heating else None
-    # The heating it is in, or the next, to the interval that reaches
-    # furthest: an element can run inside a longer compressor run, and
-    # end first.
-    chain: list[HeatingInterval] = []
-    last: HeatingInterval | None = None
-    for interval in result.heating:
-        if last is not None and interval.start.at > last.end + CHAINED:
-            break
-        chain.append(interval)
-        if last is None or interval.end >= last.end:
-            last = interval
+    heatings = _heatings(result)
+    # The heating it is in, or the next.
+    chain, last = heatings[0] if heatings else ([], None)
+    fully_heated = fully_heated_at(result, heatings)
     chain_wh = (
         None
         if not chain or any(h.input_wh is None for h in chain)
@@ -462,6 +497,7 @@ def answer_from(
         end=None if last is None else last.end,
         stop=None if last is None else last.stop,
         at_temperature=None if last is None else _at_temperature(result, last),
+        fully_heated_at=fully_heated,
         source=None if first is None else first.source,
         cause=None if first is None else first.start.cause,
         trigger=None if first is None else first.start.trigger,
