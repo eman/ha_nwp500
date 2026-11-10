@@ -471,6 +471,57 @@ class TestAnEarlierPlansEntries:
         assert "b" in planner.removed_segments
         assert any(r.segment == "b" for r in planner.reports.values())
 
+    def test_a_near_term_entry_edited_in_place_is_removed(self):
+        """A person's edit of the plan's near-term entry is not overwritten."""
+        planner = planner_with(shadow=False, **LIVE)
+        give(planner, [segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140)])
+        (near,) = planner.owned
+        assert near.kind == KIND_NEAR_TERM
+        edited = {**near.as_entry(), "param": near.as_entry()["param"] - 4}
+
+        write = planner.step(
+            minutes(0.5),
+            obs(reservations_enabled=True, reservations=(edited,)),
+        )
+
+        assert "a" in planner.removed_segments
+        assert any(r.segment == "a" for r in planner.reports.values())
+        assert write is None or not write.added
+
+    def test_a_reissued_plans_shifted_entry_deleted_is_removed(self):
+        """Segment c moved past b's moved entry; then both moves go."""
+        start = minutes(10)
+        owners = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": start.hour,
+            "min": start.minute,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations_enabled=True, reservations=(owners,))
+        planner = planner_with(shadow=False, observed=observed, **LIVE)
+        segments = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "c", 11, mode="heat_pump", setpoint_f=130),
+        ]
+        give(planner, segments, observed=observed)
+        program = planner.program(observed)["reservation"]
+        held = obs(reservations_enabled=True, reservations=tuple(program))
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), segments)), minutes(1), held
+        )
+        assert planner.step(minutes(1), held) is None
+        (c,) = (e for e in planner.owned if e.serves == "c")
+        left = tuple(e for e in program if e not in (owners, c.as_entry()))
+
+        planner.step(
+            minutes(2), obs(reservations_enabled=True, reservations=left)
+        )
+
+        assert "c" in planner.removed_segments
+
     def test_an_entry_gone_after_its_minute_is_not_waited_for(self):
         planner, held = self._stopped_while_paused()
         planner.step(minutes(5), held)

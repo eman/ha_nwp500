@@ -529,23 +529,7 @@ class Planner:
         """Update from what the device reports; return the write it needs."""
         self.last_step = now
         self.reconcile_unconfirmed(observed)
-        # Deletions are judged by what this pass wants off the heater: the
-        # plan, or the entries around its own, may have changed since the
-        # last.
-        wanted = self._desired(now, observed)
-        self._track_list_changes(
-            now,
-            observed,
-            [
-                e
-                for e in self.owned
-                if e not in wanted
-                and not (
-                    e.kind == KIND_PLAN
-                    and self._check_key(e) in self._plan_entries
-                )
-            ],
-        )
+        self._track_list_changes(now, observed)
         self._track_readback(now, observed)
         self._assert_in_force(now)
         self._hold(now)
@@ -745,17 +729,11 @@ class Planner:
 
     # People's changes (section 5.10)
 
-    def _track_list_changes(
-        self,
-        now: datetime,
-        observed: Observed,
-        withdrawn: list[OwnedEntry],
-    ) -> None:
+    def _track_list_changes(self, now: datetime, observed: Observed) -> None:
         """Find the feature's entries gone from the list (section 5.10).
 
-        One in `withdrawn`, which the plan wants off the heater and which is
-        not one of its own plan entries, is gone as the plan wanted: it is
-        dropped without a report, fired or not.
+        One the plan in force does not own (`_owned_by_plan`) is gone as
+        the plan wanted: it is dropped without a report, fired or not.
         """
         if observed.reservations is None:
             return
@@ -766,7 +744,7 @@ class Planner:
         on_device = [dict(e) for e in observed.reservations]
         for owned_entry in list(self.owned):
             if (
-                owned_entry in withdrawn
+                not self._owned_by_plan(owned_entry)
                 and owned_entry.as_entry() not in on_device
             ):
                 # Gone as the plan wanted: nothing a person changed.
@@ -799,6 +777,24 @@ class Planner:
             self.owned = [e for e in self.owned if e != owned_entry]
             self.extra = [e for e in self.extra if e != owned_entry]
 
+    def _owned_by_plan(self, entry: OwnedEntry) -> bool:
+        """Whether an owned entry is the plan in force's.
+
+        A plan entry recognised as its own (`_plan_entries`), or a near-term
+        entry it issued: one in `extra`, whose copy on the heater may have
+        moved past a collision. Anything else on the heater is an earlier
+        plan's, or one the plan replaced, and is to be removed.
+        """
+        if entry.kind == KIND_PLAN:
+            return self._check_key(entry) in self._plan_entries
+        return any(
+            e.kind == entry.kind
+            and e.serves == entry.serves
+            and e.mode == entry.mode
+            and e.setpoint_raw == entry.setpoint_raw
+            for e in self.extra
+        )
+
     def _serves_plan(self, entry: OwnedEntry) -> bool:
         """Whether a deleted entry was one the plan in force wants.
 
@@ -813,7 +809,8 @@ class Planner:
         """Whether a plan entry is where the plan in force places it now.
 
         Its segment's state, at the segment's start or moved from there
-        only past minutes other entries on the heater occupy (section 5.2).
+        only past minutes other entries on the heater occupy, the feature's
+        own included (section 5.2).
         """
         segment = next(
             (
@@ -827,7 +824,12 @@ class Planner:
             entry.mode, entry.setpoint_raw
         ):
             return False
-        occupied = self._occupied(self.others(observed))
+        # The feature's other entries on the heater occupy their minutes as
+        # well: one moved past another of the plan's is placed as planned.
+        occupied = [
+            *self._occupied(self.others(observed)),
+            *(o.slot for o in self.owned if o != entry),
+        ]
         probe = replace(entry, fires_at=segment.start.astimezone(self.tz))
         # In elapsed time: the same zone compares by wall clock, which runs
         # back in the repeated hour of a fall-back.
