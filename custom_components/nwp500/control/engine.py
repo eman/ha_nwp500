@@ -926,7 +926,9 @@ class Planner:
         )
         if entry is None:
             return None
-        placed = self._place(entry, occupied)
+        # Restored from storage, its time carries a fixed offset: moving it
+        # on must follow the device's clock across a change of offset.
+        placed = self._place(entry.localised(self.tz), occupied)
         nxt = self._next_change_after(segment.start)
         if nxt is not None and nxt.start <= placed.fires_at:
             return None

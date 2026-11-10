@@ -392,6 +392,52 @@ class TestTranslation:
         )
         assert planner._placed_as_planned(b, observed)
 
+    def test_a_restored_moved_entry_moves_on_across_the_fold(self):
+        """Begun, its entry not yet fired, restored with a fixed offset.
+
+        b's entry moved to 01:59 PDT. After a restart a person's entry
+        takes 01:59 too; the next minute is 01:00 PST, not 02:00.
+        """
+        start = datetime(2026, 11, 1, 1, 58, tzinfo=TZ)
+        base = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+        taken = {"enable": 2, "week": 128, "hour": 1, "min": 58}
+        taken |= {"mode": 1, "param": 100}
+        observed = obs(reservations_enabled=True, reservations=(taken,))
+        planner = Planner(capabilities(), TZ)
+        run(planner, base, observed)
+        document = make_document(
+            base,
+            [
+                segment(base, "a", 0, mode="heat_pump", setpoint_f=130),
+                segment(base, "b", 0, setpoint_f=140),
+            ],
+        )
+        document["segments"][1]["start"] = start.isoformat()
+        plan = parse_plan(document)
+        check_plan(plan)
+        planner.set_plan(plan, base, observed)
+        run(planner, base, observed)
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert (b.fires_at.hour, b.fires_at.minute, b.fires_at.fold) == (
+            1,
+            59,
+            0,
+        )
+        restarted = Planner(planner.capabilities, TZ)
+        restarted.load_document(json.loads(json.dumps(planner.as_document())))
+        now = datetime(2026, 11, 1, 1, 58, 30, tzinfo=TZ)
+        person = {"enable": 2, "week": 128, "hour": 1, "min": 59}
+        person |= {"mode": 3, "param": 110}
+        later = obs(reservations_enabled=True, reservations=(taken, person))
+        restarted.set_plan(plan, now, later, restoring=True)
+        run(restarted, now, later)
+        (moved,) = (e for e in restarted.owned if e.serves == "b")
+        assert (
+            moved.fires_at.hour,
+            moved.fires_at.minute,
+            moved.fires_at.fold,
+        ) == (1, 0, 1)
+
     def test_an_enabled_entry_in_the_slot_moves_the_plan_entry(self):
         foreign = {
             "enable": 2,
