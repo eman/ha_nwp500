@@ -376,6 +376,33 @@ class TestReadBack:
         assert old in write.removed
         assert old not in planner.owned
 
+    def test_an_entry_put_on_a_moved_entrys_minute_moves_it_on(self):
+        """One enabled entry per minute, as for any plan entry (5.2)."""
+        planner, observed = self._moved(
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 30, mode="heat_pump", setpoint_f=130),
+            ]
+        )
+        (old,) = (e for e in planner.owned if e.serves == "b")
+        assert old.fires_at == minutes(11)
+        assert (
+            run(planner, minutes(10.5), self._held(planner, observed)) is None
+        )
+        person = {**old.as_entry(), "mode": 3, "param": 110}
+        held = self._held(planner, observed)
+        added = obs(
+            reservations_enabled=True,
+            reservations=(*held.reservations, person),
+        )
+        write = run(planner, minutes(10.6), added)
+        assert write is not None
+        assert old in write.removed
+        (moved,) = (e for e in planner.owned if e.serves == "b")
+        assert moved.fires_at == minutes(12)
+        assert statuses(planner.ack("i"))["b"] == ("programmed", None)
+
     def test_a_moved_entry_goes_when_the_next_change_begins_first(self):
         """It would put an ended segment's state back."""
         planner, observed = self._moved(

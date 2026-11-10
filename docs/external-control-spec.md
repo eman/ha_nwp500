@@ -654,6 +654,7 @@ is the scheduler's to plan around.
    fires after its segment begins, and stays on the device until it fires,
    unless the next segment changing the state begins at or before its
    minute: it would then put an ended segment's state back, and is removed.
+   An enabled entry put on its minute meanwhile moves it on again.
    It may share one with an entry switched off by its own flag: the device
    stores both and fires only the enabled one (section 8).
    Which of two enabled entries in one slot wins is untested.

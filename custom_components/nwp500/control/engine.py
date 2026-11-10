@@ -899,15 +899,19 @@ class Planner:
         return result
 
     def _unfired_plan_entry(
-        self, segment: Segment, now: datetime
+        self,
+        segment: Segment,
+        now: datetime,
+        occupied: list[tuple[int, int, int]],
     ) -> OwnedEntry | None:
         """A begun segment's own plan entry that has not fired yet.
 
         Only one moved past its start, and only one the plan in force
         wants: a replacement plan may reuse the segment's id with another
-        state. It is dropped once the next segment changing the state
-        begins at or before it, since it would put an ended segment's
-        state back.
+        state. An enabled entry put on its minute since it was written
+        moves it on again, as any plan entry (section 5.2). It is dropped
+        once the next segment changing the state begins at or before it,
+        since it would put an ended segment's state back.
         """
         entry = next(
             (
@@ -922,10 +926,11 @@ class Planner:
         )
         if entry is None:
             return None
+        placed = self._place(entry, occupied)
         nxt = self._next_change_after(segment.start)
-        if nxt is not None and nxt.start <= entry.fires_at:
+        if nxt is not None and nxt.start <= placed.fires_at:
             return None
-        return entry
+        return placed
 
     def _desired(self, now: datetime, observed: Observed) -> list[OwnedEntry]:
         """The owned entries the device should hold now (sections 5.2-5.3)."""
@@ -946,7 +951,7 @@ class Planner:
                 # Begun. Its own entry, moved past an occupied minute
                 # (section 5.2), may not have fired yet: it stays until it
                 # does, unless the next change begins first.
-                pending = self._unfired_plan_entry(segment, now)
+                pending = self._unfired_plan_entry(segment, now, occupied)
                 if pending is not None:
                     occupied.append(pending.slot)
                     candidates.append((segment, pending))
