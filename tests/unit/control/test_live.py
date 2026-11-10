@@ -329,6 +329,8 @@ class TestReadBack:
         )
         assert b in planner.owned
         assert statuses(planner.ack("i"))["b"] == ("programmed", None)
+        # The planner wakes at the entry's minute, to report it in force.
+        assert planner.next_event_at == minutes(11)
         fired = self._held(
             planner, observed, mode="heat_pump", setpoint_raw=120
         )

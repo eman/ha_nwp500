@@ -1146,6 +1146,9 @@ class Planner:
                 if s.id in self._info
                 and self._info[s.id].reason == REASON_BEYOND_HORIZON
             )
+        # An entry's own minute too: a moved one fires after its segment
+        # began, and its segment is in force from then (section 5.9).
+        times.extend(_instant(e.fires_at) for e in self.owned + self.extra)
         times.extend(
             _later(e.fires_at, FIRED_GRACE) for e in self.owned + self.extra
         )
