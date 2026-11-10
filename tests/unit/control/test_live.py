@@ -522,6 +522,65 @@ class TestAnEarlierPlansEntries:
 
         assert "c" in planner.removed_segments
 
+    def test_an_entry_moved_past_a_dropped_entry_is_not_the_new_plans(self):
+        """An owner's entry moves x to 10:11 and x moves b to 10:12.
+
+        The new plan drops x, so b's place is 10:11: the entry at 10:12 is
+        not the new plan's, and its going removes nothing it wants.
+        """
+        start = minutes(10)
+        owners = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": start.hour,
+            "min": start.minute,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations_enabled=True, reservations=(owners,))
+        planner = planner_with(shadow=False, observed=observed, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "x", 10, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 11, mode="heat_pump", setpoint_f=130),
+            ],
+            observed=observed,
+        )
+        program = planner.program(observed)["reservation"]
+        held = obs(reservations_enabled=True, reservations=tuple(program))
+        (old_b,) = (e for e in planner.owned if e.serves == "b")
+        assert old_b.fires_at == minutes(12)
+        planner.set_plan(
+            parse_plan(
+                make_document(
+                    minutes(1),
+                    [
+                        segment(
+                            NOW, "a", -5, mode="energy_saver", setpoint_c=59.5
+                        ),
+                        segment(NOW, "b", 11, mode="heat_pump", setpoint_f=130),
+                    ],
+                )
+            ),
+            minutes(1),
+            held,
+        )
+        write = planner.step(minutes(1), held)
+        planner.reject(
+            write, minutes(1), retry_at=minutes(16), final=True, sent=False
+        )
+        planner.hold_until = minutes(16)
+        left = tuple(e for e in program if e != old_b.as_entry())
+
+        planner.step(
+            minutes(2), obs(reservations_enabled=True, reservations=left)
+        )
+
+        assert "b" not in planner.removed_segments
+        assert planner.reports == {}
+
     def test_an_entry_gone_after_its_minute_is_not_waited_for(self):
         planner, held = self._stopped_while_paused()
         planner.step(minutes(5), held)

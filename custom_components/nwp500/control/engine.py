@@ -473,11 +473,13 @@ class Planner:
             }
             # The entries on the heater that are what the new plan wants,
             # judged against the list they were placed on.
-            self._plan_entries = {
-                self._check_key(e)
-                for e in self.owned
-                if e.kind == KIND_PLAN and self._placed_as_planned(e, observed)
-            }
+            self._plan_entries = set()
+            for e in sorted(
+                (e for e in self.owned if e.kind == KIND_PLAN),
+                key=lambda e: _instant(e.fires_at),
+            ):
+                if self._placed_as_planned(e, observed):
+                    self._plan_entries.add(self._check_key(e))
         self.failed = {}
         # A near-term entry still serves the new plan if the new plan has
         # the same segment in force now, in the same state. Any other served
@@ -809,8 +811,9 @@ class Planner:
         """Whether a plan entry is where the plan in force places it now.
 
         Its segment's state, at the segment's start or moved from there
-        only past minutes other entries on the heater occupy, the feature's
-        own included (section 5.2).
+        only past minutes other entries on the heater occupy, the plan's own
+        recognised entries included (section 5.2). `set_plan` recognises
+        them in time order, so a cascade of moves is followed.
         """
         segment = next(
             (
@@ -824,11 +827,18 @@ class Planner:
             entry.mode, entry.setpoint_raw
         ):
             return False
-        # The feature's other entries on the heater occupy their minutes as
+        # The plan's own entries recognised so far occupy their minutes as
         # well: one moved past another of the plan's is placed as planned.
+        # Not an earlier plan's, which the plan in force removes.
         occupied = [
             *self._occupied(self.others(observed)),
-            *(o.slot for o in self.owned if o != entry),
+            *(
+                o.slot
+                for o in self.owned
+                if o != entry
+                and o.kind == KIND_PLAN
+                and self._check_key(o) in self._plan_entries
+            ),
         ]
         probe = replace(entry, fires_at=segment.start.astimezone(self.tz))
         # In elapsed time: the same zone compares by wall clock, which runs
