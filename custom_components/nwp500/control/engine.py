@@ -281,9 +281,6 @@ class Planner:
         # and one that disappears from the list is what the plan wanted, not
         # a person's change to it.
         self._withdrawing: list[OwnedEntry] = []
-        # Set when a plan is adopted: its first pass judges deletions by
-        # what it wants off the heater, not by what the last plan did.
-        self._replanned = False
 
     # -- persistence -------------------------------------------------------
 
@@ -462,7 +459,6 @@ class Planner:
         """
         restored = restoring and self.plan is None
         self.plan = plan
-        self._replanned = True
         ids = {s.id for s in plan.segments}
         if restored:
             self.removed_segments &= ids
@@ -533,12 +529,23 @@ class Planner:
         """Update from what the device reports; return the write it needs."""
         self.last_step = now
         self.reconcile_unconfirmed(observed)
-        if self._replanned:
-            self._replanned = False
-            self._withdrawing = self._withdrawn(
-                self._desired(now, observed), now
-            )
-        self._track_list_changes(now, observed)
+        # Deletions are judged by what this pass wants off the heater: the
+        # plan, or the entries around its own, may have changed since the
+        # last.
+        wanted = self._desired(now, observed)
+        self._track_list_changes(
+            now,
+            observed,
+            [
+                e
+                for e in self.owned
+                if e not in wanted
+                and not (
+                    e.kind == KIND_PLAN
+                    and self._check_key(e) in self._plan_entries
+                )
+            ],
+        )
         self._track_readback(now, observed)
         self._assert_in_force(now)
         self._hold(now)
@@ -738,7 +745,18 @@ class Planner:
 
     # People's changes (section 5.10)
 
-    def _track_list_changes(self, now: datetime, observed: Observed) -> None:
+    def _track_list_changes(
+        self,
+        now: datetime,
+        observed: Observed,
+        withdrawn: list[OwnedEntry],
+    ) -> None:
+        """Find the feature's entries gone from the list (section 5.10).
+
+        One in `withdrawn`, which the plan wants off the heater and which is
+        not one of its own plan entries, is gone as the plan wanted: it is
+        dropped without a report, fired or not.
+        """
         if observed.reservations is None:
             return
 
@@ -748,7 +766,7 @@ class Planner:
         on_device = [dict(e) for e in observed.reservations]
         for owned_entry in list(self.owned):
             if (
-                owned_entry in self._withdrawing
+                owned_entry in withdrawn
                 and owned_entry.as_entry() not in on_device
             ):
                 # Gone as the plan wanted: nothing a person changed.

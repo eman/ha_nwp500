@@ -810,7 +810,9 @@ scheduler decides.
     the new plan's segment's. Neither is any entry the plan in force wants
     removed, such as an earlier plan's near-term entry. Its deletion, by a
     person or another client, removes what the plan wants gone: it is not
-    reported.
+    reported. The plan's own entries are not among them, even one moved
+    past an entry that has gone since: deleting it makes its segment
+    `removed`.
   - An entry a person adds is not the feature's: it is kept as read
     (section 5.1), counts against the budget, and fires as the person set
     it.

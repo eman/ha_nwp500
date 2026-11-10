@@ -431,6 +431,46 @@ class TestAnEarlierPlansEntries:
         assert planner.reports == {}
         assert "a" not in planner.removed_segments
 
+    def test_an_entry_wanted_again_then_deleted_is_reported(self):
+        """Withdrawn on one pass, wanted on the next, deleted in between."""
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        program = tuple(device_obs(planner).reservations)
+        owners = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": minutes(10).hour,
+            "min": minutes(10).minute,
+            "mode": 3,
+            "param": 110,
+        }
+        # A person's entry on b's minute: b would move, so its entry is
+        # withdrawn. Writing is paused.
+        crowded = obs(
+            reservations_enabled=True, reservations=(*program, owners)
+        )
+        write = planner.step(minutes(1), crowded)
+        assert write is not None
+        planner.reject(
+            write, minutes(1), retry_at=minutes(16), final=True, sent=False
+        )
+        planner.hold_until = minutes(16)
+        assert planner._withdrawing
+        # Their entry gone, and b's deleted too.
+        others = tuple(e for e in program if e["min"] != minutes(10).minute)
+        planner.step(
+            minutes(2), obs(reservations_enabled=True, reservations=others)
+        )
+
+        assert "b" in planner.removed_segments
+        assert any(r.segment == "b" for r in planner.reports.values())
+
     def test_an_entry_gone_after_its_minute_is_not_waited_for(self):
         planner, held = self._stopped_while_paused()
         planner.step(minutes(5), held)
