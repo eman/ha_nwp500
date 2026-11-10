@@ -225,6 +225,24 @@ class TestStart:
         assert second.store.stored_intent(MAC).get("source") == other
 
     @pytest.mark.asyncio
+    async def test_another_entity_with_no_plan_withdraws_the_old_one(
+        self, hass, control_factory, now
+    ):
+        _publish(hass, _plan(now))
+        first = await control_factory()
+        assert first.planner.extra
+        await first.async_stop()
+        other = "sensor.test_intent"
+        hass.states.async_set(other, STATE_UNAVAILABLE)
+
+        second = await control_factory(control_intent_entity=other)
+
+        assert second.plan is None
+        assert second.planner.extra == []
+        assert KIND_NEAR_TERM not in _kinds(second)
+        assert second.store.stored_intent(MAC) is None
+
+    @pytest.mark.asyncio
     async def test_state_from_an_earlier_version_is_discarded(
         self, hass, hass_storage, control_factory
     ):

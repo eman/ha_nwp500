@@ -668,7 +668,11 @@ class DeviceControl:
         stored = self.store.stored_intent(self.mac_address)
         stored_plan: Plan | None = None
         source = stored.get("source") if stored is not None else None
-        if stored is not None and source not in (None, self.intent_entity_id):
+        other_source = stored is not None and source not in (
+            None,
+            self.intent_entity_id,
+        )
+        if other_source:
             # The plan entity has changed: a plan from another entity is not
             # one the feature was pointed at. Its entries are withdrawn
             # unless the new entity's plan wants them.
@@ -714,6 +718,8 @@ class DeviceControl:
             or entity_document.get("intent_id") != stored_plan.intent_id
         ):
             await self.async_receive(entity_document, now)
+        if other_source and self.plan is None:
+            self.planner.withdraw_plan()
 
     @callback
     def _on_intent_event(self, event: Event[EventStateChangedData]) -> None:

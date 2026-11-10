@@ -372,6 +372,16 @@ class Planner:
             return f"{report.field}:{report.segment or report.value}"
         return report.field
 
+    def withdraw_plan(self) -> None:
+        """No plan is in force: nothing the earlier one issued serves one.
+
+        The entries stay owned, so the next pass removes them from the
+        heater.
+        """
+        self.extra = []
+        self.asserted = set()
+        self._plan_entries = set()
+
     def forget_simulated(self) -> None:
         """Drop what shadow simulated, on going live.
 
