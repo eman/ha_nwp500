@@ -1038,6 +1038,34 @@ async def test_fetch_reservations_times_out_and_cleans_up(coordinator):
 
     assert await coordinator.async_fetch_reservations(MAC, timeout=0.01) is None
     assert MAC not in coordinator._reservation_waiters
+    # Asked three times before giving up.
+    assert coordinator.async_request_reservations.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_fetch_reservations_asks_again_when_no_reply_comes(coordinator):
+    """A request the device does not answer is followed by another."""
+    coordinator.async_update_listeners = MagicMock()
+    response = {"reservation_use": 2, "reservation": [{"hour": 6}]}
+    asked = 0
+
+    async def reply_to_the_second(mac):
+        nonlocal asked
+        asked += 1
+        if asked == 2:
+            coordinator._handle_reservation_update_in_loop(mac, response)
+        return True
+
+    coordinator.async_request_reservations = AsyncMock(
+        side_effect=reply_to_the_second
+    )
+
+    assert (
+        await coordinator.async_fetch_reservations(MAC, timeout=0.01)
+        == response
+    )
+    assert asked == 2
+    assert MAC not in coordinator._reservation_waiters
 
 
 @pytest.mark.asyncio

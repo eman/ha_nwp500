@@ -397,6 +397,19 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **Reservation lists the heater sends on its own topic are read.** The
+  heater is asked to answer a list read or write on the reading client's
+  topic, and sometimes answers on its own topic instead. The library
+  listens for the list on the client topic only, so those answers were
+  dropped, the read timed out, and external control failed the write it
+  read for, retried a minute later and, on a second miss, paused writing
+  for 15 minutes. In a test session it happened to one read in a dozen.
+  The integration now takes the list on the heater's topic too.
+- **A reservation read that gets no reply asks again.** The reservation
+  service and external control's reads before and after a write wait for
+  the heater's list. When no reply comes, on any topic, they now ask up to
+  three times before giving up, as the setup and periodic reads already
+  did.
 - **External control: a power-off step is not failed by read-back.** A
   heater a `power_off` entry turns off keeps its own setpoint, so
   read-back, which compared the entry's setpoint too, marked the step

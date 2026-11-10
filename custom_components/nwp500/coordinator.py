@@ -84,6 +84,12 @@ _ENERGY_STRAGGLER_WINDOW: Final = 120.0
 _INITIAL_RESERVATION_TIMEOUT: Final = 5.0
 _INITIAL_RESERVATION_ATTEMPTS: Final = 2
 
+# A read someone waits on (the reservation service, external control's read
+# before a write and its read after an unconfirmed one) asks again when no
+# reply comes. A read changes nothing, and in a test session one in a dozen
+# got none on any topic, while the next, identical request was answered.
+_FETCH_RESERVATION_ATTEMPTS: Final = 3
+
 # The same, for the reads the device answers only when asked: the
 # installer diagnostics counters and the recirculation schedule. The cloud
 # does not always answer these either -- one request went unanswered while
@@ -2067,7 +2073,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_request_on_demand_reads(mac_address)
 
     async def async_fetch_reservations(
-        self, mac_address: str, timeout: float = 10.0
+        self,
+        mac_address: str,
+        timeout: float = 10.0,
+        attempts: int = _FETCH_RESERVATION_ATTEMPTS,
     ) -> dict[str, Any] | None:
         """Request the reservation schedule and wait for the device's reply.
 
@@ -2075,19 +2084,32 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         arrives asynchronously over MQTT. Callers that must not act on a
         stale or empty cache -- notably the read-modify-write in
         `set_reservation`, where writing is a full-list replacement -- need
-        the value itself, so this waits for the response.
+        the value itself, so this waits for the response, and asks again
+        when none comes.
 
         Args:
             mac_address: Device MAC address.
-            timeout: Seconds to wait for the device's response.
+            timeout: Seconds to wait for each reply.
+            attempts: How many requests to send before giving up.
 
         Returns:
             The reservation schedule the device reported, or None if the
             request could not be sent or no response arrived in time.
         """
-        _, schedule = await self._async_fetch_reservations_result(
-            mac_address, timeout
-        )
+        schedule: dict[str, Any] | None = None
+        for attempt in range(1, attempts + 1):
+            published, schedule = await self._async_fetch_reservations_result(
+                mac_address, timeout
+            )
+            if schedule is not None or not published:
+                # Nothing was asked, so the device owes no answer.
+                break
+            _LOGGER.debug(
+                "No reply to the reservation read of %s (attempt %d of %d)",
+                mac_address,
+                attempt,
+                attempts,
+            )
         return schedule
 
     async def _async_fetch_reservations_result(
