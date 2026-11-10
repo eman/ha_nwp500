@@ -413,9 +413,10 @@
 - **External control: a stop is `pending` until its entries are gone.** A
   plan that withdraws entries, an empty one included, read `programmed`
   while writing was paused and the earlier plan's entries were still on
-  the heater, where they would fire. It now reads `pending` until a write
-  removes them. A person, or another client, removing one of those
-  entries is no longer reported as a deletion of the plan's.
+  the heater, where they would fire. It now reads `pending` while the
+  heater holds entries, not yet fired, that the plan wants removed. A
+  person, or another client, removing one of those entries is no longer
+  reported as a deletion of the plan's.
 - **External control: a failed step stays `failed`.** A step whose write
   failed showed `scheduled` once it came within the near-term lead while
   writing was paused, and `ended` once a later step started, as if it had

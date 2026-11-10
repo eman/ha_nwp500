@@ -540,7 +540,7 @@ The list holds the changes in force, not a history:
 | `none` | No plan in force, and no document rejected since start-up |
 | `rejected` | No plan in force, and the most recent document was rejected whole (section 3.5). `intent_id`, `reason` and `detail` are that document's, and so is `rejected`; `segments` is empty |
 | `shadow` | The plan in force is evaluated but not written: the mode is `shadow` |
-| `pending` | Live: at least one segment is `pending`, or an earlier plan's entries, which the plan in force does not want, are still on the heater. An empty plan is `pending` until they are removed |
+| `pending` | Live: at least one segment is `pending`, or the heater still holds entries of the feature's, not yet fired, that the plan in force wants removed: an earlier plan's, or ones it replaced. An empty plan is `pending` until they are removed |
 | `partly_programmed` | Live: not `pending`, and at least one segment is `removed` or `failed` |
 | `programmed` | Live: not `pending`, and no segment is `removed` or `failed` |
 
@@ -807,9 +807,10 @@ scheduler decides.
   - An entry whose minute is over when its deletion is found is past: the
     deletion changes nothing.
   - A plan entry that a newer plan replaced, still on the heater, is not
-    the new plan's segment's. Nor is an earlier plan's near-term entry. A
-    person deleting either removes what the plan in force wants gone: it
-    is not reported.
+    the new plan's segment's. Neither is any entry the plan in force wants
+    removed, such as an earlier plan's near-term entry. Its deletion, by a
+    person or another client, removes what the plan wants gone: it is not
+    reported.
   - An entry a person adds is not the feature's: it is kept as read
     (section 5.1), counts against the budget, and fires as the person set
     it.

@@ -275,11 +275,12 @@ class Planner:
         # entry is recognised by this, not by where it would be placed now:
         # the entry that moved it past a collision may have gone since.
         self._plan_entries: set[str] = set()
-        # The owned entries the plan in force does not want, by check key:
-        # an earlier plan's, still on the heater until a write removes them.
-        # The plan is `pending` while any is, and a person removing one
-        # changes nothing the plan wants, so it is not reported.
-        self._stale: set[str] = set()
+        # The owned entries, not yet fired, that the last planning pass
+        # wants off the heater: an earlier plan's, or ones the plan in
+        # force replaced. The plan is `pending` while the heater holds any,
+        # and one that disappears from the list is what the plan wanted, not
+        # a person's change to it.
+        self._withdrawing: list[OwnedEntry] = []
 
     # -- persistence -------------------------------------------------------
 
@@ -290,7 +291,7 @@ class Planner:
             "extra": [e.as_document() for e in self.extra],
             "asserted": sorted(self.asserted),
             "plan_entries": sorted(self._plan_entries),
-            "stale": sorted(self._stale),
+            "withdrawing": [e.as_document() for e in self._withdrawing],
             "reports": [r.as_document() for r in self.reports.values()],
             "removed_segments": sorted(self.removed_segments),
             "last_write": self.last_write.as_document()
@@ -330,7 +331,9 @@ class Planner:
                 [self._check_key(e) for e in self.owned if e.kind == KIND_PLAN],
             )
         )
-        self._stale = set(document.get("stale", []))
+        self._withdrawing = [
+            OwnedEntry.from_document(e) for e in document.get("withdrawing", [])
+        ]
         self.reports = {}
         for raw in document.get("reports", []):
             report = _current_shape(Report.from_document(raw))
@@ -378,7 +381,7 @@ class Planner:
         """
         self.owned = []
         self._plan_entries = set()
-        self._stale = set()
+        self._withdrawing = []
         self.extra = []
         self.asserted = set()
         self.removed_segments = set()
@@ -487,10 +490,6 @@ class Planner:
             if e.kind != KIND_NEAR_TERM
             or (e.serves, State(e.mode, e.setpoint_raw)) == keep
         ]
-        if not restored:
-            self._stale = {
-                self._check_key(e) for e in self.owned if not self._wanted(e)
-            }
         # A plan entry already programmed with the same state serves the
         # new plan's segment of the same id too.
         states = {s.id: self.resolve(s) for s in plan.segments}
@@ -539,6 +538,11 @@ class Planner:
         ]
 
         desired = self._desired(now, observed)
+        self._withdrawing = [
+            e
+            for e in self.owned
+            if e not in desired and _later(e.fires_at, FIRED_GRACE) > now
+        ]
         self.next_event_at = self._next_event(now)
         write = self._diff(desired, now)
         if (
@@ -567,12 +571,6 @@ class Planner:
         A near-term entry confirmed only after its minute never fired; it is
         issued again for the next minute it can make (section 5.2).
         """
-        # An earlier plan's entry that the write kept is still stale; one
-        # it added under the same key is the plan's own.
-        added = set(write.added)
-        self._stale &= {
-            self._check_key(e) for e in write.result if e not in added
-        }
         self.owned = list(write.result)
         self.last_write = write
         # A write's plan entries are the plan in force's.
@@ -729,8 +727,6 @@ class Planner:
                         entry, observed
                     ):
                         self._plan_entries.add(self._check_key(entry))
-                    if not self._wanted(entry):
-                        self._stale.add(self._check_key(entry))
             for entry in write.removed:
                 if entry in self.owned and entry.as_entry() not in on_device:
                     self.owned.remove(entry)
@@ -746,15 +742,18 @@ class Planner:
             return
         on_device = [dict(e) for e in observed.reservations]
         for owned_entry in list(self.owned):
+            if (
+                owned_entry in self._withdrawing
+                and owned_entry.as_entry() not in on_device
+            ):
+                # Gone as the plan wanted: nothing a person changed.
+                self.owned = [e for e in self.owned if e != owned_entry]
+                continue
             # One whose minute is over is past: its deletion removes nothing.
             if (
                 _later(owned_entry.fires_at, FIRED_GRACE) <= now
                 or owned_entry.as_entry() in on_device
             ):
-                continue
-            if self._check_key(owned_entry) in self._stale:
-                # The plan in force wants it gone: nothing a person changed.
-                self.owned = [e for e in self.owned if e != owned_entry]
                 continue
             serves = owned_entry.serves
             if serves is not None and self._serves_plan(owned_entry):
@@ -785,25 +784,7 @@ class Planner:
         """
         if entry.kind == KIND_PLAN:
             return self._check_key(entry) in self._plan_entries
-        return (
-            entry.kind == KIND_NEAR_TERM
-            and self._check_key(entry) not in self._stale
-        )
-
-    def _wanted(self, entry: OwnedEntry) -> bool:
-        """Whether the plan in force wants an owned entry, at its adoption.
-
-        A plan entry recognised as its own, or a near-term entry it keeps.
-        """
-        if entry.kind == KIND_PLAN:
-            return self._check_key(entry) in self._plan_entries
-        return any(
-            e.kind == KIND_NEAR_TERM
-            and e.serves == entry.serves
-            and e.mode == entry.mode
-            and e.setpoint_raw == entry.setpoint_raw
-            for e in self.extra
-        )
+        return entry.kind == KIND_NEAR_TERM
 
     def _placed_as_planned(self, entry: OwnedEntry, observed: Observed) -> bool:
         """Whether a plan entry is where the plan in force places it now.
@@ -1405,9 +1386,9 @@ class Planner:
         if self.shadow:
             state = STATE_SHADOW
         elif STATUS_PENDING in statuses or any(
-            self._check_key(e) in self._stale for e in self.owned
+            e in self.owned for e in self._withdrawing
         ):
-            # An earlier plan's entries are still on the heater.
+            # Or entries the plan wants off the heater are still on it.
             state = STATE_PENDING
         elif STATUS_REMOVED in statuses or STATUS_FAILED in statuses:
             state = STATE_PARTLY_PROGRAMMED
