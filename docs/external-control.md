@@ -323,7 +323,9 @@ Live mode writes the plan into the heater's reservation list.
   `removed`, and the acknowledgement's state `programmed`,
   `partly_programmed` or `pending`. A segment is `in_force` from its
   entry's minute, before read-back; read-back can then turn it `failed`.
-  The fired entry leaves the list once it has been checked.
+  A cleanup write, one that only removes fired entries, waits for their
+  read-back (or 15 minutes without a status); any other write removes a
+  fired entry at once, unchecked.
 - **People's changes.** An entry a person deletes is not written again
   while its plan is in force. If it would have put a segment in force (its
   plan entry, or the near-term entry of one already begun), that segment is
