@@ -580,7 +580,7 @@ merged into, and a removed one never is), and its opaque keys.
 | `pending` | Being written. A segment that has begun is `pending` until the near-term entry that puts it in force is on the device |
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
 | `merged` | It sets the same state as the segment before it, so it needs no entry. It goes with that segment: if a person removed its entry, nothing is written for the merged segment either |
-| `in_force` | It has started and read-back matches (section 5.11) |
+| `in_force` | It has started and the entry that puts it in force has fired. Read-back comes after it, within the poll interval plus a minute (section 5.11), and a state that differs turns it `failed`. Its entry stays on the list until read-back has checked it, or for 15 minutes unchecked, so the cleanup write that removes the entry marks the check as made or given up |
 | `ended` | A later segment has started |
 | `failed` | A list write or read-back failed after its retry |
 | `removed` | A person removed the entry that puts it in force (section 5.10): its plan entry, or, for a segment already begun, its near-term entry. Nothing is written for it, or for the merged segments that follow it, while the plan is in force |
