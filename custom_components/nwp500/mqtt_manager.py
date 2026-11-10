@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from nwp500.exceptions import DeviceCapabilityError, InvalidCredentialsError
+from nwp500.models import ReservationSchedule
 from nwp500.mqtt.utils import get_response_data
 
 if TYPE_CHECKING:
@@ -22,7 +23,6 @@ if TYPE_CHECKING:
         MqttDiagnosticsCollector,
         NavienAuthClient,
         NavienMqttClient,
-        ReservationSchedule,
         TOUReservationSchedule,
     )
     from nwp500.models import DeviceDiagnostics, RecirculationSchedule
@@ -127,6 +127,55 @@ class _RawStatusHandler:
                 datetime.now(UTC),
                 dict(cast(dict[str, Any], data)),
             )
+
+
+#: A reservation list from a heater: its address and the parsed list.
+DeviceKeyedScheduleCallback = Callable[[str, ReservationSchedule], None]
+
+# The device-keyed copy of a reservation list reply. The heater is asked to
+# answer a read or write on the requesting client's topic, and the cloud
+# turns its answer into JSON on the topic the heater used. Sometimes the
+# heater answers on its own topic instead, so the list arrives here and
+# not on the client topic the library listens to for ``rsv/rd``.
+_DEVICE_KEYED_SCHEDULE_SUFFIX: Final = "/res/rsv/rd"
+
+
+@dataclass(frozen=True)
+class _DeviceKeyedScheduleHandler:
+    """A heater's reservation list replies sent on its own topic.
+
+    Registered under the device wildcard, which sees every message for the
+    heater, and keeps only ``res/rsv/rd``. The list is the heater's own,
+    whoever asked: the protocol has no correlation id on ``rsv/rd``, so a
+    reply on the client topic is no more ours than this one.
+
+    Equal for the same heater and callback, so a resubscription on the same
+    client registers it once.
+    """
+
+    mac_address: str
+    callback: DeviceKeyedScheduleCallback
+
+    def __call__(self, topic: str, message: dict[str, Any]) -> None:
+        if not topic.endswith(_DEVICE_KEYED_SCHEDULE_SUFFIX):
+            return
+        data = get_response_data(message, None)
+        if not isinstance(data, dict) or "reservation" not in data:
+            return
+        try:
+            schedule = ReservationSchedule.model_validate(data)
+        except ValueError as err:  # pydantic's ValidationError included
+            _LOGGER.warning(
+                "Ignoring an unreadable reservation list from %s: %s",
+                self.mac_address,
+                type(err).__name__,
+            )
+            return
+        _LOGGER.debug(
+            "Received the reservation list of %s on its device topic",
+            self.mac_address,
+        )
+        self.callback(self.mac_address, schedule)
 
 
 class NWP500MqttManager:
@@ -471,6 +520,13 @@ class NWP500MqttManager:
                 device,
                 lambda schedule: self._on_reservation_schedule(
                     mac_address, schedule
+                ),
+            )
+            # The same replies when the heater sends them on its own topic.
+            await self.mqtt_client.subscribe_device(
+                device,
+                _DeviceKeyedScheduleHandler(
+                    mac_address, self._on_reservation_schedule
                 ),
             )
             # Subscribe to TOU responses using the typed API (symmetric with
