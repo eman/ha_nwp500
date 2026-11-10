@@ -903,9 +903,11 @@ class Planner:
     ) -> OwnedEntry | None:
         """A begun segment's own plan entry that has not fired yet.
 
-        Only one moved past its start. It is dropped once the next
-        segment changing the state begins at or before it, since it would
-        put an ended segment's state back.
+        Only one moved past its start, and only one the plan in force
+        wants: a replacement plan may reuse the segment's id with another
+        state. It is dropped once the next segment changing the state
+        begins at or before it, since it would put an ended segment's
+        state back.
         """
         entry = next(
             (
@@ -914,6 +916,7 @@ class Planner:
                 if e.kind == KIND_PLAN
                 and e.serves == segment.id
                 and e.fires_at > now
+                and self._serves_plan(e)
             ),
             None,
         )

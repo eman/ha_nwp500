@@ -342,6 +342,40 @@ class TestReadBack:
         assert planner.readback == {}
         assert statuses(planner.ack("i"))["b"] == ("in_force", None)
 
+    def test_a_replaced_plans_moved_entry_goes(self):
+        """A new plan reusing the segment's id with another state."""
+        planner, observed = self._moved(
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ]
+        )
+        (old,) = (e for e in planner.owned if e.serves == "b")
+        assert old.fires_at == minutes(11)
+        assert (
+            run(planner, minutes(10.5), self._held(planner, observed)) is None
+        )
+        replacement = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=130),
+        ]
+        plan = parse_plan(
+            make_document(minutes(10.6), replacement, intent_id="i-2")
+        )
+        wanted = planner.resolve(plan.segments[-1])
+        # The heater already holds the replacement's state: no near-term.
+        matching = self._held(
+            planner,
+            observed,
+            mode=wanted.mode,
+            setpoint_raw=wanted.setpoint_raw,
+        )
+        planner.set_plan(plan, minutes(10.6), matching)
+        write = run(planner, minutes(10.6), matching)
+        assert write is not None
+        assert old in write.removed
+        assert old not in planner.owned
+
     def test_a_moved_entry_goes_when_the_next_change_begins_first(self):
         """It would put an ended segment's state back."""
         planner, observed = self._moved(
