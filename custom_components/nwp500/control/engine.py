@@ -94,6 +94,25 @@ _WRITE_REASONS = (
 )
 
 
+def _later(when: datetime, delta: timedelta) -> datetime:
+    """`when` plus `delta` in elapsed time, in UTC.
+
+    Adding to a local time adds on the wall clock and drops the second
+    hour of a fall-back (`fold`): 01:00 PST plus 90 s would be 01:01:30
+    PDT, an hour early.
+    """
+    return when.astimezone(UTC) + delta
+
+
+def _instant(when: datetime) -> datetime:
+    """`when` in UTC, to order times of one zone across a fall-back.
+
+    Two times sharing a `ZoneInfo` compare on the wall clock: 01:59 PDT
+    sorts after 01:00 PST, which comes a minute later.
+    """
+    return when.astimezone(UTC)
+
+
 def _next_minute(when: datetime) -> datetime:
     """A minute later, in elapsed time: right across a change of offset."""
     return (when.astimezone(UTC) + timedelta(minutes=1)).astimezone(when.tzinfo)
@@ -503,7 +522,9 @@ class Planner:
         self._track_readback(now, observed)
         self._assert_in_force(now)
         self._hold(now)
-        self.extra = [e for e in self.extra if e.fires_at + FIRED_GRACE > now]
+        self.extra = [
+            e for e in self.extra if _later(e.fires_at, FIRED_GRACE) > now
+        ]
 
         desired = self._desired(now, observed)
         self.next_event_at = self._next_event(now)
@@ -645,7 +666,7 @@ class Planner:
                 continue
             if until is not None:
                 self._retime(entry.serves, until)
-            elif entry.fires_at + FIRED_GRACE <= now:
+            elif _later(entry.fires_at, FIRED_GRACE) <= now:
                 self._retime(entry.serves, now)
 
     def _written(self, entry: OwnedEntry) -> bool:
@@ -658,7 +679,7 @@ class Planner:
             and o.serves == entry.serves
             and o.mode == entry.mode
             and o.setpoint_raw == entry.setpoint_raw
-            and o.fires_at >= entry.fires_at
+            and _instant(o.fires_at) >= _instant(entry.fires_at)
             for o in self.owned
         )
 
@@ -705,7 +726,7 @@ class Planner:
         for owned_entry in list(self.owned):
             # One whose minute is over is past: its deletion removes nothing.
             if (
-                owned_entry.fires_at + FIRED_GRACE <= now
+                _later(owned_entry.fires_at, FIRED_GRACE) <= now
                 or owned_entry.as_entry() in on_device
             ):
                 continue
@@ -791,13 +812,15 @@ class Planner:
         due = [
             e
             for e in self.owned
-            if e.fires_at + self.explain_window <= now
+            if _later(e.fires_at, self.explain_window) <= now
             and self._check_key(e) not in self._checked
         ]
         if not due:
             return
-        latest = max(due, key=lambda e: e.fires_at)
-        stale = now - (latest.fires_at + self.explain_window) > READBACK_STALE
+        latest = max(due, key=lambda e: _instant(e.fires_at))
+        stale = (
+            now - _later(latest.fires_at, self.explain_window) > READBACK_STALE
+        )
         if (
             not stale
             and observed.status_at is not None
@@ -898,24 +921,74 @@ class Planner:
             result.append(raw)
         return result
 
+    def _unfired_plan_entry(
+        self,
+        segment: Segment,
+        now: datetime,
+        occupied: list[tuple[int, int, int]],
+    ) -> OwnedEntry | None:
+        """A begun segment's own plan entry that has not fired yet.
+
+        Only one moved past its start, and only one the plan in force
+        wants: a replacement plan may reuse the segment's id with another
+        state. An enabled entry put on its minute since it was written
+        moves it on again, as any plan entry (section 5.2). It is dropped
+        once the next segment changing the state begins at or before it,
+        since it would put an ended segment's state back.
+        """
+        entry = next(
+            (
+                e
+                for e in self.owned
+                if e.kind == KIND_PLAN
+                and e.serves == segment.id
+                and e.fires_at > now
+                and self._serves_plan(e)
+            ),
+            None,
+        )
+        if entry is None:
+            return None
+        # Restored from storage, its time carries a fixed offset: moving it
+        # on must follow the device's clock across a change of offset.
+        placed = self._place(entry.localised(self.tz), occupied)
+        nxt = self._next_change_after(segment.start)
+        if nxt is not None and nxt.start <= placed.fires_at:
+            return None
+        return placed
+
     def _desired(self, now: datetime, observed: Observed) -> list[OwnedEntry]:
         """The owned entries the device should hold now (sections 5.2-5.3)."""
         cap = self.capabilities
         others = self.others(observed)
         occupied = self._occupied(others)
         extra = [e.localised(self.tz) for e in self.extra]
-        owned_now = {e for e in self.owned if e.fires_at + FIRED_GRACE > now}
+        owned_now = {
+            e for e in self.owned if _later(e.fires_at, FIRED_GRACE) > now
+        }
 
         info: dict[str, _SegmentInfo] = {}
         candidates: list[tuple[Segment, OwnedEntry]] = []
         for segment, state, merged in self._timeline():
             warnings: list[str] = []
-            if (
-                merged
-                or segment.start <= now
-                or segment.id in self.removed_segments
-            ):
+            if merged or segment.id in self.removed_segments:
                 info[segment.id] = _SegmentInfo(False, warnings=tuple(warnings))
+                continue
+            if segment.start <= now:
+                # Begun. Its own entry, moved past an occupied minute
+                # (section 5.2), may not have fired yet: it stays until it
+                # does, unless the next change begins first.
+                pending = self._unfired_plan_entry(segment, now, occupied)
+                if pending is not None:
+                    occupied.append(pending.slot)
+                    candidates.append((segment, pending))
+                    info[segment.id] = _SegmentInfo(
+                        True,
+                        warnings=(WARNING_MOVED,),
+                        fires_at=pending.fires_at,
+                    )
+                else:
+                    info[segment.id] = _SegmentInfo(False)
                 continue
             entry = OwnedEntry(
                 KIND_PLAN,
@@ -1059,7 +1132,8 @@ class Planner:
         """Whether an entry's read-back is still to be made."""
         return (
             self._check_key(entry) not in self._checked
-            and now - (entry.fires_at + self.explain_window) <= READBACK_STALE
+            and now - _later(entry.fires_at, self.explain_window)
+            <= READBACK_STALE
         )
 
     def _next_event(self, now: datetime) -> datetime | None:
@@ -1067,17 +1141,22 @@ class Planner:
         if self.plan is not None:
             times.extend(s.start for s in self.plan.segments)
             times.extend(
-                s.start - HORIZON
+                _later(s.start, -HORIZON)
                 for s in self.plan.segments
                 if s.id in self._info
                 and self._info[s.id].reason == REASON_BEYOND_HORIZON
             )
-        times.extend(e.fires_at + FIRED_GRACE for e in self.owned + self.extra)
+        # An entry's own minute too: a moved one fires after its segment
+        # began, and its segment is in force from then (section 5.9).
+        times.extend(_instant(e.fires_at) for e in self.owned + self.extra)
+        times.extend(
+            _later(e.fires_at, FIRED_GRACE) for e in self.owned + self.extra
+        )
         if not self.shadow:
             for e in self.owned:
                 if self._check_key(e) in self._checked:
                     continue
-                due = e.fires_at + self.explain_window
+                due = _later(e.fires_at, self.explain_window)
                 # The read-back, and when it is given up without a fresh
                 # status (section 5.11).
                 times.append(due)
@@ -1105,7 +1184,11 @@ class Planner:
     def next_entry(self, now: datetime) -> OwnedEntry | None:
         """The next owned entry to fire."""
         upcoming = [e for e in self.owned if e.fires_at > now]
-        return min(upcoming, key=lambda e: e.fires_at) if upcoming else None
+        return (
+            min(upcoming, key=lambda e: _instant(e.fires_at))
+            if upcoming
+            else None
+        )
 
     def reservations_on(
         self, observed: Observed, owned: Iterable[OwnedEntry]
@@ -1141,7 +1224,9 @@ class Planner:
         """A begun segment's status in live, by the entry that asserts it.
 
         `pending` while its near-term entry is not on the device,
-        `programmed` while it is but has not fired, else `in_force`.
+        `programmed` while it is but has not fired, else `in_force`. Its own
+        plan entry, moved past an occupied minute (section 5.2), can fire
+        after the segment begins: it is `programmed` until then too.
         """
         asserting = [
             e
@@ -1151,6 +1236,11 @@ class Planner:
         if any(not self._written(e) for e in asserting):
             return STATUS_PENDING
         if any(e.fires_at > now for e in asserting):
+            return STATUS_PROGRAMMED
+        if any(
+            e.kind == KIND_PLAN and e.serves == item and e.fires_at > now
+            for e in self.owned
+        ):
             return STATUS_PROGRAMMED
         return STATUS_IN_FORCE
 

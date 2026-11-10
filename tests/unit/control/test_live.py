@@ -54,7 +54,7 @@ from .test_device import (
     _publish,
     _status,
 )
-from .test_engine import NOW, TZ, give, minutes, obs, planner_with
+from .test_engine import MONDAY, NOW, TZ, give, minutes, obs, planner_with, run
 
 HAND_BACK_ISSUE = f"control_hand_back_failed_{MAC}"
 
@@ -286,6 +286,139 @@ class TestReadBack:
         planner.step(minutes(11.6), device_obs(planner, tou_on=True))
         assert planner.readback == {"b": REASON_NOT_APPLIED}
         assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
+
+    @staticmethod
+    def _moved(segments: list[dict]) -> tuple[Planner, Any]:
+        """A planner whose `b` entry moved past an entry at b's minute."""
+        start = minutes(10)
+        occupied = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": start.hour,
+            "min": start.minute,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations_enabled=True, reservations=(occupied,))
+        planner = planner_with(shadow=False, observed=observed, **LIVE)
+        give(planner, segments, observed=observed)
+        return planner, observed
+
+    @staticmethod
+    def _held(planner: Planner, observed, **overrides):
+        """The heater holding the planner's program, as written."""
+        return obs(
+            reservations_enabled=True,
+            reservations=tuple(planner.program(observed)["reservation"]),
+            **overrides,
+        )
+
+    def test_a_moved_entry_stays_until_it_fires(self):
+        """An entry moved past an occupied minute fires after the start."""
+        planner, observed = self._moved(
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ]
+        )
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert b.fires_at == minutes(11)
+        # Begun, its entry not yet fired: nothing is removed.
+        assert (
+            run(planner, minutes(10.5), self._held(planner, observed)) is None
+        )
+        assert b in planner.owned
+        assert statuses(planner.ack("i"))["b"] == ("programmed", None)
+        # The planner wakes at the entry's minute, to report it in force.
+        assert planner.next_event_at == minutes(11)
+        fired = self._held(
+            planner, observed, mode="heat_pump", setpoint_raw=120
+        )
+        assert run(planner, minutes(11.2), fired) is None
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+        # Read-back, then the cleanup that removes the fired entry.
+        write = run(planner, minutes(12.6), fired)
+        assert write is not None
+        assert write.reason == "cleanup"
+        assert write.removed == (b,)
+        assert planner.readback == {}
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+
+    def test_a_replaced_plans_moved_entry_goes(self):
+        """A new plan reusing the segment's id with another state."""
+        planner, observed = self._moved(
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ]
+        )
+        (old,) = (e for e in planner.owned if e.serves == "b")
+        assert old.fires_at == minutes(11)
+        assert (
+            run(planner, minutes(10.5), self._held(planner, observed)) is None
+        )
+        replacement = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=130),
+        ]
+        plan = parse_plan(
+            make_document(minutes(10.6), replacement, intent_id="i-2")
+        )
+        wanted = planner.resolve(plan.segments[-1])
+        # The heater already holds the replacement's state: no near-term.
+        matching = self._held(
+            planner,
+            observed,
+            mode=wanted.mode,
+            setpoint_raw=wanted.setpoint_raw,
+        )
+        planner.set_plan(plan, minutes(10.6), matching)
+        write = run(planner, minutes(10.6), matching)
+        assert write is not None
+        assert old in write.removed
+        assert old not in planner.owned
+
+    def test_an_entry_put_on_a_moved_entrys_minute_moves_it_on(self):
+        """One enabled entry per minute, as for any plan entry (5.2)."""
+        planner, observed = self._moved(
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 30, mode="heat_pump", setpoint_f=130),
+            ]
+        )
+        (old,) = (e for e in planner.owned if e.serves == "b")
+        assert old.fires_at == minutes(11)
+        assert (
+            run(planner, minutes(10.5), self._held(planner, observed)) is None
+        )
+        person = {**old.as_entry(), "mode": 3, "param": 110}
+        held = self._held(planner, observed)
+        added = obs(
+            reservations_enabled=True,
+            reservations=(*held.reservations, person),
+        )
+        write = run(planner, minutes(10.6), added)
+        assert write is not None
+        assert old in write.removed
+        (moved,) = (e for e in planner.owned if e.serves == "b")
+        assert moved.fires_at == minutes(12)
+        assert statuses(planner.ack("i"))["b"] == ("programmed", None)
+
+    def test_a_moved_entry_goes_when_the_next_change_begins_first(self):
+        """It would put an ended segment's state back."""
+        planner, observed = self._moved(
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 11, mode="heat_pump", setpoint_f=130),
+            ]
+        )
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert b.fires_at >= minutes(11)
+        write = run(planner, minutes(10.5), self._held(planner, observed))
+        assert write is not None
+        assert b in write.removed
 
     def test_a_power_off_entry_is_checked_by_its_mode_alone(self):
         """A heater the entry powered off keeps its own setpoint (8.3)."""

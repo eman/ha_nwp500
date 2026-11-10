@@ -403,6 +403,18 @@
   `not_applied_on_device` and the plan `partly_programmed` until the next
   step. A `power_off` entry is now checked by its mode alone. Found on the
   heater, where the entry did power it off (spec section 8.3).
+- **External control: an entry moved past an occupied minute fires.** A
+  plan entry that shares its minute with another enabled entry moves a
+  minute later, so it fires after its step begins. At the step's start
+  the feature removed it from the heater's list, before it could fire,
+  and reported the step `in_force`: the heater never took the step's
+  state. The entry now stays until it fires, and the step is `programmed`
+  until then.
+- **External control: timings across the autumn clock change.** The
+  read-back's wait, the minute's grace after an entry fires and the
+  horizon were added on the wall clock, so for an entry in the repeated
+  hour (01:00 PST) they came an hour early: its read-back counted as
+  stale at once and was skipped. They are counted in elapsed time.
 - **The schedule card saves again.** It sent the entries it was given back
   with their display fields (`days`, `time`, `mode_name` and others), which
   Update all reservations refuses, so every edit, deletion, copy and switch

@@ -580,7 +580,7 @@ merged into, and a removed one never is), and its opaque keys.
 | `pending` | Being written. A segment that has begun is `pending` until the near-term entry that puts it in force is on the device |
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
 | `merged` | It sets the same state as the segment before it, so it needs no entry. It goes with that segment: if a person removed its entry, nothing is written for the merged segment either |
-| `in_force` | It has started and read-back matches (section 5.11) |
+| `in_force` | It has started and the entry that puts it in force has fired. A segment whose entry moved past an occupied minute (section 5.2) is `programmed` until that entry fires. Read-back comes after it (section 5.11): it is due the poll interval plus a minute after the entry's minute, and waits for a status the heater reports after that minute, for 15 minutes at most. A state that differs turns it `failed`. A write that only removes fired entries waits for their read-back, or for those 15 minutes, so a `cleanup` write that removes the entry and adds nothing follows its check or the check given up. Any other write removes a fired entry at once, and that entry is then not checked |
 | `ended` | A later segment has started |
 | `failed` | A list write or read-back failed after its retry |
 | `removed` | A person removed the entry that puts it in force (section 5.10): its plan entry, or, for a segment already begun, its near-term entry. Nothing is written for it, or for the merged segments that follow it, while the plan is in force |
@@ -650,9 +650,13 @@ is the scheduler's to plan around.
    a new near-term entry for the next minute it can make.
 6. **One enabled entry per slot.** A plan entry never shares a weekday and
    minute with another enabled entry on the device. It moves to the next free
-   minute, and its segment gets the warning `moved_1_min`. It may share one
-   with an entry switched off by its own flag: the device stores both and
-   fires only the enabled one (section 8).
+   minute, and its segment gets the warning `moved_1_min`. A moved entry
+   fires after its segment begins, and stays on the device until it fires,
+   unless the next segment changing the state begins at or before its
+   minute: it would then put an ended segment's state back, and is removed.
+   An enabled entry put on its minute meanwhile moves it on again.
+   It may share one with an entry switched off by its own flag: the device
+   stores both and fires only the enabled one (section 8).
    Which of two enabled entries in one slot wins is untested.
 7. **Ownership.** Every entry the feature writes is recorded in storage as its
    own, with the segment it serves.
