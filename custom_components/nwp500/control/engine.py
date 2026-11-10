@@ -104,6 +104,15 @@ def _later(when: datetime, delta: timedelta) -> datetime:
     return when.astimezone(UTC) + delta
 
 
+def _instant(when: datetime) -> datetime:
+    """`when` in UTC, to order times of one zone across a fall-back.
+
+    Two times sharing a `ZoneInfo` compare on the wall clock: 01:59 PDT
+    sorts after 01:00 PST, which comes a minute later.
+    """
+    return when.astimezone(UTC)
+
+
 def _next_minute(when: datetime) -> datetime:
     """A minute later, in elapsed time: right across a change of offset."""
     return (when.astimezone(UTC) + timedelta(minutes=1)).astimezone(when.tzinfo)
@@ -670,7 +679,7 @@ class Planner:
             and o.serves == entry.serves
             and o.mode == entry.mode
             and o.setpoint_raw == entry.setpoint_raw
-            and o.fires_at >= entry.fires_at
+            and _instant(o.fires_at) >= _instant(entry.fires_at)
             for o in self.owned
         )
 
@@ -808,7 +817,7 @@ class Planner:
         ]
         if not due:
             return
-        latest = max(due, key=lambda e: e.fires_at)
+        latest = max(due, key=lambda e: _instant(e.fires_at))
         stale = (
             now - _later(latest.fires_at, self.explain_window) > READBACK_STALE
         )
@@ -1172,7 +1181,11 @@ class Planner:
     def next_entry(self, now: datetime) -> OwnedEntry | None:
         """The next owned entry to fire."""
         upcoming = [e for e in self.owned if e.fires_at > now]
-        return min(upcoming, key=lambda e: e.fires_at) if upcoming else None
+        return (
+            min(upcoming, key=lambda e: _instant(e.fires_at))
+            if upcoming
+            else None
+        )
 
     def reservations_on(
         self, observed: Observed, owned: Iterable[OwnedEntry]

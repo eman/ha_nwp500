@@ -441,6 +441,46 @@ class TestTranslation:
         run(planner, checked, held)
         assert planner.readback == {"b": REASON_NOT_APPLIED}
 
+    def test_the_latest_due_entry_is_read_back_across_the_fold(self):
+        """Entries at 01:59 PDT and 01:00 PST, both due at 01:02 PST.
+
+        The later one, 01:00 PST, is the heater's state to check; on the
+        wall clock 01:59 would sort after it.
+        """
+        base = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+        planner = Planner(capabilities(), TZ, shadow=False)
+        observed = obs(reservations_enabled=True)
+        run(planner, base, observed)
+        document = make_document(
+            base,
+            [
+                segment(base, "a", 0, mode="heat_pump", setpoint_f=130),
+                segment(base, "b", 0, setpoint_f=140),
+                segment(base, "c", 0, setpoint_f=135),
+            ],
+        )
+        document["segments"][1]["start"] = datetime(
+            2026, 11, 1, 1, 59, tzinfo=TZ
+        ).isoformat()
+        document["segments"][2]["start"] = datetime(
+            2026, 11, 1, 1, 0, fold=1, tzinfo=TZ
+        ).isoformat()
+        plan = parse_plan(document)
+        check_plan(plan)
+        planner.set_plan(plan, base, observed)
+        run(planner, base, observed)
+        b, c = (next(e for e in planner.owned if e.serves == s) for s in "bc")
+        # The heater took b's state and not c's.
+        held = obs(
+            mode=b.mode,
+            setpoint_raw=b.setpoint_raw,
+            reservations_enabled=True,
+            reservations=(b.as_entry(), c.as_entry()),
+        )
+        later = datetime(2026, 11, 1, 1, 2, fold=1, tzinfo=TZ).astimezone(UTC)
+        run(planner, later, held)
+        assert planner.readback == {"c": REASON_NOT_APPLIED}
+
     def test_a_restored_moved_entry_moves_on_across_the_fold(self):
         """Begun, its entry not yet fired, restored with a fixed offset.
 
