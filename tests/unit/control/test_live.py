@@ -242,6 +242,53 @@ class TestPlannerLive:
         planner.commit(again)
         assert statuses(planner.ack("i"))["b"] == ("programmed", None)
 
+    def test_a_failed_segment_stays_failed_through_a_pause(self):
+        """Inside the near-term lead, begun, and after a later one starts."""
+        planner = planner_with(shadow=False, **LIVE)
+        from custom_components.nwp500.control.intent import parse_plan
+
+        planner.set_plan(
+            parse_plan(
+                make_document(
+                    NOW,
+                    [
+                        segment(
+                            NOW, "a", -5, mode="energy_saver", setpoint_c=59.5
+                        ),
+                        segment(NOW, "b", 10, setpoint_f=130),
+                        segment(NOW, "c", 20, setpoint_f=135),
+                    ],
+                )
+            ),
+            NOW,
+            obs(),
+        )
+        write = planner.step(NOW, obs())
+        planner.reject(write, NOW, retry_at=minutes(16), final=True)
+        planner.hold_until = minutes(16)
+        failed = ("failed", REASON_WRITE_NOT_CONFIRMED)
+
+        # Too close to program, while writes are paused.
+        planner.step(minutes(9), obs())
+        assert statuses(planner.ack("i"))["b"] == failed
+        # Begun, its near-term entry not written.
+        planner.step(minutes(12), obs())
+        assert statuses(planner.ack("i"))["b"] == failed
+
+        retry = planner.step(minutes(16), obs())
+        planner.reject(retry, minutes(16), retry_at=minutes(31), final=True)
+        planner.hold_until = minutes(31)
+        # A later segment has started: b never was in force.
+        planner.step(minutes(21), obs())
+        assert statuses(planner.ack("i"))["b"] == failed
+
+        resumed = planner.step(minutes(31), obs())
+        planner.commit(resumed)
+        acked = statuses(planner.ack("i"))
+        assert acked["b"] == failed
+        assert acked["c"] != failed
+        assert planner.ack("i").state == "partly_programmed"
+
 
 class TestReadBack:
     """Section 5.11."""
@@ -271,6 +318,21 @@ class TestReadBack:
         planner = self._planner(setpoint_f=140)
         planner.step(minutes(11.6), device_obs(planner))
         assert planner.readback == {"b": REASON_NOT_APPLIED}
+        assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
+
+    def test_an_entry_that_did_not_apply_stays_failed_once_ended(self):
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 20, mode="heat_pump", setpoint_f=130),
+            ],
+        )
+        planner.step(minutes(11.6), device_obs(planner))
+        assert planner.readback == {"b": REASON_NOT_APPLIED}
+        planner.step(minutes(20.5), device_obs(planner))
         assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
 
     def test_checked_once(self):

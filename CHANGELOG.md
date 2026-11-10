@@ -410,6 +410,12 @@
   the heater's list. When no reply comes, on any topic, they now ask up to
   three times before giving up, as the setup and periodic reads already
   did.
+- **External control: a failed step stays `failed`.** A step whose write
+  failed showed `scheduled` once it came within the near-term lead while
+  writing was paused, and `ended` once a later step started, as if it had
+  run. It now stays `failed`, as does one whose read-back found the heater
+  did not apply it, and a confirmed write later clears a write failure
+  only for steps that have not ended.
 - **External control: a power-off step is not failed by read-back.** A
   heater a `power_off` entry turns off keeps its own setpoint, so
   read-back, which compared the entry's setpoint too, marked the step

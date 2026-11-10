@@ -568,10 +568,12 @@ class Planner:
             # The device holds the whole wanted list now.
             self.took_over = True
             self.unconfirmed = []
+            # A segment that ended before any write held its entries was
+            # never put in force: it stays failed.
             self.failed = {
                 k: v
                 for k, v in self.failed.items()
-                if v != REASON_WRITE_NOT_CONFIRMED
+                if v != REASON_WRITE_NOT_CONFIRMED or self._ended(k)
             }
         if confirmed_at is not None:
             for entry in write.added:
@@ -1244,17 +1246,46 @@ class Planner:
             return STATUS_PROGRAMMED
         return STATUS_IN_FORCE
 
+    def _ended(self, item: str) -> bool:
+        """Whether a segment had begun by the last step and a later one has.
+
+        Merged segments count with the first of their run.
+        """
+        now = self.last_step
+        if now is None:
+            return False
+        anchor = self._anchor(now)
+        for segment, _state, _merged in self._timeline():
+            if segment.id == item:
+                return (
+                    segment.start <= now
+                    and anchor is not None
+                    and anchor[0].id != item
+                )
+        return False
+
     def _live_status(
         self, item: str, status: str, reason: str | None
     ) -> tuple[str, str | None]:
-        """A segment's status with live write and read-back failures."""
-        if status in (STATUS_PENDING, STATUS_IN_FORCE) and item in self.failed:
+        """A segment's status with live write and read-back failures.
+
+        A failure stands while the segment waits inside the near-term lead,
+        and once a later segment has started: the heater never took its
+        state.
+        """
+        if item in self.failed and status in (
+            STATUS_SCHEDULED,
+            STATUS_PENDING,
+            STATUS_IN_FORCE,
+            STATUS_ENDED,
+        ):
             return STATUS_FAILED, self.failed[item]
-        if status == STATUS_IN_FORCE and item in self.readback:
+        if status in (STATUS_IN_FORCE, STATUS_ENDED) and item in self.readback:
             found = self.readback[item]
             if found == REASON_NOT_APPLIED:
                 return STATUS_FAILED, found
-            return status, found
+            if status == STATUS_IN_FORCE:
+                return status, found
         return status, reason
 
     def ack(self, intent_id: str | None) -> Ack:

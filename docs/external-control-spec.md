@@ -581,8 +581,8 @@ merged into, and a removed one never is), and its opaque keys.
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
 | `merged` | It sets the same state as the segment before it, so it needs no entry. It goes with that segment: if a person removed its entry, nothing is written for the merged segment either |
 | `in_force` | It has started and the entry that puts it in force has fired. A segment whose entry moved past an occupied minute (section 5.2) is `programmed` until that entry fires. Read-back comes after it (section 5.11): it is due the poll interval plus a minute after the entry's minute, and waits for a status the heater reports after that minute, for 15 minutes at most. A state that differs turns it `failed`. A write that only removes fired entries waits for their read-back, or for those 15 minutes, so a `cleanup` write that removes the entry and adds nothing follows its check or the check given up. Any other write removes a fired entry at once, and that entry is then not checked |
-| `ended` | A later segment has started |
-| `failed` | A list write or read-back failed after its retry |
+| `ended` | A later segment has started. A `failed` segment stays `failed`: the heater never took its state |
+| `failed` | A list write or read-back failed after its retry. It stands while the segment waits inside the near-term lead and after a later segment has started. A confirmed write clears a write failure, except for a segment that has ended by then |
 | `removed` | A person removed the entry that puts it in force (section 5.10): its plan entry, or, for a segment already begun, its near-term entry. Nothing is written for it, or for the merged segments that follow it, while the plan is in force |
 
 A segment's `reason`, when it has one:
@@ -684,6 +684,10 @@ is the scheduler's to plan around.
 - **Read first.** Before every write, the feature reads the device's list.
   Entries it does not own are kept as read (section 5.1). The list is held from that read
   through the write, against the integration's own reservation services.
+  A read that gets no reply is asked again, up to three times, before the
+  write counts as unconfirmed. The heater is asked to reply on the reading
+  client's topic and sometimes replies on its own (`cmd/52/navilink-<mac>/res/rsv/rd`);
+  the list is taken from either, as there is no correlation id on `rsv/rd`.
 - **Whole-list, confirmed.** The list is written whole with the library's
   confirmed write (`update_reservations_confirmed`), never slot by slot. A
   write counts only once the device reads back the new list: on the unit
