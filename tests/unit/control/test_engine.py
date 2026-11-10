@@ -35,6 +35,7 @@ from custom_components.nwp500.control.entries import (
 from custom_components.nwp500.control.evaluate import (
     REASON_BEYOND_HORIZON,
     REASON_ENTRY_BUDGET,
+    REASON_NOT_APPLIED,
     WARNING_MOVED,
     check_plan,
 )
@@ -391,6 +392,54 @@ class TestTranslation:
             1,
         )
         assert planner._placed_as_planned(b, observed)
+
+    def test_read_back_after_the_fold_waits_in_elapsed_time(self):
+        """An entry at 01:00 PST is checked 90 s later, not given up.
+
+        01:00 PST plus 90 s on the wall clock would be 01:01:30 PDT, an
+        hour before it fires: the check would count as stale at once.
+        """
+        start = datetime(2026, 11, 1, 1, 59, tzinfo=TZ)
+        base = datetime(2026, 10, 31, 12, 0, tzinfo=TZ)
+        taken = {"enable": 2, "week": 128, "hour": 1, "min": 59}
+        taken |= {"mode": 1, "param": 100}
+        observed = obs(reservations_enabled=True, reservations=(taken,))
+        planner = Planner(capabilities(), TZ, shadow=False)
+        run(planner, base, observed)
+        document = make_document(
+            base,
+            [
+                segment(base, "a", 0, mode="heat_pump", setpoint_f=130),
+                segment(base, "b", 0, setpoint_f=140),
+            ],
+        )
+        document["segments"][1]["start"] = start.isoformat()
+        plan = parse_plan(document)
+        check_plan(plan)
+        planner.set_plan(plan, base, observed)
+        run(planner, base, observed)
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert (b.fires_at.hour, b.fires_at.minute, b.fires_at.fold) == (
+            1,
+            0,
+            1,
+        )
+        held = obs(
+            reservations_enabled=True,
+            reservations=(taken, b.as_entry()),
+        )
+        # After it fires, the heater reports another state. The controller
+        # passes UTC times, as Home Assistant's clock gives them.
+        fired = datetime(2026, 11, 1, 1, 0, 30, fold=1, tzinfo=TZ).astimezone(
+            UTC
+        )
+        run(planner, fired, held)
+        assert planner.readback == {}
+        checked = datetime(2026, 11, 1, 1, 1, 40, fold=1, tzinfo=TZ).astimezone(
+            UTC
+        )
+        run(planner, checked, held)
+        assert planner.readback == {"b": REASON_NOT_APPLIED}
 
     def test_a_restored_moved_entry_moves_on_across_the_fold(self):
         """Begun, its entry not yet fired, restored with a fixed offset.

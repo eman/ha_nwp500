@@ -94,6 +94,16 @@ _WRITE_REASONS = (
 )
 
 
+def _later(when: datetime, delta: timedelta) -> datetime:
+    """`when` plus `delta` in elapsed time, in UTC.
+
+    Adding to a local time adds on the wall clock and drops the second
+    hour of a fall-back (`fold`): 01:00 PST plus 90 s would be 01:01:30
+    PDT, an hour early.
+    """
+    return when.astimezone(UTC) + delta
+
+
 def _next_minute(when: datetime) -> datetime:
     """A minute later, in elapsed time: right across a change of offset."""
     return (when.astimezone(UTC) + timedelta(minutes=1)).astimezone(when.tzinfo)
@@ -503,7 +513,9 @@ class Planner:
         self._track_readback(now, observed)
         self._assert_in_force(now)
         self._hold(now)
-        self.extra = [e for e in self.extra if e.fires_at + FIRED_GRACE > now]
+        self.extra = [
+            e for e in self.extra if _later(e.fires_at, FIRED_GRACE) > now
+        ]
 
         desired = self._desired(now, observed)
         self.next_event_at = self._next_event(now)
@@ -645,7 +657,7 @@ class Planner:
                 continue
             if until is not None:
                 self._retime(entry.serves, until)
-            elif entry.fires_at + FIRED_GRACE <= now:
+            elif _later(entry.fires_at, FIRED_GRACE) <= now:
                 self._retime(entry.serves, now)
 
     def _written(self, entry: OwnedEntry) -> bool:
@@ -705,7 +717,7 @@ class Planner:
         for owned_entry in list(self.owned):
             # One whose minute is over is past: its deletion removes nothing.
             if (
-                owned_entry.fires_at + FIRED_GRACE <= now
+                _later(owned_entry.fires_at, FIRED_GRACE) <= now
                 or owned_entry.as_entry() in on_device
             ):
                 continue
@@ -791,13 +803,15 @@ class Planner:
         due = [
             e
             for e in self.owned
-            if e.fires_at + self.explain_window <= now
+            if _later(e.fires_at, self.explain_window) <= now
             and self._check_key(e) not in self._checked
         ]
         if not due:
             return
         latest = max(due, key=lambda e: e.fires_at)
-        stale = now - (latest.fires_at + self.explain_window) > READBACK_STALE
+        stale = (
+            now - _later(latest.fires_at, self.explain_window) > READBACK_STALE
+        )
         if (
             not stale
             and observed.status_at is not None
@@ -940,7 +954,9 @@ class Planner:
         others = self.others(observed)
         occupied = self._occupied(others)
         extra = [e.localised(self.tz) for e in self.extra]
-        owned_now = {e for e in self.owned if e.fires_at + FIRED_GRACE > now}
+        owned_now = {
+            e for e in self.owned if _later(e.fires_at, FIRED_GRACE) > now
+        }
 
         info: dict[str, _SegmentInfo] = {}
         candidates: list[tuple[Segment, OwnedEntry]] = []
@@ -1107,7 +1123,8 @@ class Planner:
         """Whether an entry's read-back is still to be made."""
         return (
             self._check_key(entry) not in self._checked
-            and now - (entry.fires_at + self.explain_window) <= READBACK_STALE
+            and now - _later(entry.fires_at, self.explain_window)
+            <= READBACK_STALE
         )
 
     def _next_event(self, now: datetime) -> datetime | None:
@@ -1115,17 +1132,19 @@ class Planner:
         if self.plan is not None:
             times.extend(s.start for s in self.plan.segments)
             times.extend(
-                s.start - HORIZON
+                _later(s.start, -HORIZON)
                 for s in self.plan.segments
                 if s.id in self._info
                 and self._info[s.id].reason == REASON_BEYOND_HORIZON
             )
-        times.extend(e.fires_at + FIRED_GRACE for e in self.owned + self.extra)
+        times.extend(
+            _later(e.fires_at, FIRED_GRACE) for e in self.owned + self.extra
+        )
         if not self.shadow:
             for e in self.owned:
                 if self._check_key(e) in self._checked:
                     continue
-                due = e.fires_at + self.explain_window
+                due = _later(e.fires_at, self.explain_window)
                 # The read-back, and when it is given up without a fresh
                 # status (section 5.11).
                 times.append(due)

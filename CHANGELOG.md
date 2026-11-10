@@ -410,6 +410,11 @@
   and reported the step `in_force`: the heater never took the step's
   state. The entry now stays until it fires, and the step is `programmed`
   until then.
+- **External control: timings across the autumn clock change.** The
+  read-back's wait, the minute's grace after an entry fires and the
+  horizon were added on the wall clock, so for an entry in the repeated
+  hour (01:00 PST) they came an hour early: its read-back counted as
+  stale at once and was skipped. They are counted in elapsed time.
 - **The schedule card saves again.** It sent the entries it was given back
   with their display fields (`days`, `time`, `mode_name` and others), which
   Update all reservations refuses, so every edit, deletion, copy and switch
