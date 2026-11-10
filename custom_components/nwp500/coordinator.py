@@ -123,24 +123,6 @@ _DISCONNECTED_WARNING_SECONDS: Final = 120.0
 type NWP500ConfigEntry = ConfigEntry["NWP500DataUpdateCoordinator"]
 
 
-_SCHEDULE_FIELDS: Final = ("enable", "week", "hour", "min", "mode", "param")
-
-
-def _schedule_key(schedule: dict[str, Any]) -> tuple[Any, ...]:
-    """A reservation list as the device holds it, for comparing two.
-
-    The switch and each entry's wire fields, in order: a list as written
-    and the same list parsed from the device's reply compare equal.
-    """
-    return (
-        schedule.get("reservation_use"),
-        tuple(
-            tuple(entry.get(f) for f in _SCHEDULE_FIELDS)
-            for entry in schedule.get("reservation") or []
-        ),
-    )
-
-
 class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Class to manage fetching data from the NWP500 API."""
 
@@ -187,11 +169,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # for the device's actual schedule instead of guessing from an empty
         # cache (see async_fetch_reservations).
         # Writes awaiting the device's echo of the list they sent, keyed by
-        # MAC: the list's `_schedule_key` and the future it resolves. The
+        # MAC: the list's canonical form and the future it resolves. The
         # library's confirmed write sees only the client topic; this sees
         # every list the manager hands on, the heater's own topic included.
         self._reservation_echoes: dict[
-            str, list[tuple[tuple[Any, ...], asyncio.Future[dict[str, Any]]]]
+            str, list[tuple[Any, asyncio.Future[dict[str, Any]]]]
         ] = {}
         self._reservation_waiters: dict[
             str, list[asyncio.Future[dict[str, Any]]]
@@ -1661,7 +1643,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if not waiter.done():
                     waiter.set_result(response)
             # And a write whose list this is.
-            key = _schedule_key(response)
+            key = schedule_state.reservation_canonical(response)
             for expected, echo in self._reservation_echoes.get(mac_address, []):
                 if not echo.done() and expected == key:
                     echo.set_result(response)
@@ -1960,7 +1942,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             asyncio.get_running_loop().create_future()
         )
         pending = (
-            _schedule_key(
+            schedule_state.reservation_canonical(
                 {"reservation_use": 2 if enabled else 1, "reservation": entries}
             ),
             echo,

@@ -772,6 +772,27 @@ async def test_an_echo_on_the_device_topic_confirms_the_write(wired):
 
 
 @pytest.mark.asyncio
+async def test_a_reordered_echo_on_the_device_topic_confirms_the_write(wired):
+    """The device may report the entries in another order."""
+    wired.async_update_listeners = MagicMock()
+    wired.async_fetch_reservations = AsyncMock()
+    later = {**ENTRY, "hour": 11}
+    echoed = {"reservation_use": 2, "reservation": [later, ENTRY]}
+
+    async def echoed_on_the_device_topic(*args, **kwargs):
+        wired._handle_reservation_update_in_loop(MAC, echoed)
+        return None
+
+    with patch(CONFIRMED, AsyncMock(side_effect=echoed_on_the_device_topic)):
+        held = await wired.async_write_reservations(
+            MAC, [ENTRY, later], enabled=True
+        )
+
+    assert held is echoed
+    wired.async_fetch_reservations.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_a_write_without_a_session_or_device_sends_nothing(wired):
     with patch(CONFIRMED, AsyncMock()) as confirmed:
         assert await wired.async_write_reservations("99:99", [ENTRY]) is None
