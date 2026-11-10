@@ -650,9 +650,12 @@ is the scheduler's to plan around.
    a new near-term entry for the next minute it can make.
 6. **One enabled entry per slot.** A plan entry never shares a weekday and
    minute with another enabled entry on the device. It moves to the next free
-   minute, and its segment gets the warning `moved_1_min`. It may share one
-   with an entry switched off by its own flag: the device stores both and
-   fires only the enabled one (section 8).
+   minute, and its segment gets the warning `moved_1_min`. A moved entry
+   fires after its segment begins, and stays on the device until it fires,
+   unless the next segment changing the state begins at or before its
+   minute: it would then put an ended segment's state back, and is removed.
+   It may share one with an entry switched off by its own flag: the device
+   stores both and fires only the enabled one (section 8).
    Which of two enabled entries in one slot wins is untested.
 7. **Ownership.** Every entry the feature writes is recorded in storage as its
    own, with the segment it serves.

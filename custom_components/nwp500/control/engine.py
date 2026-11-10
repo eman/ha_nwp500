@@ -898,6 +898,32 @@ class Planner:
             result.append(raw)
         return result
 
+    def _unfired_plan_entry(
+        self, segment: Segment, now: datetime
+    ) -> OwnedEntry | None:
+        """A begun segment's own plan entry that has not fired yet.
+
+        Only one moved past its start. It is dropped once the next
+        segment changing the state begins at or before it, since it would
+        put an ended segment's state back.
+        """
+        entry = next(
+            (
+                e
+                for e in self.owned
+                if e.kind == KIND_PLAN
+                and e.serves == segment.id
+                and e.fires_at > now
+            ),
+            None,
+        )
+        if entry is None:
+            return None
+        nxt = self._next_change_after(segment.start)
+        if nxt is not None and nxt.start <= entry.fires_at:
+            return None
+        return entry
+
     def _desired(self, now: datetime, observed: Observed) -> list[OwnedEntry]:
         """The owned entries the device should hold now (sections 5.2-5.3)."""
         cap = self.capabilities
@@ -910,12 +936,24 @@ class Planner:
         candidates: list[tuple[Segment, OwnedEntry]] = []
         for segment, state, merged in self._timeline():
             warnings: list[str] = []
-            if (
-                merged
-                or segment.start <= now
-                or segment.id in self.removed_segments
-            ):
+            if merged or segment.id in self.removed_segments:
                 info[segment.id] = _SegmentInfo(False, warnings=tuple(warnings))
+                continue
+            if segment.start <= now:
+                # Begun. Its own entry, moved past an occupied minute
+                # (section 5.2), may not have fired yet: it stays until it
+                # does, unless the next change begins first.
+                pending = self._unfired_plan_entry(segment, now)
+                if pending is not None:
+                    occupied.append(pending.slot)
+                    candidates.append((segment, pending))
+                    info[segment.id] = _SegmentInfo(
+                        True,
+                        warnings=(WARNING_MOVED,),
+                        fires_at=pending.fires_at,
+                    )
+                else:
+                    info[segment.id] = _SegmentInfo(False)
                 continue
             entry = OwnedEntry(
                 KIND_PLAN,

@@ -251,8 +251,9 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
   the entry limit.
 - **One enabled entry per minute.** A plan entry that would share a weekday
   and minute with another enabled entry moves a minute later, with the
-  warning `moved_1_min`. It may share one with a switched-off entry: the
-  device fires only the enabled one.
+  warning `moved_1_min`, and stays until it fires, after its step has
+  begun. It may share one with a switched-off entry: the device fires
+  only the enabled one.
 - **Replacing a plan.** Entries the new plan also wants are kept. The segment
   in force gets an entry now only if the heater reports a different mode or
   setpoint, a person's change included. A new plan also puts back an entry
