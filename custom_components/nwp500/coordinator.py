@@ -123,6 +123,24 @@ _DISCONNECTED_WARNING_SECONDS: Final = 120.0
 type NWP500ConfigEntry = ConfigEntry["NWP500DataUpdateCoordinator"]
 
 
+_SCHEDULE_FIELDS: Final = ("enable", "week", "hour", "min", "mode", "param")
+
+
+def _schedule_key(schedule: dict[str, Any]) -> tuple[Any, ...]:
+    """A reservation list as the device holds it, for comparing two.
+
+    The switch and each entry's wire fields, in order: a list as written
+    and the same list parsed from the device's reply compare equal.
+    """
+    return (
+        schedule.get("reservation_use"),
+        tuple(
+            tuple(entry.get(f) for f in _SCHEDULE_FIELDS)
+            for entry in schedule.get("reservation") or []
+        ),
+    )
+
+
 class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Class to manage fetching data from the NWP500 API."""
 
@@ -168,6 +186,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # _handle_reservation_update_in_loop so a read-modify-write can wait
         # for the device's actual schedule instead of guessing from an empty
         # cache (see async_fetch_reservations).
+        # Writes awaiting the device's echo of the list they sent, keyed by
+        # MAC: the list's `_schedule_key` and the future it resolves. The
+        # library's confirmed write sees only the client topic; this sees
+        # every list the manager hands on, the heater's own topic included.
+        self._reservation_echoes: dict[
+            str, list[tuple[tuple[Any, ...], asyncio.Future[dict[str, Any]]]]
+        ] = {}
         self._reservation_waiters: dict[
             str, list[asyncio.Future[dict[str, Any]]]
         ] = {}
@@ -1635,6 +1660,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for waiter in self._reservation_waiters.pop(mac_address, []):
                 if not waiter.done():
                     waiter.set_result(response)
+            # And a write whose list this is.
+            key = _schedule_key(response)
+            for expected, echo in self._reservation_echoes.get(mac_address, []):
+                if not echo.done() and expected == key:
+                    echo.set_result(response)
 
             # Fire HA event so custom cards and automations can react
             self.hass.bus.async_fire(
@@ -1926,13 +1956,37 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         held = (self.reservation_schedules.get(mac_address) or {}).get(
             "reservation"
         ) or []
-        confirmed = await update_reservations_confirmed(
-            client,
-            device,
-            entries,
-            enabled=enabled,
-            kept=schedule_state.kept_positions(entries, held),
+        echo: asyncio.Future[dict[str, Any]] = (
+            asyncio.get_running_loop().create_future()
         )
+        pending = (
+            _schedule_key(
+                {"reservation_use": 2 if enabled else 1, "reservation": entries}
+            ),
+            echo,
+        )
+        self._reservation_echoes.setdefault(mac_address, []).append(pending)
+        try:
+            confirmed = await update_reservations_confirmed(
+                client,
+                device,
+                entries,
+                enabled=enabled,
+                kept=schedule_state.kept_positions(entries, held),
+            )
+        finally:
+            echoes = self._reservation_echoes.get(mac_address, [])
+            if pending in echoes:
+                echoes.remove(pending)
+            if not echoes:
+                self._reservation_echoes.pop(mac_address, None)
+        if confirmed is None and echo.done():
+            # The echo came on the heater's own topic.
+            _LOGGER.debug(
+                "The list write to %s was echoed on the device topic",
+                mac_address,
+            )
+            return echo.result()
         if confirmed is None:
             read = await self.async_fetch_reservations(mac_address)
             _LOGGER.info(

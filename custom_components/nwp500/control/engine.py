@@ -281,6 +281,9 @@ class Planner:
         # and one that disappears from the list is what the plan wanted, not
         # a person's change to it.
         self._withdrawing: list[OwnedEntry] = []
+        # Set when a plan is adopted: its first pass judges deletions by
+        # what it wants off the heater, not by what the last plan did.
+        self._replanned = False
 
     # -- persistence -------------------------------------------------------
 
@@ -459,6 +462,7 @@ class Planner:
         """
         restored = restoring and self.plan is None
         self.plan = plan
+        self._replanned = True
         ids = {s.id for s in plan.segments}
         if restored:
             self.removed_segments &= ids
@@ -529,6 +533,11 @@ class Planner:
         """Update from what the device reports; return the write it needs."""
         self.last_step = now
         self.reconcile_unconfirmed(observed)
+        if self._replanned:
+            self._replanned = False
+            self._withdrawing = self._withdrawn(
+                self._desired(now, observed), now
+            )
         self._track_list_changes(now, observed)
         self._track_readback(now, observed)
         self._assert_in_force(now)
@@ -538,11 +547,7 @@ class Planner:
         ]
 
         desired = self._desired(now, observed)
-        self._withdrawing = [
-            e
-            for e in self.owned
-            if e not in desired and _later(e.fires_at, FIRED_GRACE) > now
-        ]
+        self._withdrawing = self._withdrawn(desired, now)
         self.next_event_at = self._next_event(now)
         write = self._diff(desired, now)
         if (
@@ -1118,6 +1123,20 @@ class Planner:
         while any(slots_collide(placed.slot, slot) for slot in occupied):
             placed = replace(placed, fires_at=_next_minute(placed.fires_at))
         return placed
+
+    def _withdrawn(
+        self, desired: list[OwnedEntry], now: datetime
+    ) -> list[OwnedEntry]:
+        """The owned entries, not yet fired, that `desired` leaves out.
+
+        A fired entry is left out at its minute while its read-back is
+        made: it holds nothing pending.
+        """
+        return [
+            e
+            for e in self.owned
+            if e not in desired and _instant(e.fires_at) > _instant(now)
+        ]
 
     def _diff(self, desired: list[OwnedEntry], now: datetime) -> Write | None:
         added = [e for e in desired if e not in self.owned]

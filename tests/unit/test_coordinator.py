@@ -746,6 +746,32 @@ async def test_without_an_echo_a_fresh_read_says_what_the_device_holds(wired):
 
 
 @pytest.mark.asyncio
+async def test_an_echo_on_the_device_topic_confirms_the_write(wired):
+    """The library sees only the client topic; the coordinator sees both."""
+    wired.async_update_listeners = MagicMock()
+    wired.async_fetch_reservations = AsyncMock()
+    echoed = {
+        "reservation_use": 2,
+        "reservation": [{**ENTRY, "days": ["Wednesday"], "time": "10:29"}],
+    }
+
+    async def lost_on_the_client_topic(*args, **kwargs):
+        # A stale list first, then the echo, both from the device topic.
+        wired._handle_reservation_update_in_loop(
+            MAC, {"reservation_use": 2, "reservation": []}
+        )
+        wired._handle_reservation_update_in_loop(MAC, echoed)
+        return None
+
+    with patch(CONFIRMED, AsyncMock(side_effect=lost_on_the_client_topic)):
+        held = await wired.async_write_reservations(MAC, [ENTRY], enabled=True)
+
+    assert held is echoed
+    wired.async_fetch_reservations.assert_not_awaited()
+    assert MAC not in wired._reservation_echoes
+
+
+@pytest.mark.asyncio
 async def test_a_write_without_a_session_or_device_sends_nothing(wired):
     with patch(CONFIRMED, AsyncMock()) as confirmed:
         assert await wired.async_write_reservations("99:99", [ENTRY]) is None

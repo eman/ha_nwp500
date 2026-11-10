@@ -404,7 +404,8 @@
   dropped, the read timed out, and external control failed the write it
   read for, retried a minute later and, on a second miss, paused writing
   for 15 minutes. In a test session it happened to one read in a dozen.
-  The integration now takes the list on the heater's topic too.
+  The integration now takes the list on the heater's topic too, and a
+  write echoed there is confirmed.
 - **A reservation read that gets no reply asks again.** The reservation
   service and external control's reads before and after a write wait for
   the heater's list. When no reply comes, on any topic, they now ask up to

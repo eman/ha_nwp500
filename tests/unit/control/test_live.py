@@ -361,6 +361,76 @@ class TestAnEarlierPlansEntries:
         planner.commit(write)
         assert planner.ack("i").state == "programmed"
 
+    def test_a_just_fired_entry_holds_nothing_pending(self):
+        """Left out at its minute for its read-back, within the grace."""
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        fired = device_obs(planner, mode="heat_pump", setpoint_raw=120)
+        planner.step(minutes(10.5), fired)
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+        assert planner.ack("i").state == "programmed"
+
+    def test_a_new_plans_first_pass_reports_a_deletion_it_cares_about(self):
+        """An entry the last plan withdrew, wanted again, then deleted."""
+        planner = planner_with(shadow=False, **LIVE)
+        first = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+        ]
+        give(planner, first)
+        held = device_obs(planner)
+        changed = [first[0], segment(NOW, "b", 10, setpoint_f=130)]
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), changed)), minutes(1), held
+        )
+        write = planner.step(minutes(1), held)
+        planner.reject(
+            write, minutes(1), retry_at=minutes(16), final=True, sent=False
+        )
+        planner.hold_until = minutes(16)
+        assert planner._withdrawing
+        planner.set_plan(
+            parse_plan(make_document(minutes(2), first)), minutes(2), held
+        )
+        emptied = obs(reservations_enabled=True, reservations=())
+
+        planner.step(minutes(2), emptied)
+
+        assert "b" in planner.removed_segments
+        assert any(r.segment == "b" for r in planner.reports.values())
+
+    def test_a_new_plans_first_pass_drops_an_old_near_term_quietly(self):
+        """The last plan's near-term entry, deleted, under a reused id."""
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140)],
+        )
+        assert [e.kind for e in planner.owned] == [KIND_NEAR_TERM]
+        held = device_obs(planner)
+        planner.set_plan(
+            parse_plan(
+                make_document(
+                    minutes(0.5),
+                    [segment(NOW, "a", -5, mode="heat_pump", setpoint_f=130)],
+                )
+            ),
+            minutes(0.5),
+            held,
+        )
+        emptied = obs(reservations_enabled=True, reservations=())
+
+        planner.step(minutes(0.5), emptied)
+
+        assert planner.reports == {}
+        assert "a" not in planner.removed_segments
+
     def test_an_entry_gone_after_its_minute_is_not_waited_for(self):
         planner, held = self._stopped_while_paused()
         planner.step(minutes(5), held)
