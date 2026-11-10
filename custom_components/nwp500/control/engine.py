@@ -1141,7 +1141,9 @@ class Planner:
         """A begun segment's status in live, by the entry that asserts it.
 
         `pending` while its near-term entry is not on the device,
-        `programmed` while it is but has not fired, else `in_force`.
+        `programmed` while it is but has not fired, else `in_force`. Its own
+        plan entry, moved past an occupied minute (section 5.2), can fire
+        after the segment begins: it is `programmed` until then too.
         """
         asserting = [
             e
@@ -1151,6 +1153,11 @@ class Planner:
         if any(not self._written(e) for e in asserting):
             return STATUS_PENDING
         if any(e.fires_at > now for e in asserting):
+            return STATUS_PROGRAMMED
+        if any(
+            e.kind == KIND_PLAN and e.serves == item and e.fires_at > now
+            for e in self.owned
+        ):
             return STATUS_PROGRAMMED
         return STATUS_IN_FORCE
 

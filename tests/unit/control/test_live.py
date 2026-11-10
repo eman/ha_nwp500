@@ -54,7 +54,7 @@ from .test_device import (
     _publish,
     _status,
 )
-from .test_engine import NOW, TZ, give, minutes, obs, planner_with
+from .test_engine import MONDAY, NOW, TZ, give, minutes, obs, planner_with
 
 HAND_BACK_ISSUE = f"control_hand_back_failed_{MAC}"
 
@@ -286,6 +286,38 @@ class TestReadBack:
         planner.step(minutes(11.6), device_obs(planner, tou_on=True))
         assert planner.readback == {"b": REASON_NOT_APPLIED}
         assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
+
+    def test_a_moved_entry_is_in_force_only_once_it_fires(self):
+        """An entry moved past an occupied minute fires after the start."""
+        start = minutes(10)
+        occupied = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": start.hour,
+            "min": start.minute,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations_enabled=True, reservations=(occupied,))
+        planner = planner_with(shadow=False, observed=observed, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+            observed=observed,
+        )
+        (b,) = (e for e in planner.owned if e.serves == "b")
+        assert b.fires_at == minutes(11)
+        held = obs(
+            reservations_enabled=True,
+            reservations=tuple(planner.program(observed)["reservation"]),
+        )
+        planner.step(minutes(10.5), held)
+        assert statuses(planner.ack("i"))["b"] == ("programmed", None)
+        planner.step(minutes(11.2), held)
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
 
     def test_a_power_off_entry_is_checked_by_its_mode_alone(self):
         """A heater the entry powered off keeps its own setpoint (8.3)."""

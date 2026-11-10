@@ -322,7 +322,9 @@ Live mode writes the plan into the heater's reservation list.
 - **Statuses** become `pending`, `programmed`, `in_force`, `failed` and
   `removed`, and the acknowledgement's state `programmed`,
   `partly_programmed` or `pending`. A segment is `in_force` from its
-  entry's minute, before read-back; read-back can then turn it `failed`.
+  entry's minute, before read-back, so one whose entry moved past an
+  occupied minute stays `programmed` until it fires; read-back can then
+  turn it `failed`.
   A cleanup write, one that only removes fired entries, waits for their
   read-back (or 15 minutes without a status); any other write removes a
   fired entry at once, unchecked.
