@@ -290,6 +290,78 @@ class TestPlannerLive:
         assert planner.ack("i").state == "partly_programmed"
 
 
+class TestAnEarlierPlansEntries:
+    """Entries a newer plan does not want, until a write removes them."""
+
+    @staticmethod
+    def _stopped_while_paused() -> tuple[Planner, Any]:
+        """A plan with b programmed, then a stop that cannot be written.
+
+        Its write was never sent: the list could not be read first.
+        """
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        assert any(e.serves == "b" for e in planner.owned)
+        held = device_obs(planner)
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), [])), minutes(1), held
+        )
+        cleanup = planner.step(minutes(1), held)
+        assert cleanup is not None
+        planner.reject(
+            cleanup, minutes(1), retry_at=minutes(16), final=True, sent=False
+        )
+        planner.hold_until = minutes(16)
+        return planner, held
+
+    def test_a_stop_is_pending_while_its_entries_are_on_the_heater(self):
+        planner, held = self._stopped_while_paused()
+        planner.step(minutes(2), held)
+        assert planner.ack("stop").state == "pending"
+
+        write = planner.step(minutes(16), held)
+        assert write is not None
+        planner.commit(write)
+        assert planner.owned == []
+        assert planner.ack("stop").state == "programmed"
+
+    def test_removing_an_entry_the_plan_wants_gone_is_not_reported(self):
+        planner, _held = self._stopped_while_paused()
+        emptied = obs(reservations_enabled=True, reservations=())
+
+        planner.step(minutes(2), emptied)
+
+        assert planner.reports == {}
+        assert planner.removed_segments == set()
+        assert planner.owned == []
+        assert planner.ack("stop").state == "programmed"
+
+    def test_a_replacement_entry_under_the_same_key_is_the_plans(self):
+        """A new plan reusing a segment id and minute, in another state."""
+        planner = planner_with(shadow=False, **LIVE)
+        segments = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+        ]
+        give(planner, segments)
+        held = device_obs(planner)
+        segments[1] = segment(NOW, "b", 10, mode="heat_pump", setpoint_f=130)
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), segments)), minutes(1), held
+        )
+        assert planner.ack("i").state == "pending"
+        write = planner.step(minutes(1), held)
+        assert write is not None
+        planner.commit(write)
+        assert planner.ack("i").state == "programmed"
+
+
 class TestReadBack:
     """Section 5.11."""
 
