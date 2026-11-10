@@ -667,6 +667,19 @@ class DeviceControl:
         """Take the newer of the stored plan and the entity's document."""
         stored = self.store.stored_intent(self.mac_address)
         stored_plan: Plan | None = None
+        source = stored.get("source") if stored is not None else None
+        if stored is not None and source not in (None, self.intent_entity_id):
+            # The plan entity has changed: a plan from another entity is not
+            # one the feature was pointed at. Its entries are withdrawn
+            # unless the new entity's plan wants them.
+            _LOGGER.info(
+                "Stored plan for %s came from %s, not %s; not restoring it",
+                self.mac_address,
+                source,
+                self.intent_entity_id,
+            )
+            await self.store.async_clear_intent(self.mac_address)
+            stored = None
         if stored is not None:
             try:
                 stored_plan = self._parse(stored["document"])
@@ -779,7 +792,10 @@ class DeviceControl:
             self._adopt(plan, now, now, self.observe())
             self._accept(number)
             await self.store.async_set_intent(
-                self.mac_address, plan.as_document(), now.isoformat()
+                self.mac_address,
+                plan.as_document(),
+                now.isoformat(),
+                self.intent_entity_id,
             )
         await self._async_evaluate(now)
         return True

@@ -411,6 +411,12 @@
   the heater's list. When no reply comes, on any topic, they now ask up to
   three times before giving up, as the setup and periodic reads already
   did.
+- **External control: changing the plan entity drops the old entity's
+  plan.** The plan in force was kept across the change and compared with
+  the new entity's document by `issued_at`, so an older plan there was
+  rejected as superseded and the old entity's plan stayed in force, and
+  was written once the mode went live. Start-up now drops a stored plan
+  that came from another entity.
 - **External control: a stop is `pending` until its entries are gone.** A
   plan that withdraws entries, an empty one included, read `programmed`
   while writing was paused and the earlier plan's entries were still on

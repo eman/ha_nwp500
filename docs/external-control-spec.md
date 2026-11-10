@@ -886,7 +886,10 @@ steps below.
 
 1. Read the device's list.
 2. Compare the stored plan with the entity's document by `issued_at`, and take
-   the newer.
+   the newer. A stored plan received from another entity, before the plan
+   entity option was changed, is dropped: the entity's document is adopted
+   whatever its `issued_at`, and with no document there is no plan in force,
+   so the stored plan's entries are withdrawn.
 3. If that is the stored plan, keep its unfired entries. Remove fired entries
    and program `scheduled` segments that now fit, in one write.
 4. If it is a newer document, replace the stored plan (section 5.6).
