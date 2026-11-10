@@ -242,6 +242,426 @@ class TestPlannerLive:
         planner.commit(again)
         assert statuses(planner.ack("i"))["b"] == ("programmed", None)
 
+    def test_a_failed_segment_stays_failed_through_a_pause(self):
+        """Inside the near-term lead, begun, and after a later one starts."""
+        planner = planner_with(shadow=False, **LIVE)
+        from custom_components.nwp500.control.intent import parse_plan
+
+        planner.set_plan(
+            parse_plan(
+                make_document(
+                    NOW,
+                    [
+                        segment(
+                            NOW, "a", -5, mode="energy_saver", setpoint_c=59.5
+                        ),
+                        segment(NOW, "b", 10, setpoint_f=130),
+                        segment(NOW, "c", 20, setpoint_f=135),
+                    ],
+                )
+            ),
+            NOW,
+            obs(),
+        )
+        write = planner.step(NOW, obs())
+        planner.reject(write, NOW, retry_at=minutes(16), final=True)
+        planner.hold_until = minutes(16)
+        failed = ("failed", REASON_WRITE_NOT_CONFIRMED)
+
+        # Too close to program, while writes are paused.
+        planner.step(minutes(9), obs())
+        assert statuses(planner.ack("i"))["b"] == failed
+        # Begun, its near-term entry not written.
+        planner.step(minutes(12), obs())
+        assert statuses(planner.ack("i"))["b"] == failed
+
+        retry = planner.step(minutes(16), obs())
+        planner.reject(retry, minutes(16), retry_at=minutes(31), final=True)
+        planner.hold_until = minutes(31)
+        # A later segment has started: b never was in force.
+        planner.step(minutes(21), obs())
+        assert statuses(planner.ack("i"))["b"] == failed
+
+        resumed = planner.step(minutes(31), obs())
+        planner.commit(resumed)
+        acked = statuses(planner.ack("i"))
+        assert acked["b"] == failed
+        assert acked["c"] != failed
+        assert planner.ack("i").state == "partly_programmed"
+
+
+class TestAnEarlierPlansEntries:
+    """Entries a newer plan does not want, until a write removes them."""
+
+    @staticmethod
+    def _stopped_while_paused() -> tuple[Planner, Any]:
+        """A plan with b programmed, then a stop that cannot be written.
+
+        Its write was never sent: the list could not be read first.
+        """
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        assert any(e.serves == "b" for e in planner.owned)
+        held = device_obs(planner)
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), [])), minutes(1), held
+        )
+        cleanup = planner.step(minutes(1), held)
+        assert cleanup is not None
+        planner.reject(
+            cleanup, minutes(1), retry_at=minutes(16), final=True, sent=False
+        )
+        planner.hold_until = minutes(16)
+        return planner, held
+
+    def test_a_stop_is_pending_while_its_entries_are_on_the_heater(self):
+        planner, held = self._stopped_while_paused()
+        planner.step(minutes(2), held)
+        assert planner.ack("stop").state == "pending"
+
+        write = planner.step(minutes(16), held)
+        assert write is not None
+        planner.commit(write)
+        assert planner.owned == []
+        assert planner.ack("stop").state == "programmed"
+
+    def test_removing_an_entry_the_plan_wants_gone_is_not_reported(self):
+        planner, _held = self._stopped_while_paused()
+        emptied = obs(reservations_enabled=True, reservations=())
+
+        planner.step(minutes(2), emptied)
+
+        assert planner.reports == {}
+        assert planner.removed_segments == set()
+        assert planner.owned == []
+        assert planner.ack("stop").state == "programmed"
+
+    def test_a_replacement_entry_under_the_same_key_is_the_plans(self):
+        """A new plan reusing a segment id and minute, in another state."""
+        planner = planner_with(shadow=False, **LIVE)
+        segments = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+        ]
+        give(planner, segments)
+        held = device_obs(planner)
+        segments[1] = segment(NOW, "b", 10, mode="heat_pump", setpoint_f=130)
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), segments)), minutes(1), held
+        )
+        write = planner.step(minutes(1), held)
+        assert write is not None
+        assert planner.ack("i").state == "pending"
+        planner.commit(write)
+        assert planner.ack("i").state == "programmed"
+
+    def test_a_just_fired_entry_holds_nothing_pending(self):
+        """Left out at its minute for its read-back, within the grace."""
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        fired = device_obs(planner, mode="heat_pump", setpoint_raw=120)
+        planner.step(minutes(10.5), fired)
+        assert statuses(planner.ack("i"))["b"] == ("in_force", None)
+        assert planner.ack("i").state == "programmed"
+
+    def test_a_new_plans_first_pass_reports_a_deletion_it_cares_about(self):
+        """An entry the last plan withdrew, wanted again, then deleted."""
+        planner = planner_with(shadow=False, **LIVE)
+        first = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+        ]
+        give(planner, first)
+        held = device_obs(planner)
+        changed = [first[0], segment(NOW, "b", 10, setpoint_f=130)]
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), changed)), minutes(1), held
+        )
+        write = planner.step(minutes(1), held)
+        planner.reject(
+            write, minutes(1), retry_at=minutes(16), final=True, sent=False
+        )
+        planner.hold_until = minutes(16)
+        assert planner._withdrawing
+        planner.set_plan(
+            parse_plan(make_document(minutes(2), first)), minutes(2), held
+        )
+        emptied = obs(reservations_enabled=True, reservations=())
+
+        planner.step(minutes(2), emptied)
+
+        assert "b" in planner.removed_segments
+        assert any(r.segment == "b" for r in planner.reports.values())
+
+    def test_a_new_plans_first_pass_drops_an_old_near_term_quietly(self):
+        """The last plan's near-term entry, deleted, under a reused id."""
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140)],
+        )
+        assert [e.kind for e in planner.owned] == [KIND_NEAR_TERM]
+        held = device_obs(planner)
+        planner.set_plan(
+            parse_plan(
+                make_document(
+                    minutes(0.5),
+                    [segment(NOW, "a", -5, mode="heat_pump", setpoint_f=130)],
+                )
+            ),
+            minutes(0.5),
+            held,
+        )
+        emptied = obs(reservations_enabled=True, reservations=())
+
+        planner.step(minutes(0.5), emptied)
+
+        assert planner.reports == {}
+        assert "a" not in planner.removed_segments
+
+    def test_an_entry_wanted_again_then_deleted_is_reported(self):
+        """Withdrawn on one pass, wanted on the next, deleted in between."""
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            ],
+        )
+        program = tuple(device_obs(planner).reservations)
+        owners = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": minutes(10).hour,
+            "min": minutes(10).minute,
+            "mode": 3,
+            "param": 110,
+        }
+        # A person's entry on b's minute: b would move, so its entry is
+        # withdrawn. Writing is paused.
+        crowded = obs(
+            reservations_enabled=True, reservations=(*program, owners)
+        )
+        write = planner.step(minutes(1), crowded)
+        assert write is not None
+        planner.reject(
+            write, minutes(1), retry_at=minutes(16), final=True, sent=False
+        )
+        planner.hold_until = minutes(16)
+        assert planner._withdrawing
+        # Their entry gone, and b's deleted too.
+        others = tuple(e for e in program if e["min"] != minutes(10).minute)
+        planner.step(
+            minutes(2), obs(reservations_enabled=True, reservations=others)
+        )
+
+        assert "b" in planner.removed_segments
+        assert any(r.segment == "b" for r in planner.reports.values())
+
+    def test_a_near_term_entry_edited_in_place_is_removed(self):
+        """A person's edit of the plan's near-term entry is not overwritten."""
+        planner = planner_with(shadow=False, **LIVE)
+        give(planner, [segment(NOW, "a", -5, mode="heat_pump", setpoint_f=140)])
+        (near,) = planner.owned
+        assert near.kind == KIND_NEAR_TERM
+        edited = {**near.as_entry(), "param": near.as_entry()["param"] - 4}
+
+        write = planner.step(
+            minutes(0.5),
+            obs(reservations_enabled=True, reservations=(edited,)),
+        )
+
+        assert "a" in planner.removed_segments
+        assert any(r.segment == "a" for r in planner.reports.values())
+        assert write is None or not write.added
+
+    def test_a_reissued_plans_shifted_entry_deleted_is_removed(self):
+        """Segment c moved past b's moved entry; then both moves go."""
+        start = minutes(10)
+        owners = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": start.hour,
+            "min": start.minute,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations_enabled=True, reservations=(owners,))
+        planner = planner_with(shadow=False, observed=observed, **LIVE)
+        segments = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "c", 11, mode="heat_pump", setpoint_f=130),
+        ]
+        give(planner, segments, observed=observed)
+        program = planner.program(observed)["reservation"]
+        held = obs(reservations_enabled=True, reservations=tuple(program))
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), segments)), minutes(1), held
+        )
+        assert planner.step(minutes(1), held) is None
+        (c,) = (e for e in planner.owned if e.serves == "c")
+        left = tuple(e for e in program if e not in (owners, c.as_entry()))
+
+        planner.step(
+            minutes(2), obs(reservations_enabled=True, reservations=left)
+        )
+
+        assert "c" in planner.removed_segments
+
+    def test_an_entry_moved_past_a_dropped_entry_is_not_the_new_plans(self):
+        """An owner's entry moves x to 10:11 and x moves b to 10:12.
+
+        The new plan drops x, so b's place is 10:11: the entry at 10:12 is
+        not the new plan's, and its going removes nothing it wants.
+        """
+        start = minutes(10)
+        owners = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": start.hour,
+            "min": start.minute,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations_enabled=True, reservations=(owners,))
+        planner = planner_with(shadow=False, observed=observed, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "x", 10, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "b", 11, mode="heat_pump", setpoint_f=130),
+            ],
+            observed=observed,
+        )
+        program = planner.program(observed)["reservation"]
+        held = obs(reservations_enabled=True, reservations=tuple(program))
+        (old_b,) = (e for e in planner.owned if e.serves == "b")
+        assert old_b.fires_at == minutes(12)
+        planner.set_plan(
+            parse_plan(
+                make_document(
+                    minutes(1),
+                    [
+                        segment(
+                            NOW, "a", -5, mode="energy_saver", setpoint_c=59.5
+                        ),
+                        segment(NOW, "b", 11, mode="heat_pump", setpoint_f=130),
+                    ],
+                )
+            ),
+            minutes(1),
+            held,
+        )
+        write = planner.step(minutes(1), held)
+        planner.reject(
+            write, minutes(1), retry_at=minutes(16), final=True, sent=False
+        )
+        planner.hold_until = minutes(16)
+        left = tuple(e for e in program if e != old_b.as_entry())
+
+        planner.step(
+            minutes(2), obs(reservations_enabled=True, reservations=left)
+        )
+
+        assert "b" not in planner.removed_segments
+        assert planner.reports == {}
+
+    def test_an_entry_gone_after_its_minute_is_not_waited_for(self):
+        planner, held = self._stopped_while_paused()
+        planner.step(minutes(5), held)
+        assert planner.ack("stop").state == "pending"
+        # b's minute, 10:10, has passed and the list no longer holds it.
+        emptied = obs(reservations_enabled=True, reservations=())
+        planner.step(minutes(12), emptied)
+        assert planner.owned == []
+        assert planner.reports == {}
+        assert planner.ack("stop").state == "programmed"
+
+    def test_a_fired_entry_left_by_the_pause_is_not_pending(self):
+        """It is removed once writes resume; it fires again only next week."""
+        planner, held = self._stopped_while_paused()
+        planner.step(minutes(12), held)
+        assert planner.ack("stop").state == "programmed"
+
+    def test_an_identical_plan_with_cascading_moves_is_programmed(self):
+        """Segment b moves past an owner's entry, and c past b."""
+        occupied = {
+            "enable": 2,
+            "week": MONDAY,
+            "hour": minutes(10).hour,
+            "min": minutes(10).minute,
+            "mode": 3,
+            "param": 110,
+        }
+        observed = obs(reservations_enabled=True, reservations=(occupied,))
+        planner = planner_with(shadow=False, observed=observed, **LIVE)
+        segments = [
+            segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+            segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+            segment(NOW, "c", 11, mode="heat_pump", setpoint_f=130),
+        ]
+        give(planner, segments, observed=observed)
+        assert sorted(
+            e.fires_at for e in planner.owned if e.serves in ("b", "c")
+        ) == [minutes(11), minutes(12)]
+        held = obs(
+            reservations_enabled=True,
+            reservations=tuple(planner.program(observed)["reservation"]),
+        )
+        planner.set_plan(
+            parse_plan(make_document(minutes(1), segments)), minutes(1), held
+        )
+        assert planner.step(minutes(1), held) is None
+        assert planner.ack("i").state == "programmed"
+
+    def test_an_older_write_found_landed_after_a_stop_is_withdrawn(self):
+        """Reconciling a lost write from before the stop adds its entries."""
+        planner = planner_with(shadow=False, **LIVE)
+        plan = parse_plan(
+            make_document(
+                NOW,
+                [
+                    segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                    segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+                ],
+            )
+        )
+        planner.set_plan(plan, NOW, obs())
+        write = planner.step(NOW, obs())
+        sent = planner.program(obs(), write.result)
+        planner.reject(
+            write,
+            NOW,
+            retry_at=minutes(1),
+            final=False,
+            written_hash=schedule_hash(sent),
+        )
+        planner.set_plan(
+            parse_plan(make_document(minutes(0.5), [])), minutes(0.5), obs()
+        )
+        landed = obs(
+            reservations_enabled=sent["reservation_use"] == 2,
+            reservations=tuple(sent["reservation"]),
+        )
+        planner.step(minutes(0.5), landed)
+        assert planner.owned
+        assert planner.ack("stop").state == "pending"
+
 
 class TestReadBack:
     """Section 5.11."""
@@ -271,6 +691,21 @@ class TestReadBack:
         planner = self._planner(setpoint_f=140)
         planner.step(minutes(11.6), device_obs(planner))
         assert planner.readback == {"b": REASON_NOT_APPLIED}
+        assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
+
+    def test_an_entry_that_did_not_apply_stays_failed_once_ended(self):
+        planner = planner_with(shadow=False, **LIVE)
+        give(
+            planner,
+            [
+                segment(NOW, "a", -5, mode="energy_saver", setpoint_c=59.5),
+                segment(NOW, "b", 10, mode="heat_pump", setpoint_f=140),
+                segment(NOW, "c", 20, mode="heat_pump", setpoint_f=130),
+            ],
+        )
+        planner.step(minutes(11.6), device_obs(planner))
+        assert planner.readback == {"b": REASON_NOT_APPLIED}
+        planner.step(minutes(20.5), device_obs(planner))
         assert statuses(planner.ack("i"))["b"] == ("failed", REASON_NOT_APPLIED)
 
     def test_checked_once(self):

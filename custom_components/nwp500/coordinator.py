@@ -84,6 +84,12 @@ _ENERGY_STRAGGLER_WINDOW: Final = 120.0
 _INITIAL_RESERVATION_TIMEOUT: Final = 5.0
 _INITIAL_RESERVATION_ATTEMPTS: Final = 2
 
+# A read someone waits on (the reservation service, external control's read
+# before a write and its read after an unconfirmed one) asks again when no
+# reply comes. A read changes nothing, and in a test session one in a dozen
+# got none on any topic, while the next, identical request was answered.
+_FETCH_RESERVATION_ATTEMPTS: Final = 3
+
 # The same, for the reads the device answers only when asked: the
 # installer diagnostics counters and the recirculation schedule. The cloud
 # does not always answer these either -- one request went unanswered while
@@ -162,6 +168,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # _handle_reservation_update_in_loop so a read-modify-write can wait
         # for the device's actual schedule instead of guessing from an empty
         # cache (see async_fetch_reservations).
+        # Writes awaiting the device's echo of the list they sent, keyed by
+        # MAC: the list's canonical form and the future it resolves. The
+        # library's confirmed write sees only the client topic; this sees
+        # every list the manager hands on, the heater's own topic included.
+        self._reservation_echoes: dict[
+            str, list[tuple[Any, asyncio.Future[dict[str, Any]]]]
+        ] = {}
         self._reservation_waiters: dict[
             str, list[asyncio.Future[dict[str, Any]]]
         ] = {}
@@ -1629,6 +1642,11 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for waiter in self._reservation_waiters.pop(mac_address, []):
                 if not waiter.done():
                     waiter.set_result(response)
+            # And a write whose list this is.
+            key = schedule_state.reservation_canonical(response)
+            for expected, echo in self._reservation_echoes.get(mac_address, []):
+                if not echo.done() and expected == key:
+                    echo.set_result(response)
 
             # Fire HA event so custom cards and automations can react
             self.hass.bus.async_fire(
@@ -1920,13 +1938,37 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         held = (self.reservation_schedules.get(mac_address) or {}).get(
             "reservation"
         ) or []
-        confirmed = await update_reservations_confirmed(
-            client,
-            device,
-            entries,
-            enabled=enabled,
-            kept=schedule_state.kept_positions(entries, held),
+        echo: asyncio.Future[dict[str, Any]] = (
+            asyncio.get_running_loop().create_future()
         )
+        pending = (
+            schedule_state.reservation_canonical(
+                {"reservation_use": 2 if enabled else 1, "reservation": entries}
+            ),
+            echo,
+        )
+        self._reservation_echoes.setdefault(mac_address, []).append(pending)
+        try:
+            confirmed = await update_reservations_confirmed(
+                client,
+                device,
+                entries,
+                enabled=enabled,
+                kept=schedule_state.kept_positions(entries, held),
+            )
+        finally:
+            echoes = self._reservation_echoes.get(mac_address, [])
+            if pending in echoes:
+                echoes.remove(pending)
+            if not echoes:
+                self._reservation_echoes.pop(mac_address, None)
+        if confirmed is None and echo.done():
+            # The echo came on the heater's own topic.
+            _LOGGER.debug(
+                "The list write to %s was echoed on the device topic",
+                mac_address,
+            )
+            return echo.result()
         if confirmed is None:
             read = await self.async_fetch_reservations(mac_address)
             _LOGGER.info(
@@ -2067,7 +2109,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_request_on_demand_reads(mac_address)
 
     async def async_fetch_reservations(
-        self, mac_address: str, timeout: float = 10.0
+        self,
+        mac_address: str,
+        timeout: float = 10.0,
+        attempts: int = _FETCH_RESERVATION_ATTEMPTS,
     ) -> dict[str, Any] | None:
         """Request the reservation schedule and wait for the device's reply.
 
@@ -2075,19 +2120,32 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         arrives asynchronously over MQTT. Callers that must not act on a
         stale or empty cache -- notably the read-modify-write in
         `set_reservation`, where writing is a full-list replacement -- need
-        the value itself, so this waits for the response.
+        the value itself, so this waits for the response, and asks again
+        when none comes.
 
         Args:
             mac_address: Device MAC address.
-            timeout: Seconds to wait for the device's response.
+            timeout: Seconds to wait for each reply.
+            attempts: How many requests to send before giving up.
 
         Returns:
             The reservation schedule the device reported, or None if the
             request could not be sent or no response arrived in time.
         """
-        _, schedule = await self._async_fetch_reservations_result(
-            mac_address, timeout
-        )
+        schedule: dict[str, Any] | None = None
+        for attempt in range(1, attempts + 1):
+            published, schedule = await self._async_fetch_reservations_result(
+                mac_address, timeout
+            )
+            if schedule is not None or not published:
+                # Nothing was asked, so the device owes no answer.
+                break
+            _LOGGER.debug(
+                "No reply to the reservation read of %s (attempt %d of %d)",
+                mac_address,
+                attempt,
+                attempts,
+            )
         return schedule
 
     async def _async_fetch_reservations_result(

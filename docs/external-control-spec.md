@@ -540,9 +540,9 @@ The list holds the changes in force, not a history:
 | `none` | No plan in force, and no document rejected since start-up |
 | `rejected` | No plan in force, and the most recent document was rejected whole (section 3.5). `intent_id`, `reason` and `detail` are that document's, and so is `rejected`; `segments` is empty |
 | `shadow` | The plan in force is evaluated but not written: the mode is `shadow` |
-| `pending` | Live: at least one segment is `pending` |
-| `partly_programmed` | Live: none is `pending`, and at least one is `removed` or `failed` |
-| `programmed` | Live: none is `pending`, `removed` or `failed` |
+| `pending` | Live: at least one segment is `pending`, or the heater still holds entries of the feature's, not yet fired, that the plan in force wants removed: an earlier plan's, or ones it replaced. An empty plan is `pending` until they are removed |
+| `partly_programmed` | Live: not `pending`, and at least one segment is `removed` or `failed` |
+| `programmed` | Live: not `pending`, and no segment is `removed` or `failed` |
 
 **A rejected document while a plan is in force** does not change the
 state, `intent_id` or `segments`: they stay those of the plan in
@@ -581,8 +581,8 @@ merged into, and a removed one never is), and its opaque keys.
 | `programmed` | Its entry is confirmed on the device. A segment that has begun is `programmed` while that near-term entry has not fired |
 | `merged` | It sets the same state as the segment before it, so it needs no entry. It goes with that segment: if a person removed its entry, nothing is written for the merged segment either |
 | `in_force` | It has started and the entry that puts it in force has fired. A segment whose entry moved past an occupied minute (section 5.2) is `programmed` until that entry fires. Read-back comes after it (section 5.11): it is due the poll interval plus a minute after the entry's minute, and waits for a status the heater reports after that minute, for 15 minutes at most. A state that differs turns it `failed`. A write that only removes fired entries waits for their read-back, or for those 15 minutes, so a `cleanup` write that removes the entry and adds nothing follows its check or the check given up. Any other write removes a fired entry at once, and that entry is then not checked |
-| `ended` | A later segment has started |
-| `failed` | A list write or read-back failed after its retry |
+| `ended` | A later segment has started. A `failed` segment stays `failed`: the heater never took its state |
+| `failed` | A list write or read-back failed after its retry. It stands while the segment waits inside the near-term lead and after a later segment has started. A confirmed write clears a write failure, except for a segment that has ended by then |
 | `removed` | A person removed the entry that puts it in force (section 5.10): its plan entry, or, for a segment already begun, its near-term entry. Nothing is written for it, or for the merged segments that follow it, while the plan is in force |
 
 A segment's `reason`, when it has one:
@@ -684,6 +684,10 @@ is the scheduler's to plan around.
 - **Read first.** Before every write, the feature reads the device's list.
   Entries it does not own are kept as read (section 5.1). The list is held from that read
   through the write, against the integration's own reservation services.
+  A read that gets no reply is asked again, up to three times, before the
+  write counts as unconfirmed. The heater is asked to reply on the reading
+  client's topic and sometimes replies on its own (`cmd/52/navilink-<mac>/res/rsv/rd`);
+  the list is taken from either, as there is no correlation id on `rsv/rd`.
 - **Whole-list, confirmed.** The list is written whole with the library's
   confirmed write (`update_reservations_confirmed`), never slot by slot. A
   write counts only once the device reads back the new list: on the unit
@@ -748,7 +752,8 @@ A new accepted plan applies from its receipt:
   setpoint or mode change included, puts that state in force. A scheduler
   that honours a person's change publishes a plan that keeps it.
 - **An empty `segments` list** withdraws every programmed entry. The heater
-  keeps its current state.
+  keeps its current state. While writes are paused (section 5.4), the
+  entries stay, and the plan is `pending` until a write removes them.
 
 ### 5.7 Surplus grants (removed)
 
@@ -802,7 +807,12 @@ scheduler decides.
   - An entry whose minute is over when its deletion is found is past: the
     deletion changes nothing.
   - A plan entry that a newer plan replaced, still on the heater, is not
-    the new plan's segment's.
+    the new plan's segment's. Neither is any entry the plan in force wants
+    removed, such as an earlier plan's near-term entry. Its deletion, by a
+    person or another client, removes what the plan wants gone: it is not
+    reported. The plan's own entries are not among them, even one moved
+    past an entry that has gone since: deleting it makes its segment
+    `removed`.
   - An entry a person adds is not the feature's: it is kept as read
     (section 5.1), counts against the budget, and fires as the person set
     it.
@@ -876,7 +886,11 @@ steps below.
 
 1. Read the device's list.
 2. Compare the stored plan with the entity's document by `issued_at`, and take
-   the newer.
+   the newer. A stored plan received from another entity, before the plan
+   entity option was changed, is dropped: the entity's document is adopted
+   whatever its `issued_at`. With no usable document there is no plan in
+   force, so the stored plan's entries, its near-term ones included, are
+   withdrawn.
 3. If that is the stored plan, keep its unfired entries. Remove fired entries
    and program `scheduled` segments that now fit, in one write.
 4. If it is a newer document, replace the stored plan (section 5.6).
@@ -994,7 +1008,7 @@ compressor idle and the tank full. Times are PDT.
 | 1. A deleted near-term entry | A plan whose segment in force (`t1`, 140.0 °F) began a minute before; its near-term entry (09:16) deleted before it fired | `t1` went `removed`, not in force, and the ack `partly_programmed`. Nothing was written again, before or after 09:16. The wanted state stayed at 141.8 °F, the state before the plan, and the heater stayed there. The deletion was reported on the override entity |
 | 2. A new plan | The same segments, as a new document | The near-term entry for `t1` was written again (09:21), fired, and the heater went to 140.0 °F: the new plan is the scheduler's answer (5.6). The removal and its report ended |
 | 3. A deleted exit, the segment already in force | Vacation on 12:07:45 and off 12:10:51 within segment `t2` (141.8 °F); the exit for `t2` (12:13) deleted | `t2` stayed in force, not `removed`: the exit only re-asserted it. Nothing was written again. The deletion was reported |
-| 4. A deleted exit, the segment begun in Vacation | A plan with `v1` (141.8 °F) in force and `v2` (140.0 °F) at 12:20; Vacation on 12:15:07 and off 12:22:03; the exit for `v2` (12:25) deleted | `v2` went `removed` and `v1` back in force. The heater stayed at 141.8 °F, and nothing was written again |
+| 4. A deleted exit, the segment begun in Vacation | A plan with `v1` (141.8 °F) in force and `v2` (140.0 °F) at 12:20; Vacation on 12:15:07 and off 12:22:03; the exit for `v2` (12:25) deleted | `v2` went `removed` and `v1` back in force. The heater stayed at 141.8 °F, and nothing was written again. Under the current rule `v1` reads `ended` here: `v2` has begun, and a removed segment is not in force, so no segment is. The heater's state is the same |
 | 5. Hand-back | The Disable button | The owner's list came back: the Saturday entry enabled, reservations off, and Heat Pump at 141.8 °F on the heater |
 
 Eight list writes were sent, the hand-back's included; one confirmation was

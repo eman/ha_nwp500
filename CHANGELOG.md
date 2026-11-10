@@ -397,6 +397,39 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **Reservation lists the heater sends on its own topic are read.** The
+  heater is asked to answer a list read or write on the reading client's
+  topic, and sometimes answers on its own topic instead. The library
+  listens for the list on the client topic only, so those answers were
+  dropped, the read timed out, and external control failed the write it
+  read for, retried a minute later and, on a second miss, paused writing
+  for 15 minutes. In a test session it happened to one read in a dozen.
+  The integration now takes the list on the heater's topic too, and a
+  write echoed there is confirmed.
+- **A reservation read that gets no reply asks again.** The reservation
+  service and external control's reads before and after a write wait for
+  the heater's list. When no reply comes, on any topic, they now ask up to
+  three times before giving up, as the setup and periodic reads already
+  did.
+- **External control: changing the plan entity drops the old entity's
+  plan.** The plan in force was kept across the change and compared with
+  the new entity's document by `issued_at`, so an older plan there was
+  rejected as superseded and the old entity's plan stayed in force, and
+  was written once the mode went live. Start-up now drops a stored plan
+  that came from another entity.
+- **External control: a stop is `pending` until its entries are gone.** A
+  plan that withdraws entries, an empty one included, read `programmed`
+  while writing was paused and the earlier plan's entries were still on
+  the heater, where they would fire. It now reads `pending` while the
+  heater holds entries, not yet fired, that the plan wants removed. A
+  person, or another client, removing one of those entries is no longer
+  reported as a deletion of the plan's.
+- **External control: a failed step stays `failed`.** A step whose write
+  failed showed `scheduled` once it came within the near-term lead while
+  writing was paused, and `ended` once a later step started, as if it had
+  run. It now stays `failed`, as does one whose read-back found the heater
+  did not apply it, and a confirmed write later clears a write failure
+  only for steps that have not ended.
 - **External control: a power-off step is not failed by read-back.** A
   heater a `power_off` entry turns off keeps its own setpoint, so
   read-back, which compared the entry's setpoint too, marked the step

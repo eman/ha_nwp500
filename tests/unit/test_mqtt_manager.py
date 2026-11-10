@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from custom_components.nwp500.mqtt_manager import NWP500MqttManager
+from custom_components.nwp500.mqtt_manager import (
+    NWP500MqttManager,
+    _DeviceKeyedScheduleHandler,
+)
 
 
 @pytest.fixture
@@ -51,6 +55,7 @@ def mock_mqtt_client(monkeypatch):
             self.subscribe_diagnostics = AsyncMock()
             self.subscribe_recirculation_schedule_response = AsyncMock()
             self.subscribe = AsyncMock()
+            self.subscribe_device = AsyncMock()
             self.start_periodic_requests = AsyncMock()
             self.request_device_info = AsyncMock()
             self.ensure_device_info_cached = AsyncMock()
@@ -207,6 +212,123 @@ async def test_subscribe_device(manager, mock_mqtt_client, mock_device):
     ):
         subscribe.assert_called_once()
         assert subscribe.call_args[0][0] == mock_device
+    # The device-keyed copy of the reservation replies.
+    (handler,) = [
+        c[0][1]
+        for c in mock_mqtt_client.subscribe_device.call_args_list
+        if isinstance(c[0][1], _DeviceKeyedScheduleHandler)
+    ]
+    assert mock_mqtt_client.subscribe_device.call_args[0][0] == mock_device
+    assert handler.mac_address == mock_device.device_info.mac_address
+
+
+_LIST_REPLY = {
+    "clientID": "response-reservation-1794317739765",
+    "protocolVersion": 2,
+    "requestTopic": "cmd/52/navilink-aabbccddeeff/st/rsv/rd",
+    "response": {
+        "additionalValue": "5322",
+        "deviceType": 52,
+        "macAddress": "aabbccddeeff",
+        "reservation": [
+            {
+                "enable": 2,
+                "hour": 15,
+                "min": 34,
+                "mode": 1,
+                "param": 120,
+                "week": 2,
+            }
+        ],
+        "reservationUse": 1,
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_a_list_reply_on_the_device_topic_is_received(
+    mock_auth_client, mock_mqtt_client, mock_device
+):
+    """The heater sometimes answers on its own topic, not the client's."""
+    received: list[tuple[str, dict[str, Any]]] = []
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        on_reservation_update=lambda mac, r: received.append((mac, r)),
+    )
+    await manager.setup()
+    await manager.subscribe_device(mock_device)
+    (handler,) = [
+        c[0][1]
+        for c in mock_mqtt_client.subscribe_device.call_args_list
+        if isinstance(c[0][1], _DeviceKeyedScheduleHandler)
+    ]
+
+    handler("cmd/52/navilink-aabbccddeeff/res/rsv/rd", _LIST_REPLY)
+
+    ((mac, reply),) = received
+    assert mac == mock_device.device_info.mac_address
+    assert reply["reservation_use"] == 1
+    assert [
+        (e["hour"], e["min"], e["param"]) for e in reply["reservation"]
+    ] == [(15, 34, 120)]
+
+
+@pytest.mark.parametrize(
+    ("topic", "message"),
+    [
+        # The heater's own answer, a hex string the cloud then converts.
+        (
+            "cmd/52/navilink-aabbccddeeff/res/rsv",
+            {"response": {"reservation": "02020f2201780000"}},
+        ),
+        # Another schedule's reply.
+        ("cmd/52/navilink-aabbccddeeff/res/recirc-rsv/rd", _LIST_REPLY),
+        # A client's request, seen on the device topic.
+        (
+            "cmd/52/navilink-aabbccddeeff/st/rsv/rd",
+            {"request": {"command": 16777222}},
+        ),
+        # A status.
+        (
+            "cmd/52/navilink-aabbccddeeff/res/rsv/rd",
+            {"response": {"status": {}}},
+        ),
+    ],
+)
+def test_only_list_replies_on_the_device_topic_are_taken(topic, message):
+    got: list[Any] = []
+    handler = _DeviceKeyedScheduleHandler(
+        "aabbccddeeff", lambda *a: got.append(a)
+    )
+
+    handler(topic, message)
+
+    assert got == []
+
+
+def test_an_unreadable_list_on_the_device_topic_is_dropped(caplog):
+    got: list[Any] = []
+    handler = _DeviceKeyedScheduleHandler(
+        "aabbccddeeff", lambda *a: got.append(a)
+    )
+
+    handler(
+        "cmd/52/navilink-aabbccddeeff/res/rsv/rd",
+        {"response": {"reservation": "not a list", "reservationUse": 1}},
+    )
+
+    assert got == []
+    assert "unreadable reservation list" in caplog.text
+
+
+def test_the_device_topic_handler_registers_once():
+    callback = MagicMock()
+    assert _DeviceKeyedScheduleHandler("m", callback) == (
+        _DeviceKeyedScheduleHandler("m", callback)
+    )
 
 
 @pytest.mark.asyncio

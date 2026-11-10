@@ -275,6 +275,12 @@ class Planner:
         # entry is recognised by this, not by where it would be placed now:
         # the entry that moved it past a collision may have gone since.
         self._plan_entries: set[str] = set()
+        # The owned entries, not yet fired, that the last planning pass
+        # wants off the heater: an earlier plan's, or ones the plan in
+        # force replaced. The plan is `pending` while the heater holds any,
+        # and one that disappears from the list is what the plan wanted, not
+        # a person's change to it.
+        self._withdrawing: list[OwnedEntry] = []
 
     # -- persistence -------------------------------------------------------
 
@@ -285,6 +291,7 @@ class Planner:
             "extra": [e.as_document() for e in self.extra],
             "asserted": sorted(self.asserted),
             "plan_entries": sorted(self._plan_entries),
+            "withdrawing": [e.as_document() for e in self._withdrawing],
             "reports": [r.as_document() for r in self.reports.values()],
             "removed_segments": sorted(self.removed_segments),
             "last_write": self.last_write.as_document()
@@ -324,6 +331,9 @@ class Planner:
                 [self._check_key(e) for e in self.owned if e.kind == KIND_PLAN],
             )
         )
+        self._withdrawing = [
+            OwnedEntry.from_document(e) for e in document.get("withdrawing", [])
+        ]
         self.reports = {}
         for raw in document.get("reports", []):
             report = _current_shape(Report.from_document(raw))
@@ -362,6 +372,16 @@ class Planner:
             return f"{report.field}:{report.segment or report.value}"
         return report.field
 
+    def withdraw_plan(self) -> None:
+        """No plan is in force: nothing the earlier one issued serves one.
+
+        The entries stay owned, so the next pass removes them from the
+        heater.
+        """
+        self.extra = []
+        self.asserted = set()
+        self._plan_entries = set()
+
     def forget_simulated(self) -> None:
         """Drop what shadow simulated, on going live.
 
@@ -371,6 +391,7 @@ class Planner:
         """
         self.owned = []
         self._plan_entries = set()
+        self._withdrawing = []
         self.extra = []
         self.asserted = set()
         self.removed_segments = set()
@@ -462,11 +483,13 @@ class Planner:
             }
             # The entries on the heater that are what the new plan wants,
             # judged against the list they were placed on.
-            self._plan_entries = {
-                self._check_key(e)
-                for e in self.owned
-                if e.kind == KIND_PLAN and self._placed_as_planned(e, observed)
-            }
+            self._plan_entries = set()
+            for e in sorted(
+                (e for e in self.owned if e.kind == KIND_PLAN),
+                key=lambda e: _instant(e.fires_at),
+            ):
+                if self._placed_as_planned(e, observed):
+                    self._plan_entries.add(self._check_key(e))
         self.failed = {}
         # A near-term entry still serves the new plan if the new plan has
         # the same segment in force now, in the same state. Any other served
@@ -527,6 +550,7 @@ class Planner:
         ]
 
         desired = self._desired(now, observed)
+        self._withdrawing = self._withdrawn(desired, now)
         self.next_event_at = self._next_event(now)
         write = self._diff(desired, now)
         if (
@@ -568,10 +592,12 @@ class Planner:
             # The device holds the whole wanted list now.
             self.took_over = True
             self.unconfirmed = []
+            # A segment that ended before any write held its entries was
+            # never put in force: it stays failed.
             self.failed = {
                 k: v
                 for k, v in self.failed.items()
-                if v != REASON_WRITE_NOT_CONFIRMED
+                if v != REASON_WRITE_NOT_CONFIRMED or self._ended(k)
             }
         if confirmed_at is not None:
             for entry in write.added:
@@ -716,6 +742,11 @@ class Planner:
     # People's changes (section 5.10)
 
     def _track_list_changes(self, now: datetime, observed: Observed) -> None:
+        """Find the feature's entries gone from the list (section 5.10).
+
+        One the plan in force does not own (`_owned_by_plan`) is gone as
+        the plan wanted: it is dropped without a report, fired or not.
+        """
         if observed.reservations is None:
             return
 
@@ -724,6 +755,13 @@ class Planner:
             return
         on_device = [dict(e) for e in observed.reservations]
         for owned_entry in list(self.owned):
+            if (
+                not self._owned_by_plan(owned_entry)
+                and owned_entry.as_entry() not in on_device
+            ):
+                # Gone as the plan wanted: nothing a person changed.
+                self.owned = [e for e in self.owned if e != owned_entry]
+                continue
             # One whose minute is over is past: its deletion removes nothing.
             if (
                 _later(owned_entry.fires_at, FIRED_GRACE) <= now
@@ -751,6 +789,24 @@ class Planner:
             self.owned = [e for e in self.owned if e != owned_entry]
             self.extra = [e for e in self.extra if e != owned_entry]
 
+    def _owned_by_plan(self, entry: OwnedEntry) -> bool:
+        """Whether an owned entry is the plan in force's.
+
+        A plan entry recognised as its own (`_plan_entries`), or a near-term
+        entry it issued: one in `extra`, whose copy on the heater may have
+        moved past a collision. Anything else on the heater is an earlier
+        plan's, or one the plan replaced, and is to be removed.
+        """
+        if entry.kind == KIND_PLAN:
+            return self._check_key(entry) in self._plan_entries
+        return any(
+            e.kind == entry.kind
+            and e.serves == entry.serves
+            and e.mode == entry.mode
+            and e.setpoint_raw == entry.setpoint_raw
+            for e in self.extra
+        )
+
     def _serves_plan(self, entry: OwnedEntry) -> bool:
         """Whether a deleted entry was one the plan in force wants.
 
@@ -765,7 +821,9 @@ class Planner:
         """Whether a plan entry is where the plan in force places it now.
 
         Its segment's state, at the segment's start or moved from there
-        only past minutes other entries on the heater occupy (section 5.2).
+        only past minutes other entries on the heater occupy, the plan's own
+        recognised entries included (section 5.2). `set_plan` recognises
+        them in time order, so a cascade of moves is followed.
         """
         segment = next(
             (
@@ -779,7 +837,19 @@ class Planner:
             entry.mode, entry.setpoint_raw
         ):
             return False
-        occupied = self._occupied(self.others(observed))
+        # The plan's own entries recognised so far occupy their minutes as
+        # well: one moved past another of the plan's is placed as planned.
+        # Not an earlier plan's, which the plan in force removes.
+        occupied = [
+            *self._occupied(self.others(observed)),
+            *(
+                o.slot
+                for o in self.owned
+                if o != entry
+                and o.kind == KIND_PLAN
+                and self._check_key(o) in self._plan_entries
+            ),
+        ]
         probe = replace(entry, fires_at=segment.start.astimezone(self.tz))
         # In elapsed time: the same zone compares by wall clock, which runs
         # back in the repeated hour of a fall-back.
@@ -1094,6 +1164,20 @@ class Planner:
             placed = replace(placed, fires_at=_next_minute(placed.fires_at))
         return placed
 
+    def _withdrawn(
+        self, desired: list[OwnedEntry], now: datetime
+    ) -> list[OwnedEntry]:
+        """The owned entries, not yet fired, that `desired` leaves out.
+
+        A fired entry is left out at its minute while its read-back is
+        made: it holds nothing pending.
+        """
+        return [
+            e
+            for e in self.owned
+            if e not in desired and _instant(e.fires_at) > _instant(now)
+        ]
+
     def _diff(self, desired: list[OwnedEntry], now: datetime) -> Write | None:
         added = [e for e in desired if e not in self.owned]
         removed = [e for e in self.owned if e not in desired]
@@ -1244,17 +1328,46 @@ class Planner:
             return STATUS_PROGRAMMED
         return STATUS_IN_FORCE
 
+    def _ended(self, item: str) -> bool:
+        """Whether a segment had begun by the last step and a later one has.
+
+        Merged segments count with the first of their run.
+        """
+        now = self.last_step
+        if now is None:
+            return False
+        anchor = self._anchor(now)
+        for segment, _state, _merged in self._timeline():
+            if segment.id == item:
+                return (
+                    segment.start <= now
+                    and anchor is not None
+                    and anchor[0].id != item
+                )
+        return False
+
     def _live_status(
         self, item: str, status: str, reason: str | None
     ) -> tuple[str, str | None]:
-        """A segment's status with live write and read-back failures."""
-        if status in (STATUS_PENDING, STATUS_IN_FORCE) and item in self.failed:
+        """A segment's status with live write and read-back failures.
+
+        A failure stands while the segment waits inside the near-term lead,
+        and once a later segment has started: the heater never took its
+        state.
+        """
+        if item in self.failed and status in (
+            STATUS_SCHEDULED,
+            STATUS_PENDING,
+            STATUS_IN_FORCE,
+            STATUS_ENDED,
+        ):
             return STATUS_FAILED, self.failed[item]
-        if status == STATUS_IN_FORCE and item in self.readback:
+        if status in (STATUS_IN_FORCE, STATUS_ENDED) and item in self.readback:
             found = self.readback[item]
             if found == REASON_NOT_APPLIED:
                 return STATUS_FAILED, found
-            return status, found
+            if status == STATUS_IN_FORCE:
+                return status, found
         return status, reason
 
     def ack(self, intent_id: str | None) -> Ack:
@@ -1331,7 +1444,10 @@ class Planner:
 
         if self.shadow:
             state = STATE_SHADOW
-        elif STATUS_PENDING in statuses:
+        elif STATUS_PENDING in statuses or any(
+            e in self.owned for e in self._withdrawing
+        ):
+            # Or entries the plan wants off the heater are still on it.
             state = STATE_PENDING
         elif STATUS_REMOVED in statuses or STATUS_FAILED in statuses:
             state = STATE_PARTLY_PROGRAMMED
