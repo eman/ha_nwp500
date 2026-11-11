@@ -46,6 +46,17 @@ def make_feature() -> Any:
     )
 
 
+@pytest.fixture(autouse=True)
+def _own_config_dir(request: pytest.FixtureRequest, tmp_path: Path) -> None:
+    """Each test's heater records in a directory of its own.
+
+    Home Assistant's test config directory is shared: a record one test
+    leaves there would be another's.
+    """
+    if "hass" in request.fixturenames:
+        request.getfixturevalue("hass").config.config_dir = str(tmp_path)
+
+
 @pytest.fixture
 def coordinator(mock_device) -> MagicMock:
     """The coordinator, with one heater that has reported."""

@@ -207,6 +207,42 @@ class TestStart:
         assert second.plan.intent_id == "i-2"
 
     @pytest.mark.asyncio
+    async def test_a_plan_from_another_entity_is_not_restored(
+        self, hass, control_factory, now
+    ):
+        """Pointed at a new entity, its older plan is not superseded."""
+        _publish(hass, _plan(now, issued_at=now + timedelta(minutes=5)))
+        first = await control_factory()
+        await first.async_stop()
+        other = "sensor.test_intent"
+        stop = make_document(now, [], intent_id="stop")
+        hass.states.async_set(other, "stop", {**stop})
+
+        second = await control_factory(control_intent_entity=other)
+
+        assert second.plan is not None
+        assert second.plan.intent_id == "stop"
+        assert second.store.stored_intent(MAC).get("source") == other
+
+    @pytest.mark.asyncio
+    async def test_another_entity_with_no_plan_withdraws_the_old_one(
+        self, hass, control_factory, now
+    ):
+        _publish(hass, _plan(now))
+        first = await control_factory()
+        assert first.planner.extra
+        await first.async_stop()
+        other = "sensor.test_intent"
+        hass.states.async_set(other, STATE_UNAVAILABLE)
+
+        second = await control_factory(control_intent_entity=other)
+
+        assert second.plan is None
+        assert second.planner.extra == []
+        assert KIND_NEAR_TERM not in _kinds(second)
+        assert second.store.stored_intent(MAC) is None
+
+    @pytest.mark.asyncio
     async def test_state_from_an_earlier_version_is_discarded(
         self, hass, hass_storage, control_factory
     ):

@@ -4,6 +4,30 @@
 
 ### Added
 
+- **The simulator calibrates itself to your heater.** nwp500-python's
+  calibration (`sim_calibrate.calibrate_changes`) fits the heater's
+  tank (its losses and probes), heat pump heat and power to its history
+  in Home Assistant's recorder; the integration reads that history, with the simulator's air,
+  humidity, demand and circulation inputs, hands it to the library in a
+  worker thread, keeps the parameters it returns per heater, and walks on
+  them in place of the defaults for the tank's size. It runs about an
+  hour after the simulator starts, then weekly, refining the kept
+  parameters with the library's `keep_better`, and on request: a
+  **Calibrate simulator** button and the `nwp500.calibrate_simulator`
+  action, which returns the parameters and the library's report
+  (`from_defaults` starts again). The **Simulator calibration** sensor
+  says when, what the latest calibration fitted and what it kept, and
+  why, and which terms are still on the defaults. Turning
+  the simulator off removes the calibration.
+- **The heater's own record, for the calibration.** The recorder keeps 10
+  days by default, and the fit wants weeks. While the simulator runs, it
+  records each heater's statuses as sent (the library's
+  `status_history` format) and the changes of its input entities, a
+  gzipped file a day under `.storage/nwp500/simulator_record/`, up to 60
+  days (about 20 MB a heater). Once the record reaches back further than
+  the recorder, the calibration reads it, through the library's
+  `sim_calibrate.calibrate`. The sensor's `source` and `record_since`
+  say which it read and where the record begins.
 - **What the hot water is enough for.** Two simulator sensors, *Hot water
   for baths* and *Hot water for showers*, count the whole baths and the
   whole showers the tank's hot water is enough for now: each on its own,
@@ -373,6 +397,57 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **Reservation lists the heater sends on its own topic are read.** The
+  heater is asked to answer a list read or write on the reading client's
+  topic, and sometimes answers on its own topic instead. The library
+  listens for the list on the client topic only, so those answers were
+  dropped, the read timed out, and external control failed the write it
+  read for, retried a minute later and, on a second miss, paused writing
+  for 15 minutes. In a test session it happened to one read in a dozen.
+  The integration now takes the list on the heater's topic too, and a
+  write echoed there is confirmed.
+- **A reservation read that gets no reply asks again.** The reservation
+  service and external control's reads before and after a write wait for
+  the heater's list. When no reply comes, on any topic, they now ask up to
+  three times before giving up, as the setup and periodic reads already
+  did.
+- **External control: changing the plan entity drops the old entity's
+  plan.** The plan in force was kept across the change and compared with
+  the new entity's document by `issued_at`, so an older plan there was
+  rejected as superseded and the old entity's plan stayed in force, and
+  was written once the mode went live. Start-up now drops a stored plan
+  that came from another entity.
+- **External control: a stop is `pending` until its entries are gone.** A
+  plan that withdraws entries, an empty one included, read `programmed`
+  while writing was paused and the earlier plan's entries were still on
+  the heater, where they would fire. It now reads `pending` while the
+  heater holds entries, not yet fired, that the plan wants removed. A
+  person, or another client, removing one of those entries is no longer
+  reported as a deletion of the plan's.
+- **External control: a failed step stays `failed`.** A step whose write
+  failed showed `scheduled` once it came within the near-term lead while
+  writing was paused, and `ended` once a later step started, as if it had
+  run. It now stays `failed`, as does one whose read-back found the heater
+  did not apply it, and a confirmed write later clears a write failure
+  only for steps that have not ended.
+- **External control: a power-off step is not failed by read-back.** A
+  heater a `power_off` entry turns off keeps its own setpoint, so
+  read-back, which compared the entry's setpoint too, marked the step
+  `not_applied_on_device` and the plan `partly_programmed` until the next
+  step. A `power_off` entry is now checked by its mode alone. Found on the
+  heater, where the entry did power it off (spec section 8.3).
+- **External control: an entry moved past an occupied minute fires.** A
+  plan entry that shares its minute with another enabled entry moves a
+  minute later, so it fires after its step begins. At the step's start
+  the feature removed it from the heater's list, before it could fire,
+  and reported the step `in_force`: the heater never took the step's
+  state. The entry now stays until it fires, and the step is `programmed`
+  until then.
+- **External control: timings across the autumn clock change.** The
+  read-back's wait, the minute's grace after an entry fires and the
+  horizon were added on the wall clock, so for an entry in the repeated
+  hour (01:00 PST) they came an hour early: its read-back counted as
+  stale at once and was skipped. They are counted in elapsed time.
 - **The schedule card saves again.** It sent the entries it was given back
   with their display fields (`days`, `time`, `mode_name` and others), which
   Update all reservations refuses, so every edit, deletion, copy and switch

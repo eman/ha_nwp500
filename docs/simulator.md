@@ -125,12 +125,120 @@ The simulator also reads, from the integration itself, the tank's
 temperatures, the mode and setpoint, the heater's reservation schedule and
 its time-of-use schedule.
 
-The heater's parameters are the library's defaults for its tank's size
+The heater's parameters are its calibration's once it has one (below),
+and until then the library's defaults for its tank's size
 (`nwp500.sim_adapters.params`). The heater is read as the library's own live
 source reads it (`nwp500.sim_live`). The heating history before now (when
 the compressor last stopped, when the tank last heated) is left unset, as
 the library leaves it for a one-shot read, and `defaults_used` names the
 defaults the simulator used instead.
+
+## Calibration
+
+The library's defaults are one NWP500-65's, fitted at one installation.
+The simulator fits them to your heater with nwp500-python's own
+calibration (`nwp500.sim_calibrate`, its guide's "Calibrate the Simulator
+to Your Heater"): the integration reads the heater's history and hands it
+to the library, which does the fitting, and the simulator walks on what it
+returns. Nothing is installed or run outside Home Assistant.
+
+### The heater's record
+
+The fit wants weeks of history: the library fits the tank on the last 7
+weeks, and the heat pump on recoveries and climbs that come a few a week.
+Home Assistant's recorder keeps 10 days by default. So while the
+simulator runs, it keeps a record of its own for each heater, up to 60
+days, without raising the recorder's retention for everything else:
+
+- **The heater's statuses,** every one it sends, as it sent it, in the
+  library's history format (`nwp500.status_history`, as
+  `nwp-cli simulate record` writes it), the heater's address left out.
+- **The simulator's inputs:** each change of its air sensor, humidity,
+  demand and circulation pump, as the recorder would keep it.
+
+It is written every 15 minutes and when the simulator stops, a gzipped
+file per series per day, under
+`.storage/nwp500/simulator_record/<entry>/<heater>/`. A day of statuses
+is about 0.3 MB (on dev, 9,400 statuses), so 60 days are about 20 MB a heater. Days older than 60
+are dropped. Turning the simulator off, or removing the integration,
+removes the record.
+
+The record starts when the simulator does: until it reaches back further
+than the recorder's history (10 days by default), the calibration reads
+the recorder's; from then on, the record. The heat pump's terms may stay
+on the defaults for the first few weeks; the sensor's `on_defaults` says
+which, and the report why.
+
+### When and how
+
+- **When:** about an hour after the simulator first runs, then once a
+  week, and whenever you press **Calibrate simulator** (on the heater's
+  device page) or call `nwp500.calibrate_simulator`. A failed attempt is
+  tried again a day later.
+- **From what:** the heater's record, up to 60 days, once it reaches
+  back further than the recorder (`sim_calibrate.calibrate`). Before
+  then, the recorder's history of the heater's entities (Tank upper and
+  lower temperature, Last status and the others the simulator reads,
+  which it enables), as far back as the recorder keeps it, up to 60 days
+  (`sim_calibrate.calibrate_changes`). Either way with the simulator's
+  air sensor, humidity, demand and circulation pump over the same span,
+  from the same source.
+- **Each time after the first,** the library refines the parameters kept
+  from before (its `keep_better`). It refits on the history read, holds
+  the latest of that history out, and each group of terms takes the refit
+  only where it predicts that latest part better than the kept values. A
+  fit made on earlier history is kept until a later one beats it. The
+  action's `from_defaults` starts again from the defaults, as does a
+  change of the tank's size.
+- **What it needs:** quiet windows, draws and recoveries for the tank,
+  climbs for the heat pump's heat, metered blocks for its power, and
+  run-ons; how many of each is the library's. A term without enough
+  keeps its value, and the report says how many it found and how many it
+  needs; the answers it reaches say so in their `reasons`.
+- **One at a time:** one heater is fitted at once, across config entries;
+  a fit holds its history in memory (the library's guide puts 60 days at
+  about 180 MB).
+- **Kept** in Home Assistant's storage, per heater, across restarts.
+  Turning the simulator off, or removing the integration, removes it. A
+  calibration that can't be read after an update is calibrated again.
+
+A scenario document's own `params` still wins over the calibration in an
+action, as over the defaults.
+
+The **Simulator calibration** sensor (diagnostic) is when the parameters
+in use were calibrated, unknown on the defaults. Its attributes are the
+library's report:
+
+| Attribute | Meaning |
+|---|---|
+| `fitted` | Each term the latest calibration fitted, and its value |
+| `kept` | Each term it kept, and why: a refinement keeps the earlier calibration's value where its refit does no better, a first calibration the default |
+| `on_defaults` | The groups of terms still on the library's defaults (the parameters' own `unfitted`), which the answers' `reasons` name |
+| `judged` | With a refinement: each group of terms, kept or replaced, with both errors |
+| `notes` | The library's notes on the history and the fit |
+| `source` | What the latest calibration read: `record`, the heater's own, or `recorder`, the recorder's history |
+| `history_from`, `history_to` | The span it read: from where the record begins, or the recorder's retention; the notes say where an entity's history begins later |
+| `record_since` | Where the heater's record begins |
+| `refined` | Whether it refined an earlier calibration |
+| `last_attempt`, `error` | The last attempt, and why it failed if it did |
+
+The sensor and its button stay available while the heater is not heard
+from: they read the history, not the heater now.
+
+`nwp500.calibrate_simulator` takes the water heater (`device_id` or
+`entity_id`) and `from_defaults` (off by default), and returns what was
+kept, as stored:
+
+| Key | Meaning |
+|---|---|
+| `params` | The parameters, a `HeaterParams` document as the library's `params_to_document` writes it: a scenario's `params` |
+| `terms` | The library's report (`sim_calibrate.report`): each term's `name`, `value`, `samples`, `error`, `fitted`, `why` and `note` |
+| `judged` | With a refinement, each group's judgement (`sim_calibrate.Judged`) |
+| `notes` | The library's notes |
+| `calibrated_at`, `attempted_at`, `error` | When, and the last attempt's error (none) |
+| `source`, `history_from`, `history_to`, `refined` | As the sensor's |
+
+A failed calibration is an error that says why.
 
 ## Sensors
 
@@ -311,6 +419,9 @@ nothing on the heater. Each is one of nwp500-python's calls on a scenario:
 | `nwp500.forecast` | `sim.forecast` | `kind: forecast` |
 | `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile` |
 
+`nwp500.calibrate_simulator`, which calibrates the heater, is not one of
+these: see Calibration above.
+
 They need the simulator running. While they read the heater, they refuse
 to answer before the heater has reported its status.
 
@@ -345,7 +456,7 @@ Every action takes:
 | Field | Meaning |
 |---|---|
 | `device_id` or `entity_id` | The water heater. Not needed with `use_heater` off |
-| `scenario` | Optional. A scenario document (nwp500-python's `nwp500.sim.codec`, `schema_version` 1), laid over the heater's scenario as `nwp-cli simulate` lays one: objects merge key by key, and any other value, a list included, replaces the heater's. A `params` section replaces the parameters for the heater's tank size |
+| `scenario` | Optional. A scenario document (nwp500-python's `nwp500.sim.codec`, `schema_version` 1), laid over the heater's scenario as `nwp-cli simulate` lays one: objects merge key by key, and any other value, a list included, replaces the heater's. A `params` section replaces the heater's parameters: its calibration's, or the defaults for its tank's size |
 | `use_heater` | Start from the heater's scenario now. Default on. Off, the document alone is the scenario, and it must give all of it |
 
 So a planner can get the heater's scenario from `get_scenario`, change it
@@ -438,8 +549,8 @@ range, fails with the library's message.
 
 ## Accuracy
 
-These answers come from physics with the default parameters for the tank's
-size. Expect:
+These answers come from physics, on the default parameters for the
+tank's size until the heater is calibrated (above). Expect:
 
 - **Long recoveries run short.** Physics alone says a long recovery ends
   sooner than it does. At one installation, recoveries with more than three

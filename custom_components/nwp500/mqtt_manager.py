@@ -6,9 +6,13 @@ import time
 import types
 from collections import deque
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Final
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from nwp500.exceptions import DeviceCapabilityError, InvalidCredentialsError
+from nwp500.models import ReservationSchedule
+from nwp500.mqtt.utils import get_response_data
 
 if TYPE_CHECKING:
     from nwp500 import (  # type: ignore[attr-defined]
@@ -19,7 +23,6 @@ if TYPE_CHECKING:
         MqttDiagnosticsCollector,
         NavienAuthClient,
         NavienMqttClient,
-        ReservationSchedule,
         TOUReservationSchedule,
     )
     from nwp500.models import DeviceDiagnostics, RecirculationSchedule
@@ -100,6 +103,81 @@ def _raised_inside_aws_sdk(err: BaseException) -> bool:
     return False
 
 
+#: A heater's status as it sent it: its address, when it arrived, and the
+#: payload.
+RawStatusCallback = Callable[[str, datetime, dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
+class _RawStatusHandler:
+    """A heater's status messages, as sent, for its own record.
+
+    Equal for the same heater and callback, so a resubscription on the same
+    client registers it once.
+    """
+
+    mac_address: str
+    callback: RawStatusCallback
+
+    def __call__(self, topic: str, message: dict[str, Any]) -> None:
+        data = get_response_data(message, "status")
+        if isinstance(data, dict) and data:
+            self.callback(
+                self.mac_address,
+                datetime.now(UTC),
+                dict(cast(dict[str, Any], data)),
+            )
+
+
+#: A reservation list from a heater: its address and the parsed list.
+DeviceKeyedScheduleCallback = Callable[[str, ReservationSchedule], None]
+
+# The device-keyed copy of a reservation list reply. The heater is asked to
+# answer a read or write on the requesting client's topic, and the cloud
+# turns its answer into JSON on the topic the heater used. Sometimes the
+# heater answers on its own topic instead, so the list arrives here and
+# not on the client topic the library listens to for ``rsv/rd``.
+_DEVICE_KEYED_SCHEDULE_SUFFIX: Final = "/res/rsv/rd"
+
+
+@dataclass(frozen=True)
+class _DeviceKeyedScheduleHandler:
+    """A heater's reservation list replies sent on its own topic.
+
+    Registered under the device wildcard, which sees every message for the
+    heater, and keeps only ``res/rsv/rd``. The list is the heater's own,
+    whoever asked: the protocol has no correlation id on ``rsv/rd``, so a
+    reply on the client topic is no more ours than this one.
+
+    Equal for the same heater and callback, so a resubscription on the same
+    client registers it once.
+    """
+
+    mac_address: str
+    callback: DeviceKeyedScheduleCallback
+
+    def __call__(self, topic: str, message: dict[str, Any]) -> None:
+        if not topic.endswith(_DEVICE_KEYED_SCHEDULE_SUFFIX):
+            return
+        data = get_response_data(message, None)
+        if not isinstance(data, dict) or "reservation" not in data:
+            return
+        try:
+            schedule = ReservationSchedule.model_validate(data)
+        except ValueError as err:  # pydantic's ValidationError included
+            _LOGGER.warning(
+                "Ignoring an unreadable reservation list from %s: %s",
+                self.mac_address,
+                type(err).__name__,
+            )
+            return
+        _LOGGER.debug(
+            "Received the reservation list of %s on its device topic",
+            self.mac_address,
+        )
+        self.callback(self.mac_address, schedule)
+
+
 class NWP500MqttManager:
     """Class to manage MQTT connection and events."""
 
@@ -120,6 +198,7 @@ class NWP500MqttManager:
         on_reconnected: Callable[[], None] | None = None,
         on_reconnection_failed: Callable[[int], None] | None = None,
         ha_instance_id: str | None = None,
+        on_raw_status: RawStatusCallback | None = None,
     ) -> None:
         """Initialize the MQTT manager."""
         self.loop = hass_loop
@@ -134,6 +213,7 @@ class NWP500MqttManager:
         self._on_energy_usage_callback = on_energy_usage
         self._on_diagnostics_callback = on_diagnostics
         self._on_recirculation_schedule_callback = on_recirculation_schedule
+        self._on_raw_status_callback = on_raw_status
         self._on_reconnected_callback = on_reconnected
 
         self._on_reconnection_failed_callback = on_reconnection_failed
@@ -425,12 +505,28 @@ class NWP500MqttManager:
                 device,
                 self._on_device_feature_update_direct,
             )
+            if self._on_raw_status_callback is not None:
+                # The same messages, unparsed: the simulator's record
+                # keeps them as the heater sent them.
+                await self.mqtt_client.subscribe_device(
+                    device,
+                    _RawStatusHandler(
+                        mac_address, self._on_raw_status_callback
+                    ),
+                )
             # Subscribe to reservation responses using the typed API.
             # The library handles topic construction and response parsing.
             await self.mqtt_client.subscribe_reservation_response(
                 device,
                 lambda schedule: self._on_reservation_schedule(
                     mac_address, schedule
+                ),
+            )
+            # The same replies when the heater sends them on its own topic.
+            await self.mqtt_client.subscribe_device(
+                device,
+                _DeviceKeyedScheduleHandler(
+                    mac_address, self._on_reservation_schedule
                 ),
             )
             # Subscribe to TOU responses using the typed API (symmetric with

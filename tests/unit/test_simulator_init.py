@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import sys
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -40,6 +41,8 @@ _PLATFORMS = [
     Platform.SWITCH,
     Platform.NUMBER,
 ]
+# With the simulator on: its Calibrate simulator button too.
+_SIMULATOR_PLATFORMS = [*_PLATFORMS, Platform.BUTTON]
 
 # Everything the simulator imports that an install without it may lack.
 _HEAVY = (
@@ -191,7 +194,7 @@ async def test_the_simulator_starts_after_the_platforms_in_the_background(
         # Set-up is done, and the heater's platforms are forwarded, before
         # the simulator has started.
         mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
-            mock_entry, _PLATFORMS
+            mock_entry, _SIMULATOR_PLATFORMS
         )
         setup.assert_not_awaited()
         # Its inputs enabled and retired entities removed before the
@@ -424,8 +427,17 @@ async def test_it_removes_the_entities_it_no_longer_makes(hass: HomeAssistant):
 
 
 async def _leftovers(
-    hass: HomeAssistant, hass_storage: dict, entry: MockConfigEntry
+    hass: HomeAssistant,
+    hass_storage: dict,
+    entry: MockConfigEntry,
+    tmp_path: Path,
 ) -> tuple[er.RegistryEntry, er.RegistryEntry]:
+    # The heaters' records, in this test's own directory.
+    hass.config.config_dir = str(tmp_path)
+    heater = _record_directory(hass, entry) / "aabbccddeeff" / "statuses"
+    await hass.async_add_executor_job(
+        lambda: heater.mkdir(parents=True, exist_ok=True)
+    )
     registry = er.async_get(hass)
     simulated = registry.async_get_or_create(
         "sensor", DOMAIN, f"{MAC}_simulator_heating", config_entry=entry
@@ -442,16 +454,18 @@ async def _leftovers(
         translation_key="simulator_start_failed",
         translation_placeholders={"reason": "x"},
     )
+    key = f"nwp500.simulator_calibration.{entry.entry_id}"
+    hass_storage[key] = {"version": 1, "key": key, "data": {"heaters": {}}}
     return simulated, other
 
 
 @pytest.mark.asyncio
 async def test_switching_it_off_removes_what_it_left(
-    hass: HomeAssistant, hass_storage
+    hass: HomeAssistant, hass_storage, tmp_path
 ):
     entry = MockConfigEntry(domain=DOMAIN, options={"simulator_enabled": False})
     entry.add_to_hass(hass)
-    simulated, other = await _leftovers(hass, hass_storage, entry)
+    simulated, other = await _leftovers(hass, hass_storage, entry, tmp_path)
 
     with patch.object(hass.config_entries, "async_reload", AsyncMock()):
         await async_reload_entry(hass, entry)
@@ -462,33 +476,48 @@ async def test_switching_it_off_removes_what_it_left(
     assert not ir.async_get(hass).async_get_issue(
         DOMAIN, f"simulator_start_failed_{entry.entry_id}"
     )
+    # Its calibration goes too, and the heaters' records.
+    assert f"nwp500.simulator_calibration.{entry.entry_id}" not in hass_storage
+    assert not _record_directory(hass, entry).exists()
 
 
 @pytest.mark.asyncio
-async def test_a_reload_with_it_on_keeps_it(hass: HomeAssistant, hass_storage):
+async def test_a_reload_with_it_on_keeps_it(
+    hass: HomeAssistant, hass_storage, tmp_path
+):
     entry = MockConfigEntry(domain=DOMAIN, options={"simulator_enabled": True})
     entry.add_to_hass(hass)
-    simulated, _ = await _leftovers(hass, hass_storage, entry)
+    simulated, _ = await _leftovers(hass, hass_storage, entry, tmp_path)
 
     with patch.object(hass.config_entries, "async_reload", AsyncMock()):
         await async_reload_entry(hass, entry)
 
     assert er.async_get(hass).async_get(simulated.entity_id) is not None
+    assert f"nwp500.simulator_calibration.{entry.entry_id}" in hass_storage
+    assert _record_directory(hass, entry).exists()
 
 
 @pytest.mark.asyncio
 async def test_removing_the_entry_removes_its_repairs_issue(
-    hass: HomeAssistant, hass_storage
+    hass: HomeAssistant, hass_storage, tmp_path
 ):
     entry = MockConfigEntry(domain=DOMAIN, options={"simulator_enabled": True})
     entry.add_to_hass(hass)
-    await _leftovers(hass, hass_storage, entry)
+    await _leftovers(hass, hass_storage, entry, tmp_path)
 
     await async_remove_entry(hass, entry)
 
     assert not ir.async_get(hass).async_get_issue(
         DOMAIN, f"simulator_start_failed_{entry.entry_id}"
     )
+    assert f"nwp500.simulator_calibration.{entry.entry_id}" not in hass_storage
+    assert not _record_directory(hass, entry).exists()
+
+
+def _record_directory(hass: HomeAssistant, entry: MockConfigEntry) -> Path:
+    from custom_components.nwp500.const import simulator_record_directory
+
+    return simulator_record_directory(hass, entry.entry_id)
 
 
 _ACTIONS = (

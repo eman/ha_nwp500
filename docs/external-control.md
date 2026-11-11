@@ -160,9 +160,10 @@ to the minute.
 Every mode is applied as given; what it does is your scheduler's to know.
 The heater skips entries during Vacation, so a later entry of the plan does
 not end it. A power-off entry carries the reservation mode 5 (6 before
-nwp500-python 9.5.0). Whether such an entry powers the heater off is
-untested, and the mode command with 6 switched the unit tested to Energy
-Saver (#160).
+nwp500-python 9.5.0). On the heater tested, such an entry powered it off
+at its minute, and the heater kept its own setpoint, not the entry's; the
+next step's entry turned it on again (spec section 8.3). The mode command
+with 6 switched the unit tested to Energy Saver (#160).
 
 ### Commands
 
@@ -250,8 +251,9 @@ and 22:00. If Home Assistant stops, the heater still runs them. More in
   the entry limit.
 - **One enabled entry per minute.** A plan entry that would share a weekday
   and minute with another enabled entry moves a minute later, with the
-  warning `moved_1_min`. It may share one with a switched-off entry: the
-  device fires only the enabled one.
+  warning `moved_1_min`, and stays until it fires, after its step has
+  begun. It may share one with a switched-off entry: the device fires
+  only the enabled one.
 - **Replacing a plan.** Entries the new plan also wants are kept. The segment
   in force gets an entry now only if the heater reports a different mode or
   setpoint, a person's change included. A new plan also puts back an entry
@@ -315,10 +317,18 @@ Live mode writes the plan into the heater's reservation list.
 - **Read-back.** After each entry's minute, plus the poll interval and a
   minute, the heater's setpoint and mode are compared with the entry's,
   once. A difference makes the segment `failed` with
-  `not_applied_on_device`, a mode held by a TOU window included.
+  `not_applied_on_device`, a mode held by a TOU window included. A
+  power-off entry is checked by its mode alone, since the heater keeps its
+  own setpoint while off.
 - **Statuses** become `pending`, `programmed`, `in_force`, `failed` and
   `removed`, and the acknowledgement's state `programmed`,
-  `partly_programmed` or `pending`.
+  `partly_programmed` or `pending`. A segment is `in_force` from its
+  entry's minute, before read-back, so one whose entry moved past an
+  occupied minute stays `programmed` until it fires; read-back can then
+  turn it `failed`.
+  A cleanup write, one that only removes fired entries, waits for their
+  read-back (or 15 minutes without a status); any other write removes a
+  fired entry at once, unchecked.
 - **People's changes.** An entry a person deletes is not written again
   while its plan is in force. If it would have put a segment in force (its
   plan entry, or the near-term entry of one already begun), that segment is

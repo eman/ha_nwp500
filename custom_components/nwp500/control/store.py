@@ -53,12 +53,17 @@ class ControlStore:
         return dict(record) if record else None
 
     async def async_set_intent(
-        self, mac_address: str, document: dict[str, Any], received_at: str
+        self,
+        mac_address: str,
+        document: dict[str, Any],
+        received_at: str,
+        source: str | None = None,
     ) -> None:
-        """Remember the last accepted document."""
+        """Remember the last accepted document, and the entity it came from."""
         self._device(mac_address)["intent"] = {
             "document": document,
             "received_at": received_at,
+            "source": source,
         }
         await self._store.async_save(self._data)
 

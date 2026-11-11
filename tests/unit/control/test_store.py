@@ -17,7 +17,7 @@ async def test_round_trip(hass: HomeAssistant, hass_storage: dict):
     assert store.stored_intent(MAC) is None
     assert store.stored_engine(MAC) is None
 
-    await store.async_set_intent(MAC, {"intent_id": "i-1"}, "t")
+    await store.async_set_intent(MAC, {"intent_id": "i-1"}, "t", "sensor.i")
     await store.async_set_engine(MAC, {"owned": []})
 
     again = ControlStore(hass, "entry1")
@@ -25,6 +25,7 @@ async def test_round_trip(hass: HomeAssistant, hass_storage: dict):
     assert again.stored_intent(MAC) == {
         "document": {"intent_id": "i-1"},
         "received_at": "t",
+        "source": "sensor.i",
     }
     assert again.stored_engine(MAC) == {"owned": []}
     assert hass_storage[storage_key("entry1")]["data"]["devices"][MAC]["engine"]
