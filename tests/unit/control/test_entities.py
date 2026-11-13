@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -303,6 +303,19 @@ class TestSensors:
         control.async_add_listener.assert_called_once_with(
             sensor.async_write_ha_state
         )
+
+    @pytest.mark.asyncio
+    async def test_a_coordinator_update_writes_nothing(
+        self, hass: HomeAssistant, control
+    ):
+        """Only the controller's pass writes, never a write in progress."""
+        sensor = ControlInSyncBinarySensor(control, "in_sync")
+        sensor.hass = hass
+        sensor.entity_id = "binary_sensor.test_in_sync"
+        sensor.platform = MagicMock()
+        with patch.object(sensor, "async_write_ha_state") as write:
+            sensor._handle_coordinator_update()
+        write.assert_not_called()
 
 
 class TestBinarySensors:
