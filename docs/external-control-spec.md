@@ -775,6 +775,9 @@ Documented in `nwp500-python` `docs/how-to/schedule-operation.rst`,
   6). A low setpoint works in a window. Read-back reports the mode the heater
   reports (section 5.11): a held mode is `not_applied_on_device`. When the
   windows fall is the scheduler's to know.
+- **A mode in force when a TOU window starts does not last into it.** The
+  heater switches to Heat Pump at the window's start, with no entry due
+  (section 8.3, TOU window start).
 - **The TOU recovery cap.** Under TOU, a recovery can stop short of the
   setpoint by design (`nwp500-python`
   `docs/explanation/tou-recovery-cap.rst`). A scheduler should not wait for
@@ -1026,6 +1029,7 @@ a test plan entity and the scheduler's test runner.
 | Test | What was published | Result |
 |---|---|---|
 | Power-off | A `power_off` segment at 131.0 °F at 15:25 PST, then `heat_pump` at 135.5 °F at 15:28 | The write was confirmed, with the entry's mode 5 on the list. At 15:25:02 the heater powered off: power off and the operation setting `POWER_OFF`. It kept its own setpoint, 143 °F, not the entry's. At 15:28:01 the next entry turned it on, in Heat Pump at 135.5 °F. Read-back compared the setpoint too and marked the power-off segment `not_applied_on_device`; a `power_off` entry is now checked by its mode alone (section 5.11) |
+| TOU window start | Not a test: the scheduler's own plan during the multi-day live run on b041d41. On 2026-11-11 an entry at 07:40 PST set Energy Saver at 141.8 °F, and later entries asked for Energy Saver again at 17:33, 17:59, 18:29, 18:34, 19:00 and 19:35, inside the 16:00–20:59 peak window, with TOU on | At 07:40:01 the heater switched to Energy Saver. At 16:00:01, with no entry due, it switched to Heat Pump. Every write inside the window was confirmed, and the heater stayed in Heat Pump at 142 °F at each entry's minute; read-back marked each one `not_applied_on_device` (section 5.8). A Heat Pump entry at 19:40 came before the window ended, so this run does not show whether a held Energy Saver would have applied at 21:00 |
 
 ---
 
