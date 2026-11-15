@@ -413,12 +413,19 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **A reconnect no longer brings back old messages.** The MQTT
+  connection kept a persistent session, so after time away the broker
+  replayed what it had queued, and an old reply could be taken for the
+  heater's current state: on a test heater a 20-minute-old reservation list
+  made External control report a plan entry as removed by a person. Each
+  connection is now a clean session. nwp500-python restores the
+  subscriptions on every reconnect.
 - **The MQTT client ID stays the same across restarts.** A start that
   restored the stored tokens skipped sign-in, had no user info, and
-  connected with a random client ID, so the broker's session for the
-  stable one was not resumed. The account's `user_seq` is now stored with
-  the tokens and used when sign-in is skipped. An existing installation
-  stores it at its next sign-in.
+  connected with a random client ID instead of the installation's own.
+  The account's `user_seq` is now stored with the tokens and used when
+  sign-in is skipped. An existing installation stores it at its next
+  sign-in.
 - **Reservation lists the heater sends on its own topic are read.** The
   heater is asked to answer a list read or write on the reading client's
   topic, and sometimes answers on its own topic instead. The library
