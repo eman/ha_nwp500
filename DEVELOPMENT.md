@@ -57,7 +57,7 @@ Device Control: HA Command → MQTT Message → Device Response → Status Updat
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install -r requirements.txt --group dev --overrides test-overrides.txt
+uv pip install -r requirements.txt --group dev
 ```
 
 The dev environment's Home Assistant comes from the test harness, which
@@ -295,7 +295,7 @@ curl -H "Authorization: Bearer $(cat token.txt)" \
 ## Common Issues
 
 ### Import Errors
-- Ensure dependencies: `uv pip install -r requirements.txt --group dev --overrides test-overrides.txt`
+- Ensure dependencies: `uv pip install -r requirements.txt --group dev`
 
 ### Type Checking Failures
 - Run `tox -e mypy --recreate` to reset cache

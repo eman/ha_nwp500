@@ -28,10 +28,10 @@ WORKDIR /workspaces/ha_nwp500
 # Copy dependency declarations first for better caching.
 # requirements.txt holds the runtime pins; the dev tooling lives in
 # pyproject.toml's [dependency-groups].
-COPY requirements.txt pyproject.toml test-overrides.txt ./
+COPY requirements.txt pyproject.toml ./
 
 # Install Python dependencies and tools using uv
-RUN uv pip install --system -r requirements.txt --group dev --overrides test-overrides.txt \
+RUN uv pip install --system -r requirements.txt --group dev \
     && uv pip install --system \
     black \
     ipython
