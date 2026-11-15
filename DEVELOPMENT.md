@@ -253,7 +253,6 @@ Bump them all with:
 
 ```bash
 python scripts/update_nwp500_version.py <new-version>
-python scripts/update_nwp500_version.py --awsiotsdk <new-version>   # if needed
 ```
 
 The current version is read from `manifest.json`, so you do not pass it.

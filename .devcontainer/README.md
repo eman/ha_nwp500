@@ -25,8 +25,7 @@ This directory contains the configuration for developing the Navien NWP500 Home 
 ### Python Packages
 All packages from `requirements.txt` (runtime pins) and the `dev`
 dependency group in `pyproject.toml` (tooling) are pre-installed:
-- `nwp500-python` - Core library for Navien device communication
-- `awsiotsdk` - AWS IoT SDK for MQTT
+- `nwp500-python` - Core library for Navien device communication (brings `awscrt` for MQTT)
 - `homeassistant` - Home Assistant core
 - `mypy`, `basedpyright` - Type checkers
 - `pytest` and related testing tools

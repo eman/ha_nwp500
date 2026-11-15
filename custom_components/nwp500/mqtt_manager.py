@@ -52,8 +52,8 @@ _RECONNECTION_FAILED_EVENT = "reconnection_failed"
 _MAX_CREDENTIAL_FAILURES: Final = 3
 
 
-# Top-level packages of the AWS SDK the MQTT stack runs on.
-_AWS_SDK_PACKAGES = frozenset({"awscrt", "awsiot"})
+# Top-level package of the AWS SDK the MQTT stack runs on.
+_AWS_SDK_PACKAGES = frozenset({"awscrt"})
 
 
 def _is_credential_failure(err: BaseException) -> bool:
@@ -86,7 +86,7 @@ def _is_credential_failure(err: BaseException) -> bool:
 
 
 def _raised_inside_aws_sdk(err: BaseException) -> bool:
-    """Whether `err` was raised from awscrt/awsiot module code.
+    """Whether `err` was raised from awscrt module code.
 
     Used to tell an AWS SDK stale-module condition apart from an ordinary
     bug in this integration. Walks the traceback rather than matching the
@@ -423,7 +423,7 @@ class NWP500MqttManager:
                     )
             return bool(connected)
         except AttributeError as err:
-            # An AttributeError raised from inside awscrt/awsiot means the AWS
+            # An AttributeError raised from inside awscrt means the AWS
             # SDK was upgraded while Home Assistant was already running: the
             # process holds modules from the old version alongside modules
             # imported after the upgrade, so new code reads attributes the old
@@ -436,7 +436,7 @@ class NWP500MqttManager:
             if _raised_inside_aws_sdk(err):
                 _LOGGER.error(
                     "MQTT connection failed: %s. This usually means the AWS "
-                    "SDK (awscrt/awsiotsdk) was upgraded while Home Assistant "
+                    "SDK (awscrt) was upgraded while Home Assistant "
                     "was running, leaving a mix of old and new modules in "
                     "this process. Restart Home Assistant to resolve it. If "
                     "it persists after a restart, please report it at "
