@@ -526,6 +526,7 @@ class NWP500TankCard extends HTMLElement {
         <div class="legend">
           <span><i style="background:${COLORS.upper}"></i>Upper</span>
           <span><i style="background:${COLORS.lower}"></i>Lower</span>
+          <span><i class="setpoint"></i>Setpoint</span>
           <span><i class="dash"></i>Modelled</span>
           <span><i class="heat"></i>Heating</span>
           <span class="unit">${esc(unit)}</span>
@@ -553,6 +554,7 @@ class NWP500TankCard extends HTMLElement {
       .legend span { display: inline-flex; align-items: center; gap: 4px; }
       .legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
       .legend i.dash { background: repeating-linear-gradient(90deg, var(--secondary-text-color) 0 4px, transparent 4px 7px); }
+      .legend i.setpoint { height: 2px; background: repeating-linear-gradient(90deg, ${COLORS.setpoint} 0 2px, transparent 2px 5px); }
       .legend i.heat { height: 10px; background: ${COLORS.heating}; }
       .legend .unit { margin-left: auto; }
       .note { font-size: 11px; color: var(--secondary-text-color); margin-top: 4px; }
