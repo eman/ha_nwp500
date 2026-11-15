@@ -331,12 +331,16 @@ class NWP500MqttManager:
 
             # Token validation is deferred to connect(), while construction
             # focuses on MQTT session configuration.
-            # Use clean_session=False so the broker preserves subscriptions
-            # across reconnections.  Combined with the stable client_id above,
-            # this means a reconnect resumes the existing broker-side session
-            # (session_present=True) and subscriptions are never lost, avoiding
-            # the AWS_ERROR_MQTT_CANCELLED_FOR_CLEAN_SESSION errors that occur
-            # when the broker discards a clean-session on every reconnect.
+            # clean_session=True: every connection starts a new broker-side
+            # session. A resumed session replays the QoS 1 messages queued
+            # while this client was away, and old replies among them were
+            # taken for the heater's current state (a reservation list 20
+            # minutes old flagged a plan entry as removed). Subscriptions
+            # don't need the broker's session: nwp500-python restores them
+            # on every reconnect and retries those that fail (9.13.0+), and
+            # a publish cancelled by a reconnect is queued and resent
+            # (9.2.0+). The stable client_id above still keeps one broker
+            # identity per installation.
             #
             # send_session_end_on_disconnect is off. As of nwp500-python
             # 9.4.0, disconnect() publishes the NaviLink app's ``st/end``
@@ -348,7 +352,7 @@ class NWP500MqttManager:
             # a second Home Assistant instance -- is not known. Not sending
             # it is exactly what every earlier version did.
             config_kwargs: dict[str, Any] = {
-                "clean_session": False,
+                "clean_session": True,
                 "send_session_end_on_disconnect": False,
             }
             if client_id:

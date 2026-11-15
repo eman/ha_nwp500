@@ -695,7 +695,7 @@ async def test_setup_client_id_includes_ha_instance_id(
 
     assert mock_mqtt_client.config is not None
     assert mock_mqtt_client.config.client_id == "navien-ha-36283-abcd1234"
-    assert mock_mqtt_client.config.clean_session is False
+    assert mock_mqtt_client.config.clean_session is True
 
 
 @pytest.mark.asyncio
@@ -716,7 +716,7 @@ async def test_setup_client_id_falls_back_without_ha_instance_id(
 
     assert mock_mqtt_client.config is not None
     assert mock_mqtt_client.config.client_id == "navien-ha-36283"
-    assert mock_mqtt_client.config.clean_session is False
+    assert mock_mqtt_client.config.clean_session is True
 
 
 @pytest.mark.parametrize("current_user_seq", [None, 0])
@@ -770,10 +770,14 @@ async def test_setup_client_id_prefers_the_signed_in_user_seq(
 
 
 @pytest.mark.asyncio
-async def test_setup_clean_session_false_without_user_seq(
+async def test_setup_clean_session_without_user_seq(
     mock_auth_client, mock_mqtt_client
 ):
-    """clean_session=False must be set even when no user info is available."""
+    """Every connection is a clean session, with or without user info.
+
+    A resumed session replays the messages queued while the client was
+    away, and old replies were taken for the heater's current state.
+    """
     mock_auth_client.current_user = None
 
     manager = NWP500MqttManager(
@@ -785,7 +789,7 @@ async def test_setup_clean_session_false_without_user_seq(
     await manager.setup()
 
     assert mock_mqtt_client.config is not None
-    assert mock_mqtt_client.config.clean_session is False
+    assert mock_mqtt_client.config.clean_session is True
 
 
 def _error_from_module(module_name, exc):
@@ -1330,7 +1334,7 @@ async def test_setup_does_not_send_session_end_on_disconnect(
 
     assert mock_mqtt_client.config.send_session_end_on_disconnect is False
     # The session settings it always had are untouched.
-    assert mock_mqtt_client.config.clean_session is False
+    assert mock_mqtt_client.config.clean_session is True
 
 
 @pytest.mark.asyncio
