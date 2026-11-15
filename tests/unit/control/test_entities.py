@@ -656,7 +656,7 @@ class TestRepublish:
 
     @staticmethod
     async def _add_entities(hass: HomeAssistant, control) -> list[str]:
-        from pytest_homeassistant_custom_component.common import (
+        from pytest_homeassistant.common import (
             MockEntityPlatform,
         )
 

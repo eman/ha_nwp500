@@ -282,7 +282,7 @@ class TestCopilotReview:
     ):
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from pytest_homeassistant_custom_component.common import MockConfigEntry
+        from pytest_homeassistant.common import MockConfigEntry
 
         from custom_components.nwp500.const import DOMAIN
         from custom_components.nwp500.control import ControlFeature

@@ -21,7 +21,7 @@ class TestControlLeftovers:
     async def _entry_with_leftovers(self, hass, options):
         from homeassistant.helpers import entity_registry as er
         from homeassistant.helpers.storage import Store
-        from pytest_homeassistant_custom_component.common import (
+        from pytest_homeassistant.common import (
             MockConfigEntry,
         )
 

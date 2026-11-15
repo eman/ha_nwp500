@@ -19,7 +19,7 @@ from nwp500 import sim
 from nwp500.sim import codec
 from nwp500.sim.profile import heater_profile
 from nwp500.sim_live import DEFAULT_PARAMS_NOTE
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,

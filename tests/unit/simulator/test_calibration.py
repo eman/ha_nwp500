@@ -25,7 +25,7 @@ from nwp500.sim.params import (
     params_to_document,
 )
 from nwp500.sim_home_assistant import HeaterHistory, RecordInputs
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.nwp500 import NWP500ServiceHandler
 from custom_components.nwp500.const import (
@@ -659,7 +659,7 @@ async def test_the_calibration_entities_stay_available(
 async def test_the_hourly_check_runs_until_the_simulator_stops(
     hass: HomeAssistant, hass_storage, coordinator, freezer
 ):
-    from pytest_homeassistant_custom_component.common import (
+    from pytest_homeassistant.common import (
         async_fire_time_changed,
     )
 

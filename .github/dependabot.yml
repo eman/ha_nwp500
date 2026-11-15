@@ -36,10 +36,16 @@ updates:
     # Only update to compatible versions
     versioning-strategy: increase
     ignore:
-      # pandas 3+ needs numpy>=2.3.3 on Python 3.14, but the Home Assistant
-      # test harness pins numpy==2.3.2. Revisit when that pin is compatible.
+      # numpy and pandas in the sim group mirror Home Assistant's
+      # package_constraints.txt, which is what users' Home Assistant
+      # installs. They move by hand when that file moves. (pandas 3+ also
+      # needs numpy>=2.3.3 on Python 3.14.)
+      - dependency-name: "numpy"
       - dependency-name: "pandas"
-        versions: [">=3.0.0"]
+      # pytest-homeassistant pins pytest exactly, matched to its Home
+      # Assistant version. pytest moves when pytest-homeassistant does; a
+      # pytest bump on its own cannot resolve.
+      - dependency-name: "pytest"
       # The homeassistant floor in the mypy and basedpyright dependency
       # groups mirrors the minimum hacs.json declares for users. Type
       # checking against the oldest supported release is the point: it

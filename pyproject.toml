@@ -8,20 +8,20 @@
 # what Home Assistant actually installs.
 #
 # Groups mirror the tox environments so each one installs exactly what it
-# needs: the test env pins Home Assistant through
-# pytest-homeassistant-custom-component, while the type checkers resolve it
-# directly.
+# needs: the test env pins Home Assistant through pytest-homeassistant (Home
+# Assistant core's test package, released for each Home Assistant version),
+# while the type checkers resolve it directly.
 #
 # Full local setup:
-#   uv pip install -r requirements.txt --group dev --overrides test-overrides.txt
+#   uv pip install -r requirements.txt --group dev
 [dependency-groups]
 # The hot water simulator's packages (nwp500-python's `sim` extra). The
 # integration installs them only when the simulator is switched on
 # (simulator_deps.py); the test and type-check envs carry them so the
-# simulator's code is tested and checked. pandas is pinned as Home
-# Assistant's package_constraints.txt pins it; numpy comes from
-# pytest-homeassistant-custom-component's pins.
+# simulator's code is tested and checked. numpy and pandas are pinned as
+# Home Assistant's package_constraints.txt pins them.
 sim = [
+    "numpy==2.3.2",
     "pandas==2.3.3",
     "scipy>=1.18.1",
 ]
@@ -29,9 +29,9 @@ sim = [
 # integration must run with the simulator off and pandas and scipy absent.
 test-nosim = [
     "jsonschema>=4.26.0",
-    "pytest>=9.2.0",
+    "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
-    "pytest-homeassistant-custom-component>=0.13.375",
+    "pytest-homeassistant>=2026.11.1",
     "pytest-timeout>=2.4.0",
 ]
 test = [
@@ -126,6 +126,7 @@ python_functions = "test_*"
 testpaths = ["tests"]
 minversion = "7.0"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 timeout = 300
 timeout_method = "thread"
 log_cli = false
@@ -135,6 +136,10 @@ log_cli_date_format = "%Y-%m-%d %H:%M:%S"
 # Coverage flags intentionally live in tox's coverage env, not here, so an
 # ad-hoc `pytest tests/unit/test_sensor.py` does not fail the coverage gate.
 addopts = [
+    # pytest-homeassistant installs its httpx alias before respx is imported,
+    # so respx's own pytest plugin stays off (its README).
+    "-p",
+    "no:respx",
     "-v",
     "-l",
     "-ra",

@@ -23,9 +23,6 @@ def mock_hass() -> MagicMock:
     return hass
 
 
-pytest_plugins = ["pytest_homeassistant_custom_component"]
-
-
 @pytest.fixture(autouse=True)
 def set_testing_env() -> Generator[None]:
     """Set TESTING environment variable for all tests."""
