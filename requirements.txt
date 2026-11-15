@@ -7,8 +7,5 @@
 # Bump with: python scripts/update_nwp500_version.py <new-version>
 # Development tooling lives in requirements-dev.txt.
 
-# Core integration library
-nwp500-python==9.13.0
-
-# AWS IoT SDK for MQTT communication (pulls awscrt)
-awsiotsdk==1.31.0
+# Core integration library (brings awscrt, the MQTT client it builds on)
+nwp500-python==9.13.1

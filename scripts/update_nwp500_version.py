@@ -118,33 +118,19 @@ def update_changelog(path: Path, package: str, new: str) -> bool:
 
 
 def main() -> int:
-    """Bump one or both pinned dependencies."""
+    """Bump the nwp500-python pin."""
     args = sys.argv[1:]
     if not args or args[0] in {"-h", "--help"}:
         print(
-            "Usage: update_nwp500_version.py <new-version> "
-            "[--awsiotsdk <new-version>]\n\n"
+            "Usage: update_nwp500_version.py <new-version>\n\n"
             "The current version is read from manifest.json; do not pass it."
         )
         return 0 if args else 1
 
-    targets: dict[str, str] = {}
-    if VERSION.match(args[0]):
-        targets["nwp500-python"] = args[0]
-        args = args[1:]
-    if args[:1] == ["--awsiotsdk"] and len(args) == 2:
-        if not VERSION.match(args[1]):
-            print(f"Invalid version: {args[1]}", file=sys.stderr)
-            return 1
-        targets["awsiotsdk"] = args[1]
-        args = []
-    if args or not targets:
-        print(
-            "Usage: update_nwp500_version.py <new-version> "
-            "[--awsiotsdk <new-version>]",
-            file=sys.stderr,
-        )
+    if len(args) != 1 or not VERSION.match(args[0]):
+        print("Usage: update_nwp500_version.py <new-version>", file=sys.stderr)
         return 1
+    targets = {"nwp500-python": args[0]}
 
     if not MANIFEST.is_file():
         print(

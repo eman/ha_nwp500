@@ -278,7 +278,7 @@
 - **A renamed plan entity is followed**, and a missing one raises a
   Repairs issue until it is back.
 
-- **Library Dependency: nwp500-python**: Upgraded to 9.13.0. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.13.1. What the
   integration did before is kept; the library's corrections change these:
   - **The simulator's model is replaced.** The tank is stacked layers in
     place of two zones, and the heat pump a performance map fitted on one
@@ -378,6 +378,22 @@
     last change, so an air or humidity sensor that keeps reporting the same
     value stays in use. One that has not reported for an hour is still
     left out.
+  - **`awsiotsdk` is no longer a requirement** (9.13.1). The library
+    builds its MQTT connection with `awscrt` directly and requires it.
+  - **A connection that dies without a disconnect is noticed in about
+    a minute and a half** (9.13.1): the library's MQTT keep-alive default
+    is 60 seconds, down from 1200, and the integration uses the default.
+  - **A status with a code the library doesn't know is kept** (9.13.1),
+    where the whole message used to be dropped and the entities stopped
+    updating. A text sensor shows the code as `UNKNOWN_<code>`, and the
+    operation shows as unknown.
+  - **Reconnects after a token refresh sign with the new credentials**
+    (9.13.1), and a failed resubscribe after a reconnect no longer loses
+    subscriptions.
+  - **Each command carries its own `sessionID`** (9.13.1), which the
+    heater's reply repeats. To see what the heater was sent, set the
+    `nwp500.mqtt.payloads` logger to `debug`: one line per MQTT message,
+    MAC addresses redacted.
 - **Library Dependency: nwp500-python**: Upgraded to 9.4.3. The library
   now checks every reservation entry before a list write, against the
   setpoint range the heater reports, instead of sending it for the heater

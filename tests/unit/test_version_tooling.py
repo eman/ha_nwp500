@@ -169,13 +169,13 @@ def test_rewrite_reports_nothing_for_an_untouched_file(tmp_path):
 
 
 def test_rewrite_only_touches_the_named_package(tmp_path):
-    """An awsiotsdk-only bump must not disturb the library pin."""
+    """Rewriting one package's pin leaves another's alone."""
     target = tmp_path / "requirements.txt"
-    target.write_text("nwp500-python==9.3.0\nawsiotsdk==1.31.0\n")
+    target.write_text("nwp500-python==9.3.0\nother-package==1.31.0\n")
 
-    update.rewrite(target, "awsiotsdk", "1.31.0", "1.32.0")
+    update.rewrite(target, "other-package", "1.31.0", "1.32.0")
 
-    assert target.read_text() == "nwp500-python==9.3.0\nawsiotsdk==1.32.0\n"
+    assert target.read_text() == "nwp500-python==9.3.0\nother-package==1.32.0\n"
 
 
 # ---------------------------------------------------------------------------
@@ -328,20 +328,6 @@ def test_main_is_a_noop_when_already_current(tmp_path, monkeypatch, capsys):
     assert "Library Dependency" not in (root / "CHANGELOG.md").read_text()
 
 
-def test_main_bumps_awsiotsdk_alone(tmp_path, monkeypatch):
-    """--awsiotsdk moves only that pin and leaves the library untouched."""
-    root = _repo(tmp_path, **{"nwp500-python": "9.3.0", "awsiotsdk": "1.31.0"})
-    monkeypatch.chdir(root)
-    monkeypatch.setattr(sys, "argv", ["prog", "--awsiotsdk", "1.32.0"])
-
-    assert update.main() == 0
-
-    requirements = (root / "requirements.txt").read_text()
-    assert "awsiotsdk==1.32.0" in requirements
-    assert "nwp500-python==9.3.0" in requirements
-    assert "awsiotsdk" in (root / "CHANGELOG.md").read_text()
-
-
 def test_main_refuses_to_record_an_upgrade_it_did_not_make(
     tmp_path, monkeypatch, capsys
 ):
@@ -386,7 +372,7 @@ def test_main_rejects_a_malformed_version(tmp_path, monkeypatch):
     """A typo in the target version is refused rather than half-applied."""
     root = _repo(tmp_path, **{"nwp500-python": "9.3.0"})
     monkeypatch.chdir(root)
-    monkeypatch.setattr(sys, "argv", ["prog", "--awsiotsdk", "not-a-version"])
+    monkeypatch.setattr(sys, "argv", ["prog", "not-a-version"])
 
     assert update.main() == 1
 
@@ -401,7 +387,7 @@ def test_main_requires_an_argument(tmp_path, monkeypatch):
 
 def test_main_bump_leaves_the_repo_consistent(tmp_path, monkeypatch):
     """After a bump the pin checker agrees, which is the whole point."""
-    root = _repo(tmp_path, **{"nwp500-python": "9.3.0", "awsiotsdk": "1.31.0"})
+    root = _repo(tmp_path, **{"nwp500-python": "9.3.0"})
     monkeypatch.chdir(root)
     monkeypatch.setattr(sys, "argv", ["prog", "9.4.0"])
 

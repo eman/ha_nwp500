@@ -32,7 +32,7 @@ This is a Home Assistant custom component that provides integration for Navien N
   - **Current Version**: see `custom_components/nwp500/manifest.json` — do
     not restate it here, it goes stale (this line said 9.0.0 while the pin
     was 9.3.0). If a document must name the version, write it as
-    `nwp500-python v9.13.0` so `scripts/check_dependency_pins.py` can verify it
+    `nwp500-python v9.13.1` so `scripts/check_dependency_pins.py` can verify it
   - **Note**: When instructions refer to "adopting a new library version" or "updating the library," they mean updating nwp500-python
 
 ### Home Assistant Integration
@@ -142,7 +142,6 @@ the script; do not hand-edit and do not maintain a checklist of files:
 
 ```bash
 python scripts/update_nwp500_version.py <new-version>
-python scripts/update_nwp500_version.py --awsiotsdk <new-version>   # if needed
 ```
 
 The current version is read from the manifest, so it is not passed in. The

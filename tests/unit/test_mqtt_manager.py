@@ -757,7 +757,7 @@ def _error_from_module(module_name, exc):
 class TestSdkUpgradedDuringStartup:
     """An AttributeError from awscrt means stale modules, not a bad config.
 
-    Home Assistant can install a newer awscrt/awsiotsdk while it is already
+    Home Assistant can install a newer awscrt while it is already
     running. The process then holds the old modules alongside ones imported
     after the upgrade, and new code reads attributes the old classes never
     defined -- observed in the wild as:
@@ -810,7 +810,7 @@ class TestSdkUpgradedDuringStartup:
 
         assert connected is False
         assert "Restart Home Assistant" in caplog.text
-        assert "awscrt/awsiotsdk" in caplog.text
+        assert "SDK (awscrt)" in caplog.text
         # The underlying error is still reported, not swallowed
         assert "_certificate_source" in caplog.text
 
@@ -822,7 +822,7 @@ class TestSdkUpgradedDuringStartup:
         self._patch_failing_client(
             monkeypatch,
             _error_from_module(
-                "awsiot.mqtt_connection_builder",
+                "awscrt.mqtt",
                 AttributeError(
                     "'Foo' object has no attribute '_something_new'"
                 ),
