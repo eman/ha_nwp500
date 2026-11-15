@@ -13,7 +13,7 @@
 # directly.
 #
 # Full local setup:
-#   uv pip install -r requirements.txt --group dev
+#   uv pip install -r requirements.txt --group dev --overrides test-overrides.txt
 [dependency-groups]
 # The hot water simulator's packages (nwp500-python's `sim` extra). The
 # integration installs them only when the simulator is switched on
