@@ -779,7 +779,13 @@ SENSOR_CONFIGS: Final = {
     "current_heat_use": {
         "attr": "current_heat_use",
         "name": "Current heat source",
-        "special": "enum_name",
+        "special": "enum_state",
+        "states": {
+            0: "none",
+            1: "heat_pump",
+            2: "electric",
+            3: "heat_pump_and_electric",
+        },
         "enabled": True,
     },
     # Diagnostic sensors
@@ -1077,19 +1083,30 @@ SENSOR_CONFIGS: Final = {
     "temperature_type": {
         "attr": "temperature_type",
         "name": "Temperature type",
-        "special": "enum_name",
+        "special": "enum_state",
+        "states": {1: "celsius", 2: "fahrenheit"},
         "enabled": False,
     },
     "temp_formula_type": {
         "attr": "temp_formula_type",
         "name": "Temperature formula type",
-        "special": "enum_name",
+        "special": "enum_state",
+        "states": {0: "asymmetric", 1: "standard"},
         "enabled": False,
     },
     "dr_event_status": {
         "attr": "dr_event_status",
         "name": "DR event status",
-        "special": "enum_name",
+        "special": "enum_state",
+        "states": {
+            0: "not_applied",
+            1: "run_normal",
+            2: "shed",
+            3: "load_up",
+            4: "advance_load_up",
+            5: "customer_peak_event",
+            6: "grid_emergency",
+        },
         "enabled": False,
     },
     # 0 unknown, 1 off, 2 on: the device's tri-state flag, not hours.
@@ -1111,7 +1128,13 @@ SENSOR_CONFIGS: Final = {
     "recirculation_operation_mode": {
         "attr": "recirc_operation_mode",
         "name": "Recirculation operation mode",
-        "special": "enum_name",
+        "special": "enum_state",
+        "states": {
+            1: "always_on",
+            2: "weekly",
+            3: "hot_button_only",
+            4: "no_recirculation",
+        },
         "enabled": False,
     },
     "recirculation_model_type_code": {

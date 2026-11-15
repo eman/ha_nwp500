@@ -413,7 +413,13 @@
         "name": "Vacation day elapsed"
       },
       "current_heat_use": {
-        "name": "Current heat source"
+        "name": "Current heat source",
+        "state": {
+          "none": "None",
+          "heat_pump": "Heat pump",
+          "electric": "Electric",
+          "heat_pump_and_electric": "Heat pump and electric"
+        }
       },
       "eev_step": {
         "name": "EEV step"
@@ -527,13 +533,30 @@
         "name": "Air filter alarm elapsed"
       },
       "temperature_type": {
-        "name": "Temperature type"
+        "name": "Temperature type",
+        "state": {
+          "celsius": "Celsius",
+          "fahrenheit": "Fahrenheit"
+        }
       },
       "temp_formula_type": {
-        "name": "Temperature formula type"
+        "name": "Temperature formula type",
+        "state": {
+          "asymmetric": "Asymmetric",
+          "standard": "Standard"
+        }
       },
       "dr_event_status": {
-        "name": "DR event status"
+        "name": "DR event status",
+        "state": {
+          "not_applied": "Not applied",
+          "run_normal": "Run normal",
+          "shed": "Shed",
+          "load_up": "Load up",
+          "advance_load_up": "Advance load up",
+          "customer_peak_event": "Customer peak event",
+          "grid_emergency": "Grid emergency"
+        }
       },
       "dr_override_status": {
         "name": "DR override status"
@@ -545,7 +568,13 @@
         "name": "Recirculation operation reason"
       },
       "recirculation_operation_mode": {
-        "name": "Recirculation operation mode"
+        "name": "Recirculation operation mode",
+        "state": {
+          "always_on": "Always on",
+          "weekly": "Weekly",
+          "hot_button_only": "Hot button only",
+          "no_recirculation": "No recirculation"
+        }
       },
       "recirculation_model_type_code": {
         "name": "Recirculation model type code"

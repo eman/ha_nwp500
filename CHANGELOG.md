@@ -278,7 +278,7 @@
 - **A renamed plan entity is followed**, and a missing one raises a
   Repairs issue until it is back.
 
-- **Library Dependency: nwp500-python**: Upgraded to 9.13.2. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.13.3. What the
   integration did before is kept; the library's corrections change these:
   - **The simulator's model is replaced.** The tank is stacked layers in
     place of two zones, and the heat pump a performance map fitted on one
@@ -397,6 +397,27 @@
   - **A resumed MQTT session drops replayed replies** (9.13.2). The
     integration connects with a clean session, so this changes nothing
     here.
+  - **The heat source's and DR event's zero codes are named for what
+    they are** (9.13.3): no heat source running (`HeatSource.NONE`) and
+    no DR event (`DREvent.NOT_APPLIED`), where both were `UNKNOWN`. The
+    simulator's history reader takes Current heat source's new states
+    below as well as the old ones, so its history reads the same across
+    the change.
+- **Five sensors show their states in words.** Current heat source, DR
+  event status, Recirculation operation mode, Temperature type and
+  Temperature formula type were text sensors showing the library's enum
+  names (`HEATPUMP`, `UNKNOWN`). They are now enum sensors with translated
+  states: Current heat source reads None, Heat pump, Electric, or Heat
+  pump and electric. It showed `UNKNOWN` whenever the heater wasn't
+  heating. The recorded states are lowercase keys (`none`, `heat_pump`,
+  `electric`, `heat_pump_and_electric`; `not_applied`, `run_normal`,
+  `shed`, `load_up`, `advance_load_up`, `customer_peak_event`,
+  `grid_emergency`; `always_on`, `weekly`, `hot_button_only`,
+  `no_recirculation`; `celsius`, `fahrenheit`; `asymmetric`, `standard`),
+  so an automation that compares these sensors' states to the old names
+  needs the new keys. A code with no state, such as the recirculation
+  mode's protocol "unknown" or a code the library doesn't know, reads
+  unknown.
 - **Library Dependency: nwp500-python**: Upgraded to 9.4.3. The library
   now checks every reservation entry before a list write, against the
   setpoint range the heater reports, instead of sending it for the heater
