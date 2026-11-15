@@ -59,7 +59,7 @@ and will not import on older interpreters, and `scripts/` is formatted for
   - XML coverage report for external tools
 
 ### 9. HACS Validation
-- **Purpose**: Validate the repository against HACS requirements
+- **Purpose**: Validate the repository against HACS requirements, which the Home Assistant Marketplace's catalog requires
 - **Defined in**: `.github/workflows/hacs.yaml`
 
 ### 10. All Checks Passed
