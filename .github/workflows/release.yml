@@ -29,7 +29,7 @@ jobs:
           if [ "$VERSION" != "$MANIFEST_VERSION" ]; then
             echo "Tag v${VERSION} does not match manifest.json version" \
               "${MANIFEST_VERSION}."
-            echo "HACS installs the manifest version, so releasing this" \
+            echo "The Marketplace installs the manifest version, so releasing this" \
               "would ship a mismatched build."
             exit 1
           fi

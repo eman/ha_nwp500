@@ -1269,7 +1269,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     # Serve the bundled Lovelace card JS from the component's www/ directory.
     # This makes the custom card available without users needing to manually
-    # register it as a Lovelace resource or install it separately via HACS.
+    # register it as a Lovelace resource or install it separately from the
+    # Marketplace.
     from homeassistant.components.http import StaticPathConfig
 
     # (url, path, serve_as_js). Stat-ing these touches the filesystem, so the
