@@ -1245,3 +1245,85 @@ class TestRecirculationScheduleSensorCreation:
         assert [type(e) for e in batches[1]] == [
             NWP500RecirculationScheduleSensor
         ]
+
+
+_ENUM_STATE_KEYS = (
+    "current_heat_use",
+    "dr_event_status",
+    "recirculation_operation_mode",
+    "temperature_type",
+    "temp_formula_type",
+)
+
+
+@pytest.mark.parametrize("key", _ENUM_STATE_KEYS)
+def test_enum_state_sensors_are_enum_sensors_with_translated_states(key):
+    """Each one is an enum sensor whose options all have a translation."""
+    import json
+    from pathlib import Path
+
+    from homeassistant.components.sensor import SensorDeviceClass
+
+    from custom_components.nwp500.sensor import create_sensor_descriptions
+
+    desc = {d.key: d for d in create_sensor_descriptions()}[key]
+    assert desc.device_class == SensorDeviceClass.ENUM
+    assert desc.options
+    component = Path(__file__).parents[2] / "custom_components" / "nwp500"
+    for name in ("strings.json", "translations/en.json"):
+        states = json.loads((component / name).read_text())["entity"]["sensor"][
+            key
+        ]["state"]
+        assert sorted(states) == sorted(desc.options), name
+
+
+@pytest.mark.parametrize(
+    ("code", "expected"),
+    [
+        (0, "none"),
+        (1, "heat_pump"),
+        (2, "electric"),
+        (3, "heat_pump_and_electric"),
+        (9, None),
+        (None, None),
+    ],
+)
+def test_heat_source_reads_its_state_by_code(
+    code,
+    expected,
+    mock_coordinator: MagicMock,
+    mock_device: MagicMock,
+    mock_device_status: MagicMock,
+):
+    """0 is no heat source running, not unknown; a code with no state is."""
+    from nwp500.enums import HeatSource
+
+    from custom_components.nwp500.sensor import create_sensor_descriptions
+
+    desc = {d.key: d for d in create_sensor_descriptions()}["current_heat_use"]
+    mac_address = mock_device.device_info.mac_address
+    mock_coordinator.data = {
+        mac_address: {"device": mock_device, "status": mock_device_status}
+    }
+    mock_device_status.current_heat_use = (
+        HeatSource(code) if code in (0, 1, 2, 3) else code
+    )
+    sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
+    assert sensor.native_value == expected
+
+
+def test_heat_source_states_are_the_ones_the_simulator_reads():
+    """The library's history reader takes these keys for the heat source.
+
+    A state it doesn't take would read as an outage, so an idle heater
+    would look unobserved to the simulator.
+    """
+    from nwp500.enums import HeatSource
+
+    sim_home_assistant = pytest.importorskip("nwp500.sim_home_assistant")
+
+    from custom_components.nwp500.const import SENSOR_CONFIGS
+
+    states = SENSOR_CONFIGS["current_heat_use"]["states"]
+    for code, key in states.items():
+        assert sim_home_assistant._member(key, HeatSource) == HeatSource(code)

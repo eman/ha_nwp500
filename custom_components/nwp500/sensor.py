@@ -106,11 +106,33 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         attr_name: str = config["attr"]
 
         # Check if this is a text/enum sensor (no numeric value)
-        is_enum_sensor = config.get("special") == "enum_name"
+        is_enum_sensor = config.get("special") in ("enum_name", "enum_state")
         is_boolean_sensor = config.get("special") == "boolean"
+        # An enum sensor with translated states, keyed by the device's code.
+        states: dict[int, str] | None = config.get("states")
 
         # Determine the value function based on special handling needs
-        if is_enum_sensor:
+        if states is not None:
+
+            def _make_state_value_fn(
+                attr: str, by_code: dict[int, str]
+            ) -> Callable[[Any], str | None]:
+                def value_fn(status: Any) -> str | None:
+                    val = getattr(status, attr, None)
+                    if val is None:
+                        return None
+                    try:
+                        code = int(val)
+                    except TypeError, ValueError:
+                        return None
+                    # A code with no state (the protocol's own "unknown",
+                    # or one the library does not know) reads unknown.
+                    return by_code.get(code)
+
+                return value_fn  # noqa: B023
+
+            value_fn = _make_state_value_fn(attr_name, states)
+        elif is_enum_sensor:
             # Special handling for enum types that need .name extraction
             def _make_enum_value_fn(attr: str) -> Callable[[Any], str | None]:
                 def value_fn(status: Any) -> str | None:
@@ -173,9 +195,14 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
                 key=key,
                 attr_name=attr_name,
                 translation_key=key,
-                device_class=device_class_map.get(
-                    str(config.get("device_class", ""))
+                device_class=(
+                    SensorDeviceClass.ENUM
+                    if states is not None
+                    else device_class_map.get(
+                        str(config.get("device_class", ""))
+                    )
                 ),
+                options=None if states is None else list(states.values()),
                 state_class=state_class_map.get(
                     str(config.get("state_class", ""))
                 ),
