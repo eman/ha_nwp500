@@ -278,7 +278,7 @@
 - **A renamed plan entity is followed**, and a missing one raises a
   Repairs issue until it is back.
 
-- **Library Dependency: nwp500-python**: Upgraded to 9.13.1. What the
+- **Library Dependency: nwp500-python**: Upgraded to 9.13.2. What the
   integration did before is kept; the library's corrections change these:
   - **The simulator's model is replaced.** The tank is stacked layers in
     place of two zones, and the heat pump a performance map fitted on one
@@ -394,6 +394,9 @@
     heater's reply repeats. To see what the heater was sent, set the
     `nwp500.mqtt.payloads` logger to `debug`: one line per MQTT message,
     MAC addresses redacted.
+  - **A resumed MQTT session drops replayed replies** (9.13.2). The
+    integration connects with a clean session, so this changes nothing
+    here.
 - **Library Dependency: nwp500-python**: Upgraded to 9.4.3. The library
   now checks every reservation entry before a list write, against the
   setpoint range the heater reports, instead of sending it for the heater

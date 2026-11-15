@@ -20,7 +20,7 @@
     "custom_components.nwp500"
   ],
   "requirements": [
-    "nwp500-python==9.13.1"
+    "nwp500-python==9.13.2"
   ],
   "single_config_entry": true,
   "version": "0.21.1"
