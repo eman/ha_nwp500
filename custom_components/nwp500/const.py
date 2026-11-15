@@ -45,6 +45,9 @@ CONF_EMAIL: Final = "email"
 CONF_PASSWORD: Final = "password"
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_TOKEN_DATA: Final = "token_data"  # Token persistence
+# The account's user_seq, kept beside the tokens: a start that restores them
+# skips sign-in and gets no user info, and the MQTT client ID needs it.
+CONF_USER_SEQ: Final = "user_seq"
 
 # Default values
 DEFAULT_NAME: Final = "Navien NWP500"

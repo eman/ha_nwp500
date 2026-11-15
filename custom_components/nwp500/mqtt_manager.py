@@ -199,11 +199,18 @@ class NWP500MqttManager:
         on_reconnection_failed: Callable[[int], None] | None = None,
         ha_instance_id: str | None = None,
         on_raw_status: RawStatusCallback | None = None,
+        user_seq: int | None = None,
     ) -> None:
-        """Initialize the MQTT manager."""
+        """Initialize the MQTT manager.
+
+        `user_seq` is the account's, as stored at the last sign-in. It
+        builds the client ID when the auth client has no user info, which is
+        so whenever stored tokens were restored and sign-in was skipped.
+        """
         self.loop = hass_loop
         self.auth_client = auth_client
         self._ha_instance_id = ha_instance_id
+        self._stored_user_seq = user_seq
         self.mqtt_client: NavienMqttClient | None = None
         self.diagnostics: MqttDiagnosticsCollector | None = None
         self._on_status_update_callback = on_status_update
@@ -299,9 +306,13 @@ class NWP500MqttManager:
             # generated once per installation and stored persistently, making
             # the combined client ID both stable across restarts and unique
             # per installation.
+            # A start that restored stored tokens skipped sign-in and has no
+            # user info, so the user_seq stored at the last sign-in is used.
             user_seq = 0
             if self.auth_client.current_user:
                 user_seq = self.auth_client.current_user.user_seq
+            if not user_seq:
+                user_seq = self._stored_user_seq or 0
 
             if user_seq and self._ha_instance_id:
                 client_id = f"navien-ha-{user_seq}-{self._ha_instance_id[:8]}"

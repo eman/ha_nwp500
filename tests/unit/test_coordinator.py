@@ -1871,6 +1871,68 @@ async def test_transport_failures_become_update_failed(setup_clients_env, err):
 
 
 @pytest.mark.asyncio
+async def test_save_tokens_keeps_the_signed_in_user_seq(coordinator, mock_hass):
+    """A sign-in's user_seq is stored for the starts that restore tokens."""
+    from custom_components.nwp500.const import CONF_USER_SEQ
+
+    tokens = MagicMock()
+    tokens.to_dict.return_value = {"access_token": "abc"}
+    coordinator.auth_client = MagicMock()
+    coordinator.auth_client.current_tokens = tokens
+    coordinator.auth_client.current_user.user_seq = 36283
+
+    await coordinator._save_tokens()
+
+    data = mock_hass.config_entries.async_update_entry.call_args[1]["data"]
+    assert data[CONF_USER_SEQ] == 36283
+
+
+@pytest.mark.parametrize("user", [None, "no_seq"])
+@pytest.mark.asyncio
+async def test_save_tokens_after_a_restore_keeps_the_stored_user_seq(
+    coordinator, mock_hass, mock_entry, user
+):
+    """Restored tokens bring no user info; the stored user_seq stays."""
+    from custom_components.nwp500.const import CONF_USER_SEQ
+
+    mock_entry.data = {**mock_entry.data, CONF_USER_SEQ: 36283}
+    tokens = MagicMock()
+    tokens.to_dict.return_value = {"access_token": "abc"}
+    coordinator.auth_client = MagicMock()
+    coordinator.auth_client.current_tokens = tokens
+    if user is None:
+        coordinator.auth_client.current_user = None
+    else:
+        coordinator.auth_client.current_user.user_seq = 0
+
+    await coordinator._save_tokens()
+
+    data = mock_hass.config_entries.async_update_entry.call_args[1]["data"]
+    assert data[CONF_USER_SEQ] == 36283
+
+
+@pytest.mark.asyncio
+async def test_the_stored_user_seq_reaches_the_mqtt_manager(setup_clients_env):
+    """The MQTT client ID is built from it when sign-in was skipped."""
+    from custom_components.nwp500.const import CONF_USER_SEQ
+
+    coordinator, _auth, _api, _mqtt = setup_clients_env
+    coordinator.entry.data = {
+        "email": "test@example.com",
+        "password": "password",
+        CONF_USER_SEQ: 36283,
+    }
+
+    with patch(
+        "custom_components.nwp500.coordinator.NWP500MqttManager"
+    ) as manager_cls:
+        manager_cls.return_value = _mqtt
+        await coordinator._setup_clients()
+
+    assert manager_cls.call_args.kwargs["user_seq"] == 36283
+
+
+@pytest.mark.asyncio
 async def test_valid_stored_tokens_are_handed_to_the_auth_client(
     setup_clients_env,
 ):
