@@ -719,6 +719,56 @@ async def test_setup_client_id_falls_back_without_ha_instance_id(
     assert mock_mqtt_client.config.clean_session is False
 
 
+@pytest.mark.parametrize("current_user_seq", [None, 0])
+@pytest.mark.asyncio
+async def test_setup_client_id_uses_the_stored_user_seq_after_a_restore(
+    mock_auth_client, mock_mqtt_client, current_user_seq
+):
+    """Restored tokens skip sign-in, so no user info: the stored one serves.
+
+    Without it the library picks a random client ID, and the broker's
+    session for the stable one is not resumed.
+    """
+    if current_user_seq is None:
+        mock_auth_client.current_user = None
+    else:
+        mock_auth_client.current_user = MagicMock()
+        mock_auth_client.current_user.user_seq = current_user_seq
+
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        ha_instance_id="abcd1234ef567890",
+        user_seq=36283,
+    )
+    await manager.setup()
+
+    assert mock_mqtt_client.config.client_id == "navien-ha-36283-abcd1234"
+
+
+@pytest.mark.asyncio
+async def test_setup_client_id_prefers_the_signed_in_user_seq(
+    mock_auth_client, mock_mqtt_client
+):
+    """A sign-in's user info wins over what was stored before it."""
+    mock_auth_client.current_user = MagicMock()
+    mock_auth_client.current_user.user_seq = 40000
+
+    manager = NWP500MqttManager(
+        hass_loop=MagicMock(),
+        auth_client=mock_auth_client,
+        on_status_update=MagicMock(),
+        on_feature_update=MagicMock(),
+        ha_instance_id="abcd1234ef567890",
+        user_seq=36283,
+    )
+    await manager.setup()
+
+    assert mock_mqtt_client.config.client_id == "navien-ha-40000-abcd1234"
+
+
 @pytest.mark.asyncio
 async def test_setup_clean_session_false_without_user_seq(
     mock_auth_client, mock_mqtt_client

@@ -33,6 +33,7 @@ from . import schedule_state
 from .const import (
     CONF_SCAN_INTERVAL,
     CONF_TOKEN_DATA,
+    CONF_USER_SEQ,
     DEFAULT_SCAN_INTERVAL,
     DEVICE_METADATA_REFRESH_CYCLES,
     DOMAIN,
@@ -422,6 +423,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             **self.entry.data,
             CONF_TOKEN_DATA: token_data,
         }
+        # Only a sign-in brings the user info. Keep its user_seq for the
+        # starts that restore these tokens, so the MQTT client ID stays the
+        # same (mqtt_manager.setup).
+        user = self.auth_client.current_user
+        if user is not None and user.user_seq:
+            new_data[CONF_USER_SEQ] = user.user_seq
 
         self.hass.config_entries.async_update_entry(
             self.entry,
@@ -977,6 +984,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 on_reconnection_failed=_on_mqtt_reconnection_failed,
                 ha_instance_id=ha_id,
                 on_raw_status=self._on_raw_status,
+                user_seq=self.entry.data.get(CONF_USER_SEQ),
             )
 
             # Connect to MQTT
