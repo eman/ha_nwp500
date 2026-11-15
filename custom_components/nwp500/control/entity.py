@@ -137,6 +137,19 @@ class NWP500ControlEntity(NWP500Entity):
         finally:
             self._attr_force_update = False
 
+    @callback
+    @override
+    def _handle_coordinator_update(self) -> None:
+        """Write nothing on a coordinator update; the controller writes.
+
+        Every coordinator update starts a controller pass, and the pass
+        writes these states when it ends (`async_add_listener`). Writing
+        them here as well caught passes in the middle of a write: the
+        heater's new list arrived before the pass had recorded it, so
+        `heater_matches_plan` went off for a moment at nearly every write.
+        """
+        self._update_device_info()
+
     @property
     @override
     def available(self) -> bool:
