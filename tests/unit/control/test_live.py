@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.nwp500.const import (
     CONF_CONTROL_LIVE_SEGMENTS,
@@ -51,6 +51,7 @@ from .test_device import (
     MAC,
     _coordinator,
     _entry,
+    _entry_options,
     _publish,
     _status,
 )
@@ -1007,10 +1008,18 @@ async def live_factory(
             CONF_CONTROL_LIVE_SEGMENTS: True,
             **options,
         }
-        hass.config_entries.async_entries()
-        for old in hass.config_entries.async_entries("nwp500"):
-            await hass.config_entries.async_remove(old.entry_id)
-        entry = _entry(hass, **merged)
+        existing = hass.config_entries.async_entries("nwp500")
+        if reuse and existing:
+            # A restart keeps the config entry. Removing it would run the
+            # integration's async_remove_entry, which deletes the store.
+            entry = existing[0]
+            hass.config_entries.async_update_entry(
+                entry, options=_entry_options(**merged)
+            )
+        else:
+            for old in existing:
+                await hass.config_entries.async_remove(old.entry_id)
+            entry = _entry(hass, **merged)
         store = ControlStore(hass, entry.entry_id)
         await store.async_load()
         control = DeviceControl(

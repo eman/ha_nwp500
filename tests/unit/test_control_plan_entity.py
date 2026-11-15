@@ -6,7 +6,7 @@ import pytest
 from homeassistant.core import CoreState, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.nwp500.const import DOMAIN
 from custom_components.nwp500.control.plan_entity import (

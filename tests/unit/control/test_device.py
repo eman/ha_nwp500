@@ -6,6 +6,7 @@ import asyncio
 import json
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,7 +14,7 @@ from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 from jsonschema import Draft202012Validator
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     async_fire_time_changed,
 )
@@ -55,15 +56,19 @@ def _status(**overrides) -> MagicMock:
     return status
 
 
+def _entry_options(**options) -> dict[str, Any]:
+    return {
+        CONF_CONTROL_ENABLED: True,
+        CONF_CONTROL_INTENT_ENTITY: INTENT_ENTITY,
+        **options,
+    }
+
+
 def _entry(hass: HomeAssistant, **options) -> MockConfigEntry:
     entry = MockConfigEntry(
         domain=DOMAIN,
         entry_id="entry1",
-        options={
-            CONF_CONTROL_ENABLED: True,
-            CONF_CONTROL_INTENT_ENTITY: INTENT_ENTITY,
-            **options,
-        },
+        options=_entry_options(**options),
     )
     entry.add_to_hass(hass)
     return entry
