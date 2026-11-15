@@ -64,7 +64,7 @@
       "onAutoForward": "notify"
     }
   },
-  "postCreateCommand": "uv pip install --system -r requirements.txt --group dev",
+  "postCreateCommand": "uv pip install --system -r requirements.txt --group dev --overrides test-overrides.txt",
   "remoteUser": "vscode",
   "mounts": [
     "source=${localWorkspaceFolder}/custom_components,target=/workspaces/${localWorkspaceFolderBasename}/custom_components,type=bind,consistency=cached"

@@ -1,0 +1,9 @@
+# uv overrides for the test installs: UV_OVERRIDE in tox.ini, and
+# --overrides on the dev install (DEVELOPMENT.md, .devcontainer).
+#
+# pytest-homeassistant-custom-component pins pytest exactly (==9.0.3 in
+# 0.13.375), a copy of Home Assistant core's requirements_test.txt. Core has
+# moved to pytest 9.2.0; this lets the tests run on it before the next
+# pytest-homeassistant-custom-component release. Drop the line once that
+# release pins pytest 9.2.0 or later.
+pytest>=9.2.0
