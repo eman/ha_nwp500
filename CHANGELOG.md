@@ -437,6 +437,14 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **The plan fingerprint is unknown until the heater's list is read.**
+  After a restart or a reload, External control's plan fingerprint could
+  show its program before the heater's reservation list had been read, as
+  when the heater did not answer the read at setup. Its `entries` then
+  left out every entry that is not the feature's, such as one added in
+  the app, until the next read up to 20 minutes later. It is now
+  `unknown`, with `entry_count` and `entries` null, until that read, as
+  `entries_available` already was (issue #295).
 - **A reconnect no longer brings back old messages.** The MQTT
   connection kept a persistent session, so after time away the broker
   replayed what it had queued, and an old reply could be taken for the

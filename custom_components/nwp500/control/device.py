@@ -357,8 +357,25 @@ class DeviceControl:
         return self.planner.reports
 
     def program_details(self) -> dict[str, Any]:
-        """The program list, its hash, and the device's hash."""
+        """The program list, its hash, and the device's hash.
+
+        The program holds every entry on the device that is not the
+        feature's, so it is not known until the device's list has been
+        read: before that first read after a start, `hash`, `entry_count`
+        and `entries` are None (section 4.2). The coordinator's copy of the
+        list starts empty at every start, and the read at setup is
+        best-effort, so a device that does not answer it leaves the list
+        unread until the periodic refresh.
+        """
         observed = self.observe()
+        if observed.reservations is None:
+            return {
+                "hash": None,
+                "entry_count": None,
+                "entries": None,
+                "device_hash": self._device_hash,
+                "read_at": self._device_hash_seen_at,
+            }
         program = self.planner.program(observed)
         entries: list[dict[str, Any]] = []
         for entry in self.planner.others(observed):
