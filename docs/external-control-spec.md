@@ -442,7 +442,7 @@ without retained copies has them all again. Only the state's timestamps
 |---|---|---|
 | `sensor.<device>_plan_id`, the plan entity (not the input intent entity of section 2.1) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque top-level keys |
 | `sensor.<device>_plan_status` | `programmed`, `partly_programmed`, `pending`, `rejected`, `shadow` or `none` (below) | `intent_id`; `reason` and `detail`, set only in the `rejected` state; `segments` (below); `commands` (below, protocol 1.3); `rejected` (below) |
-| `sensor.<device>_plan_fingerprint` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor | `entry_count`, `entries`: every entry of that list, as a program item (below) |
+| `sensor.<device>_plan_fingerprint` | The `schedule_hash` of the list the feature wants on the device, comparable with the Reservation Schedule sensor. `unknown` until the device's list has been read since the start (below) | `entry_count`, `entries`: every entry of that list, as a program item (below); both `null` while the state is `unknown` |
 | `binary_sensor.<device>_heater_matches_plan` | On when the device's reservation list hashes the same as the program | `device_hash`, `read_at` |
 | `sensor.<device>_plan_written_up_to` | Timestamp: the start of the first segment still to be written that is not on the device yet, or of the last segment once all are; unknown without a plan. A `merged` segment, or one a person removed, is not to be written | `complete` (every segment to be written is programmed), `scheduled` (segments waiting for the horizon or for room) |
 | `sensor.<device>_plan_next_change` | Timestamp of the next entry the feature owns | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
@@ -477,6 +477,18 @@ that `mode` keeps the device's id, and adds `mode_name`, the mode as a name
 (section 3.4). The Reservation Schedule sensor's entries carry display keys
 besides the device's, and there `mode_name` is a label such as `Heat
 Pump`: compare the two lists by the device's keys.
+
+**Before the first read.** The program holds every entry on the device
+that is not the feature's, and the feature keeps no copy of them (section
+5.1): only a read of the device's list gives them. After every start, a
+Home Assistant restart or a reload of the integration (section 6.5),
+`plan_fingerprint` is `unknown`, with `entry_count` and `entries` `null`,
+until that list has been read, as `entries_available` is `null` (section
+4.1). The first program published after a start therefore always holds
+every `foreign` entry the device had at that read. The read at start-up
+waits for the device's reply; a device that does not answer it leaves the
+list unread until the next read (section 5.10). Once read, `entries` follows
+every later read of the list, whoever's change it shows.
 
 An entry the feature still wants after a plan replacement (section 5.6) is
 kept, not written again, so it is not in a later write's `added`, and its
@@ -818,7 +830,12 @@ scheduler decides.
     `removed`.
   - An entry a person adds is not the feature's: it is kept as read
     (section 5.1), counts against the budget, and fires as the person set
-    it.
+    it. It is in `plan_fingerprint`'s `entries`, `owner: foreign`, from
+    the first read of the list that holds it; no write is needed. The
+    device reports its list only when asked: the integration reads it at
+    start-up, every 40 status polls (20 minutes at the default 30 s
+    interval), before every live write of the feature's (section 5.4), and when
+    the `nwp500.request_reservations` action is called.
   - The reservation switch is the heater's to report, as its setpoint and
     mode are: the reservation schedule's `enabled`. Turned off, it stops
     every entry. Nothing tells who turned it off (the app, the heater's
@@ -887,7 +904,8 @@ programmed entries keep running on the device.
 A start sets the heartbeat entity's `started_at` (section 5.12) before the
 steps below.
 
-1. Read the device's list.
+1. Read the device's list. Until it has been read, `plan_fingerprint` is
+   `unknown` (section 4.2).
 2. Compare the stored plan with the entity's document by `issued_at`, and take
    the newer. A stored plan received from another entity, before the plan
    entity option was changed, is dropped: the entity's document is adopted

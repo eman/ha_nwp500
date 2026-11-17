@@ -28,7 +28,7 @@ class ControlInSyncBinarySensor(  # type: ignore[reportIncompatibleVariableOverr
     def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Unknown until the device's list has been read."""
         details = self.control.program_details()
-        if details["device_hash"] is None:
+        if details["device_hash"] is None or details["hash"] is None:
             return None
         return bool(details["device_hash"] == details["hash"])
 

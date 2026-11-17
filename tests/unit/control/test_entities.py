@@ -162,6 +162,15 @@ class TestSensors:
             "entry_count": 1,
             "entries": [{"owner": "plan"}],
         }
+        # Unknown until the device's list is read (issue #295).
+        control.program_details.return_value.update(
+            hash=None, entry_count=None, entries=None
+        )
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes == {
+            "entry_count": None,
+            "entries": None,
+        }
 
     def test_programmed_until(self, control):
         sensor = ControlProgrammedUntilSensor(control, "programmed_until")
@@ -327,6 +336,10 @@ class TestBinarySensors:
             "read_at": WHEN.isoformat(),
         }
         control.program_details.return_value["device_hash"] = None
+        assert sensor.is_on is None
+        # No program before the list is read (issue #295).
+        control.program_details.return_value["device_hash"] = "def"
+        control.program_details.return_value["hash"] = None
         assert sensor.is_on is None
 
     def test_override(self, control):

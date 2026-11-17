@@ -34,6 +34,7 @@ from custom_components.nwp500.control.intent import (
     REASON_SUPERSEDED,
     REASON_UNSUPPORTED_PROTOCOL,
 )
+from custom_components.nwp500.control.sensor import ControlProgramHashSensor
 from custom_components.nwp500.control.store import ControlStore
 
 from .conftest import FakeFeatures, make_document, segment
@@ -581,6 +582,59 @@ class TestReading:
             _program_item_schema().validate(entry)
         assert details["device_hash"] is not None
         assert details["device_hash"] != details["hash"]
+
+    @pytest.mark.asyncio
+    async def test_no_program_before_the_first_read(
+        self, hass, control_factory, now
+    ):
+        """Issue #295: the first program after a start has the foreign entries.
+
+        The coordinator's copy of the list starts empty at every start, and
+        a device that does not answer the read at setup leaves it unread.
+        Until it is read, the program is unknown rather than one without
+        the entries that are not the feature's (section 4.2).
+        """
+        _publish(hass, _plan(now))
+        control = await control_factory(schedule=None)
+        # The plan is in force and has entries of its own...
+        assert control.planner.owned
+        # ...but no program is published without the device's list.
+        details = control.program_details()
+        assert details["hash"] is None
+        assert details["entry_count"] is None
+        assert details["entries"] is None
+        sensor = ControlProgramHashSensor(control, "program_hash")
+        assert sensor.native_value is None
+        assert sensor.extra_state_attributes == {
+            "entry_count": None,
+            "entries": None,
+        }
+        assert control.capabilities.as_attributes()["entries_available"] is None
+
+        # The first read brings an entry a person added in the app.
+        foreign = {
+            "enable": 2,
+            "week": 64,
+            "hour": 5,
+            "min": 30,
+            "mode": 1,
+            "param": 100,
+        }
+        control.coordinator.reservation_schedules[MAC] = {
+            "reservation_use": 2,
+            "reservation": [foreign],
+        }
+        listener = control.coordinator.async_add_listener.call_args.args[0]
+        listener()
+        await hass.async_block_till_done()
+
+        details = control.program_details()
+        assert details["hash"] is not None
+        owners = [e["owner"] for e in details["entries"]]
+        assert owners.count("foreign") == 1
+        assert {**foreign, "owner": "foreign"} in details["entries"]
+        assert details["entry_count"] == len(details["entries"])
+        assert sensor.native_value == details["hash"]
 
     @pytest.mark.asyncio
     async def test_capabilities_carry_the_room(self, control_factory):

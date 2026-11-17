@@ -93,13 +93,18 @@ class ControlProgramHashSensor(NWP500ControlEntity, SensorEntity):  # type: igno
     _attr_icon = "mdi:calendar-check"
 
     @property
-    def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Comparable with the Reservation Schedule sensor's hash."""
-        return str(self.control.program_details()["hash"])
+    def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Comparable with the Reservation Schedule sensor's hash.
+
+        Unknown until the device's list has been read: without it the
+        program would leave out every entry that is not the feature's.
+        """
+        program_hash = self.control.program_details()["hash"]
+        return None if program_hash is None else str(program_hash)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Every entry, and whose it is."""
+        """Every entry, and whose it is; null until the list is read."""
         details = self.control.program_details()
         return {
             "entry_count": details["entry_count"],

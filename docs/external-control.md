@@ -275,7 +275,7 @@ reads.
 | External control capabilities (`capabilities`), diagnostic | The declaration's version | The declaration (below) |
 | Plan ID (`intent`) | The `intent_id` in force, or `none` | `issued_at`, `received_at`, `segment_count`, the opaque keys |
 | Plan status (`ack`) | `shadow`, `programmed`, `partly_programmed`, `pending`, `rejected` (with no plan in force) or `none` | `rejected` (the latest rejected document, or `null`; spec section 4.2), `intent_id`, `reason`, `detail`; `segments`, each with `id`, `status`, `reason`, `warnings`, `fires_at`, `in_force` and its opaque keys; `commands` (above) |
-| Plan fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device | `entry_count`, `entries`: each a device entry marked `foreign` (not the feature's), `plan` or `near_term`; the feature's own also say what they serve and when they fire (spec section 4.2) |
+| Plan fingerprint (`program_hash`), diagnostic | The `schedule_hash` of the list the feature wants on the device; unknown after a start until the heater's list has been read | `entry_count`, `entries`: each a device entry marked `foreign` (not the feature's), `plan` or `near_term`; the feature's own also say what they serve and when they fire (spec section 4.2) |
 | Heater matches plan (`in_sync`) | On when the device's list hashes the same as the program, the reservation switch included; so in Preview it is off whenever the plan has entries of its own | `device_hash`, `read_at` |
 | Plan written up to (`programmed_until`) | How far the device's copy of the plan reaches | `complete`, `scheduled` |
 | Plan next change (`next_entry`) | When the next feature entry fires | `mode`, `setpoint_f`, `setpoint_c`, `kind`, `serves` |
