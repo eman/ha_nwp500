@@ -899,3 +899,29 @@ async def test_suggestions_come_from_this_entrys_heater_only(
     assert air != "sensor.kitchen_air"
     if scoped_lookup:
         assert air == "sensor.garage_air"
+
+
+@pytest.mark.asyncio
+async def test_a_heater_not_loaded_now_keeps_its_sensors(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    """Only the heaters loaded are asked about; the others keep theirs."""
+    away = "aa:bb:cc:dd:ee:00"
+    entry = _loaded_entry(
+        hass,
+        {
+            "simulator_enabled": True,
+            "simulator": {
+                MAC: {"air_entity": "sensor.garage_air"},
+                away: {"air_entity": "sensor.cabin_air"},
+            },
+        },
+    )
+    with packages():
+        result = await _simulator_page(hass, entry, on=True)
+        await hass.config_entries.options.async_configure(result["flow_id"], {})
+
+    assert entry.options["simulator"] == {
+        MAC: {},
+        away: {"air_entity": "sensor.cabin_air"},
+    }

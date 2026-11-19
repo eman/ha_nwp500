@@ -1287,8 +1287,13 @@ class OptionsFlowHandler(
     async def _async_simulator_done(
         self, devices: dict[str, dict[str, Any]]
     ) -> config_entries.ConfigFlowResult:
+        # Only the heaters loaded now were asked about: one missing from
+        # the account for the moment keeps its sensors.
         return self._save(
-            {CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: devices}
+            {
+                CONF_SIMULATOR_ENABLED: True,
+                CONF_SIMULATOR: {**self._simulator_existing, **devices},
+            }
         )
 
     async def async_step_simulator_without(
