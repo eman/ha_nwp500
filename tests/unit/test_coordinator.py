@@ -6,7 +6,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.nwp500.coordinator import (
@@ -26,14 +26,26 @@ def mock_entry():
 
 @pytest.fixture
 def coordinator(mock_hass, mock_entry):
-    """Create NWP500DataUpdateCoordinator instance."""
-    with patch(
-        "custom_components.nwp500.coordinator.DataUpdateCoordinator.__init__"
+    """Create NWP500DataUpdateCoordinator instance.
+
+    One whose MQTT devices were started, as after a set-up that connected.
+    The base class is not initialised, so its shutdown is stubbed.
+    """
+    with (
+        patch(
+            "custom_components.nwp500.coordinator.DataUpdateCoordinator.__init__"
+        ),
+        patch(
+            "custom_components.nwp500.coordinator.DataUpdateCoordinator"
+            ".async_shutdown",
+            AsyncMock(),
+        ),
     ):
         coordinator = NWP500DataUpdateCoordinator(mock_hass, mock_entry)
         coordinator.hass = mock_hass
         coordinator.data = {}
-        return coordinator
+        coordinator._mqtt_started = True
+        yield coordinator
 
 
 def _make_disconnected_mqtt_manager(
@@ -1800,12 +1812,10 @@ async def test_invalid_credentials_start_a_reauth_flow(setup_clients_env):
     coordinator, auth, _api, _mqtt = setup_clients_env
     auth.__aenter__ = AsyncMock(side_effect=InvalidCredentialsError("nope"))
 
-    with pytest.raises(UpdateFailed, match="Authentication failed"):
+    # Home Assistant starts the reauth flow and stops retrying the
+    # rejected password.
+    with pytest.raises(ConfigEntryAuthFailed, match="Authentication failed"):
         await coordinator._setup_clients()
-
-    coordinator.entry.async_start_reauth.assert_called_once_with(
-        coordinator.hass
-    )
 
 
 @pytest.mark.asyncio
@@ -1839,12 +1849,8 @@ async def test_non_retriable_auth_error_starts_reauth(setup_clients_env):
         side_effect=AuthenticationError("rejected", retriable=False)
     )
 
-    with pytest.raises(UpdateFailed, match="Authentication error"):
+    with pytest.raises(ConfigEntryAuthFailed, match="Authentication failed"):
         await coordinator._setup_clients()
-
-    coordinator.entry.async_start_reauth.assert_called_once_with(
-        coordinator.hass
-    )
 
 
 @pytest.mark.parametrize(
@@ -3696,3 +3702,56 @@ async def test_a_monthly_reply_does_not_answer_a_daily_request(coordinator):
         await coordinator.async_fetch_energy_usage(MAC, 2026, [8], timeout=0.01)
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# 2026-11 review: a failed first MQTT connect, shutdown, telemetry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mqtt_setup_is_retried_on_the_update_cycle(
+    coordinator, mock_hass
+):
+    """The library only reconnects a client that once connected."""
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
+    coordinator.mqtt_manager.setup = AsyncMock(return_value=False)
+    coordinator._mqtt_started = False
+    coordinator._async_start_mqtt_devices = AsyncMock()
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    with patch("nwp500.unit_system.set_unit_system"):
+        await coordinator._async_update_data()
+        # Within the minute: not tried again.
+        await coordinator._async_update_data()
+        assert coordinator.mqtt_manager.setup.await_count == 1
+        coordinator._async_start_mqtt_devices.assert_not_awaited()
+
+        coordinator._mqtt_setup_retry_at = 0.0
+        coordinator.mqtt_manager.setup = AsyncMock(return_value=True)
+        await coordinator._async_update_data()
+
+    coordinator._async_start_mqtt_devices.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_after_shutdown_builds_no_clients(coordinator):
+    coordinator._setup_clients = AsyncMock()
+    await coordinator.async_shutdown()
+
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+
+    coordinator._setup_clients.assert_not_awaited()
+
+
+def test_mqtt_telemetry_timeout_history_is_a_list(coordinator):
+    """The timeout history is a list, which diagnostics redaction walks.
+
+    A deque's repr would carry the device's MAC address past redaction.
+    """
+    coordinator._timeout_history.append({"device_mac": "AA:BB:CC:DD:EE:FF"})
+    history = coordinator.get_mqtt_telemetry()["timeout_history"]
+    assert isinstance(history, list)

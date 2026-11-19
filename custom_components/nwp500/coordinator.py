@@ -13,7 +13,7 @@ from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import instance_id as ha_instance_id
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
@@ -117,6 +117,10 @@ _ON_DEMAND_READ_ATTEMPTS: Final = 2
 # nothing noticed and the reconnect already repaired is what this logging
 # set out to stop reporting. A timer would warn about precisely those.
 _DISCONNECTED_WARNING_SECONDS: Final = 120.0
+
+# How often an MQTT set-up that failed (the first connect, before the
+# library's own reconnect exists) is tried again on the update cycle.
+_MQTT_SETUP_RETRY_SECONDS: Final = 60.0
 
 
 # Typed config entry: the coordinator lives on entry.runtime_data, which HA
@@ -255,6 +259,14 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._disconnect_warned: bool = False
         self._consecutive_timeouts: int = 0
         self._mqtt_reconnection_failed_attempts: int | None = None
+        # Whether the devices were started on a connected MQTT client. A
+        # set-up whose first connect failed is retried from the update
+        # cycle: the library only reconnects a client that once connected.
+        self._mqtt_started: bool = False
+        self._mqtt_setup_retry_at: float = 0.0
+        # Set by async_shutdown: a refresh queued before it must not build
+        # new clients on a retired coordinator.
+        self._shut_down: bool = False
         # Use deque for efficient circular buffer (automatic maxlen enforcement)
         self._timeout_history: deque[dict[str, Any]] = deque(maxlen=20)
 
@@ -497,8 +509,19 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.mqtt_manager.connected_since if self.mqtt_manager else None
             ),
             "consecutive_timeouts": self._consecutive_timeouts,
-            "timeout_history": self._timeout_history,
+            # A list: diagnostics redaction does not look inside a deque,
+            # and its entries carry the device's MAC address.
+            "timeout_history": list(self._timeout_history),
         }
+
+    def ha_unit_system(self) -> str:
+        """The library's unit system for Home Assistant's configuration."""
+        return (
+            "metric"
+            if self.hass.config.units.temperature_unit
+            == UnitOfTemperature.CELSIUS
+            else "us_customary"
+        )
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from API endpoint.
@@ -512,13 +535,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         startup (once for first_refresh, once for scheduled update). This is
         expected Home Assistant behavior and not a bug.
         """
-        # Determine current unit system based on HA configuration
-        current_unit_system = (
-            "metric"
-            if self.hass.config.units.temperature_unit
-            == UnitOfTemperature.CELSIUS
-            else "us_customary"
-        )
+        current_unit_system = self.ha_unit_system()
 
         # Update unit system if it changed (with atomic transition protocol)
         if self.unit_system != current_unit_system:
@@ -540,8 +557,13 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         start_time = time.monotonic()
 
         try:
+            if self._shut_down:
+                # A refresh queued before the shutdown: the entry is gone.
+                raise UpdateFailed("The coordinator has shut down")
             if not self.auth_client:
                 await self._setup_clients()
+            if self.mqtt_manager is not None and not self._mqtt_started:
+                await self._async_retry_mqtt_setup()
 
             if self._mqtt_reconnection_failed_attempts is not None:
                 attempts = self._mqtt_reconnection_failed_attempts
@@ -552,6 +574,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     attempts,
                 )
                 self.entry.async_start_reauth(self.hass)
+                # The library gave up on this client: set it up afresh on
+                # the next cycles, at most once a minute.
+                self._mqtt_started = False
                 raise UpdateFailed(
                     "MQTT reconnection failed permanently. Please re-authenticate "
                     "through Settings > Devices & Services."
@@ -826,7 +851,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             return device_data
 
-        except UpdateFailed:
+        except UpdateFailed, ConfigEntryAuthFailed:
             # Raised deliberately above (e.g. permanent MQTT reconnect
             # failure) with a message meant for the user; re-wrapping it
             # would bury that behind a generic transport error.
@@ -991,42 +1016,15 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             connected = await self.mqtt_manager.setup()
 
             if not connected:
+                self._mqtt_setup_retry_at = (
+                    time.monotonic() + _MQTT_SETUP_RETRY_SECONDS
+                )
                 _LOGGER.warning(
-                    "Failed to connect to MQTT, will continue with "
-                    "API-only mode"
+                    "Failed to connect to MQTT; retrying every %.0fs",
+                    _MQTT_SETUP_RETRY_SECONDS,
                 )
             else:
-                # Subscribe and start periodic requests
-                for device in self.devices:
-                    await self.mqtt_manager.subscribe_device(device)
-                    await self.mqtt_manager.start_periodic_requests(device)
-
-                    # Immediately request device info to populate device features
-                    try:
-                        _LOGGER.info(
-                            "Requesting initial device info for %s",
-                            device.device_info.mac_address,
-                        )
-                        await self.mqtt_manager.request_device_info(device)
-                    except Exception as err:
-                        _LOGGER.warning(
-                            "Failed to request initial device info: %s", err
-                        )
-
-                # Prime the schedules for every device at once, rather than
-                # inside the loop above. The reservation read waits on the
-                # device's reply, so doing it per device in sequence would
-                # multiply that wait by the number of devices on the
-                # account -- enough silent devices would spend the whole of
-                # Home Assistant's setup budget on reads that are only ever
-                # best-effort. Concurrently, the cost is one wait however
-                # many devices there are.
-                await asyncio.gather(
-                    *(
-                        self._async_prime_schedules(device)
-                        for device in self.devices
-                    )
-                )
+                await self._async_start_mqtt_devices()
 
             _LOGGER.info(
                 "Successfully connected to Navien cloud service with "
@@ -1041,9 +1039,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 email,
                 err,
             )
-            self.entry.async_start_reauth(self.hass)
-            await self.async_shutdown()
-            raise UpdateFailed(
+            await self._async_close_clients()
+            # Home Assistant starts the reauth flow and stops retrying: a
+            # retry would only sign in again with the rejected password.
+            raise ConfigEntryAuthFailed(
                 "Authentication failed. Please re-authenticate through "
                 "the notifications panel or Settings > Devices & Services."
             ) from err
@@ -1054,22 +1053,23 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Token or authentication errors - check if retriable
             # nwp500-python marks transient network auth/refresh failures as
             # retriable, so only non-retriable errors should trigger reauth.
-            if err.retriable:
-                # Network error during auth/token refresh - will retry
-                _LOGGER.warning(
-                    "Network error during authentication for %s (will retry): %s",
-                    email,
-                    err,
-                )
-            else:
-                # Actual auth failure - trigger reauth
+            await self._async_close_clients()
+            if not err.retriable:
+                # Actual auth failure - Home Assistant starts reauth.
                 _LOGGER.error(
                     "Authentication failed for %s: %s. Starting reauth flow.",
                     email,
                     err,
                 )
-                self.entry.async_start_reauth(self.hass)
-            await self.async_shutdown()
+                raise ConfigEntryAuthFailed(
+                    f"Authentication failed: {err}"
+                ) from err
+            # Network error during auth/token refresh - will retry
+            _LOGGER.warning(
+                "Network error during authentication for %s (will retry): %s",
+                email,
+                err,
+            )
             raise UpdateFailed(
                 f"Authentication error: {err}. Will retry on next update cycle."
             ) from err
@@ -1081,7 +1081,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             MqttError,
         ) as err:
             _LOGGER.error("Failed to setup clients: %s", err)
-            await self.async_shutdown()
+            await self._async_close_clients()
             raise UpdateFailed(
                 f"Failed to connect to Navien service: {err}"
             ) from err
@@ -2449,8 +2449,68 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return await self.mqtt_manager.send_command(device, command, **kwargs)
 
+    async def _async_start_mqtt_devices(self) -> None:
+        """Subscribe each device on the connected client and prime it."""
+        if self.mqtt_manager is None:
+            return
+        self._mqtt_started = True
+        for device in self.devices:
+            await self.mqtt_manager.subscribe_device(device)
+            await self.mqtt_manager.start_periodic_requests(device)
+
+            # Immediately request device info to populate device features
+            try:
+                _LOGGER.info(
+                    "Requesting initial device info for %s",
+                    device.device_info.mac_address,
+                )
+                await self.mqtt_manager.request_device_info(device)
+            except Exception as err:
+                _LOGGER.warning(
+                    "Failed to request initial device info: %s", err
+                )
+
+        # Prime the schedules for every device at once, rather than one by
+        # one. The reservation read waits on the device's reply, so doing it
+        # per device in sequence would multiply that wait by the number of
+        # devices on the account -- enough silent devices would spend the
+        # whole of Home Assistant's setup budget on reads that are only ever
+        # best-effort. Concurrently, the cost is one wait however many
+        # devices there are.
+        await asyncio.gather(
+            *(self._async_prime_schedules(device) for device in self.devices)
+        )
+
+    async def _async_retry_mqtt_setup(self) -> None:
+        """Try a failed MQTT set-up again, at most once a minute.
+
+        The library's automatic reconnect exists only for a client that
+        once connected, so nothing else would ever connect it.
+        """
+        if self.mqtt_manager is None or self._shut_down:
+            return
+        now = time.monotonic()
+        if now < self._mqtt_setup_retry_at:
+            return
+        self._mqtt_setup_retry_at = now + _MQTT_SETUP_RETRY_SECONDS
+        if not await self.mqtt_manager.setup():
+            _LOGGER.debug(
+                "MQTT set-up retry failed; next in %.0fs",
+                _MQTT_SETUP_RETRY_SECONDS,
+            )
+            return
+        _LOGGER.info("MQTT connected after a failed set-up")
+        await self._async_start_mqtt_devices()
+
     async def async_shutdown(self) -> None:
-        """Shutdown the coordinator."""
+        """Shut the coordinator down for good: unload or reload."""
+        self._shut_down = True
+        await self._async_close_clients()
+        # Stops the debouncer and refuses refreshes requested after this.
+        await super().async_shutdown()
+
+    async def _async_close_clients(self) -> None:
+        """Close the cloud clients; the next update sets them up again."""
         # Cancel any in-flight schedule refreshes. They wait on device
         # replies, so without this a teardown could outlive the entry.
         for task in self._schedule_refresh_tasks.values():
