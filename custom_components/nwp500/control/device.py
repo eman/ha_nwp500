@@ -562,6 +562,10 @@ class DeviceControl:
             observed = self.observe()
             write = self.planner.step(now, observed)
             if write is None:
+                if fresh is not None and not self.planner.unconfirmed:
+                    # The list read is what the plan wants, an earlier
+                    # unconfirmed write included: nothing is failing.
+                    self._clear_failures()
                 return
             schedule = self.planner.program(observed, write.result)
             confirmed = False
@@ -577,10 +581,7 @@ class DeviceControl:
                     sent = True
                 confirmed = await self._async_write_list(schedule, observed)
         if confirmed:
-            self._failures = 0
-            self._paused_until = None
-            self.planner.hold_until = None
-            self._cancel_retry_timer()
+            self._clear_failures()
             self._commit(
                 replace(write, simulated=False, confirmed=True),
                 confirmed_at=dt_util.utcnow(),
@@ -614,6 +615,13 @@ class DeviceControl:
         self._cancel_retry = async_track_point_in_utc_time(
             self.hass, self._on_retry, retry_at
         )
+
+    def _clear_failures(self) -> None:
+        """No write is failing: the next lost one is retried (5.4)."""
+        self._failures = 0
+        self._paused_until = None
+        self.planner.hold_until = None
+        self._cancel_retry_timer()
 
     async def _on_retry(self, now: datetime) -> None:
         self._cancel_retry = None

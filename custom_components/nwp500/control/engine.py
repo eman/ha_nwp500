@@ -483,14 +483,10 @@ class Planner:
             }
             # The entries on the heater that are what the new plan wants,
             # judged against the list they were placed on.
-            self._plan_entries = set()
-            for e in sorted(
-                (e for e in self.owned if e.kind == KIND_PLAN),
-                key=lambda e: _instant(e.fires_at),
-            ):
-                if self._placed_as_planned(e, observed):
-                    self._plan_entries.add(self._check_key(e))
-        self.failed = {}
+            self._recognise_plan_entries(observed)
+            # The statuses were the old plan's. A restored plan keeps its
+            # own: a refused or unconfirmed segment stays so (section 6.5).
+            self.failed = {}
         # A near-term entry still serves the new plan if the new plan has
         # the same segment in force now, in the same state. Any other served
         # the old plan only.
@@ -502,19 +498,27 @@ class Planner:
             if e.kind != KIND_NEAR_TERM
             or (e.serves, State(e.mode, e.setpoint_raw)) == keep
         ]
-        # A plan entry already programmed with the same state serves the
-        # new plan's segment of the same id too.
+        # A plan entry already programmed where the new plan places it, in
+        # the same state, serves the new plan's segment of the same id too.
+        # One elsewhere does not: the new plan's entry is a different one
+        # (a segment moved inside the lead gets its near-term entry).
         states = {s.id: self.resolve(s) for s in plan.segments}
-        self.asserted = {
+        asserted = {
             e.serves
             for e in self.owned
             if e.kind == KIND_PLAN
             and e.serves is not None
+            and self._check_key(e) in self._plan_entries
             and states.get(e.serves) == State(e.mode, e.setpoint_raw)
         }
-        self.readback = {
-            k: v for k, v in self.readback.items() if k in self.asserted
-        }
+        if restored:
+            # The same plan: what it asserted and read back stays.
+            self.asserted |= asserted
+        else:
+            self.asserted = asserted
+            self.readback = {
+                k: v for k, v in self.readback.items() if k in self.asserted
+            }
 
         if keep is None or keep[0] in self.removed_segments:
             # Nothing of the plan's is in force yet, or a person deleted
@@ -572,21 +576,36 @@ class Planner:
         return write
 
     def commit(
-        self, write: Write, *, confirmed_at: datetime | None = None
+        self,
+        write: Write,
+        *,
+        confirmed_at: datetime | None = None,
+        observed: Observed | None = None,
     ) -> None:
         """Record a write as done: confirmed in live, simulated in shadow.
 
         A near-term entry confirmed only after its minute never fired; it is
         issued again for the next minute it can make (section 5.2).
+
+        `observed` is the device's list when the write was planned for
+        another plan (an unconfirmed write found to have landed): its plan
+        entries are the plan in force's only where it places them.
         """
         self.owned = list(write.result)
         self.last_write = write
-        # A write's plan entries are the plan in force's.
-        self._plan_entries = {
-            self._check_key(e) for e in self.owned if e.kind == KIND_PLAN
-        }
+        if observed is None:
+            # A write's plan entries are the plan in force's.
+            self._plan_entries = {
+                self._check_key(e) for e in self.owned if e.kind == KIND_PLAN
+            }
+        else:
+            self._recognise_plan_entries(observed)
         for entry in write.added:
-            if entry.kind == KIND_PLAN and entry.serves:
+            if (
+                entry.kind == KIND_PLAN
+                and entry.serves
+                and self._check_key(entry) in self._plan_entries
+            ):
                 self.asserted.add(entry.serves)
         if not write.simulated:
             # The device holds the whole wanted list now.
@@ -724,7 +743,12 @@ class Planner:
         for write, written_hash in reversed(self.unconfirmed):
             if written_hash is not None and device_hash == written_hash:
                 _LOGGER.info("An unconfirmed %s write had landed", write.reason)
-                self.commit(replace(write, simulated=False, confirmed=True))
+                # The plan in force may have been replaced since it was
+                # planned: its entries are judged against the list.
+                self.commit(
+                    replace(write, simulated=False, confirmed=True),
+                    observed=observed,
+                )
                 return
         on_device = [dict(e) for e in schedule["reservation"]]
         for write, _hash in self.unconfirmed:
@@ -816,6 +840,19 @@ class Planner:
         if entry.kind == KIND_PLAN:
             return self._check_key(entry) in self._plan_entries
         return entry.kind == KIND_NEAR_TERM
+
+    def _recognise_plan_entries(self, observed: Observed) -> None:
+        """The owned plan entries the plan in force places where they are.
+
+        In time order, so a cascade of moves past each other is followed.
+        """
+        self._plan_entries = set()
+        for e in sorted(
+            (e for e in self.owned if e.kind == KIND_PLAN),
+            key=lambda e: _instant(e.fires_at),
+        ):
+            if self._placed_as_planned(e, observed):
+                self._plan_entries.add(self._check_key(e))
 
     def _placed_as_planned(self, entry: OwnedEntry, observed: Observed) -> bool:
         """Whether a plan entry is where the plan in force places it now.
