@@ -274,12 +274,33 @@ def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
     return data
 
 
+def _one(validator: Any) -> Any:
+    """One id, given as itself or, from an action's `target`, in a list.
+
+    Home Assistant puts a target's `device_id` and `entity_id` in the
+    call's data as lists. Each action acts on one heater.
+    """
+
+    def _single(value: Any) -> Any:
+        if isinstance(value, list):
+            if len(value) != 1:
+                raise vol.Invalid("name one water heater")
+            value = value[0]
+        return validator(value)
+
+    return _single
+
+
+_ONE_DEVICE = _one(cv.string)
+_ONE_ENTITY = _one(cv.entity_id)
+
+
 # Service schemas
 SERVICE_SET_RESERVATION_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
             vol.Required(ATTR_ENABLED): cv.boolean,
             vol.Required(ATTR_DAYS): vol.All(
                 cv.ensure_list, [vol.In(VALID_DAYS)]
@@ -303,8 +324,8 @@ SERVICE_SET_RESERVATION_SCHEMA = vol.All(
 SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
             vol.Required(ATTR_RESERVATIONS): vol.All(
                 cv.ensure_list,
                 [
@@ -349,12 +370,6 @@ SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
         }
     ),
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
-)
-
-SERVICE_DEVICE_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_DEVICE_ID): cv.string,
-    }
 )
 
 ATTR_YEAR = "year"
@@ -410,8 +425,8 @@ def _one_energy_period(data: dict[str, Any]) -> dict[str, Any]:
 SERVICE_DEVICE_OR_ENTITY_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
         }
     ),
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
@@ -422,8 +437,8 @@ SERVICE_DEVICE_OR_ENTITY_SCHEMA = vol.All(
 SERVICE_GET_ENERGY_USAGE_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
             vol.Optional(ATTR_YEAR): vol.All(
                 vol.Coerce(int), vol.Range(min=2000, max=2100)
             ),
@@ -456,8 +471,8 @@ def _writes_something(write: dict[str, Any]) -> dict[str, Any]:
 # What every simulator action takes: the heater, and a scenario document
 # (`nwp500.sim.codec`) laid over its live scenario, or alone without it.
 _SCENARIO_FIELDS: Final[dict[Any, Any]] = {
-    vol.Optional(ATTR_DEVICE_ID): cv.string,
-    vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+    vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+    vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
     vol.Optional(ATTR_SCENARIO): dict,
     vol.Optional(ATTR_USE_HEATER, default=True): cv.boolean,
 }
@@ -538,8 +553,8 @@ SERVICE_FORECAST_SCHEMA = _scenario_schema(
 SERVICE_CALIBRATE_SIMULATOR_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
             vol.Optional(ATTR_FROM_DEFAULTS, default=False): cv.boolean,
         }
     ),
@@ -549,8 +564,8 @@ SERVICE_CALIBRATE_SIMULATOR_SCHEMA = vol.All(
 SERVICE_SET_AIR_FILTER_LIFE_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
             vol.Required(ATTR_HOURS): _air_filter_life_hours,
         }
     ),
@@ -560,8 +575,8 @@ SERVICE_SET_AIR_FILTER_LIFE_SCHEMA = vol.All(
 SERVICE_SET_VACATION_DAYS_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
             vol.Required(ATTR_DAYS): vol.All(
                 vol.Coerce(int), vol.Range(min=1, max=99)
             ),
@@ -573,8 +588,8 @@ SERVICE_SET_VACATION_DAYS_SCHEMA = vol.All(
 SERVICE_CONFIGURE_TOU_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
             vol.Required(ATTR_PERIODS): vol.All(
                 cv.ensure_list,
                 vol.Length(max=16),
@@ -631,8 +646,8 @@ SERVICE_CONFIGURE_TOU_SCHEMA = vol.All(
 SERVICE_REQUEST_TOU_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
         }
     ),
     cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
@@ -641,8 +656,8 @@ SERVICE_REQUEST_TOU_SCHEMA = vol.All(
 SERVICE_SET_RECIRCULATION_MODE_SCHEMA = vol.All(
     vol.Schema(
         {
-            vol.Optional(ATTR_DEVICE_ID): cv.string,
-            vol.Optional(ATTR_ENTITY_ID): cv.entity_id,
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
             vol.Required(ATTR_RECIRCULATION_MODE): vol.All(
                 vol.Coerce(int), vol.Range(min=1, max=4)
             ),

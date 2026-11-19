@@ -13,7 +13,7 @@ set_reservation:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
@@ -115,7 +115,7 @@ update_reservations:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
@@ -155,7 +155,7 @@ clear_reservations:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
@@ -178,7 +178,7 @@ request_reservations:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500

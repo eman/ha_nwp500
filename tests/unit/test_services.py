@@ -1981,3 +1981,26 @@ class TestNwp500Python940Services:
             SERVICE_GET_ENERGY_USAGE_SCHEMA(
                 {ATTR_DEVICE_ID: "device_123", "years": [2026], **period}
             )
+
+
+class TestActionTargets:
+    """A target's ids arrive as lists: one heater is taken as itself."""
+
+    def test_a_target_device_is_one_device(self):
+        validated = SERVICE_GET_ENERGY_USAGE_SCHEMA({"device_id": ["abc"]})
+        assert validated["device_id"] == "abc"
+
+    def test_a_target_entity_is_one_entity(self):
+        validated = SERVICE_GET_ENERGY_USAGE_SCHEMA(
+            {"entity_id": ["water_heater.heater"]}
+        )
+        assert validated["entity_id"] == "water_heater.heater"
+
+    def test_a_plain_id_still_works(self):
+        validated = SERVICE_GET_ENERGY_USAGE_SCHEMA({"device_id": "abc"})
+        assert validated["device_id"] == "abc"
+
+    @pytest.mark.parametrize("ids", [[], ["a", "b"]])
+    def test_a_target_must_name_one_heater(self, ids):
+        with pytest.raises(vol.Invalid, match="one water heater"):
+            SERVICE_GET_ENERGY_USAGE_SCHEMA({"device_id": ids})
