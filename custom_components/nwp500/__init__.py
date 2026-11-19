@@ -1728,7 +1728,9 @@ async def _async_forget_calibration(
         f"{SIMULATOR_CALIBRATION_STORAGE_KEY}.{entry_id}",
     )
     data = await store.async_load()
-    heaters = data.get("heaters") if isinstance(data, dict) else None
+    if data is None:
+        return
+    heaters = data.get("heaters")
     if isinstance(heaters, dict) and heaters.pop(mac_address, None) is not None:
         await store.async_save(data)
 
