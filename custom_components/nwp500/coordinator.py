@@ -166,9 +166,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unit_change_in_progress = (
             False  # Prevent operations during unit transitions
         )
-        self._reservation_lock = (
-            asyncio.Lock()
-        )  # Prevent reservation write race
+        # Held across every read-modify-write of a heater's reservation
+        # list, by the actions and by external control alike.
+        self.reservation_lock = asyncio.Lock()
         # Futures awaiting a fresh rsv/rd response, keyed by MAC. Resolved by
         # _handle_reservation_update_in_loop so a read-modify-write can wait
         # for the device's actual schedule instead of guessing from an empty
@@ -405,6 +405,10 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for device in self.devices
         ]
         self._update_device_cache()
+
+    def get_device(self, mac_address: str) -> Device | None:
+        """The account's device with this MAC address, if it has one."""
+        return self._devices_by_mac.get(mac_address)
 
     def get_device_error(self, mac_address: str) -> Any | None:
         """Return the cloud's last recorded fault for a device, if any."""
@@ -1922,7 +1926,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         matches the list sent. Without one, a fresh read says what the
         device holds: the write may have landed without an echo, or been
         lost (#212). The caller compares the result with what it wrote, and
-        holds `_reservation_lock` from any read it wrote from through this.
+        holds `reservation_lock` from any read it wrote from through this.
 
         Args:
             mac_address: Device MAC address

@@ -233,7 +233,7 @@ async def _async_write_confirmed(
     A write is a full-list replacement that the device can lose without an
     error (#212), so it counts only once the device's echo, or a read after
     it, shows the list sent. Whether to try again is the caller's. The
-    caller holds `coordinator._reservation_lock`.
+    caller holds `coordinator.reservation_lock`.
     """
     try:
         held = await coordinator.async_write_reservations(
@@ -839,7 +839,7 @@ class NWP500ServiceHandler:
             # now: writing from an empty cache would wipe every reservation,
             # and from a cached copy (up to one schedule refresh old) would
             # drop an entry added since, e.g. in the NaviLink app.
-            async with coordinator._reservation_lock:
+            async with coordinator.reservation_lock:
                 existing_schedule = (
                     await coordinator.async_fetch_reservations(mac_address)
                     or {}
@@ -892,7 +892,7 @@ class NWP500ServiceHandler:
                 enabled,
             )
 
-            async with coordinator._reservation_lock:
+            async with coordinator.reservation_lock:
                 await _async_write_confirmed(
                     coordinator, mac_address, reservations, enabled=enabled
                 )
@@ -904,7 +904,7 @@ class NWP500ServiceHandler:
         _LOGGER.info("Clearing all reservations for %s", mac_address)
 
         # An empty list, with the reservation switch off, clears them all.
-        async with coordinator._reservation_lock:
+        async with coordinator.reservation_lock:
             await _async_write_confirmed(
                 coordinator, mac_address, [], enabled=False
             )

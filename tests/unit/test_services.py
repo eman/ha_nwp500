@@ -206,7 +206,7 @@ class TestReservationServices:
         mock_coordinator.async_fetch_reservations = AsyncMock(
             return_value={"reservation": []}
         )
-        mock_coordinator._reservation_lock = (
+        mock_coordinator.reservation_lock = (
             asyncio.Lock()
         )  # Add lock for async context
         mock_coordinator.async_write_reservations = _echoed_writes()
@@ -450,7 +450,7 @@ class TestReservationServices:
         mock_coordinator.async_fetch_reservations = AsyncMock(
             return_value={"reservation": []}
         )
-        mock_coordinator._reservation_lock = (
+        mock_coordinator.reservation_lock = (
             asyncio.Lock()
         )  # Add lock for async context
         mock_coordinator.async_write_reservations = _echoed_writes()
@@ -502,9 +502,9 @@ class TestReservationServices:
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.reservation_lock = asyncio.Lock()
         mock_coordinator.async_write_reservations = _echoed_writes(
-            mock_coordinator._reservation_lock
+            mock_coordinator.reservation_lock
         )
         stage_coordinator(mock_hass, mock_coordinator)
 
@@ -571,9 +571,9 @@ class TestReservationServices:
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.reservation_lock = asyncio.Lock()
         mock_coordinator.async_write_reservations = _echoed_writes(
-            mock_coordinator._reservation_lock
+            mock_coordinator.reservation_lock
         )
         stage_coordinator(mock_hass, mock_coordinator)
 
@@ -625,7 +625,7 @@ class TestReservationWritesAreConfirmed:
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.reservation_lock = asyncio.Lock()
         mock_coordinator.async_write_reservations = write
         stage_coordinator(mock_hass, mock_coordinator)
         device_entry = MagicMock()
@@ -1377,7 +1377,7 @@ class TestSetReservationRefusesUnfetchedWrite:
         coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         coordinator.device_features = {}
         coordinator.reservation_schedules = {}  # never fetched
-        coordinator._reservation_lock = asyncio.Lock()
+        coordinator.reservation_lock = asyncio.Lock()
         coordinator.async_write_reservations = _echoed_writes()
         coordinator.async_request_reservations = AsyncMock(return_value=True)
         coordinator.async_fetch_reservations = AsyncMock(
@@ -1468,7 +1468,7 @@ class TestSetReservationPreservesGlobalSwitch:
         coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         coordinator.device_features = {}
         coordinator.reservation_schedules = {"AA:BB:CC:DD:EE:FF": schedule}
-        coordinator._reservation_lock = asyncio.Lock()
+        coordinator.reservation_lock = asyncio.Lock()
         coordinator.async_write_reservations = _echoed_writes()
         coordinator.async_request_reservations = AsyncMock(return_value=True)
         coordinator.async_fetch_reservations = AsyncMock(return_value=schedule)

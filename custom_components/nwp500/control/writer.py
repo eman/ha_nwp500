@@ -71,7 +71,7 @@ class CoordinatorWriter:
 
     def locked(self) -> asyncio.Lock:
         """The lock the integration's reservation services hold."""
-        lock: asyncio.Lock = self.coordinator._reservation_lock  # noqa: SLF001
+        lock: asyncio.Lock = self.coordinator.reservation_lock
         return lock
 
     async def async_read(self) -> dict[str, Any] | None:
@@ -102,9 +102,7 @@ class CoordinatorWriter:
         """Make the command's one library call, as sent."""
         manager = self.coordinator.mqtt_manager
         client = manager.mqtt_client if manager is not None else None
-        device = self.coordinator._devices_by_mac.get(  # noqa: SLF001
-            self.mac_address
-        )
+        device = self.coordinator.get_device(self.mac_address)
         if client is None or device is None:
             raise ConnectionError("the heater's MQTT session is not connected")
         params = command.params
