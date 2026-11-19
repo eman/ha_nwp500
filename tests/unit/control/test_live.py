@@ -43,7 +43,10 @@ from custom_components.nwp500.control.evaluate import (
     REASON_NOT_APPLIED,
     REASON_WRITE_NOT_CONFIRMED,
 )
-from custom_components.nwp500.control.intent import parse_plan
+from custom_components.nwp500.control.intent import (
+    REASON_SETPOINT_OUT_OF_RANGE,
+    parse_plan,
+)
 from custom_components.nwp500.control.store import ControlStore
 
 from .conftest import make_document, segment
@@ -1263,17 +1266,41 @@ class TestLiveWrites:
         }
 
     @pytest.mark.asyncio
+    async def test_a_setpoint_outside_the_heaters_range_rejects_the_plan(
+        self, hass, live_factory, now
+    ):
+        """Rejected on arrival, naming the segment: nothing is written."""
+        heater, control = await live_factory()
+        writes = len(heater.writes)
+        _publish(
+            hass,
+            make_document(
+                now,
+                [segment(now, "hot", -5, mode="heat_pump", setpoint_c=100)],
+            ),
+        )
+        await hass.async_block_till_done()
+
+        rejected = control.ack.as_attributes()["rejected"]
+        assert rejected["reason"] == REASON_SETPOINT_OUT_OF_RANGE
+        assert "'hot'" in rejected["detail"]
+        assert len(heater.writes) == writes
+        assert heater.schedule == OWNER_LIST
+
+    @pytest.mark.asyncio
     async def test_a_setpoint_the_library_refuses_fails_the_write(
         self, hass, live_factory, now, freezer, monkeypatch
     ):
-        """nwp500-python 9.4.3 checks entries against the heater's range.
+        """Before the heater's range is read, the library's check is all.
 
-        The feature checks no setpoint: the library's refusal is a failed
-        write, reported as any other, and nothing reaches the heater.
+        nwp500-python checks entries against the heater's range: its
+        refusal is a failed write, reported as any other, and nothing
+        reaches the heater.
         """
         from nwp500.exceptions import RangeValidationError
 
         heater, control = await live_factory()
+        control.coordinator.device_features = {}
 
         async def refuse(schedule: dict[str, Any]) -> dict[str, Any] | None:
             raise RangeValidationError(

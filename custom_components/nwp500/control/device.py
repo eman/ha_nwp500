@@ -18,7 +18,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, callback
@@ -321,10 +321,25 @@ class DeviceControl:
         """
         return {**self.entry.options, CONF_CONTROL_MODE: self.mode}
 
+    def _setpoint_range(self) -> tuple[int, int] | None:
+        """The heater's setpoint range, raw half-degrees Celsius.
+
+        None until its features are read.
+        """
+        features = self.coordinator.device_features.get(self.mac_address)
+        low = getattr(features, "dhw_temperature_min_raw", None)
+        high = getattr(features, "dhw_temperature_max_raw", None)
+        if not all(
+            isinstance(v, int) and not isinstance(v, bool) for v in (low, high)
+        ):
+            return None
+        return int(cast(int, low)), int(cast(int, high))
+
     def _build_capabilities(self) -> Capabilities:
         capabilities = build_capabilities(
             self._effective_options(),
             feature_version=self._feature_version,
+            setpoint_range=self._setpoint_range(),
         )
         observed = self.observe()
         if observed.reservations is None:
@@ -702,7 +717,7 @@ class DeviceControl:
     def _parse(self, document: Mapping[str, Any]) -> Plan:
         """Parse and check a document; raises `IntentRejected`."""
         plan = parse_plan(document)
-        check_plan(plan)
+        check_plan(plan, self._setpoint_range())
         return plan
 
     async def _async_adopt_initial(

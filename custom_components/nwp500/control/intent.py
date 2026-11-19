@@ -28,7 +28,7 @@ SUPPORTED_PROTOCOLS: tuple[str, ...] = ("1", "0")
 # (spec section 4.1), so a consumer can check that a minor version's keys
 # are honoured before relying on them. A feature that knew only 1.0 would
 # keep 1.1's keys as opaque.
-PROTOCOL_VERSIONS: tuple[str, ...] = ("1.3", "0")
+PROTOCOL_VERSIONS: tuple[str, ...] = ("1.4", "0")
 # A major version, and optionally a minor one: "1" or "1.1". The schema
 # carries the same pattern.
 _PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
@@ -45,6 +45,8 @@ REASON_UNSUPPORTED_PROTOCOL = "unsupported_protocol"
 REASON_DUPLICATE_ID = "duplicate_id"
 REASON_UNORDERED_SEGMENTS = "unordered_segments"
 REASON_MODE_NOT_ALLOWED = "mode_not_allowed"
+# A segment's setpoint is outside the heater's own range (protocol 1.4).
+REASON_SETPOINT_OUT_OF_RANGE = "setpoint_out_of_range"
 REASON_SUPERSEDED = "superseded"
 # A command rejected on its own; the plan proceeds (section 3.7).
 REASON_INVALID_COMMAND = "invalid_command"
@@ -58,6 +60,12 @@ COMMAND_KEYS: dict[str, dict[str, type]] = {
     "anti_legionella": {"enabled": bool, "period_days": int},
     "tou": {"enabled": bool},
     "demand_response": {"enabled": bool},
+}
+# The whole-number keys' ranges, inclusive: the library's own checks on
+# the commands they are sent as (vacation days, the Anti-Legionella period).
+COMMAND_RANGES: dict[tuple[str, str], tuple[int, int]] = {
+    ("vacation", "days"): (1, 99),
+    ("anti_legionella", "period_days"): (1, 30),
 }
 
 # A command's own keys on the acknowledgement. An opaque key with one of
@@ -406,6 +414,13 @@ def _command_problem(
                 REASON_INVALID_COMMAND,
                 f"{name} {key} must be {'a whole number' if kind is int else 'true or false'}",
             )
+        if (limits := COMMAND_RANGES.get((name, key))) is not None:
+            low, high = limits
+            if not low <= raw[key] <= high:
+                return (
+                    REASON_INVALID_COMMAND,
+                    f"{name} {key} must be from {low} to {high}",
+                )
     return None
 
 

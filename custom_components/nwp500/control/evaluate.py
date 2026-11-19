@@ -9,9 +9,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from nwp500.temperature import HalfCelsius
+
 from ..const import CONTROL_MODE_NAMES
 from .intent import (
     REASON_MODE_NOT_ALLOWED,
+    REASON_SETPOINT_OUT_OF_RANGE,
     IntentRejected,
     Plan,
     mode_is_valid,
@@ -116,8 +119,15 @@ def rejected_ack(
     )
 
 
-def check_plan(plan: Plan) -> None:
-    """Reject the plan if a segment names a mode an entry cannot set."""
+def check_plan(
+    plan: Plan, setpoint_range: tuple[int, int] | None = None
+) -> None:
+    """Reject the plan if a segment names what an entry cannot set.
+
+    A mode an entry cannot set, or a setpoint outside `setpoint_range`,
+    the heater's own (raw half-degrees Celsius, inclusive). Unknown until
+    the heater's features are read, and then not checked.
+    """
     for segment in plan.segments:
         if not mode_is_valid(segment.mode):
             raise IntentRejected(
@@ -125,3 +135,18 @@ def check_plan(plan: Plan) -> None:
                 f"segment {segment.id!r} mode {segment.mode!r} is not one of "
                 f"{', '.join(CONTROL_MODE_NAMES)}",
             )
+        if setpoint_range is None:
+            continue
+        low, high = setpoint_range
+        if not low <= segment.setpoint_raw <= high:
+            raise IntentRejected(
+                REASON_SETPOINT_OUT_OF_RANGE,
+                f"segment {segment.id!r} setpoint "
+                f"{_shown(segment.setpoint_raw)} is outside the heater's "
+                f"{_shown(low)} to {_shown(high)}",
+            )
+
+
+def _shown(raw: int) -> str:
+    value = HalfCelsius(raw)
+    return f"{value.to_fahrenheit():.1f} °F ({value.to_celsius():.1f} °C)"
