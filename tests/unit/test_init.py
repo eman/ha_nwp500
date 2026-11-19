@@ -11,6 +11,11 @@ from homeassistant.exceptions import ConfigEntryNotReady
 from nwp500.enums import ReservationMode
 
 from custom_components.nwp500 import (
+    async_setup_entry,
+    async_unload_entry,
+)
+from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.services import (
     RESERVATION_MODE_IDS,
     SERVICE_CLEAR_RESERVATIONS,
     SERVICE_CONFIGURE_TOU,
@@ -24,10 +29,7 @@ from custom_components.nwp500 import (
     SERVICE_SET_VACATION_DAYS,
     SERVICE_TRIGGER_RECIRCULATION,
     SERVICE_UPDATE_RESERVATIONS,
-    async_setup_entry,
-    async_unload_entry,
 )
-from custom_components.nwp500.const import DOMAIN
 
 
 @pytest.fixture(autouse=True)
@@ -128,7 +130,9 @@ async def test_async_setup_entry_stores_coordinator():
 
 def test_removes_energy_entities_dropped_in_9_3_0():
     """Stale energy sensors are dropped from the registry, others are kept."""
-    from custom_components.nwp500 import _async_remove_stale_energy_entities
+    from custom_components.nwp500 import (
+        _async_remove_stale_energy_entities,
+    )
 
     def entry(unique_id: str) -> MagicMock:
         item = MagicMock()
@@ -170,56 +174,43 @@ def test_removes_energy_entities_dropped_in_9_3_0():
 
 
 @pytest.mark.asyncio
-async def test_async_setup_entry_registers_services():
-    """Test setup entry registers reservation services."""
+async def test_async_setup_registers_every_action():
+    """The actions are registered once, with the integration."""
+    from custom_components.nwp500 import async_setup
+
     mock_hass = MagicMock()
-    mock_hass.data = {}
-    mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
-    mock_hass.services.has_service = MagicMock(return_value=False)
+    mock_hass.async_add_executor_job = AsyncMock(return_value=[])
     mock_hass.services.async_register = MagicMock()
 
-    mock_entry = MagicMock()
-    mock_entry.entry_id = "test_entry"
+    assert await async_setup(mock_hass, {}) is True
 
-    with patch(
-        "custom_components.nwp500.NWP500DataUpdateCoordinator"
-    ) as mock_coordinator_class:
-        mock_coordinator = MagicMock()
-        mock_coordinator.async_config_entry_first_refresh = AsyncMock()
-        mock_coordinator_class.return_value = mock_coordinator
-
-        await async_setup_entry(mock_hass, mock_entry)
-
-        # Verify all 17 services were registered
-        assert mock_hass.services.async_register.call_count == 23
-
-        # Get all service names that were registered
-        registered_services = [
-            call[0][1]
-            for call in mock_hass.services.async_register.call_args_list
-        ]
-        assert SERVICE_SET_RESERVATION in registered_services
-        assert SERVICE_UPDATE_RESERVATIONS in registered_services
-        assert SERVICE_CLEAR_RESERVATIONS in registered_services
-        assert SERVICE_REQUEST_RESERVATIONS in registered_services
-        assert SERVICE_SET_VACATION_DAYS in registered_services
-        assert SERVICE_CONFIGURE_TOU in registered_services
-        assert SERVICE_REQUEST_TOU in registered_services
-        assert SERVICE_ENABLE_DEMAND_RESPONSE in registered_services
-        assert SERVICE_DISABLE_DEMAND_RESPONSE in registered_services
-        assert SERVICE_RESET_AIR_FILTER in registered_services
-        assert SERVICE_SET_RECIRCULATION_MODE in registered_services
-        assert SERVICE_TRIGGER_RECIRCULATION in registered_services
-        assert "simulate" in registered_services
+    registered = [
+        call[0][1] for call in mock_hass.services.async_register.call_args_list
+    ]
+    assert len(registered) == 23
+    for name in (
+        SERVICE_SET_RESERVATION,
+        SERVICE_UPDATE_RESERVATIONS,
+        SERVICE_CLEAR_RESERVATIONS,
+        SERVICE_REQUEST_RESERVATIONS,
+        SERVICE_SET_VACATION_DAYS,
+        SERVICE_CONFIGURE_TOU,
+        SERVICE_REQUEST_TOU,
+        SERVICE_ENABLE_DEMAND_RESPONSE,
+        SERVICE_DISABLE_DEMAND_RESPONSE,
+        SERVICE_RESET_AIR_FILTER,
+        SERVICE_SET_RECIRCULATION_MODE,
+        SERVICE_TRIGGER_RECIRCULATION,
+        "simulate",
+    ):
+        assert name in registered
 
 
 @pytest.mark.asyncio
-async def test_async_setup_entry_skips_service_registration_if_exists():
-    """Test setup entry skips registration if services already exist."""
+async def test_async_setup_entry_registers_no_actions():
     mock_hass = MagicMock()
     mock_hass.data = {}
     mock_hass.config_entries.async_forward_entry_setups = AsyncMock()
-    mock_hass.services.has_service = MagicMock(return_value=True)
     mock_hass.services.async_register = MagicMock()
 
     mock_entry = MagicMock()
@@ -234,8 +225,7 @@ async def test_async_setup_entry_skips_service_registration_if_exists():
 
         await async_setup_entry(mock_hass, mock_entry)
 
-        # Services should not be registered again
-        mock_hass.services.async_register.assert_not_called()
+    mock_hass.services.async_register.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -263,43 +253,15 @@ async def test_async_unload_entry_cleanup():
 
 
 @pytest.mark.asyncio
-async def test_async_unload_entry_removes_services_when_last():
-    """Test unload removes services when last entry is unloaded."""
-    mock_hass = MagicMock()
-    mock_hass.data = {}
-    mock_entry = MagicMock()
-    mock_entry.entry_id = "test_entry"
-
-    mock_coordinator = MagicMock()
-    mock_coordinator.async_shutdown = AsyncMock()
-    mock_entry.runtime_data = mock_coordinator
-
-    mock_hass.config_entries.async_unload_platforms = AsyncMock(
-        return_value=True
-    )
-    mock_hass.services.async_remove = MagicMock()
-
-    await async_unload_entry(mock_hass, mock_entry)
-
-    # All 23 services should be removed
-    assert mock_hass.services.async_remove.call_count == 23
-
-
-@pytest.mark.asyncio
-async def test_async_unload_entry_keeps_services_for_another_entry():
-    """Another loaded entry still uses them."""
-    from homeassistant.config_entries import ConfigEntryState
-
+async def test_async_unload_entry_keeps_the_actions():
+    """The last entry unloaded leaves the actions: they are the integration's."""
     mock_hass = MagicMock()
     mock_hass.data = {}
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
     mock_entry.runtime_data.async_shutdown = AsyncMock()
-    other = MagicMock()
-    other.entry_id = "other_entry"
-    other.state = ConfigEntryState.LOADED
     mock_hass.config_entries.async_entries = MagicMock(
-        return_value=[mock_entry, other]
+        return_value=[mock_entry]
     )
     mock_hass.config_entries.async_unload_platforms = AsyncMock(
         return_value=True
@@ -314,7 +276,9 @@ async def test_async_unload_entry_keeps_services_for_another_entry():
 @pytest.mark.asyncio
 async def test_migrate_entry_runs_stale_sweep_once():
     """A pre-1.2 entry gets the sweep, then is stamped so it never repeats."""
-    from custom_components.nwp500 import async_migrate_entry
+    from custom_components.nwp500 import (
+        async_migrate_entry,
+    )
 
     mock_hass = MagicMock()
     mock_entry = MagicMock()
@@ -335,7 +299,9 @@ async def test_migrate_entry_runs_stale_sweep_once():
 @pytest.mark.asyncio
 async def test_migrate_entry_is_a_noop_when_current():
     """An already-migrated entry is left alone on every later start."""
-    from custom_components.nwp500 import async_migrate_entry
+    from custom_components.nwp500 import (
+        async_migrate_entry,
+    )
 
     mock_hass = MagicMock()
     mock_entry = MagicMock()
@@ -354,7 +320,9 @@ async def test_migrate_entry_is_a_noop_when_current():
 @pytest.mark.asyncio
 async def test_migrate_entry_refuses_a_downgrade():
     """An entry written by a newer major version is not touched."""
-    from custom_components.nwp500 import async_migrate_entry
+    from custom_components.nwp500 import (
+        async_migrate_entry,
+    )
 
     mock_hass = MagicMock()
     mock_entry = MagicMock()
@@ -398,7 +366,9 @@ async def test_setup_entry_no_longer_sweeps_on_every_start():
 @pytest.mark.asyncio
 async def test_async_setup_stats_frontend_assets_off_the_event_loop():
     """Asset existence is stat-ed in an executor, not on the event loop."""
-    from custom_components.nwp500 import async_setup
+    from custom_components.nwp500 import (
+        async_setup,
+    )
 
     mock_hass = MagicMock()
     mock_hass.async_add_executor_job = AsyncMock(return_value=[])
@@ -721,7 +691,9 @@ async def test_unload_undoes_the_platforms_that_were_forwarded():
 @pytest.mark.asyncio
 async def test_switching_the_feature_off_removes_it_before_the_reload():
     """Spec section 1.1.6: entities and stored data go with the toggle."""
-    from custom_components.nwp500 import async_reload_entry
+    from custom_components.nwp500 import (
+        async_reload_entry,
+    )
 
     mock_hass = MagicMock()
     mock_hass.config_entries.async_reload = AsyncMock()
@@ -740,7 +712,9 @@ async def test_switching_the_feature_off_removes_it_before_the_reload():
 
 @pytest.mark.asyncio
 async def test_an_options_change_with_the_feature_on_keeps_it():
-    from custom_components.nwp500 import async_reload_entry
+    from custom_components.nwp500 import (
+        async_reload_entry,
+    )
 
     mock_hass = MagicMock()
     mock_hass.config_entries.async_reload = AsyncMock()

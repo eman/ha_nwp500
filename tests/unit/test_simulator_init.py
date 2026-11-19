@@ -17,7 +17,6 @@ from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.nwp500 import (
-    NWP500ServiceHandler,
     _async_enable_simulator_inputs,
     _async_remove_retired_simulator_entities,
     async_reload_entry,
@@ -25,6 +24,9 @@ from custom_components.nwp500 import (
     async_setup_entry,
 )
 from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.services import (
+    NWP500ServiceHandler,
+)
 from custom_components.nwp500.simulator_deps import DepsResult
 
 MAC = "AA:BB:CC:DD:EE:FF"
@@ -279,7 +281,9 @@ async def test_a_simulator_that_cannot_start_is_reported_in_repairs(
 
 @pytest.mark.asyncio
 async def test_unload_stops_a_simulator_still_starting(hass: HomeAssistant):
-    from custom_components.nwp500 import async_unload_entry
+    from custom_components.nwp500 import (
+        async_unload_entry,
+    )
 
     never = asyncio.Event()
 
@@ -626,7 +630,8 @@ async def test_each_action_passes_its_fields_to_the_library_call(
             AsyncMock(return_value=(coordinator, MAC)),
         ),
         patch(
-            "custom_components.nwp500.simulator_feature", return_value=feature
+            "custom_components.nwp500.services.simulator_feature",
+            return_value=feature,
         ),
         patch.object(service, action, AsyncMock(return_value=answer)) as fn,
     ):
@@ -667,7 +672,7 @@ async def test_a_document_alone_needs_no_heater(hass: HomeAssistant, action):
             MagicMock(return_value=[entry]),
         ),
         patch(
-            "custom_components.nwp500.simulator_feature",
+            "custom_components.nwp500.services.simulator_feature",
             return_value=MagicMock(runners={}),
         ),
         patch.object(service, action, AsyncMock(return_value=answer)) as fn,
@@ -685,7 +690,10 @@ async def test_a_document_alone_needs_no_heater(hass: HomeAssistant, action):
             "async_loaded_entries",
             MagicMock(return_value=[entry]),
         ),
-        patch("custom_components.nwp500.simulator_feature", return_value=None),
+        patch(
+            "custom_components.nwp500.services.simulator_feature",
+            return_value=None,
+        ),
         pytest.raises(ServiceValidationError) as err,
     ):
         await getattr(handler, action)(call)
@@ -695,7 +703,7 @@ async def test_a_document_alone_needs_no_heater(hass: HomeAssistant, action):
 def test_the_action_schemas_need_a_heater_unless_the_document_is_alone():
     import voluptuous as vol
 
-    from custom_components.nwp500 import (
+    from custom_components.nwp500.services import (
         SERVICE_SCENARIO_SCHEMA,
         SERVICE_SIMULATE_SCHEMA,
     )
@@ -710,7 +718,9 @@ def test_the_action_schemas_need_a_heater_unless_the_document_is_alone():
 
 
 def test_the_service_schema_fills_its_defaults():
-    from custom_components.nwp500 import SERVICE_SIMULATE_SCHEMA
+    from custom_components.nwp500.services import (
+        SERVICE_SIMULATE_SCHEMA,
+    )
 
     data = SERVICE_SIMULATE_SCHEMA({"entity_id": "water_heater.heater"})
 
@@ -735,14 +745,18 @@ def test_the_service_schema_fills_its_defaults():
 def test_the_service_schema_refuses_what_cannot_be_simulated(data):
     import voluptuous as vol
 
-    from custom_components.nwp500 import SERVICE_SIMULATE_SCHEMA
+    from custom_components.nwp500.services import (
+        SERVICE_SIMULATE_SCHEMA,
+    )
 
     with pytest.raises(vol.Invalid):
         SERVICE_SIMULATE_SCHEMA({"entity_id": "water_heater.heater", **data})
 
 
 def test_the_service_schema_takes_a_write():
-    from custom_components.nwp500 import SERVICE_SIMULATE_SCHEMA
+    from custom_components.nwp500.services import (
+        SERVICE_SIMULATE_SCHEMA,
+    )
 
     data = SERVICE_SIMULATE_SCHEMA(
         {
@@ -770,7 +784,7 @@ def test_the_service_schema_takes_a_write():
 def test_the_action_schemas_refuse_what_cannot_be_asked(schema, data):
     import voluptuous as vol
 
-    import custom_components.nwp500 as integration
+    import custom_components.nwp500.services as integration
 
     with pytest.raises(vol.Invalid):
         getattr(integration, schema)(
@@ -779,7 +793,7 @@ def test_the_action_schemas_refuse_what_cannot_be_asked(schema, data):
 
 
 def test_the_action_schemas_take_a_document():
-    from custom_components.nwp500 import (
+    from custom_components.nwp500.services import (
         SERVICE_FORECAST_SCHEMA,
         SERVICE_SCENARIO_SCHEMA,
     )
@@ -837,7 +851,9 @@ def _device(hass: HomeAssistant, entry: MockConfigEntry, mac: str):
 async def test_a_heater_still_on_the_account_cannot_be_deleted(
     hass: HomeAssistant,
 ):
-    from custom_components.nwp500 import async_remove_config_entry_device
+    from custom_components.nwp500 import (
+        async_remove_config_entry_device,
+    )
 
     entry = MockConfigEntry(domain=DOMAIN, options={})
     entry.add_to_hass(hass)
@@ -852,7 +868,9 @@ async def test_a_heater_still_on_the_account_cannot_be_deleted(
 async def test_deleting_a_heater_gone_from_the_account_drops_its_data(
     hass: HomeAssistant, hass_storage, tmp_path
 ):
-    from custom_components.nwp500 import async_remove_config_entry_device
+    from custom_components.nwp500 import (
+        async_remove_config_entry_device,
+    )
     from custom_components.nwp500.const import (
         simulator_heater_record_directory,
     )

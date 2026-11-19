@@ -1547,6 +1547,9 @@
     }
   },
   "exceptions": {
+    "heater_not_loaded": {
+      "message": "{device} is not loaded: check its integration entry."
+    },
     "temperature_out_of_range": {
       "message": "Temperature {temperature} is outside the allowed range of {min_temp} to {max_temp}."
     },

@@ -10,7 +10,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.requirements import RequirementsNotFound
 from packaging.requirements import Requirement
 
-from custom_components.nwp500 import simulator_deps
+from custom_components.nwp500 import (
+    simulator_deps,
+)
 from custom_components.nwp500.simulator_deps import (
     REASON_INSTALL_FAILED,
     REASON_MISSING,

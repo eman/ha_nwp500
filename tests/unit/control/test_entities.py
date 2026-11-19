@@ -13,9 +13,15 @@ from homeassistant.helpers.json import json_bytes
 from homeassistant.util.unit_system import METRIC_SYSTEM, US_CUSTOMARY_SYSTEM
 from jsonschema import Draft202012Validator
 
-from custom_components.nwp500 import binary_sensor as binary_platform
-from custom_components.nwp500 import button as button_platform
-from custom_components.nwp500 import sensor as sensor_platform
+from custom_components.nwp500 import (
+    binary_sensor as binary_platform,
+)
+from custom_components.nwp500 import (
+    button as button_platform,
+)
+from custom_components.nwp500 import (
+    sensor as sensor_platform,
+)
 from custom_components.nwp500.const import (
     CONF_CONTROL_MODE,
     CONTROL_MODE_DISABLED,

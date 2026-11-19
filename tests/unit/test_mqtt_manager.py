@@ -1034,7 +1034,9 @@ async def test_force_reconnect_gives_up_on_repeated_credential_rejection(
     attempt. Retrying without limit looked exactly like working: warnings
     every 60s, no reauth prompt, and nothing that ever escalated.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed
@@ -1075,7 +1077,9 @@ async def test_force_reconnect_keeps_retrying_through_a_network_outage(
     credentials that are perfectly valid, and stop retrying the one thing
     that does recover on its own.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed
@@ -1118,7 +1122,9 @@ async def test_force_reconnect_resets_credential_run_on_a_transport_failure(
     A credential failure followed by an outage is not evidence the password
     is wrong, so the run restarts rather than accumulating toward reauth.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed
@@ -1200,7 +1206,9 @@ async def test_credential_run_does_not_survive_a_successful_reconnect(
     threshold, so the first rejection of some later outage escalated
     straight to reauth.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed
@@ -1241,7 +1249,9 @@ async def test_a_setup_failure_before_connect_is_not_counted_as_credentials(
     rejection followed by unrelated setup failures would reach the
     threshold and prompt for reauthentication.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed

@@ -1,0 +1,1383 @@
+"""The integration's actions: their schemas, handlers and registration.
+
+Registered once, in `async_setup`, whether or not a heater is loaded:
+an action for a heater that is not loaded says so.
+"""
+
+import logging
+from typing import TYPE_CHECKING, Any, Final, cast
+
+if TYPE_CHECKING:
+    # Home Assistant 2026.9 and later validate with probatio, and import
+    # `voluptuous` as an alias of it, so at runtime this is probatio there;
+    # earlier versions still run on voluptuous. Typed as probatio, as Home
+    # Assistant now types schemas.
+    import probatio as vol
+else:
+    import voluptuous as vol
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import (
+    ATTR_DEVICE_ID,
+    ATTR_ENTITY_ID,
+    UnitOfTemperature,
+)
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+    callback,
+)
+from homeassistant.exceptions import (
+    HomeAssistantError,
+    ServiceValidationError,
+)
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
+
+from nwp500.exceptions import Nwp500Error
+
+from . import energy_report, schedule_state
+from .const import (
+    DEFAULT_TEMPERATURE_C,
+    DEFAULT_TEMPERATURE_F,
+    DOMAIN,
+    MAX_SIMULATE_HOURS,
+    MAX_TEMPERATURE_C,
+    MAX_TEMPERATURE_F,
+    MIN_TEMPERATURE_C,
+    MIN_TEMPERATURE_F,
+    MODE_TO_DHW_ID,
+    RESERVATION_MODE_IDS,
+    simulator_feature,
+)
+from .coordinator import NWP500DataUpdateCoordinator
+
+_LOGGER = logging.getLogger(__name__)
+
+
+# Service names
+SERVICE_SET_RESERVATION = "set_reservation"
+SERVICE_UPDATE_RESERVATIONS = "update_reservations"
+SERVICE_CLEAR_RESERVATIONS = "clear_reservations"
+SERVICE_REQUEST_RESERVATIONS = "request_reservations"
+SERVICE_SET_VACATION_DAYS = "set_vacation_days"
+SERVICE_SET_VACATION_DURATION = "set_vacation_duration"
+SERVICE_CONFIGURE_TOU = "configure_tou_schedule"
+SERVICE_REQUEST_TOU = "request_tou_settings"
+SERVICE_ENABLE_DEMAND_RESPONSE = "enable_demand_response"
+SERVICE_DISABLE_DEMAND_RESPONSE = "disable_demand_response"
+SERVICE_RESET_AIR_FILTER = "reset_air_filter"
+SERVICE_SET_AIR_FILTER_LIFE = "set_air_filter_life"
+SERVICE_RESET_CONDENSER_FAULT = "reset_condenser_fault"
+SERVICE_SET_RECIRCULATION_MODE = "set_recirculation_mode"
+SERVICE_TRIGGER_RECIRCULATION = "trigger_recirculation"
+SERVICE_GET_ENERGY_USAGE = "get_energy_usage"
+SERVICE_SIMULATE = "simulate"
+SERVICE_GET_SCENARIO = "get_scenario"
+SERVICE_TIME_TO_READY = "time_to_ready"
+SERVICE_NEXT_RECOVERY = "next_recovery"
+SERVICE_FORECAST = "forecast"
+SERVICE_HEATER_PROFILE = "heater_profile"
+SERVICE_CALIBRATE_SIMULATOR = "calibrate_simulator"
+
+# Service attributes
+ATTR_ENABLED = "enabled"
+ATTR_DAYS = "days"
+ATTR_HOURS = "hours"
+ATTR_HOUR = "hour"
+ATTR_MINUTE = "minute"
+ATTR_OP_MODE = "mode"  # Renamed to avoid conflict with HA's ATTR_MODE
+ATTR_RECIRCULATION_MODE = "mode"
+ATTR_TEMPERATURE = "temperature"
+ATTR_RESERVATIONS = "reservations"
+ATTR_PERIODS = "periods"
+ATTR_WRITES = "writes"
+ATTR_PLAN = "plan"
+ATTR_AT = "at"
+ATTR_INCLUDE_POINTS = "include_points"
+ATTR_SCENARIO = "scenario"
+ATTR_USE_HEATER = "use_heater"
+ATTR_FROM_DEFAULTS = "from_defaults"
+ATTR_BATH_GAL = "bath_gal"
+ATTR_SHOWER_GAL = "shower_gal"
+ATTR_TARGET_TIME = "target_time"
+ATTR_TARGET_F = "target_f"
+ATTR_TARGET_LOWER_F = "target_lower_f"
+
+# Valid days of the week
+VALID_DAYS = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+]
+
+# Valid operation modes for reservations
+VALID_MODES = list(RESERVATION_MODE_IDS)
+
+
+def _reservation_slot(entry: dict[str, Any]) -> tuple[int, int, int]:
+    """Return the schedule slot an entry occupies: (week, hour, minute).
+
+    Two entries with the same days and time are the same reservation, so
+    writing one replaces the other rather than stacking a duplicate.
+    """
+    return (
+        int(entry.get("week", 0)),
+        int(entry.get("hour", 0)),
+        int(entry.get("min", 0)),
+    )
+
+
+def _merge_reservation_entry(
+    entries: list[dict[str, Any]], new_entry: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Insert `new_entry`, replacing any entry in the same slot.
+
+    `set_reservation` is documented as "create or update". Without this it
+    only appended, so repeating a call -- or scheduling a different mode at
+    a day/time already programmed -- accumulated conflicting entries with
+    no way to update one in place.
+
+    Returns a new list; `entries` is not modified.
+    """
+    slot = _reservation_slot(new_entry)
+    merged = [e for e in entries if _reservation_slot(e) != slot]
+    replaced = len(merged) != len(entries)
+
+    if replaced:
+        _LOGGER.debug(
+            "Replacing existing reservation in slot week=%d %02d:%02d",
+            *slot,
+        )
+
+    merged.append(new_entry)
+    return merged
+
+
+async def _async_write_confirmed(
+    coordinator: NWP500DataUpdateCoordinator,
+    mac_address: str,
+    entries: list[dict[str, Any]],
+    *,
+    enabled: bool,
+) -> None:
+    """Write the whole reservation list; succeed only if the device holds it.
+
+    A write is a full-list replacement that the device can lose without an
+    error (#212), so it counts only once the device's echo, or a read after
+    it, shows the list sent. Whether to try again is the caller's. The
+    caller holds `coordinator.reservation_lock`.
+    """
+    try:
+        held = await coordinator.async_write_reservations(
+            mac_address, entries, enabled=enabled
+        )
+    except Nwp500Error as err:
+        raise HomeAssistantError(
+            f"The reservation list for {mac_address} was not written: {err}"
+        ) from err
+    if held is None:
+        raise HomeAssistantError(
+            f"The reservation write to {mac_address} is not confirmed: it "
+            "could not be sent, or the device did not answer the read after "
+            "it. Read the schedule before trying again."
+        )
+    wanted = {"reservation_use": 2 if enabled else 1, "reservation": entries}
+    if schedule_state.reservation_canonical(
+        held
+    ) != schedule_state.reservation_canonical(wanted):
+        switch = "on" if held.get("reservation_use") == 2 else "off"
+        raise HomeAssistantError(
+            f"The device did not take the reservation write to {mac_address}: "
+            f"it holds {len(held.get('reservation') or [])} entries, with "
+            f"reservations switched {switch}."
+        )
+
+
+def validate_reservation_temperature(data: dict[str, Any]) -> dict[str, Any]:
+    """Validate that temperature is provided for modes that require it."""
+    mode = data.get(ATTR_OP_MODE)
+    temperature = data.get(ATTR_TEMPERATURE)
+
+    if mode != "power_off" and temperature is None:
+        raise vol.Invalid(f"Temperature is required for mode '{mode}'")
+
+    # Note: Default temperature for modes that don't use it is handled
+    # in the service handler to ensure unit-system awareness.
+    return data
+
+
+def _one(validator: Any) -> Any:
+    """One id, given as itself or, from an action's `target`, in a list.
+
+    Home Assistant puts a target's `device_id` and `entity_id` in the
+    call's data as lists. Each action acts on one heater.
+    """
+
+    def _single(value: Any) -> Any:
+        if isinstance(value, list):
+            if len(value) != 1:
+                raise vol.Invalid("name one water heater")
+            value = value[0]
+        return validator(value)
+
+    return _single
+
+
+_ONE_DEVICE = _one(cv.string)
+_ONE_ENTITY = _one(cv.entity_id)
+
+
+# Service schemas
+SERVICE_SET_RESERVATION_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+            vol.Required(ATTR_ENABLED): cv.boolean,
+            vol.Required(ATTR_DAYS): vol.All(
+                cv.ensure_list, [vol.In(VALID_DAYS)]
+            ),
+            vol.Required(ATTR_HOUR): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=23)
+            ),
+            vol.Optional(ATTR_MINUTE, default=0): vol.All(
+                vol.Coerce(int), vol.Range(min=0, max=59)
+            ),
+            vol.Required(ATTR_OP_MODE): vol.In(VALID_MODES),
+            vol.Optional(ATTR_TEMPERATURE): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=200)
+            ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+    validate_reservation_temperature,
+)
+
+SERVICE_UPDATE_RESERVATIONS_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+            vol.Required(ATTR_RESERVATIONS): vol.All(
+                cv.ensure_list,
+                [
+                    vol.Schema(
+                        {
+                            vol.Required("enable"): vol.In(
+                                [1, 2], msg="Enable must be 2 (On) or 1 (Off)"
+                            ),
+                            vol.Required("week"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=254),
+                                msg="Week must be a bitfield (0-254, Sun=128..Sat=2)",
+                            ),
+                            vol.Required("hour"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=23),
+                                msg="Hour must be 0-23",
+                            ),
+                            vol.Required("min"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=59),
+                                msg="Minute must be 0-59",
+                            ),
+                            # 1-5 as ReservationMode numbers them; 6 only so
+                            # an entry an earlier version wrote can be sent
+                            # back as the heater holds it (the library's kept).
+                            vol.Required("mode"): vol.In(
+                                [1, 2, 3, 4, 5, 6],
+                                msg="Mode must be 1-5 (heat pump, electric, "
+                                "energy saver, high demand, power off)",
+                            ),
+                            vol.Required("param"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=255),
+                                msg="Param must be 0-255 (temperature in half-C)",
+                            ),
+                        }
+                    )
+                ],
+            ),
+            vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+ATTR_YEAR = "year"
+ATTR_MONTHS = "months"
+ATTR_YEARS = "years"
+
+# The air filter service interval the NaviLink app offers: off, or
+# 1000-10000 evaporator-fan hours in 500-hour steps. The library rejects
+# anything else, so the schema does too, before a device is involved.
+AIR_FILTER_LIFE_OFF = 0
+AIR_FILTER_LIFE_MIN_HOURS = 1000
+AIR_FILTER_LIFE_MAX_HOURS = 10000
+AIR_FILTER_LIFE_STEP_HOURS = 500
+
+
+def _air_filter_life_hours(value: Any) -> int:
+    """Validate an air filter service interval.
+
+    Raises:
+        vol.Invalid: If the value is not 0 or 1000-10000 in steps of 500.
+    """
+    hours = int(vol.Coerce(int)(value))
+    if hours == AIR_FILTER_LIFE_OFF:
+        return hours
+    if (
+        AIR_FILTER_LIFE_MIN_HOURS <= hours <= AIR_FILTER_LIFE_MAX_HOURS
+        and hours % AIR_FILTER_LIFE_STEP_HOURS == 0
+    ):
+        return hours
+    raise vol.Invalid(
+        f"hours must be {AIR_FILTER_LIFE_OFF} (alarm off) or "
+        f"{AIR_FILTER_LIFE_MIN_HOURS}-{AIR_FILTER_LIFE_MAX_HOURS} in steps "
+        f"of {AIR_FILTER_LIFE_STEP_HOURS}, got {hours}"
+    )
+
+
+def _one_energy_period(data: dict[str, Any]) -> dict[str, Any]:
+    """Reject a request that names both a daily and a monthly period.
+
+    `years` asks the monthly query; `year`/`months` ask the daily one. A
+    call naming both has no single answer, and silently preferring one
+    would hand back a report for a period the caller did not ask about.
+    """
+    if ATTR_YEARS in data and (ATTR_YEAR in data or ATTR_MONTHS in data):
+        raise vol.Invalid(
+            f"{ATTR_YEARS} cannot be combined with {ATTR_YEAR} or "
+            f"{ATTR_MONTHS}: ask for whole years or for months, not both"
+        )
+    return data
+
+
+# Schema for services that target a device but also accept entity_id
+SERVICE_DEVICE_OR_ENTITY_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+# The device holds a couple of years of history, but a request that names
+# no period should mean "the month I am in".
+SERVICE_GET_ENERGY_USAGE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+            vol.Optional(ATTR_YEAR): vol.All(
+                vol.Coerce(int), vol.Range(min=2000, max=2100)
+            ),
+            vol.Optional(ATTR_MONTHS): vol.All(
+                cv.ensure_list,
+                vol.Length(min=1, max=12),
+                [vol.All(vol.Coerce(int), vol.Range(min=1, max=12))],
+            ),
+            # Whole years, answered month by month. The library accepts
+            # 2000-2099 and drops duplicates; the same range applies here.
+            vol.Optional(ATTR_YEARS): vol.All(
+                cv.ensure_list,
+                vol.Length(min=1, max=10),
+                [vol.All(vol.Coerce(int), vol.Range(min=2000, max=2099))],
+            ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+    _one_energy_period,
+)
+
+
+def _writes_something(write: dict[str, Any]) -> dict[str, Any]:
+    """A simulated write sets a temperature, a mode, or both."""
+    if ATTR_TEMPERATURE not in write and ATTR_OP_MODE not in write:
+        raise vol.Invalid("a write sets a temperature, a mode, or both")
+    return write
+
+
+# What every simulator action takes: the heater, and a scenario document
+# (`nwp500.sim.codec`) laid over its live scenario, or alone without it.
+_SCENARIO_FIELDS: Final[dict[Any, Any]] = {
+    vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+    vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+    vol.Optional(ATTR_SCENARIO): dict,
+    vol.Optional(ATTR_USE_HEATER, default=True): cv.boolean,
+}
+
+
+def _heater_unless_alone(data: dict[str, Any]) -> dict[str, Any]:
+    """A heater, unless the scenario document stands alone.
+
+    With `use_heater` off nothing of the heater is read, so another
+    integration can model any tank without naming one.
+    """
+    if data[ATTR_USE_HEATER] and not (
+        data.get(ATTR_DEVICE_ID) or data.get(ATTR_ENTITY_ID)
+    ):
+        raise vol.Invalid(
+            "a water heater (device_id or entity_id) is needed unless "
+            "use_heater is off"
+        )
+    return data
+
+
+def _scenario_schema(fields: dict[Any, Any] | None = None) -> Any:
+    """A simulator action's schema: the scenario fields, and `fields`."""
+    return vol.All(
+        vol.Schema({**_SCENARIO_FIELDS, **(fields or {})}),
+        _heater_unless_alone,
+    )
+
+
+SERVICE_SCENARIO_SCHEMA = _scenario_schema()
+
+SERVICE_SIMULATE_SCHEMA = _scenario_schema(
+    {
+        vol.Optional(ATTR_HOURS): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=MAX_SIMULATE_HOURS)
+        ),
+        vol.Exclusive(ATTR_PLAN, "changes"): dict,
+        vol.Exclusive(ATTR_WRITES, "changes"): vol.All(
+            cv.ensure_list,
+            [
+                vol.All(
+                    vol.Schema(
+                        {
+                            vol.Required(ATTR_AT): cv.datetime,
+                            vol.Optional(ATTR_TEMPERATURE): vol.Coerce(float),
+                            vol.Optional(ATTR_OP_MODE): vol.In(
+                                list(MODE_TO_DHW_ID)
+                            ),
+                        }
+                    ),
+                    _writes_something,
+                )
+            ],
+        ),
+        vol.Optional(ATTR_INCLUDE_POINTS, default=False): cv.boolean,
+    }
+)
+
+SERVICE_TIME_TO_READY_SCHEMA = _scenario_schema(
+    {
+        vol.Optional(ATTR_BATH_GAL): vol.All(
+            vol.Coerce(float), vol.Range(min=0, min_included=False)
+        ),
+        vol.Optional(ATTR_SHOWER_GAL): vol.All(
+            vol.Coerce(float), vol.Range(min=0, min_included=False)
+        ),
+    }
+)
+
+SERVICE_FORECAST_SCHEMA = _scenario_schema(
+    {
+        vol.Required(ATTR_TARGET_TIME): cv.datetime,
+        vol.Optional(ATTR_TARGET_F): vol.Coerce(float),
+        vol.Optional(ATTR_TARGET_LOWER_F): vol.Coerce(float),
+    }
+)
+
+SERVICE_CALIBRATE_SIMULATOR_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+            vol.Optional(ATTR_FROM_DEFAULTS, default=False): cv.boolean,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+SERVICE_SET_AIR_FILTER_LIFE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+            vol.Required(ATTR_HOURS): _air_filter_life_hours,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+SERVICE_SET_VACATION_DAYS_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+            vol.Required(ATTR_DAYS): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=99)
+            ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+SERVICE_CONFIGURE_TOU_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+            vol.Required(ATTR_PERIODS): vol.All(
+                cv.ensure_list,
+                vol.Length(max=16),
+                [
+                    vol.Schema(
+                        {
+                            vol.Required("season"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=4095),
+                            ),
+                            vol.Required("week"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=254),
+                                msg="Week must be a bitfield (0-254, Sun=128..Sat=2)",
+                            ),
+                            vol.Required("start_hour"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=23),
+                            ),
+                            vol.Required("start_minute"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=59),
+                            ),
+                            vol.Required("end_hour"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=23),
+                            ),
+                            vol.Required("end_minute"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=59),
+                            ),
+                            vol.Required("price_min"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0),
+                            ),
+                            vol.Required("price_max"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0),
+                            ),
+                            vol.Required("decimal_point"): vol.All(
+                                vol.Coerce(int),
+                                vol.Range(min=0, max=10),
+                            ),
+                        }
+                    )
+                ],
+            ),
+            vol.Optional(ATTR_ENABLED, default=True): cv.boolean,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+SERVICE_REQUEST_TOU_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+SERVICE_SET_RECIRCULATION_MODE_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Optional(ATTR_DEVICE_ID): _ONE_DEVICE,
+            vol.Optional(ATTR_ENTITY_ID): _ONE_ENTITY,
+            vol.Required(ATTR_RECIRCULATION_MODE): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=4)
+            ),
+        }
+    ),
+    cv.has_at_least_one_key(ATTR_DEVICE_ID, ATTR_ENTITY_ID),
+)
+
+
+class NWP500ServiceHandler:
+    """Handles all NWP500 service calls with dependency injection.
+
+    This class encapsulates service handler logic, making it testable
+    and avoiding closure complexity from nested functions.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the service handler."""
+        self.hass = hass
+
+    async def _get_coordinator_and_mac(
+        self, call: ServiceCall
+    ) -> tuple[NWP500DataUpdateCoordinator, str]:
+        """Get coordinator and MAC address from service call."""
+        device_registry = dr.async_get(self.hass)
+        entity_registry = er.async_get(self.hass)
+
+        device_id = call.data.get(ATTR_DEVICE_ID)
+        entity_id = call.data.get(ATTR_ENTITY_ID)
+
+        if entity_id:
+            entity_entry = entity_registry.async_get(entity_id)
+            if not entity_entry:
+                raise HomeAssistantError(f"Entity {entity_id} not found")
+            device_id = entity_entry.device_id
+
+        if not device_id:
+            raise HomeAssistantError("Neither device_id nor entity_id provided")
+
+        device_entry = device_registry.async_get(device_id)
+
+        if not device_entry:
+            raise HomeAssistantError(f"Device {device_id} not found")
+
+        # Find the coordinator for this device
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.state is not ConfigEntryState.LOADED:
+                continue
+            coordinator = entry.runtime_data
+            if not coordinator or not coordinator.data:
+                continue
+            for mac_address in coordinator.data:
+                # Check if device identifiers match
+                for identifier in device_entry.identifiers:
+                    if identifier[0] == DOMAIN and identifier[1] == mac_address:
+                        return coordinator, mac_address
+
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="heater_not_loaded",
+            translation_placeholders={
+                "device": device_entry.name_by_user
+                or device_entry.name
+                or device_id
+            },
+        )
+
+    async def async_set_reservation(self, call: ServiceCall) -> None:
+        """Handle set_reservation service call."""
+        try:
+            from nwp500.encoding import build_reservation_entry
+        except ImportError as err:
+            raise HomeAssistantError(
+                "nwp500-python library not available"
+            ) from err
+
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        # Validation and dispatch are held together against a unit-system
+        # transition, rather than checking a flag and then yielding. The
+        # conversion below happens before the first await, so this path was
+        # not itself racing -- but the guard makes that a property of the
+        # code rather than of the current statement order.
+        async with coordinator.unit_transition_guard("set a reservation"):
+            enabled = call.data[ATTR_ENABLED]
+            days = call.data[ATTR_DAYS]
+            hour = call.data[ATTR_HOUR]
+            minute = call.data.get(ATTR_MINUTE, 0)
+            mode = call.data[ATTR_OP_MODE]
+            temperature = call.data.get(ATTR_TEMPERATURE)
+
+            # Convert mode string to the reservation entry's mode ID
+            mode_id = RESERVATION_MODE_IDS.get(mode)
+            if mode_id is None:
+                raise HomeAssistantError(f"Invalid mode: {mode}")
+
+            # Temperature is guaranteed by schema validation for most modes.
+            # For power_off, we use a default that matches the unit system.
+            if temperature is None:
+                if mode == "power_off":
+                    temperature = (
+                        DEFAULT_TEMPERATURE_C
+                        if coordinator.hass.config.units.temperature_unit
+                        == UnitOfTemperature.CELSIUS
+                        else DEFAULT_TEMPERATURE_F
+                    )
+                else:
+                    raise HomeAssistantError(
+                        f"Temperature is required for mode '{mode}'"
+                    )
+
+            # Get device features to use device-specific temperature limits
+            features = coordinator.device_features.get(mac_address)
+            device_temp_min = (
+                getattr(features, "dhw_temperature_min", None)
+                if features
+                else None
+            )
+            device_temp_max = (
+                getattr(features, "dhw_temperature_max", None)
+                if features
+                else None
+            )
+
+            # Use device-specific limits if available, otherwise fallback to constants
+            if device_temp_min is not None and device_temp_max is not None:
+                temp_min, temp_max = device_temp_min, device_temp_max
+            else:
+                # Fallback to hardcoded ranges based on HA unit system
+                if (
+                    coordinator.hass.config.units.temperature_unit
+                    == UnitOfTemperature.CELSIUS
+                ):
+                    temp_min, temp_max = MIN_TEMPERATURE_C, MAX_TEMPERATURE_C
+                else:
+                    temp_min, temp_max = MIN_TEMPERATURE_F, MAX_TEMPERATURE_F
+
+            # Validate temperature range
+            if not (temp_min <= temperature <= temp_max):
+                # For device-specific limits, don't specify units as they may be in device units
+                # For fallback constants, they match HA's unit system
+                if device_temp_min is not None and device_temp_max is not None:
+                    raise HomeAssistantError(
+                        f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
+                        f"is outside device valid range ({temp_min}-{temp_max})"
+                    )
+                else:
+                    raise HomeAssistantError(
+                        f"Temperature {temperature}°{coordinator.hass.config.units.temperature_unit} "
+                        f"is outside valid range ({temp_min}-{temp_max}°{coordinator.hass.config.units.temperature_unit})"
+                    )
+
+            # Build the reservation entry using library function
+            # Library handles unit conversion based on global context
+            # Ensure we never pass None values - use validated temp_min/temp_max as fallbacks
+            reservation = build_reservation_entry(
+                enabled=enabled,
+                days=days,
+                hour=hour,
+                minute=minute,
+                mode_id=mode_id,
+                temperature=float(temperature),
+                temperature_min=device_temp_min
+                if device_temp_min is not None
+                else temp_min,
+                temperature_max=device_temp_max
+                if device_temp_max is not None
+                else temp_max,
+            )
+
+            _LOGGER.info(
+                "Setting reservation for %s: days=%s, time=%02d:%02d, "
+                "mode=%s, temp=%s%s",
+                mac_address,
+                days,
+                hour,
+                minute,
+                mode,
+                temperature,
+                coordinator.hass.config.units.temperature_unit,
+            )
+
+            # Read-modify-write. The write is a full-list replacement at the
+            # protocol level, so the read must reflect what the device holds
+            # now: writing from an empty cache would wipe every reservation,
+            # and from a cached copy (up to one schedule refresh old) would
+            # drop an entry added since, e.g. in the NaviLink app.
+            async with coordinator.reservation_lock:
+                existing_schedule = (
+                    await coordinator.async_fetch_reservations(mac_address)
+                    or {}
+                )
+                if not existing_schedule:
+                    raise HomeAssistantError(
+                        f"Could not read the current reservation schedule for "
+                        f"{mac_address}. Refusing to write, because doing so "
+                        f"would replace every reservation on the device. Check "
+                        f"that the device is online and try again."
+                    )
+
+                existing_entries = _merge_reservation_entry(
+                    list(existing_schedule.get("reservation", [])), reservation
+                )
+
+                # This service's `enabled` field is entry-level. The device's
+                # global reservation switch is separate, so preserve whatever it
+                # currently is instead of forcing it on. `reservation_use` uses
+                # the device bool convention (2=on, 1=off); if the device did not
+                # report it, fall back to enabling.
+                reservation_use = existing_schedule.get("reservation_use")
+                system_enabled = (
+                    True if reservation_use is None else reservation_use == 2
+                )
+
+                await _async_write_confirmed(
+                    coordinator,
+                    mac_address,
+                    existing_entries,
+                    enabled=system_enabled,
+                )
+
+    async def async_update_reservations(self, call: ServiceCall) -> None:
+        """Handle update_reservations service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        # Entries carry temperatures, same as set_reservation. These arrive
+        # already encoded in device units, so nothing here re-converts them
+        # -- but the write is still serialized against a transition so the
+        # two reservation paths behave alike.
+        async with coordinator.unit_transition_guard("update reservations"):
+            reservations = call.data[ATTR_RESERVATIONS]
+            enabled = call.data[ATTR_ENABLED]
+
+            _LOGGER.info(
+                "Updating %d reservations for %s (enabled=%s)",
+                len(reservations),
+                mac_address,
+                enabled,
+            )
+
+            async with coordinator.reservation_lock:
+                await _async_write_confirmed(
+                    coordinator, mac_address, reservations, enabled=enabled
+                )
+
+    async def async_clear_reservations(self, call: ServiceCall) -> None:
+        """Handle clear_reservations service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        _LOGGER.info("Clearing all reservations for %s", mac_address)
+
+        # An empty list, with the reservation switch off, clears them all.
+        async with coordinator.reservation_lock:
+            await _async_write_confirmed(
+                coordinator, mac_address, [], enabled=False
+            )
+
+    async def async_request_reservations(self, call: ServiceCall) -> None:
+        """Handle request_reservations service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        _LOGGER.info("Requesting reservations for %s", mac_address)
+
+        success = await coordinator.async_request_reservations(mac_address)
+
+        if not success:
+            raise HomeAssistantError("Failed to request reservations")
+
+    async def async_set_vacation_days(self, call: ServiceCall) -> None:
+        """Handle set_vacation_days service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        days = call.data[ATTR_DAYS]
+        _LOGGER.info(
+            "Setting vacation mode for %s days on %s", days, mac_address
+        )
+        success = await coordinator.async_send_command(
+            mac_address, "set_vacation_days", days=days
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set vacation days")
+
+    async def async_configure_tou_schedule(self, call: ServiceCall) -> None:
+        """Handle configure_tou_schedule service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        raw_periods: list[dict[str, Any]] = call.data[ATTR_PERIODS]
+        enabled = call.data[ATTR_ENABLED]
+
+        # Convert HA snake_case keys to library camelCase protocol format
+        periods = [
+            {
+                "season": p["season"],
+                "week": p["week"],
+                "startHour": p["start_hour"],
+                "startMinute": p["start_minute"],
+                "endHour": p["end_hour"],
+                "endMinute": p["end_minute"],
+                "priceMin": p["price_min"],
+                "priceMax": p["price_max"],
+                "decimalPoint": p["decimal_point"],
+            }
+            for p in raw_periods
+        ]
+
+        _LOGGER.info(
+            "Configuring TOU schedule with %d periods for %s (enabled=%s)",
+            len(periods),
+            mac_address,
+            enabled,
+        )
+
+        success = await coordinator.async_configure_tou_schedule(
+            mac_address, periods, enabled=enabled
+        )
+
+        if not success:
+            raise HomeAssistantError("Failed to configure TOU schedule")
+
+    async def async_request_tou_settings(self, call: ServiceCall) -> None:
+        """Handle request_tou_settings service call.
+
+        Reads the plan from the cloud over REST: the device answers no MQTT
+        read for its TOU schedule. See
+        `NWP500DataUpdateCoordinator.async_request_tou_settings`.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        _LOGGER.info("Requesting TOU settings for %s", mac_address)
+
+        success = await coordinator.async_request_tou_settings(mac_address)
+
+        if not success:
+            raise HomeAssistantError("Failed to request TOU settings")
+
+    async def _async_simulator_action(
+        self, call: ServiceCall, action: str, **fields: Any
+    ) -> ServiceResponse:
+        """Run `simulator.service`'s `action` on the call's heater.
+
+        The simulator's actions are registered whether or not it is on, so
+        that calling one with it off says so rather than "unknown action";
+        the simulator's own code is reached only through a running feature.
+        A call naming no heater (its document alone, `use_heater` off) is
+        walked with no heater's runner, wherever the simulator runs.
+        """
+        runner = None
+        if call.data.get(ATTR_DEVICE_ID) or call.data.get(ATTR_ENTITY_ID):
+            coordinator, mac_address = await self._get_coordinator_and_mac(call)
+            feature = simulator_feature(self.hass, coordinator.entry)
+            runner = (
+                None if feature is None else feature.runners.get(mac_address)
+            )
+            running = runner is not None
+        else:
+            running = any(
+                simulator_feature(self.hass, entry) is not None
+                for entry in self.hass.config_entries.async_loaded_entries(
+                    DOMAIN
+                )
+            )
+        if not running:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_not_enabled",
+            )
+        from .simulator import service
+
+        result: ServiceResponse = await getattr(service, action)(
+            self.hass,
+            runner,
+            scenario=call.data.get(ATTR_SCENARIO),
+            use_heater=call.data[ATTR_USE_HEATER],
+            **fields,
+        )
+        return result
+
+    async def async_get_scenario(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the get_scenario service call."""
+        return await self._async_simulator_action(call, "async_get_scenario")
+
+    async def async_simulate(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the simulate service call."""
+        return await self._async_simulator_action(
+            call,
+            "async_simulate",
+            hours=call.data.get(ATTR_HOURS),
+            writes=call.data.get(ATTR_WRITES),
+            plan=call.data.get(ATTR_PLAN),
+            include_points=call.data[ATTR_INCLUDE_POINTS],
+        )
+
+    async def async_time_to_ready(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the time_to_ready service call."""
+        return await self._async_simulator_action(
+            call,
+            "async_time_to_ready",
+            bath_gal=call.data.get(ATTR_BATH_GAL),
+            shower_gal=call.data.get(ATTR_SHOWER_GAL),
+        )
+
+    async def async_next_recovery(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the next_recovery service call."""
+        return await self._async_simulator_action(call, "async_next_recovery")
+
+    async def async_forecast(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the forecast service call."""
+        return await self._async_simulator_action(
+            call,
+            "async_forecast",
+            target_time=call.data[ATTR_TARGET_TIME],
+            target_f=call.data.get(ATTR_TARGET_F),
+            target_lower_f=call.data.get(ATTR_TARGET_LOWER_F),
+        )
+
+    async def async_heater_profile(self, call: ServiceCall) -> ServiceResponse:
+        """Handle the heater_profile service call."""
+        return await self._async_simulator_action(call, "async_heater_profile")
+
+    async def async_calibrate_simulator(
+        self, call: ServiceCall
+    ) -> ServiceResponse:
+        """Calibrate the simulator's parameters to the heater's history.
+
+        The library fits; this returns what was kept: the parameters, the
+        library's report on each term, and its notes.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        feature = simulator_feature(self.hass, coordinator.entry)
+        if feature is None or mac_address not in feature.runners:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_not_enabled",
+            )
+        from .simulator.calibration import CalibrationError
+
+        try:
+            record: dict[str, Any] = await feature.async_calibrate(
+                mac_address, from_defaults=call.data[ATTR_FROM_DEFAULTS]
+            )
+        except CalibrationError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="simulator_calibration_failed",
+                translation_placeholders={"reason": str(err)},
+            ) from err
+        return cast("ServiceResponse", record)
+
+    async def async_get_energy_usage(
+        self, call: ServiceCall
+    ) -> ServiceResponse:
+        """Handle get_energy_usage service call.
+
+        A report pulled on demand: the device keeps daily totals split
+        between the heat pump and the resistive elements and reports them
+        only when asked, so this returns them to the caller rather than
+        recording anything.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+
+        if ATTR_YEARS in call.data:
+            return await self._async_get_energy_usage_monthly(
+                coordinator, mac_address, call.data[ATTR_YEARS]
+            )
+
+        today = dt_util.now()
+        year = call.data.get(ATTR_YEAR, today.year)
+        months = call.data.get(ATTR_MONTHS, [today.month])
+
+        _LOGGER.info(
+            "Requesting energy usage for %s (year=%d, months=%s)",
+            mac_address,
+            year,
+            months,
+        )
+
+        response = await coordinator.async_fetch_energy_usage(
+            mac_address, year, months
+        )
+        if response is None:
+            raise HomeAssistantError(
+                "The device did not report its energy usage. It may be "
+                "offline, or the connection may be down."
+            )
+
+        return energy_report.build_report(response, mac_address=mac_address)
+
+    async def _async_get_energy_usage_monthly(
+        self,
+        coordinator: NWP500DataUpdateCoordinator,
+        mac_address: str,
+        years: list[int],
+    ) -> ServiceResponse:
+        """Answer get_energy_usage for whole years, a month per item.
+
+        The NaviLink app's own usage screen asks this way, for the previous
+        and current year. Duplicated years are dropped here for the same
+        reason the library drops them: the device answers each year once.
+        """
+        unique_years = sorted(set(years))
+        _LOGGER.info(
+            "Requesting monthly energy usage for %s (years=%s)",
+            mac_address,
+            unique_years,
+        )
+
+        response = await coordinator.async_fetch_energy_usage_monthly(
+            mac_address, unique_years
+        )
+        if response is None:
+            raise HomeAssistantError(
+                "The device did not report its energy usage. It may be "
+                "offline, or the connection may be down."
+            )
+
+        return energy_report.build_monthly_report(
+            response, mac_address=mac_address
+        )
+
+    async def async_enable_demand_response(self, call: ServiceCall) -> None:
+        """Handle enable_demand_response service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Enabling demand response for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "enable_demand_response"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to enable demand response")
+
+    async def async_disable_demand_response(self, call: ServiceCall) -> None:
+        """Handle disable_demand_response service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Disabling demand response for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "disable_demand_response"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to disable demand response")
+
+    async def async_reset_air_filter(self, call: ServiceCall) -> None:
+        """Handle reset_air_filter service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Resetting air filter timer for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "reset_air_filter"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to reset air filter timer")
+
+    async def async_set_air_filter_life(self, call: ServiceCall) -> None:
+        """Handle set_air_filter_life service call.
+
+        Sets the service interval the air filter alarm counts toward; the
+        device reports it back as the Air Filter Alarm Period sensor.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        hours = call.data[ATTR_HOURS]
+        _LOGGER.info(
+            "Setting air filter service interval to %d hours on %s",
+            hours,
+            mac_address,
+        )
+        success = await coordinator.async_send_command(
+            mac_address, "set_air_filter_life", hours=hours
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set air filter life")
+
+    async def async_reset_condenser_fault(self, call: ServiceCall) -> None:
+        """Handle reset_condenser_fault service call.
+
+        Installer-level in the NaviLink app; the gate is in the app, and a
+        consumer account's device acknowledges the command.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Clearing condenser fault on %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "reset_condenser_fault"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to reset condenser fault")
+
+    async def async_set_vacation_duration(self, call: ServiceCall) -> None:
+        """Handle set_vacation_duration service call.
+
+        Changes the vacation day count without changing the operation
+        mode, unlike set_vacation_days, which enters vacation mode.
+        """
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        days = call.data[ATTR_DAYS]
+        _LOGGER.info(
+            "Setting vacation duration to %d days on %s", days, mac_address
+        )
+        success = await coordinator.async_send_command(
+            mac_address, "set_vacation_duration", days=days
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set vacation duration")
+
+    async def async_set_recirculation_mode(self, call: ServiceCall) -> None:
+        """Handle set_recirculation_mode service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        mode = call.data[ATTR_RECIRCULATION_MODE]
+        _LOGGER.info(
+            "Setting recirculation mode to %d for %s", mode, mac_address
+        )
+        success = await coordinator.async_send_command(
+            mac_address, "set_recirculation_mode", mode=mode
+        )
+        if not success:
+            raise HomeAssistantError("Failed to set recirculation mode")
+
+    async def async_trigger_recirculation(self, call: ServiceCall) -> None:
+        """Handle trigger_recirculation service call."""
+        coordinator, mac_address = await self._get_coordinator_and_mac(call)
+        _LOGGER.info("Triggering recirculation for %s", mac_address)
+        success = await coordinator.async_send_command(
+            mac_address, "trigger_recirculation"
+        )
+        if not success:
+            raise HomeAssistantError("Failed to trigger recirculation")
+
+
+# Services that answer the caller instead of acting on the device. Home
+# Assistant refuses to return data from a service not registered this way.
+_RESPONSE_SERVICES: Final[frozenset[str]] = frozenset(
+    {
+        SERVICE_GET_ENERGY_USAGE,
+        SERVICE_GET_SCENARIO,
+        SERVICE_SIMULATE,
+        SERVICE_TIME_TO_READY,
+        SERVICE_NEXT_RECOVERY,
+        SERVICE_FORECAST,
+        SERVICE_HEATER_PROFILE,
+    }
+)
+
+# Services that act, and answer the caller when asked.
+_OPTIONAL_RESPONSE_SERVICES: Final[frozenset[str]] = frozenset(
+    {SERVICE_CALIBRATE_SIMULATOR}
+)
+
+# (service name, handler attribute, schema). One table drives both
+# registration and teardown so the two can no longer drift apart.
+_SERVICES: Final[tuple[tuple[str, str, Any], ...]] = (
+    (
+        SERVICE_SET_RESERVATION,
+        "async_set_reservation",
+        SERVICE_SET_RESERVATION_SCHEMA,
+    ),
+    (
+        SERVICE_UPDATE_RESERVATIONS,
+        "async_update_reservations",
+        SERVICE_UPDATE_RESERVATIONS_SCHEMA,
+    ),
+    (
+        SERVICE_CLEAR_RESERVATIONS,
+        "async_clear_reservations",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_REQUEST_RESERVATIONS,
+        "async_request_reservations",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_SET_VACATION_DAYS,
+        "async_set_vacation_days",
+        SERVICE_SET_VACATION_DAYS_SCHEMA,
+    ),
+    (
+        SERVICE_CONFIGURE_TOU,
+        "async_configure_tou_schedule",
+        SERVICE_CONFIGURE_TOU_SCHEMA,
+    ),
+    (
+        SERVICE_REQUEST_TOU,
+        "async_request_tou_settings",
+        SERVICE_REQUEST_TOU_SCHEMA,
+    ),
+    (
+        SERVICE_GET_ENERGY_USAGE,
+        "async_get_energy_usage",
+        SERVICE_GET_ENERGY_USAGE_SCHEMA,
+    ),
+    (
+        SERVICE_ENABLE_DEMAND_RESPONSE,
+        "async_enable_demand_response",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_DISABLE_DEMAND_RESPONSE,
+        "async_disable_demand_response",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_RESET_AIR_FILTER,
+        "async_reset_air_filter",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_SET_AIR_FILTER_LIFE,
+        "async_set_air_filter_life",
+        SERVICE_SET_AIR_FILTER_LIFE_SCHEMA,
+    ),
+    (
+        SERVICE_RESET_CONDENSER_FAULT,
+        "async_reset_condenser_fault",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_SET_VACATION_DURATION,
+        "async_set_vacation_duration",
+        SERVICE_SET_VACATION_DAYS_SCHEMA,
+    ),
+    (
+        SERVICE_SET_RECIRCULATION_MODE,
+        "async_set_recirculation_mode",
+        SERVICE_SET_RECIRCULATION_MODE_SCHEMA,
+    ),
+    (
+        SERVICE_TRIGGER_RECIRCULATION,
+        "async_trigger_recirculation",
+        SERVICE_DEVICE_OR_ENTITY_SCHEMA,
+    ),
+    (
+        SERVICE_GET_SCENARIO,
+        "async_get_scenario",
+        SERVICE_SCENARIO_SCHEMA,
+    ),
+    (
+        SERVICE_SIMULATE,
+        "async_simulate",
+        SERVICE_SIMULATE_SCHEMA,
+    ),
+    (
+        SERVICE_TIME_TO_READY,
+        "async_time_to_ready",
+        SERVICE_TIME_TO_READY_SCHEMA,
+    ),
+    (
+        SERVICE_NEXT_RECOVERY,
+        "async_next_recovery",
+        SERVICE_SCENARIO_SCHEMA,
+    ),
+    (
+        SERVICE_FORECAST,
+        "async_forecast",
+        SERVICE_FORECAST_SCHEMA,
+    ),
+    (
+        SERVICE_HEATER_PROFILE,
+        "async_heater_profile",
+        SERVICE_SCENARIO_SCHEMA,
+    ),
+    (
+        SERVICE_CALIBRATE_SIMULATOR,
+        "async_calibrate_simulator",
+        SERVICE_CALIBRATE_SIMULATOR_SCHEMA,
+    ),
+)
+
+
+@callback
+def async_setup_services(hass: HomeAssistant) -> None:
+    """Register the integration's actions."""
+    handler = NWP500ServiceHandler(hass)
+
+    for service_name, handler_attr, schema in _SERVICES:
+        hass.services.async_register(
+            DOMAIN,
+            service_name,
+            getattr(handler, handler_attr),
+            schema=schema,
+            supports_response=(
+                SupportsResponse.ONLY
+                if service_name in _RESPONSE_SERVICES
+                else SupportsResponse.OPTIONAL
+                if service_name in _OPTIONAL_RESPONSE_SERVICES
+                else SupportsResponse.NONE
+            ),
+        )
+
+    _LOGGER.debug("Registered NWP500 services")

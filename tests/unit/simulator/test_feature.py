@@ -433,7 +433,9 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
 ):
     from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-    from custom_components.nwp500 import sensor as sensor_platform
+    from custom_components.nwp500 import (
+        sensor as sensor_platform,
+    )
     from custom_components.nwp500.const import simulator_started_signal
 
     entry.runtime_data = coordinator

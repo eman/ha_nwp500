@@ -542,7 +542,9 @@ async def test_a_plan_the_adapter_would_reject_is_refused_with_its_reason(
 def test_a_plan_and_writes_together_are_refused():
     import voluptuous as vol
 
-    from custom_components.nwp500 import SERVICE_SIMULATE_SCHEMA
+    from custom_components.nwp500.services import (
+        SERVICE_SIMULATE_SCHEMA,
+    )
 
     with pytest.raises(vol.Invalid):
         SERVICE_SIMULATE_SCHEMA(

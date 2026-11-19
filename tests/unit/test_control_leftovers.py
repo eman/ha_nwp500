@@ -52,7 +52,9 @@ class TestControlLeftovers:
     ):
         from homeassistant.helpers import issue_registry as ir
 
-        from custom_components.nwp500 import async_reload_entry
+        from custom_components.nwp500 import (
+            async_reload_entry,
+        )
         from custom_components.nwp500.const import control_storage_key
 
         entry, registry, control, own, _ = await self._entry_with_leftovers(
@@ -107,7 +109,9 @@ class TestControlLeftovers:
     ):
         from homeassistant.helpers import issue_registry as ir
 
-        from custom_components.nwp500 import async_remove_entry
+        from custom_components.nwp500 import (
+            async_remove_entry,
+        )
         from custom_components.nwp500.const import control_storage_key
 
         entry, *_ = await self._entry_with_leftovers(
