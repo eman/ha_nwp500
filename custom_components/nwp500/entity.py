@@ -6,7 +6,9 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, STALE_DATA_THRESHOLD
@@ -63,6 +65,29 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         if feature_changed:
             self._attr_device_info = self._build_device_info()
             self._last_feature_update = current_feature
+            self._update_registry_device()
+
+    def _update_registry_device(self) -> None:
+        """Write the new device info to the registry.
+
+        Home Assistant reads `device_info` only when the entity is added;
+        the heater's features (firmware, serial, tank) usually arrive
+        later. Unchanged fields make the update a no-op, so every entity
+        of the heater may call it.
+        """
+        if (device := self.device_entry) is None:
+            return
+        info = self._attr_device_info
+        if info is None:
+            return
+        dr.async_get(self.hass).async_update_device(
+            device.id,
+            sw_version=info.get("sw_version") or UNDEFINED,
+            hw_version=info.get("hw_version") or UNDEFINED,
+            serial_number=info.get("serial_number") or UNDEFINED,
+            model=info.get("model") or UNDEFINED,
+            model_id=info.get("model_id") or UNDEFINED,
+        )
 
     @override
     def _handle_coordinator_update(self) -> None:

@@ -6,6 +6,8 @@ import time
 from datetime import timedelta
 from unittest.mock import MagicMock
 
+from homeassistant.helpers.typing import UNDEFINED
+
 from custom_components.nwp500.const import STALE_DATA_THRESHOLD
 from custom_components.nwp500.entity import NWP500Entity
 
@@ -443,3 +445,44 @@ class TestAvailability:
         for _ in range(10):
             sensor._handle_coordinator_update()
         assert sensor.available is True
+
+
+def test_features_arriving_later_update_the_registry_device(
+    mock_coordinator, mock_device
+):
+    """Home Assistant reads device_info only when the entity is added."""
+    from unittest.mock import patch
+
+    entity = NWP500Entity(
+        mock_coordinator, mock_device.device_info.mac_address, mock_device
+    )
+    entity.hass = MagicMock()
+    entity.async_write_ha_state = MagicMock()
+    registry = MagicMock()
+    features = MagicMock(
+        controller_serial_number="SN1",
+        controller_sw_version="1",
+        wifi_sw_version="2",
+        volume_code=None,
+        model_type_code=None,
+    )
+    mock_coordinator.device_features.get.return_value = features
+    with (
+        patch.object(
+            NWP500Entity,
+            "device_entry",
+            new_callable=lambda: property(lambda self: MagicMock(id="dev1")),
+        ),
+        patch(
+            "custom_components.nwp500.entity.dr.async_get",
+            return_value=registry,
+        ),
+    ):
+        entity._handle_coordinator_update()
+
+    registry.async_update_device.assert_called_once()
+    args, kwargs = registry.async_update_device.call_args
+    assert args == ("dev1",)
+    assert kwargs["serial_number"] == "SN1"
+    assert kwargs["sw_version"] == "1.2"
+    assert kwargs["hw_version"] is UNDEFINED
