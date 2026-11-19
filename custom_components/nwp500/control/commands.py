@@ -171,6 +171,14 @@ class Commands:
             elif now >= record.sent_at + self.window:
                 record.status = STATUS_FAILED
                 record.reason = REASON_NOT_APPLIED
+                if (
+                    observed.status_at is None
+                    or observed.status_at < record.sent_at
+                ):
+                    # Judged on a status from before the send: say so.
+                    record.detail = (
+                        "the heater reported no status after it was sent"
+                    )
                 changed = True
         return changed
 

@@ -658,9 +658,7 @@ class Planner:
         """
         self.last_write = replace(write, simulated=False, confirmed=False)
         if sent:
-            self.unconfirmed = [*self.unconfirmed, (write, written_hash)][
-                -UNCONFIRMED_KEPT:
-            ]
+            self.sending(write, written_hash)
         for entry in write.added:
             if entry in self.owned:
                 continue
@@ -727,6 +725,18 @@ class Planner:
             and _instant(o.fires_at) >= _instant(entry.fires_at)
             for o in self.owned
         )
+
+    def sending(self, write: Write, written_hash: str | None) -> None:
+        """Keep a write about to be sent as unconfirmed until confirmed.
+
+        Recorded before it is sent, so a write that lands just before HA
+        is killed is still recognised as the feature's at the next start.
+        """
+        if (write, written_hash) in self.unconfirmed:
+            return
+        self.unconfirmed = [*self.unconfirmed, (write, written_hash)][
+            -UNCONFIRMED_KEPT:
+        ]
 
     def reconcile_unconfirmed(self, observed: Observed) -> None:
         """Settle a write that was not confirmed, against the device's list.

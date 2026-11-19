@@ -80,6 +80,23 @@ WRITE_RETRY = timedelta(seconds=60)
 WRITE_PAUSE = timedelta(minutes=15)
 
 
+def _same_plan(document: Mapping[str, Any], plan: Plan) -> bool:
+    """Whether a document is `plan`: the same id, issued at the same time.
+
+    A plan is identified by both (section 6.5): a newer document may reuse
+    the id.
+    """
+    issued = document.get("issued_at")
+    issued_at = (
+        dt_util.parse_datetime(issued) if isinstance(issued, str) else None
+    )
+    return (
+        document.get("intent_id") == plan.intent_id
+        and issued_at is not None
+        and issued_at == plan.issued_at
+    )
+
+
 def live_writes(options: Mapping[str, Any]) -> bool:
     """Whether these options write the list to the heater.
 
@@ -576,7 +593,9 @@ class DeviceControl:
                     schedule
                 ):
                     # From here the heater may hold the feature's list,
-                    # confirmed or not.
+                    # confirmed or not: kept before it is sent.
+                    self.planner.sending(write, schedule_hash(schedule))
+                    await self._async_persist()
                     await self.store.async_set_took_over(self.mac_address, True)
                     sent = True
                 confirmed = await self._async_write_list(schedule, observed)
@@ -692,6 +711,7 @@ class DeviceControl:
         """Take the newer of the stored plan and the entity's document."""
         stored = self.store.stored_intent(self.mac_address)
         stored_plan: Plan | None = None
+        unusable = False
         source = stored.get("source") if stored is not None else None
         other_source = stored is not None and source not in (
             None,
@@ -719,6 +739,7 @@ class DeviceControl:
                     err.reason,
                 )
                 await self.store.async_clear_intent(self.mac_address)
+                unusable = True
 
         entity_document: dict[str, Any] | None = None
         state = self.hass.states.get(self.intent_entity_id or "")
@@ -739,11 +760,14 @@ class DeviceControl:
                 stored=True,
             )
         if entity_document is not None and (
-            stored_plan is None
-            or entity_document.get("intent_id") != stored_plan.intent_id
+            stored_plan is None or not _same_plan(entity_document, stored_plan)
         ):
+            # A newer document published while HA was down, or the
+            # entity's plan when none was stored (section 6.5).
             await self.async_receive(entity_document, now)
-        if other_source and self.plan is None:
+        if (other_source or unusable) and self.plan is None:
+            # No plan to restore: its entries, near-term ones included, are
+            # withdrawn (section 6.5.2).
             self.planner.withdraw_plan()
 
     @callback
