@@ -515,3 +515,28 @@ async def test_diagnostics_omits_on_demand_reads_the_device_has_not_answered(
     entry = result["devices"][0]
     assert "installer_diagnostics" not in entry
     assert "recirculation_schedule" not in entry
+
+
+@pytest.mark.asyncio
+async def test_diagnostics_hold_the_device_features_without_identifiers(
+    hass: HomeAssistant,
+    mock_config_entry: ConfigEntry,
+    mock_coordinator: MagicMock,
+) -> None:
+    """The features no entity carries in full, less the MAC and serial."""
+    device = MagicMock()
+    device.device_info.mac_address = "AA:BB:CC:DD:EE:FF"
+    device.location = None
+    features = MagicMock()
+    features.model_dump.return_value = {"controller_sw_version": 184}
+    mock_coordinator.mqtt_manager = None
+    mock_coordinator.devices = [device]
+    mock_coordinator.device_features = {"AA:BB:CC:DD:EE:FF": features}
+    mock_config_entry.runtime_data = mock_coordinator
+
+    result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
+
+    assert result["devices"][0]["features"] == {"controller_sw_version": 184}
+    features.model_dump.assert_called_once_with(
+        mode="json", exclude={"mac_address", "controller_serial_number"}
+    )

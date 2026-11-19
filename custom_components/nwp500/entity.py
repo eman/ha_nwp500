@@ -3,7 +3,7 @@
 import logging
 import time
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING, Any, Final, override
 
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
@@ -18,6 +18,38 @@ if TYPE_CHECKING:
     from nwp500 import Device  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# The water heater's device attributes (`_device_attributes`). They
+# describe the device, so the recorder keeps none of them.
+DEVICE_ATTRIBUTES: Final = frozenset(
+    {
+        "home_seq",
+        "device_type",
+        "connected",
+        "model_type_code",
+        "controller_sw_version",
+        "controller_sw_code",
+        "panel_sw_version",
+        "panel_sw_code",
+        "wifi_sw_version",
+        "wifi_sw_code",
+        "recirc_sw_version",
+        "hpwh_use",
+        "recirculation_use",
+        "dr_setting_use",
+        "anti_legionella_setting_use",
+        "freeze_protection_use",
+        "smart_diagnostic_use",
+        "dhw_temperature_min",
+        "dhw_temperature_max",
+        "temperature_type",
+        "dhw_temperature_setting_use",
+        "install_type",
+        "country_code",
+        "volume_code",
+    }
+)
 
 
 class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
@@ -319,8 +351,17 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         return self.device.device_info.device_name or "NWP500"
 
     def _build_extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional state attributes."""
-        attrs = {}
+        """The entity's own attributes: none, unless a platform adds some."""
+        return {}
+
+    def _device_attributes(self) -> dict[str, Any]:
+        """The heater's account and feature data, for the water heater entity.
+
+        They describe the device, not an entity's state, and change rarely:
+        the water heater carries them, unrecorded (`DEVICE_ATTRIBUTES`), and
+        diagnostics hold the full feature data.
+        """
+        attrs: dict[str, Any] = {}
 
         if self.device_data:
             # Read the device the coordinator holds now, not the one captured

@@ -187,7 +187,7 @@ class TestNWP500Entity:
         mock_device: MagicMock,
         mock_device_status: MagicMock,
     ):
-        """Test extra_state_attributes includes device features."""
+        """The device attributes include the device's features."""
         mac_address = mock_device.device_info.mac_address
 
         # Mock device features with all attributes
@@ -220,7 +220,7 @@ class TestNWP500Entity:
         mock_device.location.longitude = -122.4194
 
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        attrs = entity.extra_state_attributes
+        attrs = entity._device_attributes()
 
         # Verify firmware details
         assert attrs["controller_sw_version"] == "1.2.3"
@@ -245,7 +245,7 @@ class TestNWP500Entity:
         assert attrs["country_code"] == "US"
 
         # Location is account metadata and must never be exposed as entity
-        # state; it belongs in diagnostics. See _build_extra_state_attributes.
+        # state; it belongs in diagnostics. See _device_attributes.
         for key in (
             "address",
             "city",
@@ -308,7 +308,7 @@ class TestRefreshedDeviceMetadata:
         mock_coordinator.data[mac_address]["device"] = refreshed
 
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        attrs = entity._build_extra_state_attributes()
+        attrs = entity._device_attributes()
 
         assert attrs["connected"] is False
         assert attrs["model_type_code"] == 7
@@ -326,7 +326,7 @@ class TestRefreshedDeviceMetadata:
 
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
 
-        assert entity._build_extra_state_attributes()["home_seq"] == 1
+        assert entity._device_attributes()["home_seq"] == 1
 
 
 class TestDeviceModelId:
@@ -486,3 +486,30 @@ def test_features_arriving_later_update_the_registry_device(
     assert kwargs["serial_number"] == "SN1"
     assert kwargs["sw_version"] == "1.2"
     assert kwargs["hw_version"] is UNDEFINED
+
+
+def test_only_the_water_heater_carries_the_device_attributes(
+    mock_coordinator, mock_device, mock_device_status
+):
+    """Every other entity's attributes are its own."""
+    mac = mock_device.device_info.mac_address
+    mock_coordinator.data = {
+        mac: {"device": mock_device, "status": mock_device_status}
+    }
+    entity = NWP500Entity(mock_coordinator, mac, mock_device)
+    assert entity.extra_state_attributes == {}
+
+
+def test_the_recorder_keeps_none_of_the_device_attributes(
+    mock_coordinator, mock_device, mock_device_status
+):
+    from custom_components.nwp500.entity import DEVICE_ATTRIBUTES
+    from custom_components.nwp500.water_heater import NWP500WaterHeater
+
+    mac = mock_device.device_info.mac_address
+    mock_coordinator.data = {
+        mac: {"device": mock_device, "status": mock_device_status}
+    }
+    entity = NWP500WaterHeater(mock_coordinator, mac, mock_device)
+    assert set(entity._device_attributes()) <= DEVICE_ATTRIBUTES
+    assert DEVICE_ATTRIBUTES <= entity._unrecorded_attributes

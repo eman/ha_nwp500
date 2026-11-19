@@ -177,6 +177,15 @@ async def async_get_config_entry_diagnostics(
             installer_diagnostics
         ):
             entry["installer_diagnostics"] = installer_diagnostics[mac]
+        # The device's feature data, as read: its firmware, what it
+        # supports and its limits. No entity carries all of it. Its
+        # identifiers are left out.
+        features = coordinator.device_features.get(mac)
+        if features is not None and hasattr(features, "model_dump"):
+            entry["features"] = features.model_dump(
+                mode="json",
+                exclude={"mac_address", "controller_serial_number"},
+            )
         recirculation_schedules = coordinator.recirculation_schedules
         if isinstance(recirculation_schedules, dict) and mac in (
             recirculation_schedules

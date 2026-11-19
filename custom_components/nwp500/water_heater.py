@@ -43,7 +43,7 @@ from .coordinator import (
     NWP500ConfigEntry,
     NWP500DataUpdateCoordinator,
 )
-from .entity import NWP500Entity
+from .entity import DEVICE_ATTRIBUTES, NWP500Entity
 
 if TYPE_CHECKING:
     from nwp500 import Device  # type: ignore[attr-defined]
@@ -70,6 +70,8 @@ async def async_setup_entry(
 
 class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 water heater entity."""
+
+    _unrecorded_attributes = DEVICE_ATTRIBUTES
 
     _attr_supported_features = (
         WaterHeaterEntityFeature.TARGET_TEMPERATURE
@@ -288,7 +290,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
     def _build_extra_state_attributes(self) -> dict[str, Any]:
         """Build additional state attributes for water heater."""
-        attrs = super()._build_extra_state_attributes()
+        attrs = self._device_attributes()
 
         if not (status := self._status):
             return attrs
