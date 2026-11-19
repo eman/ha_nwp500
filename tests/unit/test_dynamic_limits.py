@@ -295,3 +295,41 @@ def test_the_water_heater_unit_follows_the_library_not_ha(
     assert heater.native_temperature_unit == UnitOfTemperature.FAHRENHEIT
     mock_coordinator.unit_system = "metric"
     assert heater.native_temperature_unit == UnitOfTemperature.CELSIUS
+
+
+class TestNumberOnTheStep:
+    """The number's limits sit on its step; the setter clamps (2026-11)."""
+
+    @staticmethod
+    def _number(mock_coordinator, mock_device, mock_hass):
+        mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+        features = MagicMock()
+        features.dhw_temperature_min = 104.9
+        features.dhw_temperature_max = 149.9
+        mock_coordinator.device_features.get.return_value = features
+        mock_coordinator.get_field_unit_safe.return_value = None
+        number = NWP500TargetTemperature(
+            mock_coordinator, mock_device.device_info.mac_address, mock_device
+        )
+        number.hass = mock_hass
+        number._async_dispatch_command = AsyncMock()
+        return number
+
+    def test_limits_are_whole_degrees(
+        self, mock_coordinator, mock_device, mock_hass
+    ):
+        number = self._number(mock_coordinator, mock_device, mock_hass)
+        assert (number.native_min_value, number.native_max_value) == (
+            105.0,
+            150.0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_the_rounded_maximum_is_sent_as_the_device_s(
+        self, mock_coordinator, mock_device, mock_hass
+    ):
+        number = self._number(mock_coordinator, mock_device, mock_hass)
+        await number.async_set_native_value(150.0)
+        number._async_dispatch_command.assert_awaited_once_with(
+            "set_temperature", temperature=149.9
+        )

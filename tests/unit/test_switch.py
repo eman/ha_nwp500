@@ -405,3 +405,19 @@ async def test_every_switch_action_reports_a_failed_command(
 
     assert exc_info.value.translation_key == "command_failed"
     mock_coordinator.async_request_refresh.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("reported", "sent"), [(7, 7), (None, 14), (0, 14)])
+async def test_turning_anti_legionella_on_keeps_the_heater_s_period(
+    mock_coordinator, mock_device, mock_device_status, reported, sent
+):
+    mock_device_status.anti_legionella_period = reported
+    switch = NWP500AntiLegionellaSwitch(
+        mock_coordinator, mock_device.device_info.mac_address, mock_device
+    )
+    switch._async_send_command = AsyncMock()
+    await switch.async_turn_on()
+    switch._async_send_command.assert_awaited_once_with(
+        "enable_anti_legionella", period_days=sent
+    )

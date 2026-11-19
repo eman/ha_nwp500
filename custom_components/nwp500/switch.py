@@ -21,6 +21,9 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# The period the switch sets when the heater reports none.
+DEFAULT_ANTI_LEGIONELLA_PERIOD_DAYS = 14
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -159,8 +162,19 @@ class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[re
         return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Enable anti-legionella with default 14-day period."""
-        await self._async_send_command("enable_anti_legionella", period_days=14)
+        """Enable anti-legionella, keeping the heater's own period.
+
+        The default 14 days only when the heater reports none.
+        """
+        period = DEFAULT_ANTI_LEGIONELLA_PERIOD_DAYS
+        if status := self._status:
+            reported = getattr(status, "anti_legionella_period", None)
+            if isinstance(reported, int) and not isinstance(reported, bool):
+                if reported > 0:
+                    period = reported
+        await self._async_send_command(
+            "enable_anti_legionella", period_days=period
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable anti-legionella."""
