@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -25,6 +26,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
+from homeassistant.helpers.typing import UNDEFINED, UndefinedType
 
 from .const import (
     CONF_CONTROL_ENABLED,
@@ -1070,10 +1072,10 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
                         user_input[CONF_EMAIL].lower()
                     )
                     self._abort_if_unique_id_mismatch(reason="wrong_account")
-                    return self.async_update_reload_and_abort(
+                    return self._async_update_and_reload(
                         self._reauth_entry,
-                        data=user_input,
                         reason="reauth_successful",
+                        data=user_input,
                     )
                 return self.async_abort(reason="reauth_failed")
 
@@ -1087,6 +1089,29 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
                 else "unknown"
             },
         )
+
+    def _async_update_and_reload(
+        self,
+        entry: config_entries.ConfigEntry,
+        *,
+        reason: str,
+        title: str | UndefinedType = UNDEFINED,
+        data: Mapping[str, Any],
+    ) -> config_entries.ConfigFlowResult:
+        """Store the new credentials and reload the entry once.
+
+        A loaded entry's update listener reloads it when the entry changes,
+        so the flow schedules a reload itself only when nothing changed or
+        no listener is registered (set-up failed before registering it).
+        Reloading on top of the listener reloads twice, which Home
+        Assistant reports and stops allowing in 2026.12.
+        """
+        changed = self.hass.config_entries.async_update_entry(
+            entry, title=title, data=data
+        )
+        if not changed or not entry.update_listeners:
+            self.hass.config_entries.async_schedule_reload(entry.entry_id)
+        return self.async_abort(reason=reason)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
@@ -1114,11 +1139,11 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
                 # written -- silently discarding the password change this
                 # flow exists to make.
                 self._abort_if_unique_id_mismatch(reason="wrong_account")
-                return self.async_update_reload_and_abort(
+                return self._async_update_and_reload(
                     self._get_reconfigure_entry(),
+                    reason="reconfigure_successful",
                     title=info["title"],
                     data=user_input,
-                    reason="reconfigure_successful",
                 )
 
         current_data = self._get_reconfigure_entry().data
