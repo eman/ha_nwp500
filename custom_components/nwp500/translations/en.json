@@ -1547,6 +1547,9 @@
     }
   },
   "exceptions": {
+    "heater_not_found": {
+      "message": "{target} is not a Navien water heater."
+    },
     "heater_not_loaded": {
       "message": "{device} is not loaded: check its integration entry."
     },

@@ -630,17 +630,23 @@ class NWP500ServiceHandler:
 
         if entity_id:
             entity_entry = entity_registry.async_get(entity_id)
-            if not entity_entry:
-                raise HomeAssistantError(f"Entity {entity_id} not found")
-            device_id = entity_entry.device_id
+            device_id = entity_entry.device_id if entity_entry else None
+            if not device_id:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="heater_not_found",
+                    translation_placeholders={"target": entity_id},
+                )
 
-        if not device_id:
-            raise HomeAssistantError("Neither device_id nor entity_id provided")
-
-        device_entry = device_registry.async_get(device_id)
-
-        if not device_entry:
-            raise HomeAssistantError(f"Device {device_id} not found")
+        device_entry = (
+            device_registry.async_get(device_id) if device_id else None
+        )
+        if device_entry is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="heater_not_found",
+                translation_placeholders={"target": str(device_id)},
+            )
 
         # Find the coordinator for this device
         for entry in self.hass.config_entries.async_entries(DOMAIN):
@@ -659,9 +665,9 @@ class NWP500ServiceHandler:
             translation_domain=DOMAIN,
             translation_key="heater_not_loaded",
             translation_placeholders={
-                "device": device_entry.name_by_user
-                or device_entry.name
-                or device_id
+                "device": str(
+                    device_entry.name_by_user or device_entry.name or device_id
+                )
             },
         )
 

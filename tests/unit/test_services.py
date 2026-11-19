@@ -726,8 +726,14 @@ class TestReservationWritesAreConfirmed:
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_DEVICE_ID: "unknown_device"}
 
-        with pytest.raises(HomeAssistantError, match="not found"):
+        from homeassistant.exceptions import ServiceValidationError
+
+        with pytest.raises(ServiceValidationError) as err:
             await request_handler(call)
+        assert err.value.translation_key == "heater_not_found"
+        assert err.value.translation_placeholders == {
+            "target": "unknown_device"
+        }
 
 
 class TestTouAndVacationServices:
