@@ -778,3 +778,33 @@ def test_the_action_schemas_take_a_document():
         {"device_id": "abc", "target_time": "2026-10-21T14:00:00"}
     )
     assert data["target_time"].hour == 14
+
+
+@needs_sim
+@pytest.mark.asyncio
+async def test_switching_it_off_stops_it_once_and_forgets_it(
+    hass: HomeAssistant, hass_storage, tmp_path
+):
+    """The reload's unload must not stop it again after its files are gone.
+
+    A second stop closes the records and calibration, writing them back.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        options={"simulator_enabled": False, "simulator": {}},
+    )
+    entry.add_to_hass(hass)
+    await _leftovers(hass, hass_storage, entry, tmp_path)
+    feature = MagicMock(async_stop=AsyncMock())
+    never = asyncio.Event()
+    start = hass.async_create_task(never.wait())
+    hass.data[DOMAIN] = {
+        entry.entry_id: {"simulator": feature, "simulator_start": start}
+    }
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()):
+        await async_reload_entry(hass, entry)
+
+    feature.async_stop.assert_awaited_once()
+    assert "simulator" not in hass.data[DOMAIN][entry.entry_id]
+    assert start.cancelled()

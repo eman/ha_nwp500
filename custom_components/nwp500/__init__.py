@@ -1556,9 +1556,18 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         await _async_remove_control_leftovers(hass, entry.entry_id)
     if _simulator_was_on(entry) and not simulator_enabled(entry):
         # Switching the simulator off removes its sensors, whether or not
-        # it was running.
-        if (simulator := simulator_feature(hass, entry)) is not None:
-            await simulator.async_stop()
+        # it was running. It is stopped and forgotten first: a start still
+        # running, or the reload's unload stopping it again, would write
+        # its record and calibration back after they are removed.
+        entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+        if (start := entry_data.pop(DATA_SIMULATOR_START, None)) is not None:
+            start.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await start
+        if simulator_feature(hass, entry) is not None:
+            from .simulator import async_unload_simulator
+
+            await async_unload_simulator(hass, entry)
         await _async_remove_simulator_leftovers(hass, entry.entry_id)
     await hass.config_entries.async_reload(entry.entry_id)
 
