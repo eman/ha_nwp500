@@ -299,9 +299,10 @@ class SimulatorCalibration:
                     RecordClient(self.hass, heater_record),
                 )
                 record = await record_inputs(client, inputs, start, now)
+                sizes = await heater_record.async_sizes()
                 calibrate = partial(
                     sim_calibrate.calibrate,
-                    heater_record.readings(start),
+                    heater_record.readings(start, sizes),
                     record=record,
                     params=base,
                     keep_better=kept is not None,
