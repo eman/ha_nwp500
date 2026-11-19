@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.water_heater import (
+    ATTR_OPERATION_MODE,
     STATE_ECO,
     STATE_ELECTRIC,
     STATE_HEAT_PUMP,
@@ -94,6 +95,12 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             STATE_ELECTRIC,
         ]
         self._pre_vacation_mode: str | None = None
+        # Whether a status has shown Vacation since the mode was saved: the
+        # first status out of it ends the vacation and drops the mode.
+        self._seen_vacation = False
+        # The last mode reported outside Vacation, for a vacation started
+        # elsewhere (the set_vacation_days service, the app).
+        self._last_operation: str | None = None
 
     async def async_added_to_hass(self) -> None:
         """Restore pre-vacation mode from state on HA restart."""
@@ -102,6 +109,34 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
             self._pre_vacation_mode = last_state.attributes.get(
                 "pre_vacation_mode"
             )
+            # Saved while the heater was in Vacation: the first status out
+            # of it drops the mode.
+            self._seen_vacation = self._pre_vacation_mode is not None
+        self._track_vacation()
+
+    @override
+    def _handle_coordinator_update(self) -> None:
+        self._track_vacation()
+        super()._handle_coordinator_update()
+
+    def _track_vacation(self) -> None:
+        """Keep the pre-vacation mode only while the heater is in Vacation."""
+        if not (status := self._status):
+            return
+        setting = getattr(status, "dhw_operation_setting", None)
+        if setting is None:
+            return
+        if get_enum_value(setting) == DhwOperationSetting.VACATION:
+            if not self._seen_vacation and self._pre_vacation_mode is None:
+                self._pre_vacation_mode = self._last_operation
+            self._seen_vacation = True
+            return
+        if self._seen_vacation:
+            self._pre_vacation_mode = None
+            self._seen_vacation = False
+        self._last_operation = (
+            get_dhw_operation_setting_state(setting, default="") or None
+        )
 
     @property
     @override
@@ -222,8 +257,13 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                     # Vacation mode: show the mode that was active before
                     # vacation so the UI reflects what will be restored.
                     return self._pre_vacation_mode or STATE_ECO
-                return get_dhw_operation_setting_state(
-                    operation_setting, default="unknown"
+                # A setting with no Home Assistant state (STANDBY) is None,
+                # not the string "unknown".
+                return (
+                    get_dhw_operation_setting_state(
+                        operation_setting, default=""
+                    )
+                    or None
                 )
         except AttributeError, TypeError:
             pass
@@ -396,6 +436,10 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
                 ),
             )
 
+        # water_heater.set_temperature may carry a mode as well.
+        if (operation_mode := kwargs.get(ATTR_OPERATION_MODE)) is not None:
+            await self.async_set_operation_mode(operation_mode)
+
         # Refreshing is deliberately outside the guard: it needs no unit
         # context of its own, and holding the lock across a coordinator
         # refresh would stall a pending transition for no reason.
@@ -441,6 +485,7 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
         """
         previous_mode = self._pre_vacation_mode
         self._pre_vacation_mode = self.current_operation
+        self._seen_vacation = False
         try:
             await self._async_dispatch_command("set_vacation_days", days=1)
         except HomeAssistantError:
