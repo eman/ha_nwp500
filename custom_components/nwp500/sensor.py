@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -486,8 +486,28 @@ class NWP500LastStatusSensor(NWP500Entity, SensorEntity):  # type: ignore[report
             return None
         return datetime.fromtimestamp(last_update, tz=UTC)
 
+    @property
+    @override
+    def available(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Available while the heater is silent: its silences show here."""
+        return self.coordinator.last_update_success
 
-class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
+
+class NWP500TelemetrySensor(NWP500DiagnosticSensor):
+    """A sensor about the connection itself.
+
+    It stays available while the device is silent: an outage is exactly
+    when the connection's state and counters are worth reading.
+    """
+
+    @property
+    @override
+    def available(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return True while the coordinator itself is healthy."""
+        return self.coordinator.last_update_success
+
+
+class NWP500LastResponseTimeSensor(NWP500TelemetrySensor):
     """Sensor showing timestamp of last MQTT response."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -531,7 +551,7 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
         return attrs
 
 
-class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
+class NWP500MQTTRequestCountSensor(NWP500TelemetrySensor):
     """Sensor showing total MQTT requests sent."""
 
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
@@ -558,7 +578,7 @@ class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
         return int(value) if value is not None else 0
 
 
-class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
+class NWP500MQTTResponseCountSensor(NWP500TelemetrySensor):
     """Sensor showing total MQTT responses received."""
 
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
@@ -585,7 +605,7 @@ class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
         return int(value) if value is not None else 0
 
 
-class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
+class NWP500MQTTConnectedSensor(NWP500TelemetrySensor):
     """Sensor showing MQTT connection status and duration."""
 
     def __init__(
@@ -623,7 +643,7 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
         return attrs
 
 
-class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
+class NWP500ConsecutiveTimeoutsSensor(NWP500TelemetrySensor):
     """Sensor showing consecutive MQTT timeouts."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -950,7 +951,12 @@ class TestCloudMetadataSensors:
         mock_coordinator.get_device_error.return_value = error
 
         sensor = self._error_sensor(mock_coordinator, mock_device)
-        sensor._stale_count = 99
+        # The device has been silent for a day.
+        mock_coordinator.data = {
+            mock_device.device_info.mac_address: {
+                "last_update": time.time() - 86400
+            }
+        }
 
         assert sensor.available is True
         assert sensor.native_value == "E015"

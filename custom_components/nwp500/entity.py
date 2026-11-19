@@ -1,13 +1,15 @@
 """Base entity class for Navien NWP500 integration."""
 
 import logging
+import time
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, override
 
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, STALE_DATA_THRESHOLD
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, STALE_DATA_THRESHOLD
 from .coordinator import NWP500DataUpdateCoordinator
 
 if TYPE_CHECKING:
@@ -32,8 +34,8 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         self.mac_address = mac_address
         self.device = device
         self._last_feature_update = None
-        self._stale_count: int = 0
-        self._last_seen_update: float | None = None
+        # Staleness is measured from here until the device's first status.
+        self._created_at: float = time.time()
 
         # Build device info with available information
         self._attr_device_info = self._build_device_info()
@@ -65,21 +67,6 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
     @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        # Track data staleness for availability
-        device_data = self.device_data
-        if device_data:
-            last_update = device_data.get("last_update")
-            if (
-                last_update is not None
-                and last_update != self._last_seen_update
-            ):
-                self._last_seen_update = last_update
-                self._stale_count = 0
-            else:
-                self._stale_count += 1
-        else:
-            self._stale_count += 1
-
         self._update_attrs()
         super()._handle_coordinator_update()
 
@@ -88,16 +75,24 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
     def available(self) -> bool:
         """Return True if entity is available.
 
-        Marks entity unavailable when data is stale (no fresh updates
-        for several consecutive coordinator cycles), indicating the MQTT
-        connection is likely down.
+        Unavailable once the device has sent no status for
+        `STALE_DATA_THRESHOLD` update intervals, which means the MQTT
+        connection or the device is likely down. Measured in time, not in
+        coordinator updates: updates also come from schedules, replies and
+        other heaters on the account.
         """
         if not super().available:
             return False
-        # Allow initial state before any data arrives
-        if self._last_seen_update is None and self._stale_count == 0:
-            return True
-        return self._stale_count < STALE_DATA_THRESHOLD
+        device_data = self.device_data
+        last_update = device_data.get("last_update") if device_data else None
+        since = last_update if last_update is not None else self._created_at
+        interval = self.coordinator.update_interval
+        seconds = (
+            interval.total_seconds()
+            if isinstance(interval, timedelta)
+            else DEFAULT_SCAN_INTERVAL
+        )
+        return time.time() - since < STALE_DATA_THRESHOLD * seconds
 
     @property
     def _status(self) -> Any | None:

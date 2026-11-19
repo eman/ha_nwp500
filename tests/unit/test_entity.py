@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import time
+from datetime import timedelta
 from unittest.mock import MagicMock
 
+from custom_components.nwp500.const import STALE_DATA_THRESHOLD
 from custom_components.nwp500.entity import NWP500Entity
 
 
@@ -384,3 +387,59 @@ class TestDeviceModelId:
 
         assert device_info is not None
         assert device_info["model_id"] is None
+
+
+class TestAvailability:
+    """Staleness is time since the heater's last status (2026-11 review).
+
+    It used to count coordinator updates, which also come from schedules,
+    replies and other heaters on the account.
+    """
+
+    @staticmethod
+    def _entity(mock_coordinator, mock_device, *, silent_for: float):
+        mac = mock_device.device_info.mac_address
+        mock_coordinator.last_update_success = True
+        mock_coordinator.update_interval = timedelta(seconds=30)
+        mock_coordinator.data = {
+            mac: {
+                "device": mock_device,
+                "last_update": time.time() - silent_for,
+            }
+        }
+        return NWP500Entity(mock_coordinator, mac, mock_device)
+
+    def test_many_updates_without_a_new_status_keep_it_available(
+        self, mock_coordinator, mock_device
+    ):
+        entity = self._entity(mock_coordinator, mock_device, silent_for=20)
+        entity.async_write_ha_state = MagicMock()
+        for _ in range(20):
+            entity._handle_coordinator_update()
+        assert entity.available is True
+
+    def test_silent_for_the_threshold_is_unavailable(
+        self, mock_coordinator, mock_device
+    ):
+        entity = self._entity(
+            mock_coordinator,
+            mock_device,
+            silent_for=STALE_DATA_THRESHOLD * 30 + 1,
+        )
+        assert entity.available is False
+
+    def test_connection_telemetry_stays_available_when_silent(
+        self, mock_coordinator, mock_device
+    ):
+        from custom_components.nwp500.sensor import (
+            NWP500ConsecutiveTimeoutsSensor,
+        )
+
+        self._entity(mock_coordinator, mock_device, silent_for=86400)
+        sensor = NWP500ConsecutiveTimeoutsSensor(
+            mock_coordinator, mock_device.device_info.mac_address, mock_device
+        )
+        sensor.async_write_ha_state = MagicMock()
+        for _ in range(10):
+            sensor._handle_coordinator_update()
+        assert sensor.available is True
