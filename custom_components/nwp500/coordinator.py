@@ -1112,9 +1112,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_request_initial_reservations(device)
 
         # The TOU plan is a REST read keyed by the controller serial number,
-        # which only the MQTT device-info response publishes. That response
-        # arrives on the MQTT thread and is applied when this coroutine
-        # yields, so it is normally here by now -- but a device slow to
+        # which only the MQTT device-info response publishes. The library
+        # hands that response over on the event loop, while this coroutine
+        # waits, so it is normally here by now -- but a device slow to
         # answer would leave it missing, and calling anyway would log an
         # error for a condition the periodic refresh recovers from on its
         # own. _async_request_initial_tou checks first.
