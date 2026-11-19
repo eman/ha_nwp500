@@ -31,7 +31,6 @@ class ControlCapabilitiesSensor(NWP500ControlEntity, SensorEntity):  # type: ign
     """State: the declaration's version. Attributes: the declaration."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:file-certificate-outline"
 
     @property
     def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -46,8 +45,6 @@ class ControlCapabilitiesSensor(NWP500ControlEntity, SensorEntity):  # type: ign
 
 class ControlIntentSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """State: the plan in force, or `none`."""
-
-    _attr_icon = "mdi:calendar-clock"
 
     @property
     def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -73,8 +70,6 @@ class ControlIntentSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[re
 class ControlAckSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """State: the acknowledgement of the plan, or of a rejected document."""
 
-    _attr_icon = "mdi:check-decagram-outline"
-
     @property
     def native_value(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """programmed, partly_programmed, pending, rejected, shadow or none."""
@@ -90,7 +85,6 @@ class ControlProgramHashSensor(NWP500ControlEntity, SensorEntity):  # type: igno
     """The hash of the list the feature wants on the device."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:calendar-check"
 
     @property
     def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -116,7 +110,6 @@ class ControlProgrammedUntilSensor(NWP500ControlEntity, SensorEntity):  # type: 
     """How far the device's copy of the plan reaches."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_icon = "mdi:calendar-end"
 
     @property
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -139,7 +132,6 @@ class ControlNextEntrySensor(NWP500ControlEntity, SensorEntity):  # type: ignore
     """When the next entry the feature owns fires."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_icon = "mdi:calendar-arrow-right"
 
     @property
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -164,8 +156,6 @@ class ControlNextEntrySensor(NWP500ControlEntity, SensorEntity):  # type: ignore
 class ControlWantedModeSensor(NWP500ControlEntity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """The mode the plan puts the heater in now."""
 
-    _attr_icon = "mdi:state-machine"
-
     @property
     def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """A mode name, unknown without a plan."""
@@ -177,7 +167,6 @@ class ControlWantedSetpointSensor(NWP500ControlEntity, SensorEntity):  # type: i
     """The setpoint the plan puts the heater in now."""
 
     _attr_device_class = SensorDeviceClass.TEMPERATURE
-    _attr_icon = "mdi:thermometer-auto"
 
     @property
     def native_unit_of_measurement(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -211,7 +200,6 @@ class ControlLastWriteSensor(NWP500ControlEntity, SensorEntity):  # type: ignore
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:content-save-edit-outline"
 
     @property
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

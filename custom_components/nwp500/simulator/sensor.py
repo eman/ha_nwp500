@@ -113,7 +113,6 @@ class SimulatorHeatingSensor(NWP500SimulatorEntity, SensorEntity):  # type: igno
 
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options = list(HEATING_STATES)
-    _attr_icon = "mdi:water-boiler"
 
     @property
     def native_value(self) -> str | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -154,7 +153,6 @@ class SimulatorHotWaterReadySensor(NWP500SimulatorEntity, SensorEntity):  # type
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_icon = "mdi:clock-check-outline"
 
     @property
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -183,7 +181,6 @@ class SimulatorCompressorStartSensor(NWP500SimulatorEntity, SensorEntity):  # ty
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_icon = "mdi:heat-pump-outline"
 
     @property
     def native_value(self) -> datetime | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -216,7 +213,6 @@ class SimulatorEnergySensor(NWP500SimulatorEntity, SensorEntity):  # type: ignor
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_suggested_display_precision = _KWH_DIGITS
-    _attr_icon = "mdi:lightning-bolt-outline"
 
     @property
     def native_value(self) -> float | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -266,7 +262,6 @@ class SimulatorHotWaterAvailableSensor(NWP500HotWaterEntity, SensorEntity):  # t
     _attr_device_class = SensorDeviceClass.VOLUME_STORAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 0
-    _attr_icon = "mdi:water-thermometer"
 
     def __init__(self, runner: SimulatorRunner, key: str) -> None:
         """In Home Assistant's volume unit, gallons or litres."""
@@ -298,7 +293,6 @@ class SimulatorShowersAvailableSensor(NWP500HotWaterEntity, SensorEntity):  # ty
     """How many showers the tank has hot water for now: whole ones."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:shower-head"
 
     def __init__(self, runner: SimulatorRunner, key: str) -> None:
         """A shower's size in Home Assistant's volume unit."""
@@ -338,7 +332,6 @@ class SimulatorBathsAvailableSensor(NWP500HotWaterEntity, SensorEntity):  # type
     """
 
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:bathtub"
 
     def __init__(self, runner: SimulatorRunner, key: str) -> None:
         """A bath's size in Home Assistant's volume unit."""
@@ -395,7 +388,6 @@ class SimulatorBathReadyAtSensor(NWP500HotWaterEntity, RestoreSensor):  # type: 
     """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    _attr_icon = "mdi:bathtub-outline"
 
     def __init__(self, runner: SimulatorRunner, key: str) -> None:
         """Nothing held yet."""
@@ -486,7 +478,6 @@ class SimulatorCalibrationSensor(NWP500Entity, SensorEntity):  # type: ignore[re
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_icon = "mdi:tune-variant"
     # Long, and in the store: kept off the recorder.
     _unrecorded_attributes = frozenset(
         {"fitted", "kept", "on_defaults", "judged", "notes", "error"}

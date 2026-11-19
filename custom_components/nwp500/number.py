@@ -65,7 +65,6 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_target_temperature"
         self._attr_translation_key = "target_temperature"
-        self._attr_icon = "mdi:thermometer"
 
     @property
     def _celsius(self) -> bool:

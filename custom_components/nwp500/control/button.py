@@ -20,8 +20,6 @@ class ControlDisableButton(NWP500ControlEntity, ButtonEntity):  # type: ignore[r
     the options flow.
     """
 
-    _attr_icon = "mdi:hand-back-left-off-outline"
-
     async def async_press(self) -> None:
         """Set the mode option; the entry reloads through its listener."""
         entry = self.control.entry

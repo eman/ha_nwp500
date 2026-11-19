@@ -22,8 +22,6 @@ class ControlInSyncBinarySensor(  # type: ignore[reportIncompatibleVariableOverr
     entries of its own. That comparison is the shadow audit.
     """
 
-    _attr_icon = "mdi:sync"
-
     @property
     def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Unknown until the device's list has been read."""
@@ -47,8 +45,6 @@ class ControlOverrideBinarySensor(  # type: ignore[reportIncompatibleVariableOve
     NWP500ControlEntity, BinarySensorEntity
 ):
     """On while a person's change is being reported (spec section 5.10)."""
-
-    _attr_icon = "mdi:account-wrench"
 
     @property
     def is_on(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

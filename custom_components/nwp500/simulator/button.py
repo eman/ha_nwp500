@@ -25,7 +25,6 @@ class SimulatorCalibrateButton(NWP500Entity, ButtonEntity):  # type: ignore[repo
     """
 
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:tune-variant"
 
     def __init__(
         self, feature: SimulatorFeature, runner: SimulatorRunner

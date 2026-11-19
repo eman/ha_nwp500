@@ -1,0 +1,163 @@
+{
+  "entity": {
+    "binary_sensor": {
+      "control_in_sync": {
+        "default": "mdi:sync"
+      },
+      "control_override": {
+        "default": "mdi:account-wrench"
+      }
+    },
+    "button": {
+      "control_disable": {
+        "default": "mdi:hand-back-left-off-outline"
+      },
+      "simulator_calibrate": {
+        "default": "mdi:tune-variant"
+      }
+    },
+    "number": {
+      "target_temperature": {
+        "default": "mdi:thermometer"
+      }
+    },
+    "sensor": {
+      "control_capabilities": {
+        "default": "mdi:file-certificate-outline"
+      },
+      "control_intent": {
+        "default": "mdi:calendar-clock"
+      },
+      "control_ack": {
+        "default": "mdi:check-decagram-outline"
+      },
+      "control_program_hash": {
+        "default": "mdi:calendar-check"
+      },
+      "control_programmed_until": {
+        "default": "mdi:calendar-end"
+      },
+      "control_next_entry": {
+        "default": "mdi:calendar-arrow-right"
+      },
+      "control_wanted_mode": {
+        "default": "mdi:state-machine"
+      },
+      "control_wanted_setpoint": {
+        "default": "mdi:thermometer-auto"
+      },
+      "control_last_write": {
+        "default": "mdi:content-save-edit-outline"
+      },
+      "simulator_heating": {
+        "default": "mdi:water-boiler"
+      },
+      "simulator_hot_water_ready": {
+        "default": "mdi:clock-check-outline"
+      },
+      "simulator_compressor_start": {
+        "default": "mdi:heat-pump-outline"
+      },
+      "simulator_energy_next_24h": {
+        "default": "mdi:lightning-bolt-outline"
+      },
+      "simulator_hot_water_available": {
+        "default": "mdi:water-thermometer"
+      },
+      "simulator_showers_ready": {
+        "default": "mdi:shower-head"
+      },
+      "simulator_baths_available": {
+        "default": "mdi:bathtub"
+      },
+      "simulator_bath_ready_at": {
+        "default": "mdi:bathtub-outline"
+      },
+      "simulator_calibration": {
+        "default": "mdi:tune-variant"
+      }
+    },
+    "switch": {
+      "power": {
+        "default": "mdi:power"
+      },
+      "tou": {
+        "default": "mdi:clock-time-four-outline"
+      },
+      "anti_legionella": {
+        "default": "mdi:bacteria-outline"
+      }
+    }
+  },
+  "services": {
+    "set_reservation": {
+      "service": "mdi:calendar-plus"
+    },
+    "update_reservations": {
+      "service": "mdi:calendar-edit"
+    },
+    "clear_reservations": {
+      "service": "mdi:calendar-remove"
+    },
+    "request_reservations": {
+      "service": "mdi:calendar-refresh"
+    },
+    "enable_demand_response": {
+      "service": "mdi:transmission-tower-import"
+    },
+    "disable_demand_response": {
+      "service": "mdi:transmission-tower-off"
+    },
+    "reset_air_filter": {
+      "service": "mdi:air-filter"
+    },
+    "set_air_filter_life": {
+      "service": "mdi:air-filter"
+    },
+    "set_vacation_days": {
+      "service": "mdi:airplane-takeoff"
+    },
+    "set_vacation_duration": {
+      "service": "mdi:calendar-range"
+    },
+    "reset_condenser_fault": {
+      "service": "mdi:alert-remove-outline"
+    },
+    "set_recirculation_mode": {
+      "service": "mdi:reload"
+    },
+    "trigger_recirculation": {
+      "service": "mdi:gesture-tap-button"
+    },
+    "configure_tou_schedule": {
+      "service": "mdi:clock-edit-outline"
+    },
+    "request_tou_settings": {
+      "service": "mdi:clock-time-four-outline"
+    },
+    "get_energy_usage": {
+      "service": "mdi:chart-bar"
+    },
+    "simulate": {
+      "service": "mdi:chart-bell-curve-cumulative"
+    },
+    "get_scenario": {
+      "service": "mdi:file-document-outline"
+    },
+    "time_to_ready": {
+      "service": "mdi:timer-sand"
+    },
+    "next_recovery": {
+      "service": "mdi:heat-pump-outline"
+    },
+    "forecast": {
+      "service": "mdi:crystal-ball"
+    },
+    "heater_profile": {
+      "service": "mdi:card-account-details-outline"
+    },
+    "calibrate_simulator": {
+      "service": "mdi:tune-variant"
+    }
+  }
+}
