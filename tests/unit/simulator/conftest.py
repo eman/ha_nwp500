@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -65,7 +66,8 @@ def coordinator(mock_device) -> MagicMock:
         MAC: {
             "device": mock_device,
             "status": make_status(),
-            "last_update": 1.0,
+            # Reported just now: availability is the time since.
+            "last_update": time.time(),
         }
     }
     coordinator.device_features = {MAC: make_feature()}
