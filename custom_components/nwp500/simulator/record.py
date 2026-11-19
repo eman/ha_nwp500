@@ -46,7 +46,7 @@ from homeassistant.core import HomeAssistant, State
 from nwp500 import status_history
 from nwp500.status_history import TimedStatus
 
-from ..const import simulator_record_directory
+from ..const import simulator_heater_record_directory
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,8 +63,7 @@ _SUFFIX = ".jsonl.gz"
 
 
 def _heater_directory(hass: HomeAssistant, entry_id: str, mac: str) -> Path:
-    slug = "".join(ch for ch in mac.lower() if ch.isalnum())
-    return simulator_record_directory(hass, entry_id) / slug
+    return simulator_heater_record_directory(hass, entry_id, mac)
 
 
 def _name(path: Path) -> tuple[date, int] | None:

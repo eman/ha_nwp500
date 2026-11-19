@@ -808,3 +808,64 @@ async def test_switching_it_off_stops_it_once_and_forgets_it(
     feature.async_stop.assert_awaited_once()
     assert "simulator" not in hass.data[DOMAIN][entry.entry_id]
     assert start.cancelled()
+
+
+def _device(hass: HomeAssistant, entry: MockConfigEntry, mac: str):
+    from homeassistant.helpers import device_registry as dr
+
+    return dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, mac)}
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_heater_still_on_the_account_cannot_be_deleted(
+    hass: HomeAssistant,
+):
+    from custom_components.nwp500 import async_remove_config_entry_device
+
+    entry = MockConfigEntry(domain=DOMAIN, options={})
+    entry.add_to_hass(hass)
+    entry.runtime_data = MagicMock(data={MAC: {}})
+
+    assert not await async_remove_config_entry_device(
+        hass, entry, _device(hass, entry, MAC)
+    )
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_heater_gone_from_the_account_drops_its_data(
+    hass: HomeAssistant, hass_storage, tmp_path
+):
+    from custom_components.nwp500 import async_remove_config_entry_device
+    from custom_components.nwp500.const import (
+        simulator_heater_record_directory,
+    )
+
+    hass.config.config_dir = str(tmp_path)
+    gone, kept = "11:22:33:44:55:66", MAC
+    entry = MockConfigEntry(domain=DOMAIN, options={})
+    entry.add_to_hass(hass)
+    entry.runtime_data = MagicMock(data={kept: {}})
+    key = f"nwp500.simulator_calibration.{entry.entry_id}"
+    hass_storage[key] = {
+        "version": 1,
+        "key": key,
+        "data": {"heaters": {gone: {"error": None}, kept: {"error": None}}},
+    }
+    for mac in (gone, kept):
+        directory = simulator_heater_record_directory(hass, entry.entry_id, mac)
+        directory.mkdir(parents=True)
+
+    assert await async_remove_config_entry_device(
+        hass, entry, _device(hass, entry, gone)
+    )
+    await hass.async_block_till_done()
+
+    assert set(hass_storage[key]["data"]["heaters"]) == {kept}
+    assert not simulator_heater_record_directory(
+        hass, entry.entry_id, gone
+    ).exists()
+    assert simulator_heater_record_directory(
+        hass, entry.entry_id, kept
+    ).exists()

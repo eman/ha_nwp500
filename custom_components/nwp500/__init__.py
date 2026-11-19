@@ -87,6 +87,7 @@ from .const import (
     control_storage_key,
     simulator_enabled,
     simulator_feature,
+    simulator_heater_record_directory,
     simulator_record_directory,
     simulator_started_signal,
 )
@@ -1680,6 +1681,56 @@ async def _async_remove_simulator_leftovers(
             ignore_errors=True,
         )
     )
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant,
+    entry: NWP500ConfigEntry,
+    device_entry: dr.DeviceEntry,
+) -> bool:
+    """Let a heater no longer on the account be deleted.
+
+    With it go the simulator's record and calibration of it. A heater
+    still on the account comes back at the next update, so it stays.
+    """
+    macs = {
+        ident for domain, ident in device_entry.identifiers if domain == DOMAIN
+    }
+    coordinator = getattr(entry, "runtime_data", None)
+    on_account = set((coordinator.data or {}) if coordinator else {})
+    if macs & on_account:
+        return False
+    simulator = simulator_feature(hass, entry)
+    for mac_address in macs:
+        if simulator is not None:
+            await simulator.calibration.async_forget(mac_address)
+        else:
+            await _async_forget_calibration(hass, entry.entry_id, mac_address)
+        await hass.async_add_executor_job(
+            partial(
+                shutil.rmtree,
+                simulator_heater_record_directory(
+                    hass, entry.entry_id, mac_address
+                ),
+                ignore_errors=True,
+            )
+        )
+    return True
+
+
+async def _async_forget_calibration(
+    hass: HomeAssistant, entry_id: str, mac_address: str
+) -> None:
+    """Drop one heater from a stopped simulator's calibration store."""
+    store = Store[dict[str, Any]](
+        hass,
+        SIMULATOR_CALIBRATION_STORAGE_VERSION,
+        f"{SIMULATOR_CALIBRATION_STORAGE_KEY}.{entry_id}",
+    )
+    data = await store.async_load()
+    heaters = data.get("heaters") if isinstance(data, dict) else None
+    if isinstance(heaters, dict) and heaters.pop(mac_address, None) is not None:
+        await store.async_save(data)
 
 
 def _control_was_on(entry: ConfigEntry) -> bool:

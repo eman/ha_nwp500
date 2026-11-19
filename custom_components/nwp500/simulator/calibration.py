@@ -387,6 +387,14 @@ class SimulatorCalibration:
         self.hass.async_create_task(self._async_save())
         self._notify()
 
+    async def async_forget(self, mac_address: str) -> None:
+        """Drop a heater no longer on the account."""
+        if self._records.pop(mac_address, None) is None:
+            return
+        self._params.pop(mac_address, None)
+        await self._async_save()
+        self._notify()
+
     async def _async_save(self) -> None:
         async with self._saving:
             if not self._closed:

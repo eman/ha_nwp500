@@ -1519,6 +1519,14 @@ def simulator_record_directory(hass: HomeAssistant, entry_id: str) -> Path:
     )
 
 
+def simulator_heater_record_directory(
+    hass: HomeAssistant, entry_id: str, mac_address: str
+) -> Path:
+    """Where one heater's record is kept."""
+    slug = "".join(ch for ch in mac_address.lower() if ch.isalnum())
+    return simulator_record_directory(hass, entry_id) / slug
+
+
 # The simulator's entities an earlier version made, by domain and key
 # (unique ID `<mac>_simulator_<key>`): removed when it starts. Bath ready
 # is Hot water for baths above 0, and Hot water for its counts in words.
