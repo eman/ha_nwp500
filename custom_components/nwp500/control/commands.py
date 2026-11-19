@@ -9,17 +9,29 @@ does not change it.
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any
 
 from .evaluate import REASON_NOT_APPLIED, REASON_WRITE_NOT_CONFIRMED, ItemAck
 from .intent import Command
 from .observed import Observed
 
-STATUS_SHADOW = "shadow"
-STATUS_PENDING = "pending"
-STATUS_APPLIED = "applied"
-STATUS_FAILED = "failed"
-STATUS_REJECTED = "rejected"
+
+class CommandStatus(StrEnum):
+    """A command's status on the acknowledgement (reference section 8.3)."""
+
+    SHADOW = "shadow"
+    PENDING = "pending"
+    APPLIED = "applied"
+    FAILED = "failed"
+    REJECTED = "rejected"
+
+
+STATUS_SHADOW = CommandStatus.SHADOW
+STATUS_PENDING = CommandStatus.PENDING
+STATUS_APPLIED = CommandStatus.APPLIED
+STATUS_FAILED = CommandStatus.FAILED
+STATUS_REJECTED = CommandStatus.REJECTED
 
 
 def reads_back(command: Command, observed: Observed) -> bool | None:

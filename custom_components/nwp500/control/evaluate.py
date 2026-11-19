@@ -5,6 +5,7 @@ whole plan.
 """
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
 from nwp500.temperature import HalfCelsius
@@ -18,35 +19,71 @@ from .intent import (
     mode_is_valid,
 )
 
-# Document states on the ack entity.
-STATE_NONE = "none"
-STATE_SHADOW = "shadow"
-STATE_REJECTED = "rejected"
-STATE_PENDING = "pending"
-STATE_PROGRAMMED = "programmed"
-STATE_PARTLY_PROGRAMMED = "partly_programmed"
 
-# Segment statuses (section 4.2).
-STATUS_SHADOW = "shadow"
-STATUS_SCHEDULED = "scheduled"
-STATUS_PENDING = "pending"
-STATUS_PROGRAMMED = "programmed"
-STATUS_MERGED = "merged"
-STATUS_IN_FORCE = "in_force"
-STATUS_ENDED = "ended"
-STATUS_FAILED = "failed"
-STATUS_REMOVED = "removed"
+class AckState(StrEnum):
+    """The ack entity's state (reference section 8.1)."""
 
-# Reasons a segment is scheduled rather than programmed.
-REASON_BEYOND_HORIZON = "beyond_horizon"
-REASON_ENTRY_BUDGET = "entry_budget"
+    NONE = "none"
+    SHADOW = "shadow"
+    REJECTED = "rejected"
+    PENDING = "pending"
+    PROGRAMMED = "programmed"
+    PARTLY_PROGRAMMED = "partly_programmed"
 
-# Live only (sections 5.4 and 5.11).
-REASON_WRITE_NOT_CONFIRMED = "write_not_confirmed"
-REASON_NOT_APPLIED = "not_applied_on_device"
 
-# Warnings.
-WARNING_MOVED = "moved_1_min"
+class SegmentStatus(StrEnum):
+    """A segment's status on the acknowledgement (reference section 8.2)."""
+
+    SHADOW = "shadow"
+    SCHEDULED = "scheduled"
+    PENDING = "pending"
+    PROGRAMMED = "programmed"
+    MERGED = "merged"
+    IN_FORCE = "in_force"
+    ENDED = "ended"
+    FAILED = "failed"
+    REMOVED = "removed"
+
+
+class SegmentReason(StrEnum):
+    """Why a segment is scheduled, or failed (reference section 8.2)."""
+
+    BEYOND_HORIZON = "beyond_horizon"
+    ENTRY_BUDGET = "entry_budget"
+    # Live only; commands fail for these too (section 8.3).
+    WRITE_NOT_CONFIRMED = "write_not_confirmed"
+    NOT_APPLIED = "not_applied_on_device"
+
+
+class ItemWarning(StrEnum):
+    """A segment's warnings (reference section 8.2)."""
+
+    MOVED = "moved_1_min"
+
+
+STATE_NONE = AckState.NONE
+STATE_SHADOW = AckState.SHADOW
+STATE_REJECTED = AckState.REJECTED
+STATE_PENDING = AckState.PENDING
+STATE_PROGRAMMED = AckState.PROGRAMMED
+STATE_PARTLY_PROGRAMMED = AckState.PARTLY_PROGRAMMED
+
+STATUS_SHADOW = SegmentStatus.SHADOW
+STATUS_SCHEDULED = SegmentStatus.SCHEDULED
+STATUS_PENDING = SegmentStatus.PENDING
+STATUS_PROGRAMMED = SegmentStatus.PROGRAMMED
+STATUS_MERGED = SegmentStatus.MERGED
+STATUS_IN_FORCE = SegmentStatus.IN_FORCE
+STATUS_ENDED = SegmentStatus.ENDED
+STATUS_FAILED = SegmentStatus.FAILED
+STATUS_REMOVED = SegmentStatus.REMOVED
+
+REASON_BEYOND_HORIZON = SegmentReason.BEYOND_HORIZON
+REASON_ENTRY_BUDGET = SegmentReason.ENTRY_BUDGET
+REASON_WRITE_NOT_CONFIRMED = SegmentReason.WRITE_NOT_CONFIRMED
+REASON_NOT_APPLIED = SegmentReason.NOT_APPLIED
+
+WARNING_MOVED = ItemWarning.MOVED
 
 
 @dataclass(frozen=True)

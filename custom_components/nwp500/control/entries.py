@@ -9,6 +9,7 @@ they are meant for (spec section 5.2).
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, tzinfo
+from enum import StrEnum
 from typing import Any
 
 from nwp500.temperature import HalfCelsius
@@ -17,9 +18,16 @@ from .. import schedule_state
 from ..vocabulary import RESERVATION_MODE_IDS
 from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
 
-# What an owned entry is for.
-KIND_PLAN = "plan"
-KIND_NEAR_TERM = "near_term"
+
+class EntryKind(StrEnum):
+    """What an entry of the feature's is for (reference section 7.1)."""
+
+    PLAN = "plan"
+    NEAR_TERM = "near_term"
+
+
+KIND_PLAN = EntryKind.PLAN
+KIND_NEAR_TERM = EntryKind.NEAR_TERM
 
 # Reservation bitfield: Sunday is bit 7, Saturday bit 1. Python's weekday()
 # has Monday as 0 and Sunday as 6.

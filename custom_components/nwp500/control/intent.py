@@ -12,6 +12,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any
 
 from nwp500.temperature import HalfCelsius
@@ -37,18 +38,36 @@ ITEM_ID_MAX_LENGTH = 64
 # How far either side of a document's times planning may reach.
 _MARGIN = timedelta(days=8)
 
-# Document-level rejection reasons (spec section 3.5).
-REASON_INVALID_DOCUMENT = "invalid_document"
-REASON_UNSUPPORTED_PROTOCOL = "unsupported_protocol"
-REASON_DUPLICATE_ID = "duplicate_id"
-REASON_UNORDERED_SEGMENTS = "unordered_segments"
-REASON_MODE_NOT_ALLOWED = "mode_not_allowed"
-# A segment's setpoint is outside the heater's own range (protocol 1.4).
-REASON_SETPOINT_OUT_OF_RANGE = "setpoint_out_of_range"
-REASON_SUPERSEDED = "superseded"
-# A command rejected on its own; the plan proceeds (section 3.7).
-REASON_INVALID_COMMAND = "invalid_command"
-REASON_UNSUPPORTED_COMMAND = "unsupported_command"
+
+class RejectReason(StrEnum):
+    """Why a whole document is rejected (reference section 4.1)."""
+
+    INVALID_DOCUMENT = "invalid_document"
+    UNSUPPORTED_PROTOCOL = "unsupported_protocol"
+    DUPLICATE_ID = "duplicate_id"
+    UNORDERED_SEGMENTS = "unordered_segments"
+    MODE_NOT_ALLOWED = "mode_not_allowed"
+    # A segment's setpoint is outside the heater's own range (protocol 1.4).
+    SETPOINT_OUT_OF_RANGE = "setpoint_out_of_range"
+    SUPERSEDED = "superseded"
+
+
+class CommandRejectReason(StrEnum):
+    """Why one command is rejected; the plan proceeds (section 4.2)."""
+
+    INVALID_COMMAND = "invalid_command"
+    UNSUPPORTED_COMMAND = "unsupported_command"
+
+
+REASON_INVALID_DOCUMENT = RejectReason.INVALID_DOCUMENT
+REASON_UNSUPPORTED_PROTOCOL = RejectReason.UNSUPPORTED_PROTOCOL
+REASON_DUPLICATE_ID = RejectReason.DUPLICATE_ID
+REASON_UNORDERED_SEGMENTS = RejectReason.UNORDERED_SEGMENTS
+REASON_MODE_NOT_ALLOWED = RejectReason.MODE_NOT_ALLOWED
+REASON_SETPOINT_OUT_OF_RANGE = RejectReason.SETPOINT_OUT_OF_RANGE
+REASON_SUPERSEDED = RejectReason.SUPERSEDED
+REASON_INVALID_COMMAND = CommandRejectReason.INVALID_COMMAND
+REASON_UNSUPPORTED_COMMAND = CommandRejectReason.UNSUPPORTED_COMMAND
 
 # Device commands (protocol 1.3, section 3.7): each one's own keys, all
 # required. Anti-Legionella's period is given only when switching it on.

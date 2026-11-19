@@ -13,6 +13,7 @@ import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta, tzinfo
+from enum import StrEnum
 from typing import Any
 
 from .capabilities import (
@@ -68,12 +69,21 @@ MODE_POWER_OFF = "power_off"
 # How many unconfirmed writes are kept for reconciling.
 UNCONFIRMED_KEPT = 5
 
-# Why a list write was made (the last write entity's `reason`).
-WRITE_PLAN = "plan"
-WRITE_CLEANUP = "cleanup"
-WRITE_NEAR_TERM = "near_term"
-# The first live write: the reservation switch on (5.1).
-WRITE_TAKEOVER = "takeover"
+
+class WriteReason(StrEnum):
+    """Why a list write was made: the last write's `reason` (section 8.4)."""
+
+    PLAN = "plan"
+    CLEANUP = "cleanup"
+    NEAR_TERM = "near_term"
+    # The first live write: the reservation switch on (5.1).
+    TAKEOVER = "takeover"
+
+
+WRITE_PLAN = WriteReason.PLAN
+WRITE_CLEANUP = WriteReason.CLEANUP
+WRITE_NEAR_TERM = WriteReason.NEAR_TERM
+WRITE_TAKEOVER = WriteReason.TAKEOVER
 
 # People's changes, as the override entity reports them (section 5.10).
 REPORT_REMOVED = "removed"
@@ -1449,6 +1459,7 @@ class Planner:
                 "in_force": in_force,
             }
             reason = info.reason
+            status: str
             if segment.id in self.removed_segments:
                 status = STATUS_REMOVED
             elif merged:
