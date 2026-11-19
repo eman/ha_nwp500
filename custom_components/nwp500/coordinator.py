@@ -128,6 +128,21 @@ _MQTT_SETUP_RETRY_SECONDS: Final = 60.0
 type NWP500ConfigEntry = ConfigEntry["NWP500DataUpdateCoordinator"]
 
 
+async def _async_cancel(task: asyncio.Task[Any]) -> None:
+    """Cancel a task and wait for it to end.
+
+    Its cancellation is expected and ends here; the caller's own, should
+    the caller be cancelled while it waits, is raised on.
+    """
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        current = asyncio.current_task()
+        if current is not None and current.cancelling():
+            raise
+
+
 class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Class to manage fetching data from the NWP500 API."""
 
@@ -278,6 +293,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=DOMAIN,
             update_interval=timedelta(seconds=scan_interval),
         )
@@ -801,18 +817,16 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                     self._reconnect_task
                                     and not self._reconnect_task.done()
                                 ):
-                                    self._reconnect_task.cancel()
-                                    try:
-                                        await self._reconnect_task
-                                    except asyncio.CancelledError:
-                                        _LOGGER.debug(
-                                            "Previous MQTT reconnection "
-                                            "task was cancelled"
-                                        )
-                                # Create and track new reconnection task
-                                self._reconnect_task = asyncio.create_task(
-                                    self.mqtt_manager.force_reconnect(
-                                        self.devices
+                                    await _async_cancel(self._reconnect_task)
+                                # Create and track new reconnection task.
+                                # The entry's, so an unload cancels it.
+                                self._reconnect_task = (
+                                    self.entry.async_create_background_task(
+                                        self.hass,
+                                        self.mqtt_manager.force_reconnect(
+                                            self.devices
+                                        ),
+                                        f"{DOMAIN} MQTT reconnect",
                                     )
                                 )
                     except (RuntimeError, OSError) as err:
@@ -976,9 +990,8 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 """Schedule an immediate coordinator refresh after reconnection.
 
                 Called (on the event loop) when the library fires
-                CONNECTION_RESUMED.  Using async_create_task instead of
-                async_request_refresh directly because this runs synchronously
-                on the loop via call_soon_threadsafe.
+                CONNECTION_RESUMED, handed to the loop by the MQTT manager.
+                A callback, so the refresh is a task.
                 """
                 _LOGGER.debug(
                     "MQTT reconnected – scheduling immediate coordinator refresh"
@@ -1500,11 +1513,9 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _on_raw_status(
         self, mac_address: str, at: datetime, payload: dict[str, Any]
     ) -> None:
-        """A status as sent, from the MQTT client's thread."""
+        """A status as sent. The library calls back on the event loop."""
         if self._raw_status_listeners.get(mac_address):
-            self.hass.loop.call_soon_threadsafe(
-                self._dispatch_raw_status, mac_address, at, payload
-            )
+            self._dispatch_raw_status(mac_address, at, payload)
 
     @callback
     def _dispatch_raw_status(
@@ -1516,12 +1527,12 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _on_device_status_update(
         self, mac_address: str, status: DeviceStatus
     ) -> None:
-        """Handle device status update from MQTT Manager."""
-        # Schedule the update in the event loop to ensure thread-safety
-        # and avoid conflicts with DataUpdateCoordinator state management.
-        self.hass.loop.call_soon_threadsafe(
-            self._handle_status_update_in_loop, mac_address, status
-        )
+        """Handle device status update from MQTT Manager.
+
+        nwp500-python dispatches every message handler on the event loop,
+        so this and the other message callbacks handle it at once.
+        """
+        self._handle_status_update_in_loop(mac_address, status)
 
     def _handle_status_update_in_loop(
         self, mac_address: str, status: DeviceStatus
@@ -1586,10 +1597,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, mac_address: str, feature: DeviceFeature
     ) -> None:
         """Handle device feature update from MQTT Manager."""
-        # Schedule the update in the event loop to ensure thread-safety
-        self.hass.loop.call_soon_threadsafe(
-            self._handle_feature_update_in_loop, mac_address, feature
-        )
+        self._handle_feature_update_in_loop(mac_address, feature)
 
     def _handle_feature_update_in_loop(
         self, mac_address: str, feature: DeviceFeature
@@ -1637,9 +1645,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, mac_address: str, response: dict[str, Any]
     ) -> None:
         """Handle reservation schedule response from MQTT Manager."""
-        self.hass.loop.call_soon_threadsafe(
-            self._handle_reservation_update_in_loop, mac_address, response
-        )
+        self._handle_reservation_update_in_loop(mac_address, response)
 
     def _handle_reservation_update_in_loop(
         self, mac_address: str, response: dict[str, Any]
@@ -1678,9 +1684,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, mac_address: str, response: dict[str, Any]
     ) -> None:
         """Handle an installer diagnostics response from the MQTT Manager."""
-        self.hass.loop.call_soon_threadsafe(
-            self._handle_diagnostics_in_loop, mac_address, response
-        )
+        self._handle_diagnostics_in_loop(mac_address, response)
 
     def _handle_diagnostics_in_loop(
         self, mac_address: str, response: dict[str, Any]
@@ -1710,9 +1714,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, mac_address: str, response: dict[str, Any]
     ) -> None:
         """Handle a recirculation schedule response from the MQTT Manager."""
-        self.hass.loop.call_soon_threadsafe(
-            self._handle_recirculation_schedule_in_loop, mac_address, response
-        )
+        self._handle_recirculation_schedule_in_loop(mac_address, response)
 
     def _handle_recirculation_schedule_in_loop(
         self, mac_address: str, response: dict[str, Any]
@@ -1749,9 +1751,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, mac_address: str, response: dict[str, Any]
     ) -> None:
         """Handle an energy usage response from the MQTT Manager."""
-        self.hass.loop.call_soon_threadsafe(
-            self._handle_energy_usage_in_loop, mac_address, response
-        )
+        self._handle_energy_usage_in_loop(mac_address, response)
 
     def _handle_energy_usage_in_loop(
         self, mac_address: str, response: dict[str, Any]
@@ -1832,9 +1832,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self, mac_address: str, response: dict[str, Any]
     ) -> None:
         """Handle TOU schedule response from MQTT Manager."""
-        self.hass.loop.call_soon_threadsafe(
-            self._handle_tou_update_in_loop, mac_address, response
-        )
+        self._handle_tou_update_in_loop(mac_address, response)
 
     def _handle_tou_update_in_loop(
         self, mac_address: str, response: dict[str, Any]
@@ -2533,11 +2531,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Cancel any pending reconnection task
         if self._reconnect_task and not self._reconnect_task.done():
-            self._reconnect_task.cancel()
-            try:
-                await self._reconnect_task
-            except asyncio.CancelledError:
-                pass
+            await _async_cancel(self._reconnect_task)
 
         if self.mqtt_manager:
             await self.mqtt_manager.disconnect()
