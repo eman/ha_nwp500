@@ -4,7 +4,7 @@ The feature is optional and additive. This package is imported only when
 the option is on; `control_enabled` in the shared constants is the whole of
 the check the integration makes while it is off.
 
-The specification is issue #158, kept in `docs/external-control-spec.md`.
+The specification is issue #158, kept in `docs/external-control-design.md`.
 Shadow, the default, reads the device, plans the reservation list it would
 program, and reports it, writing nothing. Live writes the list;
 `CONTROL_LIVE_AVAILABLE` is its kill switch.

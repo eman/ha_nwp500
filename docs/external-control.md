@@ -23,7 +23,7 @@ display shows.
 **The feature applies your scheduler's plan and reports the result.** It
 reads only the heater and makes no decision of its own.
 
-The complete specification is [`external-control-spec.md`](external-control-spec.md),
+The complete specification is [`external-control-design.md`](external-control-design.md),
 also published as [issue #158](https://github.com/eman/ha_nwp500/issues/158).
 Section numbers below refer to it. This page is the consumer's view: how to
 enable the feature, what to publish, and what to read back. The

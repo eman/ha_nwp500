@@ -99,8 +99,7 @@ Within major version `1`:
    after this one; `protocols` lists `"0"` while they are.
 
 **Amended before release (2026-10-01, #192).** Before any release carried
-protocol 1, and with its one consumer changing in step
-(eman/dhw-sensor-apps#389), protocol 1 dropped what was not the feature's
+protocol 1, and with its one consumer changing in step, protocol 1 dropped what was not the feature's
 job of applying the plan: surplus grants, the assisted mode, the owner's
 program, the live switches, the setpoint bounds and allowed modes, the
 `"min"` setpoint, the measured tank and recovery facts, the telemetry
@@ -1124,7 +1123,7 @@ a test plan entity and the scheduler's test runner.
    setpoint checks, precedence handling, and the owner's program with its
    hand-back. #192 removed them from protocol 1, with the declaration's
    other keys beyond what runs and the entry budget, coordinated with
-   eman/dhw-sensor-apps#389 (section 1.3).
+   its consumer (section 1.3).
 8. **What the feature inferred** (2026-10-11, #215): the TOU window, people's
    setpoint and mode changes, whether an entry fired, and the state carried
    from one plan into the next were removed (section 1.3).
