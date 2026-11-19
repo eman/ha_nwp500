@@ -18,6 +18,7 @@ from homeassistant.const import (
     UnitOfEnergy,
     UnitOfPower,
     UnitOfTime,
+    UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -49,6 +50,9 @@ _LOGGER = logging.getLogger(__name__)
 _LIBRARY_UNITS: dict[str, str] = {
     "days": UnitOfTime.DAYS,
     "hours": UnitOfTime.HOURS,
+    # The library's flow units, as Home Assistant names them.
+    "LPM": UnitOfVolumeFlowRate.LITERS_PER_MINUTE,
+    "GPM": UnitOfVolumeFlowRate.GALLONS_PER_MINUTE,
 }
 
 
@@ -84,6 +88,7 @@ def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
         "energy_storage": SensorDeviceClass.ENERGY_STORAGE,
         "signal_strength": SensorDeviceClass.SIGNAL_STRENGTH,
         "water": SensorDeviceClass.WATER,
+        "volume_flow_rate": SensorDeviceClass.VOLUME_FLOW_RATE,
         "duration": SensorDeviceClass.DURATION,
     }
 

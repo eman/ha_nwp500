@@ -732,7 +732,8 @@ SENSOR_CONFIGS: Final = {
     "current_dhw_flow_rate": {
         "attr": "current_dhw_flow_rate",
         "name": "Current DHW flow rate",
-        "unit": "GPM",
+        "device_class": "volume_flow_rate",
+        "unit": "gal/min",
         "state_class": "measurement",
         "enabled": False,
     },
@@ -1039,7 +1040,8 @@ SENSOR_CONFIGS: Final = {
     "recirculation_dhw_flow_rate": {
         "attr": "recirc_dhw_flow_rate",
         "name": "Recirculation DHW flow rate",
-        "unit": None,
+        "device_class": "volume_flow_rate",
+        "unit": "gal/min",
         "state_class": "measurement",
         "enabled": False,
     },

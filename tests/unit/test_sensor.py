@@ -1333,3 +1333,28 @@ def test_heat_source_states_are_the_ones_the_simulator_reads():
     states = SENSOR_CONFIGS["current_heat_use"]["states"]
     for code, key in states.items():
         assert sim_home_assistant._member(key, HeatSource) == HeatSource(code)
+
+
+@pytest.mark.parametrize(
+    ("library_unit", "unit"), [("GPM", "gal/min"), ("LPM", "L/min")]
+)
+@pytest.mark.parametrize(
+    "key", ["current_dhw_flow_rate", "recirculation_dhw_flow_rate"]
+)
+def test_flow_sensors_are_volume_flow_rates_in_ha_units(
+    mock_coordinator, mock_device, mock_device_status, key, library_unit, unit
+):
+    """The library's GPM and LPM are Home Assistant's gal/min and L/min."""
+    from homeassistant.components.sensor import SensorDeviceClass
+
+    from custom_components.nwp500.sensor import create_sensor_descriptions
+
+    (desc,) = [d for d in create_sensor_descriptions() if d.key == key]
+    assert desc.device_class is SensorDeviceClass.VOLUME_FLOW_RATE
+    mac = mock_device.device_info.mac_address
+    mock_coordinator.data = {
+        mac: {"device": mock_device, "status": mock_device_status}
+    }
+    mock_coordinator.get_field_unit_safe = MagicMock(return_value=library_unit)
+    sensor = NWP500Sensor(mock_coordinator, mac, mock_device, desc)
+    assert sensor.native_unit_of_measurement == unit
