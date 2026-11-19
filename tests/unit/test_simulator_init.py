@@ -563,12 +563,27 @@ async def test_the_service_says_when_the_simulator_is_off(
         (
             "async_simulate",
             {"hours": 6, "writes": [], "include_points": True},
-            {"hours": 6, "writes": [], "include_points": True},
+            {"hours": 6, "writes": [], "plan": None, "include_points": True},
         ),
         (
             "async_simulate",
             {"include_points": False},
-            {"hours": None, "writes": None, "include_points": False},
+            {
+                "hours": None,
+                "writes": None,
+                "plan": None,
+                "include_points": False,
+            },
+        ),
+        (
+            "async_simulate",
+            {"plan": {"protocol": "1"}, "include_points": False},
+            {
+                "hours": None,
+                "writes": None,
+                "plan": {"protocol": "1"},
+                "include_points": False,
+            },
         ),
         (
             "async_time_to_ready",

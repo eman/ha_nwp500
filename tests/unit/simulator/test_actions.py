@@ -446,3 +446,111 @@ async def test_empty_writes_clear_the_documents(
 
     setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
     assert not any(abs(value - 125.0) < 0.5 for value in setpoints)
+
+
+def _plan(start: datetime, *, setpoint_f: float = 125.0) -> dict[str, Any]:
+    """A plan: heat pump at 130 °F now, a setpoint half an hour in."""
+    return {
+        "protocol": "1",
+        "intent_id": "i-sim",
+        "issued_at": start.isoformat(),
+        "segments": [
+            {
+                "id": "now",
+                "start": start.isoformat(),
+                "mode": "heat_pump",
+                "setpoint_f": 130,
+            },
+            {
+                "id": "later",
+                "start": (start + timedelta(minutes=30)).isoformat(),
+                "setpoint_f": setpoint_f,
+            },
+        ],
+        "commands": [{"id": "t", "command": "tou", "enabled": False}],
+    }
+
+
+async def test_a_plan_is_walked_as_its_segments_writes(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, plan=_plan(start)
+    )
+
+    setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
+    assert any(abs(value - 125.0) < 0.5 for value in setpoints)
+    # In force at the start: applied then.
+    assert any(abs(value - 130.0) < 0.5 for value in setpoints)
+    # The TOU command is walked; nothing else was asked.
+    assert not any("not simulated" in n for n in response["inputs"]["notes"])
+
+
+async def test_a_plans_other_commands_are_noted_not_walked(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["commands"].append({"id": "v", "command": "vacation", "days": 3})
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, plan=plan
+    )
+
+    assert (
+        "the plan's commands not simulated: vacation"
+        in response["inputs"]["notes"]
+    )
+
+
+async def test_segments_past_the_walk_are_left_out(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["segments"][1]["start"] = (start + timedelta(days=30)).isoformat()
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, hours=6, plan=plan
+    )
+
+    setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
+    assert not any(abs(value - 125.0) < 0.5 for value in setpoints)
+
+
+async def test_a_plan_the_adapter_would_reject_is_refused_with_its_reason(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["segments"][0]["mode"] = "vacation"
+
+    with pytest.raises(ServiceValidationError) as err:
+        await service.async_simulate(
+            hass, runner, scenario=document, use_heater=False, plan=plan
+        )
+    assert err.value.translation_key == "simulator_plan_rejected"
+    assert err.value.translation_placeholders["reason"] == "mode_not_allowed"
+
+
+def test_a_plan_and_writes_together_are_refused():
+    import voluptuous as vol
+
+    from custom_components.nwp500 import SERVICE_SIMULATE_SCHEMA
+
+    with pytest.raises(vol.Invalid):
+        SERVICE_SIMULATE_SCHEMA(
+            {
+                "entity_id": "water_heater.heater",
+                "plan": {},
+                "writes": [
+                    {"at": "2026-11-19T12:00:00+00:00", "mode": "heat_pump"}
+                ],
+            }
+        )

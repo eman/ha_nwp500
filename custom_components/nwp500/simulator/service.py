@@ -17,7 +17,8 @@ Wh, US gallons); the integration's notes on the inputs are beside it under
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -30,8 +31,10 @@ from homeassistant.util.unit_conversion import TemperatureConverter
 from nwp500 import sim
 from nwp500.sim import codec
 from nwp500.sim.engine import SimulationError
+from nwp500.sim.inputs import Write
 from nwp500.sim.profile import heater_profile
 from nwp500.sim_live import overlay
+from nwp500.temperature import HalfCelsius
 
 from ..const import (
     CONF_SIMULATOR_BATH_GAL,
@@ -40,6 +43,8 @@ from ..const import (
     MAX_SIMULATE_HOURS,
     MODE_TO_DHW_ID,
 )
+from ..control.evaluate import check_plan
+from ..control.intent import IntentRejected, Plan, parse_plan
 from .runner import Inputs, with_layers
 
 if TYPE_CHECKING:
@@ -49,6 +54,68 @@ if TYPE_CHECKING:
 
 # One walk at a time: a week's walk takes a CPU for a while.
 _LOCK = asyncio.Lock()
+
+
+def _parse_plan(document: Mapping[str, Any]) -> Plan:
+    """An external control plan, parsed and checked as on arrival."""
+    try:
+        plan = parse_plan(document)
+        check_plan(plan)
+    except IntentRejected as err:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="simulator_plan_rejected",
+            translation_placeholders={
+                "reason": err.reason,
+                "detail": err.detail,
+            },
+        ) from err
+    return plan
+
+
+def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
+    """The scenario with the plan's segments as its writes.
+
+    Each segment applies at its start, truncated to the minute, when its
+    entry fires; the one in force at the scenario's start applies then,
+    and those after its end are left out. The plan's TOU command is set
+    at the start, as the adapter sends it on adoption; its other
+    commands are not walked, and the notes say so.
+    """
+    scenario = inputs.scenario
+    start, until = scenario.start, scenario.until
+    in_force = [s for s in plan.segments if s.start <= start]
+    later = [s for s in plan.segments if start < s.start < until]
+    writes = tuple(
+        Write(
+            at=at,
+            setpoint_f=HalfCelsius(segment.setpoint_raw).to_fahrenheit(),
+            mode=MODE_TO_DHW_ID[segment.mode],
+            id=segment.id,
+        )
+        for segment, at in (
+            *((s, start) for s in in_force[-1:]),
+            *((s, s.start) for s in later),
+        )
+    )
+    update: dict[str, Any] = {"writes": writes}
+    notes = list(inputs.notes)
+    tou = [
+        c for c in plan.commands if c.rejection is None and c.command == "tou"
+    ]
+    if tou:
+        update["tou_enabled"] = bool(tou[-1].params["enabled"])
+    walked = {"tou"}
+    if skipped := sorted(
+        {c.command for c in plan.commands if c.rejection is None} - walked
+    ):
+        notes.append(f"the plan's commands not simulated: {', '.join(skipped)}")
+    commands = scenario.commands.model_copy(update=update)
+    return replace(
+        inputs,
+        scenario=scenario.model_copy(update={"commands": commands}),
+        notes=tuple(notes),
+    )
 
 
 def _writes(
@@ -257,21 +324,26 @@ async def async_simulate(
     use_heater: bool = True,
     hours: int | None = None,
     writes: list[dict[str, Any]] | None = None,
+    plan: Mapping[str, Any] | None = None,
     include_points: bool = False,
 ) -> dict[str, Any]:
     """Walk the scenario (`sim.simulate`).
 
     `hours` and `writes` are laid over the document's: an empty `writes`
-    clears its writes, an omitted one keeps them.
+    clears its writes, an omitted one keeps them. `plan`, an external
+    control plan, gives the writes instead (`_with_plan`).
     """
     over: dict[str, Any] = {}
     if hours is not None:
         over["horizon"] = timedelta(hours=hours)
-    if writes is not None:
+    parsed = None if plan is None else _parse_plan(plan)
+    if writes is not None and parsed is None:
         over["commands"] = {"writes": _writes(hass, writes)}
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater, over=over
     )
+    if parsed is not None:
+        inputs = _with_plan(inputs, parsed)
     result = await _async_call(
         hass,
         partial(

@@ -657,6 +657,17 @@ simulate:
           min: 1
           max: 168
           mode: box
+    plan:
+      name: External control plan
+      description: >-
+        An external control plan document (protocol 1), instead of changes to
+        try: each segment's setpoint and mode applied at its start, as its
+        reservation entry would. Checked as the plan entity's would be; one
+        that would be rejected is refused with its reason. Its commands are not
+        simulated.
+      required: false
+      selector:
+        object:
     writes:
       name: Changes to try
       description: >-

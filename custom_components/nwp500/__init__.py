@@ -155,6 +155,7 @@ ATTR_TEMPERATURE = "temperature"
 ATTR_RESERVATIONS = "reservations"
 ATTR_PERIODS = "periods"
 ATTR_WRITES = "writes"
+ATTR_PLAN = "plan"
 ATTR_AT = "at"
 ATTR_INCLUDE_POINTS = "include_points"
 ATTR_SCENARIO = "scenario"
@@ -493,7 +494,8 @@ SERVICE_SIMULATE_SCHEMA = _scenario_schema(
         vol.Optional(ATTR_HOURS): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=MAX_SIMULATE_HOURS)
         ),
-        vol.Optional(ATTR_WRITES): vol.All(
+        vol.Exclusive(ATTR_PLAN, "changes"): dict,
+        vol.Exclusive(ATTR_WRITES, "changes"): vol.All(
             cv.ensure_list,
             [
                 vol.All(
@@ -1022,6 +1024,7 @@ class NWP500ServiceHandler:
             "async_simulate",
             hours=call.data.get(ATTR_HOURS),
             writes=call.data.get(ATTR_WRITES),
+            plan=call.data.get(ATTR_PLAN),
             include_points=call.data[ATTR_INCLUDE_POINTS],
         )
 
