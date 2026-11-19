@@ -1,5 +1,11 @@
 # External control (protocol 1): the reservation list as the interface
 
+> **This is the design record and its history.** For a scheduler author,
+> the [protocol reference](external-control-protocol-1.md) and the
+> [scheduler guide](external-control-scheduler-guide.md) are normative,
+> with the [JSON Schema](external-control-protocol-1.schema.json). Where
+> this record differs from them, they win.
+
 An **optional** feature that lets an external scheduler control the NWP500
 through Home Assistant. The scheduler never calls this integration's services
 and does not need to know it exists.
@@ -21,8 +27,8 @@ Whether to heat, when, for how long, and in which mode are the scheduler's
 decisions. The feature writes the plan and reports what the heater does. It
 reads nothing but the heater, and makes no decision of its own.
 
-This document is the complete specification. Everything an implementation
-needs is here or in this integration's and `nwp500-python`'s own docs.
+This document was the complete specification, and is now the design record.
+Consumers follow the reference and the scheduler guide.
 
 - **Protocol version:** `1`, with the compatibility promises of section 1.3.
   Its document format is that of the revised protocol `0`, which replaced a
@@ -118,7 +124,14 @@ Entry items lost `enabled`, which only power-off handling ever set false.
 
 Minor versions so far: **1.1** adds the segment key `reassert` (section
 3.2). **1.2** added a grant's own timing rules; with grants gone it adds
-nothing beyond 1.1. **1.3** adds device commands (section 3.7).
+nothing beyond 1.1. **1.3** adds device commands (section 3.7). **1.4**
+adds the declaration's `modes`, `setpoint` (the heater's own range, `null`
+until its features are read) and `commands` (section 4.1); a segment
+setpoint outside the heater's range now rejects the document
+(`setpoint_out_of_range`) instead of failing the list write; and a
+command's whole-number key out of its range (Vacation 1 to 99 days,
+Anti-Legionella 1 to 30) rejects that command alone (`invalid_command`)
+instead of failing when sent (2026-11-19).
 A feature that only knows an earlier minor version keeps such keys as opaque
 ones, so a scheduler relies on them only when `protocol_versions` (section
 4.1) lists that minor version or a later one for major `1`. A document may
@@ -203,7 +216,7 @@ increasing order of `start`.
 |---|---|---|---|
 | `id` | string, at most 64 characters, unique in the document | yes | Named in acknowledgements |
 | `start` | ISO 8601 with offset | yes | Truncated to the minute |
-| `setpoint_f` or `setpoint_c` | number | exactly one | The setpoint, converted and quantised to the device's half-degree-Celsius resolution. The feature does not check it: the library (nwp500-python 9.4.3 and later) refuses a list write with a setpoint outside the range the heater reports, so the write fails (section 5.4) and the segments it served are `failed`, `write_not_confirmed` |
+| `setpoint_f` or `setpoint_c` | number | exactly one | The setpoint, converted and quantised to the device's half-degree-Celsius resolution. Protocol 1.4: once the heater's range is read, a setpoint outside it rejects the document, `setpoint_out_of_range`. Before then, the library (nwp500-python 9.4.3 and later) refuses a list write with a setpoint outside the range the heater reports, so the write fails (section 5.4) and the segments it served are `failed`, `write_not_confirmed` |
 | `mode` | string (section 3.4) | on the first segment | The operation mode. A later segment that omits it keeps the previous segment's mode |
 | `reassert` | boolean | no | Protocol 1.1. `true` programs the segment's entry even when its state repeats the segment before it (section 5.2), so a setpoint or mode a person set is ended at its start, for example by a nightly segment. An entry that repeats the heater's state starts no recovery (section 8, test 5) |
 | any other key | any | no | Opaque, echoed back on the segment's acknowledgement, for example `purpose`, unless it has the name of one of the acknowledgement's own keys (`id`, `status`, `reason`, `warnings`, `fires_at`, `in_force`), which win |
@@ -263,6 +276,7 @@ statuses, with the rejection beside them.
 | `duplicate_id` | Two items share an id: two segments, two commands (section 3.7), or a command and a segment |
 | `unordered_segments` | After truncation to the minute, a segment does not start after the one before it |
 | `mode_not_allowed` | A segment's mode is not one an entry can set (section 3.4) |
+| `setpoint_out_of_range` | Protocol 1.4. The heater's range is known and a segment's setpoint is outside it |
 | `superseded` | `issued_at` is earlier than that of the plan in force. A document with the same `issued_at` is accepted |
 
 A segment is part of a timeline, so one bad segment rejects the plan rather
@@ -346,8 +360,8 @@ already put the heater in `power_off` at a time (section 3.4), but not in
 Vacation, which only the `vacation` command sets; a command is for now.
 
 **Example.** `docs/examples/plan-commands.json` carries one of each command,
-and `tou-off` an opaque key. `away` asks for more days of Vacation than the
-heater takes, and `recirc` is a command this version does not have, so the
+and `tou-off` an opaque key. `away` finds the connection down as it is
+sent, and `recirc` is a command this version does not have, so the
 schema, which takes exactly the commands applied, leaves it out.
 `docs/examples/ack-commands-live.json` and `ack-commands-shadow.json` are
 its acknowledgement live and in shadow, as the ack entity reports them
@@ -357,10 +371,11 @@ its acknowledgement live and in shadow, as the ack entity reports them
 whatever happens to it: a bad command never costs the heater its plan. One
 whose keys are missing or of the wrong type is `rejected`,
 `invalid_command`; an unknown `command` is `rejected`, `unsupported_command`,
-so a scheduler can send a command a later version adds. Ranges, such as how
-many days of Vacation the heater takes, are the library's to check: a value
-it refuses makes the command `failed`, `write_not_confirmed`, with the
-library's message in `detail`. Only
+so a scheduler can send a command a later version adds. Since protocol 1.4
+a whole number outside the library's range (Vacation days 1 to 99, the
+Anti-Legionella period 1 to 30) is `rejected`, `invalid_command`; anything
+else the library refuses makes the command `failed`, `write_not_confirmed`,
+with the library's message in `detail`. Only
 `commands` that is not a list, or an item that is not an object or has no
 valid `id`, rejects the document (`invalid_document`), and so does an id
 shared with another command or a segment (`duplicate_id`, section 3.5).
@@ -417,7 +432,7 @@ keys and values, which are as documented here.
 | Attribute | Meaning |
 |---|---|
 | `protocols` | Supported protocol majors, `["1", "0"]` |
-| `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.3", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
+| `protocol_versions` | The newest version implemented of each major in `protocols`, in the same order: `["1.4", "0"]`. Every earlier minor of that major is implemented too. A consumer checks it before relying on a minor version's keys |
 | `feature_version` | The integration's version |
 | `mode` | `shadow`, `live` or `disabled` (section 6.1) |
 | `setpoint_resolution_c` | 0.5 on the NWP500, so a model can quantise exactly as the heater does |
@@ -989,7 +1004,12 @@ Also observed:
 
 All tests that can be run remotely have been run. Test 8 waits for an Anti-Legionella cycle, and the off-cloud half of test 11 is out of scope.
 
-### 8.1 The live trial (the staged cut-over)
+### 8.1 The live trial (the staged cut-over): historical
+
+> **Historical, superseded.** This trial ran on an earlier design: surplus
+> grants, the owner's program and its hand-back on disable, and the separate
+> live switches, all since removed (sections 1.3 and 11). It is kept as a
+> record and does not describe current behaviour.
 
 Run on the same heater on 2026-09-25, 02:07–03:47, through the options flow
 and an intent entity, with the heater's own program as the owner's: Heat
@@ -1010,7 +1030,14 @@ cost a write and its read-back; and the heater's clock runs about 4 s ahead
 of Home Assistant's, so an entry's change arrived before its minute and was
 taken for a person's.
 
-### 8.2 The deletion trial (#171)
+### 8.2 The deletion trial (#171): historical
+
+> **Historical, superseded.** This trial ran on main at 88efbfc, before
+> #215 and later changes. Some rules it shows have changed since, such as
+> the hand-back on disable and how a removed segment's state is reported.
+> It is kept as a record; section 5.10 and the
+> [protocol reference](external-control-protocol-1.md) describe current
+> behaviour.
 
 Run on the same heater on 2026-09-30, 09:07–12:27 PDT, with main at 88efbfc
 (#176–#180), to check section 5.10 on the heater. The owner's program was

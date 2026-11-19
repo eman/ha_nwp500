@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/eman/ha_nwp500/docs/external-control-protocol-1.schema.json",
   "title": "NWP500 external control plan, protocol 1",
-  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, the horizon and the entry budget) are applied by the feature and are listed in docs/external-control-design.md. The $defs named *_attributes, and entry_item, program_item, segment_ack and command_ack, describe what the feature's entities report (spec section 4.2), not the plan.",
+  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, the horizon and the entry budget) are applied by the feature and are listed in docs/external-control-protocol-1.md. The $defs named *_attributes, and entry_item, program_item, segment_ack and command_ack, describe what the feature's entities report (spec section 4.2), not the plan.",
   "type": "object",
   "required": ["protocol", "intent_id", "issued_at", "segments"],
   "properties": {
@@ -375,7 +375,7 @@
           "description": "The newest minor version implemented of each major, in the order of protocols."
         },
         "feature_version": { "type": "string", "description": "The integration's version; informational." },
-        "mode": { "enum": ["shadow", "live"], "description": "live writes the heater's list; shadow plans and reports without writing." },
+        "mode": { "enum": ["shadow", "live", "disabled"], "description": "live writes the heater's list; shadow plans and reports without writing; disabled adopts no plan and writes nothing." },
         "setpoint_resolution_c": { "const": 0.5, "description": "Setpoints are held in half degrees Celsius." },
         "horizon_h": { "type": "integer", "description": "How far ahead an entry is programmed, in hours." },
         "near_term_lead_min": { "type": "integer", "description": "How far ahead a change needed now is written as an entry, in minutes." },
