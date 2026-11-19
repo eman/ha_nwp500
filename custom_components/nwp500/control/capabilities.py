@@ -15,7 +15,7 @@ from typing import Any
 
 from nwp500.temperature import HalfCelsius
 
-from ..const import (
+from ..vocabulary import (
     CONF_CONTROL_MODE,
     CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
     CONF_CONTROL_RESERVATION_ENTRY_RESERVE,

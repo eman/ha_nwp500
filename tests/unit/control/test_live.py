@@ -20,9 +20,6 @@ from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.nwp500.const import (
     CONF_CONTROL_LIVE_SEGMENTS,
-    CONF_CONTROL_MODE,
-    CONTROL_MODE_DISABLED,
-    CONTROL_MODE_LIVE,
 )
 from custom_components.nwp500.control import device as device_module
 from custom_components.nwp500.control.device import (
@@ -48,6 +45,11 @@ from custom_components.nwp500.control.intent import (
     parse_plan,
 )
 from custom_components.nwp500.control.store import ControlStore
+from custom_components.nwp500.vocabulary import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
+    CONTROL_MODE_LIVE,
+)
 
 from .conftest import make_document, segment
 from .test_device import (

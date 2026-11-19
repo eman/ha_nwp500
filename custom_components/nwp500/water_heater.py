@@ -37,13 +37,15 @@ from .const import (
     MIN_TEMPERATURE_F,
     get_current_operation_mode_state,
     get_dhw_operation_setting_state,
-    get_enum_value,
 )
 from .coordinator import (
     NWP500ConfigEntry,
     NWP500DataUpdateCoordinator,
 )
 from .entity import DEVICE_ATTRIBUTES, NWP500Entity
+from .vocabulary import (
+    get_enum_value,
+)
 
 if TYPE_CHECKING:
     from nwp500 import Device  # type: ignore[attr-defined]

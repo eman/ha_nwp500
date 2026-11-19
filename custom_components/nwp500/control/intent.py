@@ -18,7 +18,7 @@ from typing import Any
 
 from nwp500.temperature import HalfCelsius
 
-from ..const import CONTROL_MODE_NAMES
+from ..vocabulary import CONTROL_MODE_NAMES
 
 # Protocol 1 is the document format of the revised protocol 0, with the
 # compatibility promises of spec section 1.3. Protocol 0 documents are still

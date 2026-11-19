@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity
 
-from ..const import CONF_CONTROL_MODE, CONTROL_MODE_DISABLED
+from ..vocabulary import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
+)
 from .entity import NWP500ControlEntity
 
 if TYPE_CHECKING:

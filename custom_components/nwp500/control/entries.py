@@ -16,7 +16,7 @@ from typing import Any
 from nwp500.temperature import HalfCelsius
 
 from .. import schedule_state
-from ..const import RESERVATION_MODE_IDS
+from ..vocabulary import RESERVATION_MODE_IDS
 from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
 
 # What an owned entry is for.

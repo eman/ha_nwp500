@@ -9,12 +9,14 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nwp500.enums import DhwOperationSetting
 
-from .const import get_enum_value
 from .coordinator import (
     NWP500ConfigEntry,
     NWP500DataUpdateCoordinator,
 )
 from .entity import NWP500Entity
+from .vocabulary import (
+    get_enum_value,
+)
 
 if TYPE_CHECKING:
     from nwp500 import Device  # type: ignore[attr-defined]

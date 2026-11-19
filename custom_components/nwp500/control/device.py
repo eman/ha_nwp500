@@ -33,16 +33,18 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_CONTROL_INTENT_ENTITY,
-    CONF_CONTROL_MODE,
     CONF_SCAN_INTERVAL,
     CONTROL_LIVE_AVAILABLE,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    control_follows_plan,
+)
+from ..vocabulary import (
+    CONF_CONTROL_MODE,
     CONTROL_MODE_DISABLED,
     CONTROL_MODE_LIVE,
     CONTROL_MODE_SHADOW,
     DEFAULT_CONTROL_MODE,
-    DEFAULT_SCAN_INTERVAL,
-    DOMAIN,
-    control_follows_plan,
 )
 from .capabilities import Capabilities, build_capabilities
 from .commands import Commands

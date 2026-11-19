@@ -11,7 +11,7 @@ from typing import Any
 
 from nwp500.temperature import HalfCelsius
 
-from ..const import CONTROL_MODE_NAMES
+from ..vocabulary import CONTROL_MODE_NAMES
 from .intent import (
     REASON_MODE_NOT_ALLOWED,
     REASON_SETPOINT_OUT_OF_RANGE,

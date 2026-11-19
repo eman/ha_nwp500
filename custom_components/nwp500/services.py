@@ -49,11 +49,13 @@ from .const import (
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
-    MODE_TO_DHW_ID,
-    RESERVATION_MODE_IDS,
     simulator_feature,
 )
 from .coordinator import NWP500DataUpdateCoordinator
+from .vocabulary import (
+    MODE_TO_DHW_ID,
+    RESERVATION_MODE_IDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 

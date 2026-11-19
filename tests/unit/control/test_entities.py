@@ -23,8 +23,6 @@ from custom_components.nwp500 import (
     sensor as sensor_platform,
 )
 from custom_components.nwp500.const import (
-    CONF_CONTROL_MODE,
-    CONTROL_MODE_DISABLED,
     DATA_CONTROL,
     DOMAIN,
     MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
@@ -62,6 +60,10 @@ from custom_components.nwp500.control.sensor import (
     ControlWantedModeSensor,
     ControlWantedSetpointSensor,
     create_control_sensors,
+)
+from custom_components.nwp500.vocabulary import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
 )
 
 from .conftest import capabilities, make_document, segment
@@ -586,8 +588,10 @@ class TestDisplayLabels:
 
     @pytest.mark.parametrize("name", ["strings.json", "translations/en.json"])
     def test_states_labelled_are_the_raw_ones(self, name):
-        from custom_components.nwp500.const import CONTROL_MODE_NAMES
         from custom_components.nwp500.control import engine, entries, evaluate
+        from custom_components.nwp500.vocabulary import (
+            CONTROL_MODE_NAMES,
+        )
 
         entity = self._strings(name)["entity"]
         ack_states = {
@@ -629,7 +633,7 @@ class TestDisplayLabels:
         assert named == ENTITY_KEYS
 
     def test_the_mode_choices_are_labelled(self):
-        from custom_components.nwp500.const import (
+        from custom_components.nwp500.vocabulary import (
             CONTROL_MODE_DISABLED,
             CONTROL_MODE_LIVE,
             CONTROL_MODE_SHADOW,

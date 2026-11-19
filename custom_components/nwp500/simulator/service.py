@@ -41,10 +41,12 @@ from ..const import (
     CONF_SIMULATOR_SHOWER_GAL,
     DOMAIN,
     MAX_SIMULATE_HOURS,
-    MODE_TO_DHW_ID,
 )
 from ..control.evaluate import check_plan
 from ..control.intent import IntentRejected, Plan, parse_plan
+from ..vocabulary import (
+    MODE_TO_DHW_ID,
+)
 from .runner import Inputs, with_layers
 
 if TYPE_CHECKING:

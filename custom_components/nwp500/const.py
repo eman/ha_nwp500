@@ -13,6 +13,14 @@ from homeassistant.helpers.storage import STORAGE_DIR
 
 from nwp500.enums import CurrentOperationMode, DhwOperationSetting
 
+from .vocabulary import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
+    CONTROL_MODE_LIVE,
+    CONTROL_MODE_SHADOW,
+    get_enum_value,
+)
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
@@ -87,22 +95,6 @@ MIN_RECONNECT_INTERVAL: Final = 30.0
 STALE_DATA_THRESHOLD: Final = 5
 
 
-# Utility functions
-def get_enum_value(obj: Any) -> Any:
-    """Get the value of an enum or return the object itself.
-
-    This helper function safely extracts values from enums while
-    gracefully handling non-enum types.
-
-    Args:
-        obj: An enum object or any other type
-
-    Returns:
-        The .value attribute if the object has one, otherwise the object itself
-    """
-    return obj.value if hasattr(obj, "value") else obj
-
-
 # CurrentOperationMode mapping for Home Assistant water heater entity
 # Maps nwp500.enums.CurrentOperationMode enum values to HA water heater states
 CURRENT_OPERATION_MODE_TO_HA: Final = {
@@ -162,27 +154,6 @@ def get_dhw_operation_setting_state(
     except TypeError, ValueError, KeyError:
         return fallback
 
-
-# Friendly mode names to DhwOperationSetting IDs, the mode a status reports.
-MODE_TO_DHW_ID: Final = {
-    "heat_pump": 1,
-    "electric": 2,
-    "energy_saver": 3,
-    "high_demand": 4,
-    "vacation": 5,
-    "power_off": 6,
-}
-
-# Friendly mode names to reservation entry mode IDs (the library's
-# ReservationMode). These differ from the DHW operation setting from 5 on: an
-# entry's 5 is Power Off, and an entry has no Vacation mode.
-RESERVATION_MODE_IDS: Final = {
-    "heat_pump": 1,
-    "electric": 2,
-    "energy_saver": 3,
-    "high_demand": 4,
-    "power_off": 5,
-}
 
 # Temperature ranges (from nwp500-python documentation)
 MIN_TEMPERATURE_F: Final = 80  # °F (minimum safe operating temperature)
@@ -992,13 +963,8 @@ INSTALLER_DIAGNOSTICS_SENSORS: Final[dict[str, dict[str, Any]]] = {
 # options flow is shared code; everything else about the feature is in the
 # `control` subpackage, which is imported only when the feature is enabled.
 CONF_CONTROL_ENABLED: Final = "control_enabled"
-CONF_CONTROL_MODE: Final = "control_mode"
 CONF_CONTROL_INTENT_ENTITY: Final = "control_intent_entity"
 CONF_CONTROL_LIVE_SEGMENTS: Final = "control_live_segments"
-CONF_CONTROL_RESERVATION_ENTRY_LIMIT: Final = "control_reservation_entry_limit"
-CONF_CONTROL_RESERVATION_ENTRY_RESERVE: Final = (
-    "control_reservation_entry_reserve"
-)
 
 # Options of earlier versions of the feature. They are dropped from an
 # entry's options whenever the control form is saved.
@@ -1022,9 +988,6 @@ CONTROL_OBSOLETE_OPTIONS: Final = (
     "control_owner_program",
 )
 
-CONTROL_MODE_SHADOW: Final = "shadow"
-CONTROL_MODE_LIVE: Final = "live"
-CONTROL_MODE_DISABLED: Final = "disabled"
 CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 
 # Whether live mode can be chosen at all (issue #158, delivery step 5). Live
@@ -1034,23 +997,7 @@ CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 # `live`, and a `live` option runs as shadow.
 CONTROL_LIVE_AVAILABLE: Final = True
 
-# The mode names a segment may use (spec section 3.4): every mode a
-# reservation entry can set. An entry has no Vacation; a plan's `vacation`
-# command sets it.
-CONTROL_MODE_NAMES: Final = (
-    "heat_pump",
-    "energy_saver",
-    "high_demand",
-    "electric",
-    "power_off",
-)
 
-DEFAULT_CONTROL_MODE: Final = CONTROL_MODE_SHADOW
-# The unit tested accepted and read back a list of 32 entries (spec
-# section 8); larger lists are untested. The default stays at the library's
-# documented 16, and the option goes no higher than what was measured.
-DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 16
-DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE: Final = 2
 MAX_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 32
 
 # Keys into hass.data[DOMAIN][entry_id].

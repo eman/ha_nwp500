@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from homeassistant.util import dt as dt_util
-
 from .evaluate import REASON_NOT_APPLIED, REASON_WRITE_NOT_CONFIRMED, ItemAck
 from .intent import Command
 from .observed import Observed
@@ -81,7 +79,7 @@ class _Record:
             status=str(doc["status"]),
             reason=doc.get("reason"),
             detail=doc.get("detail"),
-            sent_at=dt_util.parse_datetime(sent_at) if sent_at else None,
+            sent_at=datetime.fromisoformat(sent_at) if sent_at else None,
         )
 
 
