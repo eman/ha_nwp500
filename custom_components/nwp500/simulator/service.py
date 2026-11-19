@@ -396,12 +396,19 @@ async def async_heater_profile(
     """The modes, setpoints and tank the simulation runs by.
 
     For the scenario's parameters (`nwp500.sim.profile.heater_profile`).
+    With the library's `facts` and their `revision`, which moves when,
+    and only when, a fact does: a consumer re-reads on a new revision.
     """
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater
     )
     params = inputs.params
+    profile = heater_profile(params.tank, params.readiness.line_f)
     return _response(
-        codec.to_document(heater_profile(params.tank, params.readiness.line_f)),
+        {
+            **codec.to_document(profile),
+            "facts": profile.facts(),
+            "revision": profile.revision,
+        },
         inputs,
     )

@@ -339,10 +339,33 @@ async def test_the_profile_is_the_tanks_the_scenario_gives(
     )
 
     params = walked(document)[1]
-    assert response["result"] == codec.to_document(
-        heater_profile(params.tank, params.readiness.line_f)
-    )
+    profile = heater_profile(params.tank, params.readiness.line_f)
+    assert response["result"] == {
+        **codec.to_document(profile),
+        "facts": profile.facts(),
+        "revision": profile.revision,
+    }
     assert response["result"]["tank_gal"] == 40.0
+    assert response["result"]["facts"]["tank_gal"] == 40.0
+
+
+async def test_the_profiles_revision_moves_with_its_facts(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """A consumer re-reads the profile when its revision moves."""
+    document = await snapshot(hass, runner)
+    first = await service.async_heater_profile(
+        hass, runner, scenario=document, use_heater=False
+    )
+    again = await service.async_heater_profile(
+        hass, runner, scenario=document, use_heater=False
+    )
+    document["params"]["tank"]["volume_gal"] = 40.0
+    other = await service.async_heater_profile(
+        hass, runner, scenario=document, use_heater=False
+    )
+    assert first["result"]["revision"] == again["result"]["revision"]
+    assert first["result"]["revision"] != other["result"]["revision"]
 
 
 async def test_tou_periods_not_read_do_not_hold_an_answer_up(
