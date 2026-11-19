@@ -12,8 +12,6 @@ light: the simulator's own code is reached only through a running
 feature, so nothing here imports its packages.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:

@@ -3,8 +3,6 @@
 And the hot water the tank holds now, as `nwp500.sim.time_to_ready` says.
 """
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, override
 

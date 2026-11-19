@@ -6,8 +6,6 @@ names are checked in `evaluate.py`; the superseded check needs the plan in
 force and is made by the device controller.
 """
 
-from __future__ import annotations
-
 import json
 import math
 import re

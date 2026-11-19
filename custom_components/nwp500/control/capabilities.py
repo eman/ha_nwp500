@@ -4,8 +4,6 @@ Built from the options and the device's feature data: what runs, and how
 entries are budgeted.
 """
 
-from __future__ import annotations
-
 import hashlib
 import json
 from collections.abc import Mapping

@@ -5,8 +5,6 @@ heater goes through a `ListWriter`, so tests can put a simulated heater in
 its place and nothing else in the feature can reach the device.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from contextlib import AbstractAsyncContextManager

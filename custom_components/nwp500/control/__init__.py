@@ -10,8 +10,6 @@ program, and reports it, writing nothing. Live writes the list;
 `CONTROL_LIVE_AVAILABLE` is its kill switch.
 """
 
-from __future__ import annotations
-
 import logging
 from typing import TYPE_CHECKING
 

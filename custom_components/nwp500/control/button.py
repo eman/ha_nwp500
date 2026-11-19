@@ -1,7 +1,5 @@
 """The Disable button (spec section 4.4)."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity

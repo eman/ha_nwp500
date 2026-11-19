@@ -1,7 +1,5 @@
 """The feature's sensor entities (spec sections 4.1 and 4.2)."""
 
-from __future__ import annotations
-
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 

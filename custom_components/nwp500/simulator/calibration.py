@@ -26,8 +26,6 @@ One heater is fitted at a time, across config entries: a fit holds the
 history in memory.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import dataclasses

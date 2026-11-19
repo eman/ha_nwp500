@@ -26,8 +26,6 @@ simulator stops, each write a gzip member of its own. A day of statuses
 is about 0.3 MB.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import gzip

@@ -15,8 +15,6 @@ A weather entity's forecast is its `weather.get_forecasts` answer, as the
 REST client reads it.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any

@@ -14,8 +14,6 @@ The scenario is built in the event loop, where the library's unit
 preference is stable; the walk runs in an executor.
 """
 
-from __future__ import annotations
-
 import asyncio
 import dataclasses
 import logging

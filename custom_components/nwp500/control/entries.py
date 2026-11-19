@@ -6,8 +6,6 @@ names. The feature's entries each name one weekday, the one of the date
 they are meant for (spec section 5.2).
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, tzinfo

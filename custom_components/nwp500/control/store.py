@@ -7,8 +7,6 @@ so a restart does not apply one again; and whether the feature has written
 the heater's list.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.storage import Store

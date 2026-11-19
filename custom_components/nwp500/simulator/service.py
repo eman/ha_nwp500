@@ -14,8 +14,6 @@ Wh, US gallons); the integration's notes on the inputs are beside it under
 `inputs`.
 """
 
-from __future__ import annotations
-
 import asyncio
 from collections.abc import Callable, Mapping
 from dataclasses import replace

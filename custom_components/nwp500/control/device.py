@@ -11,8 +11,6 @@ the device holds it (section 5.4). Live is gated by `CONTROL_LIVE_AVAILABLE`;
 without it, it runs as shadow.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from collections.abc import Mapping

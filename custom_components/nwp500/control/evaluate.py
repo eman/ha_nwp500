@@ -4,8 +4,6 @@ A segment is part of a timeline, so a segment that does not fit rejects the
 whole plan.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from typing import Any
 

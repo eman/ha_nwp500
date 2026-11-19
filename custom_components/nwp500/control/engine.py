@@ -9,8 +9,6 @@ the device confirmed, and a write the device did not take is handed back
 through `reject`.
 """
 
-from __future__ import annotations
-
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace

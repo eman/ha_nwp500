@@ -1,7 +1,5 @@
 """The feature's binary sensors (spec section 4.2)."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity

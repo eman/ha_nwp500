@@ -13,8 +13,6 @@ the library (`calibration.py`), on the heater's own record of its statuses
 (`record.py`) once that reaches back further than the recorder's.
 """
 
-from __future__ import annotations
-
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any

@@ -1,7 +1,5 @@
 """The simulator's button: calibrate the heater's parameters now."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, override
 
 from homeassistant.components.button import ButtonEntity
