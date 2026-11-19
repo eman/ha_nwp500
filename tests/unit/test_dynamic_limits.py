@@ -277,3 +277,21 @@ class TestDynamicLimits:
 
         assert number.native_min_value == float(MIN_TEMPERATURE_C)
         assert number.native_max_value == float(MAX_TEMPERATURE_C)
+
+
+def test_the_water_heater_unit_follows_the_library_not_ha(
+    mock_coordinator: MagicMock, mock_device: MagicMock, mock_hass: MagicMock
+):
+    """Until the coordinator switches the library's unit, values are in it.
+
+    HA already says Celsius; the library still reports Fahrenheit.
+    """
+    mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
+    mock_coordinator.unit_system = "us_customary"
+    heater = NWP500WaterHeater(
+        mock_coordinator, mock_device.device_info.mac_address, mock_device
+    )
+    heater.hass = mock_hass
+    assert heater.native_temperature_unit == UnitOfTemperature.FAHRENHEIT
+    mock_coordinator.unit_system = "metric"
+    assert heater.native_temperature_unit == UnitOfTemperature.CELSIUS

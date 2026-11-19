@@ -166,12 +166,19 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
     @property
     @override
     def native_temperature_unit(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
-        """Return Home Assistant's configured temperature unit.
+        """Return the unit the library reports values in.
 
-        The library handles unit conversion based on HA's configured unit
-        system, so values are already in the correct units.
+        The coordinator switches the library to Home Assistant's unit
+        system on a refresh. Until then the values are still in the old
+        unit, so the unit is the coordinator's, not Home Assistant's.
         """
-        return self.hass.config.units.temperature_unit
+        match self.coordinator.unit_system:
+            case "metric":
+                return UnitOfTemperature.CELSIUS
+            case "us_customary":
+                return UnitOfTemperature.FAHRENHEIT
+            case _:
+                return self.hass.config.units.temperature_unit
 
     @property
     @override
