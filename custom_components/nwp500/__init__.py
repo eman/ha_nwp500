@@ -25,10 +25,12 @@ from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import (
     ATTR_DEVICE_ID,
     ATTR_ENTITY_ID,
+    EVENT_CORE_CONFIG_UPDATE,
     Platform,
     UnitOfTemperature,
 )
 from homeassistant.core import (
+    Event,
     HomeAssistant,
     ServiceCall,
     ServiceResponse,
@@ -815,23 +817,15 @@ class NWP500ServiceHandler:
             )
 
             # Read-modify-write. The write is a full-list replacement at the
-            # protocol level, so the read must reflect what the device actually
-            # holds -- writing from an empty cache would wipe every existing
-            # reservation.
+            # protocol level, so the read must reflect what the device holds
+            # now: writing from an empty cache would wipe every reservation,
+            # and from a cached copy (up to one schedule refresh old) would
+            # drop an entry added since, e.g. in the NaviLink app.
             async with coordinator._reservation_lock:
-                existing_schedule = coordinator.reservation_schedules.get(
-                    mac_address, {}
+                existing_schedule = (
+                    await coordinator.async_fetch_reservations(mac_address)
+                    or {}
                 )
-                if not existing_schedule:
-                    _LOGGER.debug(
-                        "No cached reservation schedule for %s; fetching before "
-                        "write",
-                        mac_address,
-                    )
-                    existing_schedule = (
-                        await coordinator.async_fetch_reservations(mac_address)
-                        or {}
-                    )
                 if not existing_schedule:
                     raise HomeAssistantError(
                         f"Could not read the current reservation schedule for "
@@ -1387,6 +1381,17 @@ async def async_setup_entry(
         raise
 
     entry.runtime_data = coordinator
+
+    # A change to Home Assistant's unit system takes effect at the next
+    # update: refresh now, so the library's unit and the entities' agree.
+    @callback
+    def _on_core_config_update(_event: Event) -> None:
+        if coordinator.unit_system != coordinator.ha_unit_system():
+            hass.async_create_task(coordinator.async_request_refresh())
+
+    entry.async_on_unload(
+        hass.bus.async_listen(EVENT_CORE_CONFIG_UPDATE, _on_core_config_update)
+    )
 
     # The external control feature (issue #158) is optional and additive.
     # This is its set-up hook: when the option is on, the subpackage is

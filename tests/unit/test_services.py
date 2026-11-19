@@ -202,6 +202,10 @@ class TestReservationServices:
         mock_coordinator.reservation_schedules = {
             "AA:BB:CC:DD:EE:FF": {"reservation": []}
         }
+        # set_reservation reads the device's list before every write.
+        mock_coordinator.async_fetch_reservations = AsyncMock(
+            return_value={"reservation": []}
+        )
         mock_coordinator._reservation_lock = (
             asyncio.Lock()
         )  # Add lock for async context
@@ -442,6 +446,10 @@ class TestReservationServices:
         mock_coordinator.reservation_schedules = {
             "AA:BB:CC:DD:EE:FF": {"reservation": []}
         }
+        # set_reservation reads the device's list before every write.
+        mock_coordinator.async_fetch_reservations = AsyncMock(
+            return_value={"reservation": []}
+        )
         mock_coordinator._reservation_lock = (
             asyncio.Lock()
         )  # Add lock for async context
@@ -1492,6 +1500,50 @@ class TestSetReservationPreservesGlobalSwitch:
         }
         await handler(call)
         return coordinator
+
+    @pytest.mark.asyncio
+    async def test_writes_from_a_fresh_read_not_the_cache(
+        self, mock_hass, mock_device_registry
+    ):
+        """An entry added since the cached read (e.g. in the app) is kept."""
+        cached = {"reservation": [], "reservation_use": 2}
+        app_entry = {
+            "enable": 2,
+            "week": 2,
+            "hour": 22,
+            "min": 0,
+            "mode": 1,
+            "param": 100,
+        }
+        coordinator = self._coordinator(mock_hass, cached)
+        coordinator.async_fetch_reservations = AsyncMock(
+            return_value={"reservation": [app_entry], "reservation_use": 2}
+        )
+        stage_coordinator(mock_hass, coordinator)
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+        await _async_setup_services(mock_hass)
+        handler = next(
+            r[0][2]
+            for r in mock_hass.services.async_register.call_args_list
+            if r[0][1] == SERVICE_SET_RESERVATION
+        )
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            ATTR_ENABLED: True,
+            ATTR_DAYS: ["Monday"],
+            ATTR_HOUR: 6,
+            ATTR_MINUTE: 30,
+            ATTR_OP_MODE: "energy_saver",
+            ATTR_TEMPERATURE: 140,
+        }
+        await handler(call)
+
+        args, kwargs = coordinator.async_write_reservations.call_args
+        written = kwargs.get("reservations", args[1] if len(args) > 1 else None)
+        assert app_entry in written
 
     @pytest.mark.asyncio
     async def test_keeps_the_switch_off_when_device_has_it_off(
