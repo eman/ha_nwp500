@@ -26,11 +26,18 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
+from pydantic import BaseModel
 
 from nwp500 import sim
 from nwp500.sim import codec
 from nwp500.sim.engine import SimulationError
-from nwp500.sim.inputs import Write
+from nwp500.sim.inputs import (
+    AntiLegionellaCommand,
+    DemandResponseCommand,
+    PowerCommand,
+    VacationCommand,
+    Write,
+)
 from nwp500.sim.profile import heater_profile
 from nwp500.sim_live import overlay
 from nwp500.temperature import HalfCelsius
@@ -41,7 +48,7 @@ from ..const import (
     DOMAIN,
     MAX_SIMULATE_HOURS,
 )
-from ..control.capabilities import NEAR_TERM_LEAD, setpoint_range
+from ..control.capabilities import NEAR_TERM_LEAD, WAKE_AFTER, setpoint_range
 from ..control.entries import near_term_minute
 from ..control.evaluate import check_plan
 from ..control.intent import IntentRejected, Plan, Segment, parse_plan
@@ -54,6 +61,14 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .runner import SimulatorRunner
+
+# A plan's commands as the scenario takes them; `tou` is its own field.
+_COMMANDS: dict[str, type[BaseModel]] = {
+    "vacation": VacationCommand,
+    "power": PowerCommand,
+    "anti_legionella": AntiLegionellaCommand,
+    "demand_response": DemandResponseCommand,
+}
 
 # One walk at a time: a week's walk takes a CPU for a while.
 _LOCK = asyncio.Lock()
@@ -97,8 +112,8 @@ def _plan_writes(
     The plan is adopted at `start`. The segment in force then gets a
     near-term entry at the first minute the lead allows; a segment
     starting within the lead is asserted when it begins, by a near-term
-    entry the lead after its start; each later one fires at its start's
-    minute. A near-term entry is dropped when the next segment that
+    entry the lead after the feature wakes for it (`WAKE_AFTER` past its
+    start); each later one fires at its start's minute. A near-term entry is dropped when the next segment that
     changes the state starts by then, as the engine drops it.
     """
     segments = plan.segments
@@ -115,7 +130,7 @@ def _plan_writes(
                 continue
             at = near_term_minute(start, NEAR_TERM_LEAD)
         elif segment.start < start + NEAR_TERM_LEAD:
-            at = near_term_minute(segment.start, NEAR_TERM_LEAD)
+            at = near_term_minute(segment.start + WAKE_AFTER, NEAR_TERM_LEAD)
         else:
             out.append(
                 (segment, segment.start.replace(second=0, microsecond=0))
@@ -132,8 +147,8 @@ def _plan_writes(
 def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
     """The scenario with the plan's segments as its writes (`_plan_writes`).
 
-    The plan's TOU command is set at the start, as the adapter sends it
-    on adoption; its other commands are not walked, and the notes say so.
+    The plan's commands apply at the start, as the adapter sends them on
+    adoption; the result's reasons say which the library does not model.
     """
     scenario = inputs.scenario
     writes = tuple(
@@ -146,22 +161,17 @@ def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
         for segment, at in _plan_writes(plan, scenario.start, scenario.until)
     )
     update: dict[str, Any] = {"writes": writes}
-    notes = list(inputs.notes)
-    tou = [
-        c for c in plan.commands if c.rejection is None and c.command == "tou"
-    ]
-    if tou:
-        update["tou_enabled"] = bool(tou[-1].params["enabled"])
-    walked = {"tou"}
-    if skipped := sorted(
-        {c.command for c in plan.commands if c.rejection is None} - walked
-    ):
-        notes.append(f"the plan's commands not simulated: {', '.join(skipped)}")
+    # Applied in order on adoption: the last of each kind is the one left.
+    for command in plan.commands:
+        if command.rejection is not None:
+            continue
+        if command.command == "tou":
+            update["tou_enabled"] = bool(command.params["enabled"])
+        elif (model := _COMMANDS.get(command.command)) is not None:
+            update[command.command] = model.model_validate(command.params)
     commands = scenario.commands.model_copy(update=update)
     return replace(
-        inputs,
-        scenario=scenario.model_copy(update={"commands": commands}),
-        notes=tuple(notes),
+        inputs, scenario=scenario.model_copy(update={"commands": commands})
     )
 
 

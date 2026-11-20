@@ -499,15 +499,16 @@ response_variable: snapshot
     control's entry for it would fire: the segment in force then at the
     first minute at least 2 minutes away (its near-term entry); a segment
     starting within those 2 minutes at the first minute at least 2 minutes
-    after its start; each later one at its start, truncated to the minute.
+    after external control wakes for its start, a second after it; each later one at its start, truncated to the minute.
     A near-term entry is left out when the next change of state starts by
-    then, as external control leaves it out.
-    Segments after the walk's end are left out. The walk doesn't model the
-    entry budget, which only delays when an entry is written, nor a write
-    that fails. The
-    plan's `tou` command sets the TOU switch at the start, as the adapter
-    sends it when the plan is adopted. Its other commands are not walked,
-    and `inputs.notes` names them.
+    then, as external control leaves it out. Segments after the walk's end
+    are left out. The walk doesn't model the entry budget, which only
+    delays when an entry is written, nor a write that fails. The plan's
+    commands apply at the start, as the adapter sends them when it is
+    adopted: `tou`, `vacation`, `power`, `anti_legionella` and
+    `demand_response`, the last of each kind as adoption leaves it. What
+    the library doesn't model it names in the result's `reasons` (for
+    example `demand_response_not_modelled`).
   - `include_points`: also return the tank's path. Default off.
 - `time_to_ready`: `bath_gal` and `shower_gal`, a bath's and a shower's
   volume in US gallons. Without them, the heater's own sizes (its Bath

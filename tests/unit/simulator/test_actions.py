@@ -26,7 +26,10 @@ from custom_components.nwp500.const import (
     CONF_SIMULATOR_ENABLED,
     DOMAIN,
 )
-from custom_components.nwp500.control.capabilities import NEAR_TERM_LEAD
+from custom_components.nwp500.control.capabilities import (
+    NEAR_TERM_LEAD,
+    WAKE_AFTER,
+)
 from custom_components.nwp500.control.entries import near_term_minute
 from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator import (
@@ -488,26 +491,49 @@ async def test_a_plan_is_walked_as_its_segments_writes(
     assert any(abs(value - 125.0) < 0.5 for value in setpoints)
     # In force at the start: applied once its near-term entry fires.
     assert any(abs(value - 130.0) < 0.5 for value in setpoints)
-    # The TOU command is walked; nothing else was asked.
-    assert not any("not simulated" in n for n in response["inputs"]["notes"])
 
 
-async def test_a_plans_other_commands_are_noted_not_walked(
+async def test_a_plans_commands_are_all_walked(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """Each kind, the last of it as adoption leaves it; TOU its own field."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["commands"] += [
+        {"id": "v1", "command": "vacation", "days": 2},
+        {"id": "v2", "command": "vacation", "days": 3},
+        {"id": "d", "command": "demand_response", "enabled": True},
+    ]
+
+    inputs = await service.async_inputs(
+        hass, runner, scenario=document, use_heater=False
+    )
+    walked = service._with_plan(inputs, service._parse_plan(plan, runner))
+
+    commands = walked.scenario.commands
+    assert commands.tou_enabled is False
+    assert commands.vacation is not None and commands.vacation.days == 3
+    assert commands.demand_response is not None
+    assert commands.demand_response.enabled is True
+    assert commands.power is None
+
+
+async def test_what_the_library_does_not_model_is_in_the_reasons(
     hass: HomeAssistant, runner: SimulatorRunner
 ):
     document = await snapshot(hass, runner)
     start = datetime.fromisoformat(document["scenario"]["start"])
     plan = _plan(start)
-    plan["commands"].append({"id": "v", "command": "vacation", "days": 3})
+    plan["commands"].append(
+        {"id": "d", "command": "demand_response", "enabled": True}
+    )
 
     response = await service.async_simulate(
         hass, runner, scenario=document, use_heater=False, plan=plan
     )
 
-    assert (
-        "the plan's commands not simulated: vacation"
-        in response["inputs"]["notes"]
-    )
+    assert "demand_response_not_modelled" in response["result"]["reasons"]
 
 
 async def test_segments_past_the_walk_are_left_out(
@@ -577,11 +603,12 @@ async def test_a_segment_within_the_lead_applies_the_lead_after_it_begins(
     writes = {w["serves"]: w["at"] for w in response["result"]["writes"]}
     # Its near-term entry fires at or after the in-force one's minute.
     assert "now" not in writes
-    # From its start as parsed: truncated to the minute.
+    # From when the feature wakes for its start, as parsed: truncated to
+    # the minute. A minute past the lead, since it wakes just after.
     begins = (start + timedelta(minutes=1)).replace(second=0, microsecond=0)
-    assert datetime.fromisoformat(str(writes["later"])) == near_term_minute(
-        begins, NEAR_TERM_LEAD
-    )
+    at = datetime.fromisoformat(str(writes["later"]))
+    assert at == near_term_minute(begins + WAKE_AFTER, NEAR_TERM_LEAD)
+    assert at == begins + timedelta(minutes=3)
 
 
 async def test_a_plan_outside_the_heaters_range_is_refused(

@@ -14,7 +14,8 @@
 - **The simulator simulates a plan.** `nwp500.simulate` takes `plan`, an
   external control plan document, checked as external control would
   check it: each segment takes effect when external control's entry for
-  it would fire, and its TOU command is simulated. `heater_profile` returns the library's facts
+  it would fire, and its commands are simulated, or named in the result's
+  reasons where the library doesn't model them. `heater_profile` returns the library's facts
   about the heater, with a `revision` that changes when they do.
 - **A heater gone from the account can be deleted**, with the simulator's
   record and calibration of it.

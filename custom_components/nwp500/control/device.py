@@ -44,7 +44,12 @@ from ..vocabulary import (
     CONTROL_MODE_SHADOW,
     DEFAULT_CONTROL_MODE,
 )
-from .capabilities import Capabilities, build_capabilities, setpoint_range
+from .capabilities import (
+    WAKE_AFTER,
+    Capabilities,
+    build_capabilities,
+    setpoint_range,
+)
 from .commands import Commands
 from .engine import Planner, Report, State, Write
 from .entries import schedule_hash
@@ -696,7 +701,7 @@ class DeviceControl:
         if when is None or self.mode == CONTROL_MODE_DISABLED:
             return
         self._cancel_event = async_track_point_in_utc_time(
-            self.hass, self._on_planned_event, when + timedelta(seconds=1)
+            self.hass, self._on_planned_event, when + WAKE_AFTER
         )
 
     async def _on_planned_event(self, now: datetime) -> None:

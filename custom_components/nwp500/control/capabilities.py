@@ -40,6 +40,9 @@ HORIZON = timedelta(hours=144)
 
 # How far ahead a change needed now is written as an entry (section 5.2).
 NEAR_TERM_LEAD = timedelta(minutes=2)
+# How long after a moment the plan changes on its own the feature wakes
+# to act on it: never at the moment itself.
+WAKE_AFTER = timedelta(seconds=1)
 
 
 @dataclass(frozen=True)
