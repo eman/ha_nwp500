@@ -26,6 +26,8 @@ from custom_components.nwp500.const import (
     CONF_SIMULATOR_ENABLED,
     DOMAIN,
 )
+from custom_components.nwp500.control.capabilities import NEAR_TERM_LEAD
+from custom_components.nwp500.control.entries import near_term_minute
 from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator import (
     async_setup_simulator,
@@ -484,7 +486,7 @@ async def test_a_plan_is_walked_as_its_segments_writes(
 
     setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
     assert any(abs(value - 125.0) < 0.5 for value in setpoints)
-    # In force at the start: applied then.
+    # In force at the start: applied once its near-term entry fires.
     assert any(abs(value - 130.0) < 0.5 for value in setpoints)
     # The TOU command is walked; nothing else was asked.
     assert not any("not simulated" in n for n in response["inputs"]["notes"])
@@ -538,6 +540,43 @@ async def test_a_plan_the_adapter_would_reject_is_refused_with_its_reason(
         )
     assert err.value.translation_key == "simulator_plan_rejected"
     assert err.value.translation_placeholders["reason"] == "mode_not_allowed"
+
+
+async def test_the_segment_in_force_applies_when_its_near_term_entry_fires(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """Adopted at the walk's start: the entry fires once the lead allows."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, plan=_plan(start)
+    )
+
+    (now,) = [
+        w for w in response["result"]["writes"] if w.get("serves") == "now"
+    ]
+    assert datetime.fromisoformat(str(now["at"])) == near_term_minute(
+        start, NEAR_TERM_LEAD
+    )
+
+
+async def test_a_plan_outside_the_heaters_range_is_refused(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """Checked against the named heater's range, as on publishing."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    feature = runner.coordinator.device_features[MAC]
+    feature.dhw_temperature_max_raw = 100  # 50 °C, 122 °F
+
+    with pytest.raises(ServiceValidationError) as err:
+        await service.async_simulate(
+            hass, runner, scenario=document, use_heater=False, plan=_plan(start)
+        )
+    assert err.value.translation_placeholders["reason"] == (
+        "setpoint_out_of_range"
+    )
 
 
 def test_a_plan_and_writes_together_are_refused():

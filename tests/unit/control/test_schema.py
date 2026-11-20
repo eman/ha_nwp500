@@ -93,6 +93,15 @@ def test_a_first_segment_without_its_mode_is_invalid_both_ways(now):
         parse_plan(document)
 
 
+def test_the_first_segment_is_a_segment(now):
+    """Its mode is required on top of the segment's own rules."""
+    document = make_document(now, [segment(now, "s", 0, setpoint_f=130)])
+    document["segments"][0] = {"mode": "heat_pump"}
+    assert not _validator().is_valid(document)
+    document["segments"][0] = "heat_pump"
+    assert not _validator().is_valid(document)
+
+
 def test_every_entity_with_attributes_has_its_def():
     keys = {key for key, _ in (*SENSOR_KEYS, *BINARY_SENSOR_KEYS)}
     assert keys - {"wanted_mode"} == set(ATTRIBUTES)

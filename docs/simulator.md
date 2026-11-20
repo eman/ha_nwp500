@@ -492,11 +492,16 @@ response_variable: snapshot
     `write_mode_not_modelled`.
   - `plan`: an [external control](external-control.md) plan document
     (protocol 1), in place of `writes`; the two can't be given together.
-    It is parsed and checked as the plan entity's would be, and one that
-    would be rejected is refused with its reason. Each segment's setpoint
-    and mode is written at its start, truncated to the minute, when its
-    reservation entry would fire. The segment in force at the walk's start
-    is written then, and segments after the walk's end are left out. The
+    It is parsed and checked as the plan entity's would be, against the
+    heater's setpoint range when a heater is named, and one that would be
+    rejected is refused with its reason. The plan is adopted at the walk's
+    start, and each segment's setpoint and mode is written when external
+    control's entry for it would fire: the segment in force then, or
+    starting within the 2-minute near-term lead, at the first minute the
+    lead allows; each later one at its start, truncated to the minute.
+    Segments after the walk's end are left out. The walk doesn't model the
+    entry budget, which only delays when an entry is written, nor a write
+    that fails. The
     plan's `tou` command sets the TOU switch at the start, as the adapter
     sends it when the plan is adopted. Its other commands are not walked,
     and `inputs.notes` names them.

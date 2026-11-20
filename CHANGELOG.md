@@ -12,9 +12,9 @@
   the reference a scheduler is written from, and
   `docs/external-control-scheduler-guide.md` walks through one.
 - **The simulator simulates a plan.** `nwp500.simulate` takes `plan`, an
-  external control plan document: its segments become the entries
-  external control would write, in its entry budget and horizon, and its
-  TOU command is simulated. `heater_profile` returns the library's facts
+  external control plan document, checked as external control would
+  check it: each segment takes effect when external control's entry for
+  it would fire, and its TOU command is simulated. `heater_profile` returns the library's facts
   about the heater, with a `revision` that changes when they do.
 - **A heater gone from the account can be deleted**, with the simulator's
   record and calibration of it.

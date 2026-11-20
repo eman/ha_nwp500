@@ -24,7 +24,9 @@
     "segments": {
       "type": "array",
       "description": "The timeline, in strictly increasing order of start. Each segment holds until the next segment's start; the last holds until a new plan. An empty list stops the plan: every programmed entry is withdrawn and the heater keeps its state. The first segment names its mode.",
-      "prefixItems": [{ "required": ["mode"] }],
+      "prefixItems": [
+        { "allOf": [{ "$ref": "#/$defs/segment" }, { "required": ["mode"] }] }
+      ],
       "items": { "$ref": "#/$defs/segment" }
     },
     "commands": {

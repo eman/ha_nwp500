@@ -40,6 +40,8 @@ from ..const import (
     DOMAIN,
     MAX_SIMULATE_HOURS,
 )
+from ..control.capabilities import NEAR_TERM_LEAD, setpoint_range
+from ..control.entries import near_term_minute
 from ..control.evaluate import check_plan
 from ..control.intent import IntentRejected, Plan, parse_plan
 from ..vocabulary import (
@@ -56,11 +58,24 @@ if TYPE_CHECKING:
 _LOCK = asyncio.Lock()
 
 
-def _parse_plan(document: Mapping[str, Any]) -> Plan:
-    """An external control plan, parsed and checked as on arrival."""
+def _parse_plan(
+    document: Mapping[str, Any], runner: SimulatorRunner | None
+) -> Plan:
+    """An external control plan, parsed and checked as on arrival.
+
+    Against the heater's setpoint range when a heater is named and its
+    features are read, as the plan entity's would be.
+    """
+    limits = (
+        None
+        if runner is None
+        else setpoint_range(
+            runner.coordinator.device_features.get(runner.mac_address)
+        )
+    )
     try:
         plan = parse_plan(document)
-        check_plan(plan)
+        check_plan(plan, limits)
     except IntentRejected as err:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
@@ -76,16 +91,20 @@ def _parse_plan(document: Mapping[str, Any]) -> Plan:
 def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
     """The scenario with the plan's segments as its writes.
 
-    Each segment applies at its start, truncated to the minute, when its
-    entry fires; the one in force at the scenario's start applies then,
-    and those after its end are left out. The plan's TOU command is set
-    at the start, as the adapter sends it on adoption; its other
-    commands are not walked, and the notes say so.
+    The plan is adopted at the scenario's start, and each segment applies
+    when external control's entry for it fires. The segment in force
+    then, or starting within the near-term lead, applies at the first
+    minute the lead allows, as its near-term entry fires; each later one
+    at its start, truncated to the minute. Those after the end are left
+    out. The plan's TOU command is set at the start, as the adapter sends
+    it on adoption; its other commands are not walked, and the notes say
+    so.
     """
     scenario = inputs.scenario
     start, until = scenario.start, scenario.until
-    in_force = [s for s in plan.segments if s.start <= start]
-    later = [s for s in plan.segments if start < s.start < until]
+    first = near_term_minute(start, NEAR_TERM_LEAD)
+    in_force = [s for s in plan.segments if s.start < first]
+    later = [s for s in plan.segments if first <= s.start < until]
     writes = tuple(
         Write(
             at=at,
@@ -94,7 +113,7 @@ def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
             id=segment.id,
         )
         for segment, at in (
-            *((s, start) for s in in_force[-1:]),
+            *((s, first) for s in in_force[-1:] if first < until),
             *((s, s.start) for s in later),
         )
     )
@@ -336,7 +355,7 @@ async def async_simulate(
     over: dict[str, Any] = {}
     if hours is not None:
         over["horizon"] = timedelta(hours=hours)
-    parsed = None if plan is None else _parse_plan(plan)
+    parsed = None if plan is None else _parse_plan(plan, runner)
     if writes is not None and parsed is None:
         over["commands"] = {"writes": _writes(hass, writes)}
     inputs = await async_inputs(

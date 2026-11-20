@@ -16,7 +16,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import CALLBACK_TYPE, Event, callback
@@ -44,7 +44,7 @@ from ..vocabulary import (
     CONTROL_MODE_SHADOW,
     DEFAULT_CONTROL_MODE,
 )
-from .capabilities import Capabilities, build_capabilities
+from .capabilities import Capabilities, build_capabilities, setpoint_range
 from .commands import Commands
 from .engine import Planner, Report, State, Write
 from .entries import schedule_hash
@@ -326,14 +326,9 @@ class DeviceControl:
 
         None until its features are read.
         """
-        features = self.coordinator.device_features.get(self.mac_address)
-        low = getattr(features, "dhw_temperature_min_raw", None)
-        high = getattr(features, "dhw_temperature_max_raw", None)
-        if not all(
-            isinstance(v, int) and not isinstance(v, bool) for v in (low, high)
-        ):
-            return None
-        return int(cast(int, low)), int(cast(int, high))
+        return setpoint_range(
+            self.coordinator.device_features.get(self.mac_address)
+        )
 
     def _build_capabilities(self) -> Capabilities:
         capabilities = build_capabilities(

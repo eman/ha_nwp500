@@ -91,6 +91,23 @@ class Capabilities:
         return hashlib.sha256(payload.encode()).hexdigest()[:8]
 
 
+def setpoint_range(features: Any) -> tuple[int, int] | None:
+    """The heater's setpoint range, raw half-degrees Celsius, inclusive.
+
+    From its reported features; None until they are read.
+    """
+    low = getattr(features, "dhw_temperature_min_raw", None)
+    high = getattr(features, "dhw_temperature_max_raw", None)
+    if (
+        isinstance(low, int)
+        and isinstance(high, int)
+        and not isinstance(low, bool)
+        and not isinstance(high, bool)
+    ):
+        return low, high
+    return None
+
+
 def _setpoint(limits: tuple[int, int] | None) -> dict[str, float] | None:
     """The heater's range in both scales, as a segment may give it."""
     if limits is None:
