@@ -1058,14 +1058,6 @@ def _two_segments(now, **kwargs) -> dict:
     )
 
 
-def _entries(schedule: dict[str, Any], **match) -> list[dict[str, int]]:
-    return [
-        e
-        for e in schedule["reservation"]
-        if all(e.get(k) == v for k, v in match.items())
-    ]
-
-
 async def _tick(hass: HomeAssistant, freezer, delta: timedelta) -> None:
     freezer.tick(delta)
     async_fire_time_changed(hass)
@@ -1161,8 +1153,9 @@ class TestLiveWrites:
         assert len(heater.writes) == 1
         written = heater.writes[0]
         assert written["reservation_use"] == 2
-        # Every entry that is not the feature's is kept as read.
-        assert _entries(written, hour=6, min=0) == [OWNER_ENTRY]
+        # Every entry that is not the feature's is kept as read (the
+        # entry itself: the plan's own can share its time).
+        assert OWNER_ENTRY in written["reservation"]
         assert len(written["reservation"]) == 3
         assert control.last_write.simulated is False
         assert control.last_write.confirmed is True
@@ -1193,7 +1186,8 @@ class TestLiveWrites:
         await hass.async_block_till_done()
 
         assert heater.reads >= 1
-        assert _entries(heater.writes[-1], hour=9, min=30) == [FOREIGN_ENTRY]
+        # The person's entry itself: the plan's own can share its time.
+        assert FOREIGN_ENTRY in heater.writes[-1]["reservation"]
 
     @pytest.mark.asyncio
     async def test_nothing_is_sent_when_the_device_already_has_it(
