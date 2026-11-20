@@ -209,13 +209,6 @@ class Plan:
     extra: dict[str, Any] = field(default_factory=dict)
     commands: tuple[Command, ...] = ()
 
-    def next_segment_after(self, when: datetime) -> Segment | None:
-        """The first segment that starts after `when`."""
-        for segment in self.segments:
-            if segment.start > when:
-                return segment
-        return None
-
     def as_document(self) -> dict[str, Any]:
         """The plan as a document, for storage."""
         doc: dict[str, Any] = {

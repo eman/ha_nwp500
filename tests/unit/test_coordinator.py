@@ -624,7 +624,6 @@ def wired(coordinator):
         ("async_send_command", (MAC, "set_power")),
         ("async_request_reservations", (MAC,)),
         ("async_configure_tou_schedule", (MAC, [])),
-        ("async_request_device_info", (MAC,)),
     ],
 )
 @pytest.mark.asyncio
@@ -963,67 +962,6 @@ async def test_request_tou_settings_reports_a_failed_read(wired):
 
     assert await wired.async_request_tou_settings(MAC) is False
     assert MAC not in wired.tou_schedules
-
-
-# ---------------------------------------------------------------------------
-# async_request_device_info
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_targets_a_single_device(wired):
-    """A MAC argument narrows the request to that device alone."""
-    other = _device("11:22:33:44:55:66")
-    wired.devices = [wired._devices_by_mac[MAC], other]
-    wired._update_device_cache()
-
-    assert await wired.async_request_device_info(MAC) is True
-
-    wired.mqtt_manager.request_device_info.assert_awaited_once_with(
-        wired._devices_by_mac[MAC]
-    )
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_fans_out_when_no_mac_given(wired):
-    """Omitting the MAC requests info for every known device."""
-    other = _device("11:22:33:44:55:66")
-    wired.devices = [wired._devices_by_mac[MAC], other]
-    wired._update_device_cache()
-
-    assert await wired.async_request_device_info() is True
-    assert wired.mqtt_manager.request_device_info.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_unknown_mac_requests_nothing(wired):
-    """An unknown MAC must not silently fall back to broadcasting."""
-    assert await wired.async_request_device_info("99:99:99:99:99:99") is False
-    wired.mqtt_manager.request_device_info.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_survives_a_partial_failure(wired):
-    """One device failing does not abort the others, and still reports True."""
-    other = _device("11:22:33:44:55:66")
-    wired.devices = [wired._devices_by_mac[MAC], other]
-    wired._update_device_cache()
-    wired.mqtt_manager.request_device_info = AsyncMock(
-        side_effect=[RuntimeError("boom"), None]
-    )
-
-    assert await wired.async_request_device_info() is True
-    assert wired.mqtt_manager.request_device_info.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_reports_total_failure(wired):
-    """If every device errors the call reports failure rather than success."""
-    wired.mqtt_manager.request_device_info = AsyncMock(
-        side_effect=RuntimeError("boom")
-    )
-
-    assert await wired.async_request_device_info() is False
 
 
 # ---------------------------------------------------------------------------

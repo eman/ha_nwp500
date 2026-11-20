@@ -1,7 +1,7 @@
 """Constants for the Navien NWP500 integration."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, TypedDict
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.components.water_heater import (
     STATE_ECO,
@@ -24,28 +24,8 @@ from .vocabulary import (
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-    from nwp500 import (  # type: ignore[attr-defined]
-        Device,
-        DeviceFeature,
-        DeviceStatus,
-    )
 
 DOMAIN: Final = "nwp500"
-
-
-# Type definitions
-class DeviceStatusEvent(TypedDict):
-    """Type definition for device status event data."""
-
-    device: Device
-    status: DeviceStatus
-
-
-class DeviceFeatureEvent(TypedDict):
-    """Type definition for device feature event data."""
-
-    device: Device
-    feature: DeviceFeature
 
 
 # Configuration

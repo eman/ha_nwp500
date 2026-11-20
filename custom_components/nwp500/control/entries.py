@@ -132,25 +132,6 @@ def slots_collide(a: tuple[int, int, int], b: tuple[int, int, int]) -> bool:
     return bool(a[0] & b[0]) and a[1:] == b[1:]
 
 
-def firings(
-    entry: Mapping[str, int], after: datetime, until: datetime, tz: tzinfo
-) -> list[datetime]:
-    """Each time a weekly device entry fires in (after, until]."""
-    result: list[datetime] = []
-    local_after = after.astimezone(tz)
-    local_until = until.astimezone(tz)
-    day = local_after.replace(hour=0, minute=0, second=0, microsecond=0)
-    while day <= local_until:
-        if int(entry.get("week", 0)) & week_bit(day):
-            fire = day.replace(
-                hour=int(entry["hour"]), minute=int(entry["min"])
-            )
-            if local_after < fire <= local_until:
-                result.append(fire)
-        day += timedelta(days=1)
-    return result
-
-
 def schedule_hash(schedule: Mapping[str, Any]) -> str:
     """The same hash the Reservation Schedule sensor reports."""
     return schedule_state.schedule_hash(

@@ -1879,46 +1879,6 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return await self.mqtt_manager.send_command(device, command, **kwargs)
 
-    async def async_request_device_info(
-        self, mac_address: str | None = None
-    ) -> bool:
-        """Manually request device info for a specific device or all devices."""
-        if not self.mqtt_manager:
-            _LOGGER.error("MQTT manager not available")
-            return False
-
-        devices_to_update = []
-        if mac_address:
-            # Request for specific device
-            device = self._devices_by_mac.get(mac_address)
-            if device:
-                devices_to_update.append(device)
-        else:
-            # Request for all devices
-            devices_to_update = self.devices
-
-        if not devices_to_update:
-            _LOGGER.error("No devices found for device info request")
-            return False
-
-        success_count = 0
-        for device in devices_to_update:
-            try:
-                await self.mqtt_manager.request_device_info(device)
-                _LOGGER.info(
-                    "Sent manual device info request for %s",
-                    device.device_info.mac_address,
-                )
-                success_count += 1
-            except Exception as err:
-                _LOGGER.error(
-                    "Failed to send manual device info request for %s: %s",
-                    device.device_info.mac_address,
-                    err,
-                )
-
-        return success_count > 0
-
     async def async_write_reservations(
         self,
         mac_address: str,
