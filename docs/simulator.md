@@ -496,9 +496,12 @@ response_variable: snapshot
     heater's setpoint range when a heater is named, and one that would be
     rejected is refused with its reason. The plan is adopted at the walk's
     start, and each segment's setpoint and mode is written when external
-    control's entry for it would fire: the segment in force then, or
-    starting within the 2-minute near-term lead, at the first minute the
-    lead allows; each later one at its start, truncated to the minute.
+    control's entry for it would fire: the segment in force then at the
+    first minute at least 2 minutes away (its near-term entry); a segment
+    starting within those 2 minutes at the first minute at least 2 minutes
+    after its start; each later one at its start, truncated to the minute.
+    A near-term entry is left out when the next change of state starts by
+    then, as external control leaves it out.
     Segments after the walk's end are left out. The walk doesn't model the
     entry budget, which only delays when an entry is written, nor a write
     that fails. The

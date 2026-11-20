@@ -561,6 +561,29 @@ async def test_the_segment_in_force_applies_when_its_near_term_entry_fires(
     )
 
 
+async def test_a_segment_within_the_lead_applies_the_lead_after_it_begins(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """As the engine asserts it, and the one in force is dropped for it."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["segments"][1]["start"] = (start + timedelta(minutes=1)).isoformat()
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, plan=plan
+    )
+
+    writes = {w["serves"]: w["at"] for w in response["result"]["writes"]}
+    # Its near-term entry fires at or after the in-force one's minute.
+    assert "now" not in writes
+    # From its start as parsed: truncated to the minute.
+    begins = (start + timedelta(minutes=1)).replace(second=0, microsecond=0)
+    assert datetime.fromisoformat(str(writes["later"])) == near_term_minute(
+        begins, NEAR_TERM_LEAD
+    )
+
+
 async def test_a_plan_outside_the_heaters_range_is_refused(
     hass: HomeAssistant, runner: SimulatorRunner
 ):

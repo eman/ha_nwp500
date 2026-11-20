@@ -19,6 +19,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import UnitOfTemperature
@@ -43,7 +44,7 @@ from ..const import (
 from ..control.capabilities import NEAR_TERM_LEAD, setpoint_range
 from ..control.entries import near_term_minute
 from ..control.evaluate import check_plan
-from ..control.intent import IntentRejected, Plan, parse_plan
+from ..control.intent import IntentRejected, Plan, Segment, parse_plan
 from ..vocabulary import (
     MODE_TO_DHW_ID,
 )
@@ -88,23 +89,53 @@ def _parse_plan(
     return plan
 
 
-def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
-    """The scenario with the plan's segments as its writes.
+def _plan_writes(
+    plan: Plan, start: datetime, until: datetime
+) -> list[tuple[Segment, datetime]]:
+    """Each segment with when external control's entry for it fires.
 
-    The plan is adopted at the scenario's start, and each segment applies
-    when external control's entry for it fires. The segment in force
-    then, or starting within the near-term lead, applies at the first
-    minute the lead allows, as its near-term entry fires; each later one
-    at its start, truncated to the minute. Those after the end are left
-    out. The plan's TOU command is set at the start, as the adapter sends
-    it on adoption; its other commands are not walked, and the notes say
-    so.
+    The plan is adopted at `start`. The segment in force then gets a
+    near-term entry at the first minute the lead allows; a segment
+    starting within the lead is asserted when it begins, by a near-term
+    entry the lead after its start; each later one fires at its start's
+    minute. A near-term entry is dropped when the next segment that
+    changes the state starts by then, as the engine drops it.
+    """
+    segments = plan.segments
+    changes = [
+        b.start
+        for a, b in pairwise(segments)
+        if (a.mode, a.setpoint_raw) != (b.mode, b.setpoint_raw)
+    ]
+    in_force = [i for i, s in enumerate(segments) if s.start <= start]
+    out: list[tuple[Segment, datetime]] = []
+    for i, segment in enumerate(segments):
+        if segment.start <= start:
+            if i != in_force[-1]:
+                continue
+            at = near_term_minute(start, NEAR_TERM_LEAD)
+        elif segment.start < start + NEAR_TERM_LEAD:
+            at = near_term_minute(segment.start, NEAR_TERM_LEAD)
+        else:
+            out.append(
+                (segment, segment.start.replace(second=0, microsecond=0))
+            )
+            continue
+        after = max(segment.start, start)
+        nxt = next((c for c in changes if c > after), None)
+        if nxt is not None and nxt <= at:
+            continue
+        out.append((segment, at))
+    return [(segment, at) for segment, at in out if at < until]
+
+
+def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
+    """The scenario with the plan's segments as its writes (`_plan_writes`).
+
+    The plan's TOU command is set at the start, as the adapter sends it
+    on adoption; its other commands are not walked, and the notes say so.
     """
     scenario = inputs.scenario
-    start, until = scenario.start, scenario.until
-    first = near_term_minute(start, NEAR_TERM_LEAD)
-    in_force = [s for s in plan.segments if s.start < first]
-    later = [s for s in plan.segments if first <= s.start < until]
     writes = tuple(
         Write(
             at=at,
@@ -112,10 +143,7 @@ def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
             mode=MODE_TO_DHW_ID[segment.mode],
             id=segment.id,
         )
-        for segment, at in (
-            *((s, first) for s in in_force[-1:] if first < until),
-            *((s, s.start) for s in later),
-        )
+        for segment, at in _plan_writes(plan, scenario.start, scenario.until)
     )
     update: dict[str, Any] = {"writes": writes}
     notes = list(inputs.notes)
