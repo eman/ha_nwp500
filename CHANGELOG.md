@@ -308,7 +308,8 @@
 - **A renamed plan entity is followed**, and a missing one raises a
   Repairs issue until it is back.
 
-- **Library Dependency: nwp500-python**: Upgraded to 9.14.0. The library
+- **Library Dependency: nwp500-python**: Upgraded to 9.14.0 (0.21.1 had
+  9.4.2; what 9.13.3 and 9.4.3 change is below). The library
   reads the reservation lists the heater sends on its own topic, which the
   integration did itself before, so each list is handed over once. The
   simulator's upper element heats the tank as a rising plume, so walks
@@ -457,10 +458,10 @@
   now checks every reservation entry before a list write, against the
   setpoint range the heater reports, instead of sending it for the heater
   to clamp. An Update all reservations call with an out-of-range entry now
-  fails ("Failed to update reservations", the reason in the log). With
-  external control, a plan setpoint outside the heater's range makes the
-  list write fail, reported as `failed`, `write_not_confirmed`; the
-  feature itself still checks no setpoints. (eman/nwp500-python#148)
+  fails ("Failed to update reservations", the reason in the log).
+  External control rejects a plan with a setpoint outside the heater's
+  range as `setpoint_out_of_range` before it writes anything.
+  (eman/nwp500-python#148)
 - **Names in sentence case.** Entity, attribute and service names follow
   Home Assistant's style ("Tank upper temperature", "Set reservation");
   acronyms such as DHW, MQTT and TOU are kept. Only the displayed names
@@ -478,6 +479,10 @@
   credentials start reauthentication instead of being retried forever;
   and a shut-down entry stays shut down.
 - **`set_reservation` writes from a fresh read** of the heater's list.
+- **A change to Home Assistant's unit system is followed at once**: the
+  heater is refreshed in the new unit rather than at the next update.
+- **Diagnostics redact the MAC address in the MQTT timeout history**,
+  which carried it unredacted.
 - **Availability follows the time since the heater's last status.**
 - **The water heater** restores the mode from before Vacation only after a
   Vacation, honours `operation_mode` in `set_temperature`, and reports
@@ -523,12 +528,12 @@
 - **Reservation lists the heater sends on its own topic are read.** The
   heater is asked to answer a list read or write on the reading client's
   topic, and sometimes answers on its own topic instead. The library
-  listens for the list on the client topic only, so those answers were
+  listened for the list on the client topic only, so those answers were
   dropped, the read timed out, and external control failed the write it
   read for, retried a minute later and, on a second miss, paused writing
   for 15 minutes. In a test session it happened to one read in a dozen.
-  The integration now takes the list on the heater's topic too, and a
-  write echoed there is confirmed.
+  The list is now taken on the heater's topic too (by the library from
+  9.14.0), and a write echoed there is confirmed.
 - **A reservation read that gets no reply asks again.** The reservation
   service and external control's reads before and after a write wait for
   the heater's list. When no reply comes, on any topic, they now ask up to
