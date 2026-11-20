@@ -8,4 +8,4 @@
 # Development tooling lives in requirements-dev.txt.
 
 # Core integration library (brings awscrt, the MQTT client it builds on)
-nwp500-python==9.13.3
+nwp500-python==9.14.0

@@ -306,6 +306,11 @@
 - **A renamed plan entity is followed**, and a missing one raises a
   Repairs issue until it is back.
 
+- **Library Dependency: nwp500-python**: Upgraded to 9.14.0. The library
+  reads the reservation lists the heater sends on its own topic, which the
+  integration did itself before, so each list is handed over once. The
+  simulator's upper element heats the tank as a rising plume, so walks
+  where it runs differ from 9.13.3's.
 - **Library Dependency: nwp500-python**: Upgraded to 9.13.3. What the
   integration did before is kept; the library's corrections change these:
   - **The simulator's model is replaced.** The tank is stacked layers in

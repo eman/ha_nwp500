@@ -926,7 +926,7 @@ class NWP500DataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ImportError as err:
             _LOGGER.error(
                 "nwp500-python library not installed. Please install: "
-                'uv pip install "nwp500-python==9.13.3"'
+                'uv pip install "nwp500-python==9.14.0"'
             )
             raise UpdateFailed(
                 f"nwp500-python library not available: {err}"
