@@ -23,5 +23,5 @@
     "nwp500-python==9.14.0"
   ],
   "single_config_entry": true,
-  "version": "0.21.1"
+  "version": "0.22.0"
 }

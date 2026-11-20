@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-20
+
 ### Added
 
 - **External control declares what the heater accepts.** The capabilities
@@ -2303,7 +2305,8 @@ This section tracks changes in the nwp500-python library that this integration d
 - Device-based integration with proper device registry support
 - Integration with nwp500-python library v3.1.2
 
-[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.21.1...HEAD
+[Unreleased]: https://github.com/eman/ha_nwp500/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/eman/ha_nwp500/compare/v0.21.1...v0.22.0
 [0.21.1]: https://github.com/eman/ha_nwp500/compare/v0.21.0...v0.21.1
 [0.21.0]: https://github.com/eman/ha_nwp500/compare/v0.20.1...v0.21.0
 [0.20.1]: https://github.com/eman/ha_nwp500/compare/v0.20.0...v0.20.1

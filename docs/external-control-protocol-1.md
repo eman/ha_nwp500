@@ -286,7 +286,7 @@ Example, with the heater's range read and nine entries free:
 {
   "protocols": ["1", "0"],
   "protocol_versions": ["1.4", "0"],
-  "feature_version": "0.21.1",
+  "feature_version": "0.22.0",
   "mode": "live",
   "setpoint_resolution_c": 0.5,
   "horizon_h": 144,
