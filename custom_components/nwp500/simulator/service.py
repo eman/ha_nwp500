@@ -39,7 +39,7 @@ from nwp500.sim.inputs import (
     Write,
 )
 from nwp500.sim.profile import heater_profile
-from nwp500.sim_live import overlay
+from nwp500.sim_live import Built, overlay, with_layers
 from nwp500.temperature import HalfCelsius
 
 from ..const import (
@@ -55,7 +55,7 @@ from ..control.intent import IntentRejected, Plan, Segment, parse_plan
 from ..vocabulary import (
     MODE_TO_DHW_ID,
 )
-from .runner import Inputs, with_layers
+from .runner import Inputs
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -260,61 +260,24 @@ async def async_inputs(
             translation_placeholders={"hours": str(MAX_SIMULATE_HOURS)},
         )
     # The heater's layers are its tank now: only for a scenario that
-    # starts then, from the heater's state, with its parameters. A
-    # document that names `state.layers_f` gives its own, as given: a
-    # list, or null to walk from the two probes.
-    raw_state = ((scenario or {}).get("scenario") or {}).get("state") or {}
-    layer_notes: tuple[str, ...] = ()
-    scenario_out = built.scenario
-    # The heater's scenario as composed, before the layers were laid on.
-    heaters = None if live is None or live.live is None else live.live.scenario
-    own = built.scenario.state.layers_f
-    # The scenario is the heater's now: its start, its state (whatever its
-    # layers) and its parameters.
-    heaters_now = (
-        live is not None
-        and heaters is not None
-        and built.scenario.start == heaters.start
-        and built.params == live.params
-        and built.scenario.state.model_copy(update={"layers_f": None})
-        == heaters.state
+    # starts then, from the heater's state, with its parameters
+    # (`with_layers`). A document that names `state.layers_f` gives its
+    # own, as given: a list, or null to walk from the two probes.
+    heater = (
+        None
+        if live is None or live.live is None
+        else Built(live.live.scenario, live.params)
     )
-    if own is not None and not (
-        heaters_now and live is not None and own == live.layers_f
-    ):
-        # A document's own layers, such as the scenario action's from an
-        # earlier walk or with its probes edited: the library reads the
-        # tank from them, not from the probes beside them.
-        layer_notes = (
-            (
-                "layers: the document's own; the walk reads the tank from "
-                "them, not from its probes (layers_f null walks from the "
-                "probes)"
-            ),
-        )
-    if (
-        live is not None
-        and live.layers_f is not None
-        and "layers_f" not in raw_state
-    ):
-        if heaters_now:
-            scenario_out = with_layers(built.scenario, live.layers_f)
-        else:
-            layer_notes = (
-                (
-                    "layers: not used; the scenario's start, state or "
-                    "parameters are not the heater's"
-                ),
-            )
+    layered = with_layers(
+        built, heater, None if live is None else live.layers_f
+    )
+    scenario_out = layered.scenario
+    raw_state = ((scenario or {}).get("scenario") or {}).get("state") or {}
     return Inputs(
         scenario=scenario_out,
         params=built.params,
         reasons=() if live is None else live.reasons,
-        notes=(
-            *(() if live is None else live.live_notes),
-            *built.notes,
-            *layer_notes,
-        ),
+        notes=(*(() if live is None else live.live_notes), *layered.notes),
         layers_f=scenario_out.state.layers_f,
         # The heater's inlet is measured; one the document gives is not
         # known to be.

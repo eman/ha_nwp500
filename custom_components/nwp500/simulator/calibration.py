@@ -33,7 +33,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import partial
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -49,7 +49,7 @@ from nwp500.sim.params import (
 )
 from nwp500.sim_home_assistant import (
     Entities,
-    HomeAssistantClient,
+    HistoryClient,
     HomeAssistantError,
     read_heater_history,
     record_inputs,
@@ -292,10 +292,7 @@ class SimulatorCalibration:
         try:
             if heater_record is not None and record_from is not None:
                 start = record_from
-                client = cast(
-                    "HomeAssistantClient",
-                    RecordClient(self.hass, heater_record),
-                )
+                client: HistoryClient = RecordClient(self.hass, heater_record)
                 record = await record_inputs(client, inputs, start, now)
                 sizes = await heater_record.async_sizes()
                 calibrate = partial(
@@ -310,7 +307,7 @@ class SimulatorCalibration:
                     "Home Assistant's recorder isn't running"
                 )
             else:
-                client = cast("HomeAssistantClient", InProcessClient(self.hass))
+                client = InProcessClient(self.hass)
                 history = await read_heater_history(client, heater, start, now)
                 record = await record_inputs(client, inputs, start, now)
                 calibrate = partial(
