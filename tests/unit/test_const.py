@@ -13,6 +13,8 @@ from custom_components.nwp500.const import (
     MAX_TEMPERATURE_F,
     MIN_TEMPERATURE_C,
     MIN_TEMPERATURE_F,
+)
+from custom_components.nwp500.vocabulary import (
     get_enum_value,
 )
 

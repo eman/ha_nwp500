@@ -1,6 +1,7 @@
 """Number platform for Navien NWP500 integration."""
 
 import logging
+import math
 from typing import TYPE_CHECKING
 
 from homeassistant.components.number import (
@@ -36,7 +37,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up number entities from a config entry."""
-    coordinator = config_entry.runtime_data
+    coordinator = config_entry.runtime_data.coordinator
 
     entities = []
     for mac_address, device_data in coordinator.data.items():
@@ -53,7 +54,6 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
 
     _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_mode = NumberMode.BOX
-    _attr_native_step = 1
 
     def __init__(
         self,
@@ -65,31 +65,44 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_target_temperature"
         self._attr_translation_key = "target_temperature"
-        self._attr_icon = "mdi:thermometer"
+
+    @property
+    def _celsius(self) -> bool:
+        return self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+
+    @property
+    def native_step(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Half degrees Celsius, as the heater stores them; whole °F."""
+        return 0.5 if self._celsius else 1.0
+
+    def _device_min(self) -> float:
+        if (limit := self._feature_float("dhw_temperature_min")) is not None:
+            return limit
+        return float(MIN_TEMPERATURE_C if self._celsius else MIN_TEMPERATURE_F)
+
+    def _device_max(self) -> float:
+        if (limit := self._feature_float("dhw_temperature_max")) is not None:
+            return limit
+        return float(MAX_TEMPERATURE_C if self._celsius else MAX_TEMPERATURE_F)
+
+    def _on_step(self, limit: float) -> float:
+        """A limit on the step: the heater's 104.9-149.9 °F is 105-150.
+
+        Home Assistant rejects a value past the limits it is given, so
+        149.9 would refuse 150; the setter clamps to the device's own.
+        """
+        step = self.native_step
+        return math.floor(limit / step + 0.5) * step
 
     @property
     def native_min_value(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the minimum value."""
-        if (limit := self._feature_float("dhw_temperature_min")) is not None:
-            return limit
-
-        return (
-            float(MIN_TEMPERATURE_C)
-            if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
-            else float(MIN_TEMPERATURE_F)
-        )
+        return self._on_step(self._device_min())
 
     @property
     def native_max_value(self) -> float:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
         """Return the maximum value."""
-        if (limit := self._feature_float("dhw_temperature_max")) is not None:
-            return limit
-
-        return (
-            float(MAX_TEMPERATURE_C)
-            if self.native_unit_of_measurement == UnitOfTemperature.CELSIUS
-            else float(MAX_TEMPERATURE_F)
-        )
+        return self._on_step(self._device_max())
 
     @property
     def native_unit_of_measurement(self) -> str:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -147,8 +160,13 @@ class NWP500TargetTemperature(NWP500Entity, NumberEntity):  # type: ignore[repor
         async with self.coordinator.unit_transition_guard(
             "set the temperature"
         ):
+            # Within the step's rounding of the device's limits: clamped
+            # to them, as the water heater entity does.
             await self._async_dispatch_command(
-                "set_temperature", temperature=float(value)
+                "set_temperature",
+                temperature=min(
+                    max(float(value), self._device_min()), self._device_max()
+                ),
             )
 
         # Outside the guard: refreshing needs no unit context, and holding

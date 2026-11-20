@@ -19,6 +19,7 @@ from homeassistant.data_entry_flow import FlowResultType
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator_deps import DepsResult
 
 MAC = "AA:BB:CC:DD:EE:FF"
@@ -456,7 +457,7 @@ def _loaded_entry(hass: HomeAssistant, options: dict) -> MockConfigEntry:
     entry.add_to_hass(hass)
     device = MagicMock()
     device.device_info.device_name = "Garage"
-    entry.runtime_data = MagicMock(data={MAC: {"device": device}})
+    entry.runtime_data = NWP500Data(MagicMock(data={MAC: {"device": device}}))
     return entry
 
 
@@ -763,7 +764,7 @@ async def test_options_cannot_switch_it_on_before_the_entry_loads(
     hass: HomeAssistant, enable_custom_integrations
 ):
     entry = _loaded_entry(hass, {"scan_interval": 30})
-    entry.runtime_data = MagicMock(data={})
+    entry.runtime_data = NWP500Data(MagicMock(data={}))
     with packages():
         result = await _simulator_page(hass, entry, on=True)
 
@@ -899,3 +900,29 @@ async def test_suggestions_come_from_this_entrys_heater_only(
     assert air != "sensor.kitchen_air"
     if scoped_lookup:
         assert air == "sensor.garage_air"
+
+
+@pytest.mark.asyncio
+async def test_a_heater_not_loaded_now_keeps_its_sensors(
+    hass: HomeAssistant, enable_custom_integrations
+):
+    """Only the heaters loaded are asked about; the others keep theirs."""
+    away = "aa:bb:cc:dd:ee:00"
+    entry = _loaded_entry(
+        hass,
+        {
+            "simulator_enabled": True,
+            "simulator": {
+                MAC: {"air_entity": "sensor.garage_air"},
+                away: {"air_entity": "sensor.cabin_air"},
+            },
+        },
+    )
+    with packages():
+        result = await _simulator_page(hass, entry, on=True)
+        await hass.config_entries.options.async_configure(result["flow_id"], {})
+
+    assert entry.options["simulator"] == {
+        MAC: {},
+        away: {"air_entity": "sensor.cabin_air"},
+    }

@@ -6,7 +6,9 @@ import pytest
 from nwp500.exceptions import RangeValidationError
 from nwp500.mqtt.control import validate_reservation_entries
 
-from custom_components.nwp500 import schedule_state
+from custom_components.nwp500.services import (
+    schedule_state,
+)
 
 
 def _entry(**overrides):

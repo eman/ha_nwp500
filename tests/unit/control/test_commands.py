@@ -171,12 +171,38 @@ class TestParsing:
         assert command.rejection == REASON_INVALID_COMMAND
         assert command.detail
 
-    def test_a_huge_whole_number_is_the_librarys_to_refuse(self):
-        """Parsed, not a crash: the library checks the range when sent."""
-        (command,) = _commands(
-            {"id": "v", "command": "vacation", "days": 10**400}
-        )
-        assert command.rejection is None
+    @pytest.mark.parametrize(
+        ("raw", "ok"),
+        [
+            ({"command": "vacation", "days": 10**400}, False),
+            ({"command": "vacation", "days": 0}, False),
+            ({"command": "vacation", "days": 99}, True),
+            ({"command": "vacation", "days": 100}, False),
+            (
+                {
+                    "command": "anti_legionella",
+                    "enabled": True,
+                    "period_days": 30,
+                },
+                True,
+            ),
+            (
+                {
+                    "command": "anti_legionella",
+                    "enabled": True,
+                    "period_days": 31,
+                },
+                False,
+            ),
+        ],
+    )
+    def test_a_value_outside_its_range_rejects_the_command(self, raw, ok):
+        """The library's ranges, checked on parsing, not a failed send.
+
+        A huge whole number is a rejection too, not a crash.
+        """
+        (command,) = _commands({"id": "v", **raw})
+        assert command.rejection == (None if ok else REASON_INVALID_COMMAND)
 
     def test_an_unknown_command_is_rejected_on_its_own(self):
         (command,) = _commands({"id": "r", "command": "recirculation"})
@@ -501,9 +527,9 @@ class TestLive:
                 "command": "tou",
             }
         ]
-        # The declaration says the feature honours them.
+        # The declaration says the feature honours them (1.3 and later).
         assert control.capabilities.as_attributes()["protocol_versions"] == [
-            "1.3",
+            "1.4",
             "0",
         ]
 
@@ -569,7 +595,7 @@ class TestLive:
         monkeypatch.setattr(CommandHeater, "refuse", "days must be 1-99")
         _publish(
             hass,
-            _live_doc(now, {"id": "v", "command": "vacation", "days": 120}),
+            _live_doc(now, {"id": "v", "command": "vacation", "days": 50}),
         )
         _, control = await live_factory()
 
@@ -743,15 +769,15 @@ def test_the_schema_accepts_what_the_feature_applies(raw):
 
 # -- the examples ---------------------------------------------------------
 
-# The library's refusal of 120 days of Vacation (it takes 1 to 99).
-LIBRARY_REFUSAL = "vacation_days must be between 1 and 99"
+# Why `away` could not be sent: the connection dropped as it was.
+SEND_FAILURE = "Not connected to MQTT"
 
 
 def ack_examples() -> dict[str, tuple[str, dict[str, Any]]]:
     """The ack entity's state and attributes for plan-commands.json.
 
     Live: the plan arrives at 13:00:05 and its list write is confirmed. Its
-    commands are sent two seconds later; the library refuses `away`. Two
+    commands are sent two seconds later; `away` finds the connection down. Two
     seconds after that the heater reports TOU off and the power on, but
     still Anti-Legionella's old period, so `legionella` is pending.
     Shadow: the same plan, evaluated and not written.
@@ -785,7 +811,7 @@ def ack_examples() -> dict[str, tuple[str, dict[str, Any]]]:
             for command in commands.to_send():
                 commands.sending(command, at + timedelta(seconds=2))
                 if command.id == "away":
-                    commands.failed(command, LIBRARY_REFUSAL)
+                    commands.failed(command, SEND_FAILURE)
             commands.check(
                 at + timedelta(seconds=4),
                 obs(

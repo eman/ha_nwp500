@@ -14,9 +14,6 @@ import pytest
 from homeassistant.const import STATE_UNAVAILABLE
 from homeassistant.util import dt as dt_util
 
-from custom_components.nwp500.const import (
-    CONF_CONTROL_MODE,
-)
 from custom_components.nwp500.control.device import WRITE_PAUSE, WRITE_RETRY
 from custom_components.nwp500.control.engine import Planner
 from custom_components.nwp500.control.entries import (
@@ -25,6 +22,9 @@ from custom_components.nwp500.control.entries import (
 from custom_components.nwp500.control.intent import (
     IntentRejected,
     parse_plan,
+)
+from custom_components.nwp500.vocabulary import (
+    CONF_CONTROL_MODE,
 )
 
 from . import test_live

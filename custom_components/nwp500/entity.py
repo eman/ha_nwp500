@@ -1,19 +1,55 @@
 """Base entity class for Navien NWP500 integration."""
 
 import logging
-from typing import TYPE_CHECKING, Any, override
+import time
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Final, override
 
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.typing import UNDEFINED
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, STALE_DATA_THRESHOLD
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN, STALE_DATA_THRESHOLD
 from .coordinator import NWP500DataUpdateCoordinator
 
 if TYPE_CHECKING:
     from nwp500 import Device  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# The water heater's device attributes (`_device_attributes`). They
+# describe the device, so the recorder keeps none of them.
+DEVICE_ATTRIBUTES: Final = frozenset(
+    {
+        "home_seq",
+        "device_type",
+        "connected",
+        "model_type_code",
+        "controller_sw_version",
+        "controller_sw_code",
+        "panel_sw_version",
+        "panel_sw_code",
+        "wifi_sw_version",
+        "wifi_sw_code",
+        "recirc_sw_version",
+        "hpwh_use",
+        "recirculation_use",
+        "dr_setting_use",
+        "anti_legionella_setting_use",
+        "freeze_protection_use",
+        "smart_diagnostic_use",
+        "dhw_temperature_min",
+        "dhw_temperature_max",
+        "temperature_type",
+        "dhw_temperature_setting_use",
+        "install_type",
+        "country_code",
+        "volume_code",
+    }
+)
 
 
 class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
@@ -32,8 +68,8 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         self.mac_address = mac_address
         self.device = device
         self._last_feature_update = None
-        self._stale_count: int = 0
-        self._last_seen_update: float | None = None
+        # Staleness is measured from here until the device's first status.
+        self._created_at: float = time.time()
 
         # Build device info with available information
         self._attr_device_info = self._build_device_info()
@@ -61,25 +97,33 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         if feature_changed:
             self._attr_device_info = self._build_device_info()
             self._last_feature_update = current_feature
+            self._update_registry_device()
+
+    def _update_registry_device(self) -> None:
+        """Write the new device info to the registry.
+
+        Home Assistant reads `device_info` only when the entity is added;
+        the heater's features (firmware, serial, tank) usually arrive
+        later. Unchanged fields make the update a no-op, so every entity
+        of the heater may call it.
+        """
+        if (device := self.device_entry) is None:
+            return
+        info = self._attr_device_info
+        if info is None:
+            return
+        dr.async_get(self.hass).async_update_device(
+            device.id,
+            sw_version=info.get("sw_version") or UNDEFINED,
+            hw_version=info.get("hw_version") or UNDEFINED,
+            serial_number=info.get("serial_number") or UNDEFINED,
+            model=info.get("model") or UNDEFINED,
+            model_id=info.get("model_id") or UNDEFINED,
+        )
 
     @override
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        # Track data staleness for availability
-        device_data = self.device_data
-        if device_data:
-            last_update = device_data.get("last_update")
-            if (
-                last_update is not None
-                and last_update != self._last_seen_update
-            ):
-                self._last_seen_update = last_update
-                self._stale_count = 0
-            else:
-                self._stale_count += 1
-        else:
-            self._stale_count += 1
-
         self._update_attrs()
         super()._handle_coordinator_update()
 
@@ -88,16 +132,24 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
     def available(self) -> bool:
         """Return True if entity is available.
 
-        Marks entity unavailable when data is stale (no fresh updates
-        for several consecutive coordinator cycles), indicating the MQTT
-        connection is likely down.
+        Unavailable once the device has sent no status for
+        `STALE_DATA_THRESHOLD` update intervals, which means the MQTT
+        connection or the device is likely down. Measured in time, not in
+        coordinator updates: updates also come from schedules, replies and
+        other heaters on the account.
         """
         if not super().available:
             return False
-        # Allow initial state before any data arrives
-        if self._last_seen_update is None and self._stale_count == 0:
-            return True
-        return self._stale_count < STALE_DATA_THRESHOLD
+        device_data = self.device_data
+        last_update = device_data.get("last_update") if device_data else None
+        since = last_update if last_update is not None else self._created_at
+        interval = self.coordinator.update_interval
+        seconds = (
+            interval.total_seconds()
+            if isinstance(interval, timedelta)
+            else DEFAULT_SCAN_INTERVAL
+        )
+        return time.time() - since < STALE_DATA_THRESHOLD * seconds
 
     @property
     def _status(self) -> Any | None:
@@ -299,8 +351,17 @@ class NWP500Entity(CoordinatorEntity[NWP500DataUpdateCoordinator]):
         return self.device.device_info.device_name or "NWP500"
 
     def _build_extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional state attributes."""
-        attrs = {}
+        """The entity's own attributes: none, unless a platform adds some."""
+        return {}
+
+    def _device_attributes(self) -> dict[str, Any]:
+        """The heater's account and feature data, for the water heater entity.
+
+        They describe the device, not an entity's state, and change rarely:
+        the water heater carries them, unrecorded (`DEVICE_ATTRIBUTES`), and
+        diagnostics hold the full feature data.
+        """
+        attrs: dict[str, Any] = {}
 
         if self.device_data:
             # Read the device the coordinator holds now, not the one captured

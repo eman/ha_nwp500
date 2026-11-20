@@ -1379,6 +1379,10 @@
           "name": "Changes to try",
           "description": "Setpoint or mode changes to simulate, each with `at` (when), and `temperature` (in Home Assistant's unit), `mode`, or both. Modes: heat_pump, electric, energy_saver, high_demand, vacation or power_off; the result's reasons say when the simulator doesn't model one. These replace the scenario document's writes."
         },
+        "plan": {
+          "name": "External control plan",
+          "description": "An external control plan document (protocol 1), instead of changes to try. Checked as the plan entity's would be; one that would be rejected is refused with its reason. Each segment's setpoint and mode is applied when external control's entry for it would fire: the segment in force, and one starting within 2 minutes, at least 2 minutes later; each later one at its start. Its commands apply at the start; the result's reasons name those the simulator doesn't model."
+        },
         "include_points": {
           "name": "Include the tank's path",
           "description": "Also return the tank's temperatures along the way. Off by default: the path is long."
@@ -1543,11 +1547,20 @@
     }
   },
   "exceptions": {
+    "heater_not_found": {
+      "message": "{target} is not a Navien water heater."
+    },
+    "heater_not_loaded": {
+      "message": "{device} is not loaded: check its integration entry."
+    },
     "temperature_out_of_range": {
       "message": "Temperature {temperature} is outside the allowed range of {min_temp} to {max_temp}."
     },
     "command_failed": {
       "message": "The device did not receive the command ({command}). Check the Home Assistant log for the reason."
+    },
+    "simulator_plan_rejected": {
+      "message": "The plan would be rejected ({reason}): {detail}"
     },
     "simulator_not_enabled": {
       "message": "The hot water simulator isn't running for this water heater. Turn it on in the integration's options; if it is on, Repairs says why it couldn't start."

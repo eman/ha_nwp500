@@ -17,7 +17,9 @@ import pytest
 import voluptuous as vol
 import yaml
 
-from custom_components.nwp500 import SERVICE_SET_VACATION_DAYS_SCHEMA
+from custom_components.nwp500.services import (
+    SERVICE_SET_VACATION_DAYS_SCHEMA,
+)
 
 COMPONENT = Path(__file__).parent.parent.parent / "custom_components" / "nwp500"
 

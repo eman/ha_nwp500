@@ -1,7 +1,7 @@
 """Constants for the Navien NWP500 integration."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, TypedDict
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.components.water_heater import (
     STATE_ECO,
@@ -13,31 +13,19 @@ from homeassistant.helpers.storage import STORAGE_DIR
 
 from nwp500.enums import CurrentOperationMode, DhwOperationSetting
 
+from .vocabulary import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
+    CONTROL_MODE_LIVE,
+    CONTROL_MODE_SHADOW,
+    get_enum_value,
+)
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-    from nwp500 import (  # type: ignore[attr-defined]
-        Device,
-        DeviceFeature,
-        DeviceStatus,
-    )
 
 DOMAIN: Final = "nwp500"
-
-
-# Type definitions
-class DeviceStatusEvent(TypedDict):
-    """Type definition for device status event data."""
-
-    device: Device
-    status: DeviceStatus
-
-
-class DeviceFeatureEvent(TypedDict):
-    """Type definition for device feature event data."""
-
-    device: Device
-    feature: DeviceFeature
 
 
 # Configuration
@@ -50,7 +38,6 @@ CONF_TOKEN_DATA: Final = "token_data"  # Token persistence
 CONF_USER_SEQ: Final = "user_seq"
 
 # Default values
-DEFAULT_NAME: Final = "Navien NWP500"
 DEFAULT_TEMPERATURE_F: Final = 120.0
 DEFAULT_TEMPERATURE_C: Final = 49.0
 # Default polling interval for device status updates.
@@ -80,34 +67,12 @@ SCHEDULE_REFRESH_CYCLES: Final = 40
 # interval this is roughly every 10 minutes.
 DEVICE_METADATA_REFRESH_CYCLES: Final = 20
 
-# Reconnection backoff parameters
-# Exponential backoff delays (seconds) for MQTT reconnection attempts
-RECONNECT_BACKOFF_DELAYS: Final = [2.0, 5.0, 15.0, 30.0, 60.0]
 # Minimum seconds between reconnection attempts (prevents rapid retry loops)
 MIN_RECONNECT_INTERVAL: Final = 30.0
 
 # Entity staleness threshold
 # Number of consecutive update cycles without fresh data before marking unavailable
 STALE_DATA_THRESHOLD: Final = 5
-
-# Device types and models
-DEVICE_TYPE_WATER_HEATER: Final = 52
-
-
-# Utility functions
-def get_enum_value(obj: Any) -> Any:
-    """Get the value of an enum or return the object itself.
-
-    This helper function safely extracts values from enums while
-    gracefully handling non-enum types.
-
-    Args:
-        obj: An enum object or any other type
-
-    Returns:
-        The .value attribute if the object has one, otherwise the object itself
-    """
-    return obj.value if hasattr(obj, "value") else obj
 
 
 # CurrentOperationMode mapping for Home Assistant water heater entity
@@ -143,18 +108,6 @@ HA_TO_DHW_MODE: Final = {
     # they are handled via dedicated away/on_off features
 }
 
-# Complete mapping for all DHW operation settings (includes special)
-# Use this when handling vacation mode or displaying current DHW
-# Uses dict unpacking (**) - Python 3.5+ feature for clean dict merging
-HA_TO_DHW_OPERATION_SETTING: Final = {
-    **HA_TO_DHW_MODE,  # Include all normal operation modes
-    "vacation": 5,  # VACATION mode (handled via away_mode feature)
-    # Note: power_off (6) handled via on_off feature, not stored here
-}
-
-# Alias for consistency
-DHW_MODE_TO_HA: Final = DHW_OPERATION_SETTING_TO_HA
-
 
 def get_current_operation_mode_state(
     value: Any, default: str | None = None
@@ -182,1163 +135,19 @@ def get_dhw_operation_setting_state(
         return fallback
 
 
-# Friendly mode names to DhwOperationSetting IDs, the mode a status reports.
-MODE_TO_DHW_ID: Final = {
-    "heat_pump": 1,
-    "electric": 2,
-    "energy_saver": 3,
-    "high_demand": 4,
-    "vacation": 5,
-    "power_off": 6,
-}
-
-# Friendly mode names to reservation entry mode IDs (the library's
-# ReservationMode). These differ from the DHW operation setting from 5 on: an
-# entry's 5 is Power Off, and an entry has no Vacation mode.
-RESERVATION_MODE_IDS: Final = {
-    "heat_pump": 1,
-    "electric": 2,
-    "energy_saver": 3,
-    "high_demand": 4,
-    "power_off": 5,
-}
-
 # Temperature ranges (from nwp500-python documentation)
 MIN_TEMPERATURE_F: Final = 80  # °F (minimum safe operating temperature)
 MAX_TEMPERATURE_F: Final = 150  # °F (maximum supported by device)
 MIN_TEMPERATURE_C: Final = 27  # °C (~80.6°F)
 MAX_TEMPERATURE_C: Final = 65  # °C (~149°F)
 
-# All device status fields that can be mapped to entities
-# Most will be disabled by default but available for users to enable
-DEVICE_STATUS_SENSORS: Final = {
-    "outside_temperature": {
-        "name": "Outside temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": True,
-    },
-    "tank_upper_temperature": {
-        "name": "Tank upper temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": True,
-    },
-    "tank_lower_temperature": {
-        "name": "Tank lower temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": True,
-    },
-    "discharge_temperature": {
-        "name": "Compressor discharge temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "suction_temperature": {
-        "name": "Compressor suction temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "evaporator_temperature": {
-        "name": "Evaporator coil temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "ambient_temperature": {
-        "name": "Ambient temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "dhw_temperature": {
-        "name": "DHW outlet temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": True,
-    },
-    "dhw_temperature_2": {
-        "name": "DHW secondary sensor temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "current_inlet_temperature": {
-        "name": "Cold water inlet temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "current_inst_power": {
-        "name": "Current power",
-        "device_class": "power",
-        "unit": "W",
-        "state_class": "measurement",
-        "entity_registry_enabled_default": True,
-    },
-    "dhw_charge_per": {
-        "name": "DHW charge percentage",
-        "device_class": None,
-        "unit": "%",
-        "state_class": "measurement",
-        "entity_registry_enabled_default": True,
-    },
-    "wifi_rssi": {
-        "name": "WiFi RSSI",
-        "device_class": "signal_strength",
-        "unit": "dBm",
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "error_code": {
-        "name": "Error code",
-        "device_class": None,
-        "unit": None,
-        "state_class": None,
-        "entity_registry_enabled_default": True,
-    },
-    "sub_error_code": {
-        "name": "Sub error code",
-        "device_class": None,
-        "unit": None,
-        "state_class": None,
-        "entity_registry_enabled_default": False,
-    },
-    "current_dhw_flow_rate": {
-        "name": "Current DHW flow rate",
-        "device_class": None,
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "target_super_heat": {
-        "name": "Target superheat",
-        "device_class": "temperature_delta",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "current_super_heat": {
-        "name": "Current superheat",
-        "device_class": "temperature_delta",
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "target_fan_rpm": {
-        "name": "Target fan RPM",
-        "device_class": None,
-        "unit": "RPM",
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "current_fan_rpm": {
-        "name": "Current fan RPM",
-        "device_class": None,
-        "unit": "RPM",
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "fan_pwm": {
-        "name": "Fan PWM",
-        "device_class": None,
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "mixing_rate": {
-        "name": "Mixing rate",
-        "device_class": None,
-        "unit": "%",
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "eev_step": {
-        "name": "EEV step",
-        "device_class": None,
-        "unit": None,
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "vacation_day_setting": {
-        "name": "Vacation day setting",
-        "device_class": None,
-        "unit": "days",
-        "state_class": None,
-        "entity_registry_enabled_default": False,
-    },
-    "vacation_day_elapsed": {
-        "name": "Vacation day elapsed",
-        "device_class": None,
-        "unit": "days",
-        "state_class": "measurement",
-        "entity_registry_enabled_default": False,
-    },
-    "cumulated_dhw_flow_rate": {
-        "name": "Cumulated DHW flow rate",
-        "device_class": None,
-        "unit": None,
-        "state_class": "total_increasing",
-        "entity_registry_enabled_default": False,
-    },
-    "usable_energy": {
-        "name": "Usable energy",
-        "device_class": "energy_storage",
-        "unit": "Wh",
-        "entity_registry_enabled_default": True,
-    },
-    "energy_to_setpoint": {
-        "name": "Energy to setpoint",
-        "device_class": None,
-        "unit": "Wh",
-        "entity_registry_enabled_default": False,
-    },
-    "full_recovery_energy": {
-        "name": "Full recovery energy",
-        "device_class": None,
-        "unit": "Wh",
-        "entity_registry_enabled_default": False,
-    },
-}
-
-# Binary sensor fields for on/off states
-DEVICE_STATUS_BINARY_SENSORS: Final = {
-    "operation_busy": {
-        "name": "Operation busy",
-        "device_class": "running",
-        "entity_registry_enabled_default": True,
-    },
-    "freeze_protection_use": {
-        "name": "Freeze protection active",
-        "entity_registry_enabled_default": False,
-    },
-    "dhw_use": {
-        "name": "DHW in use",
-        "device_class": "running",
-        "entity_registry_enabled_default": True,
-    },
-    "dhw_use_sustained": {
-        "name": "DHW use sustained",
-        "device_class": "running",
-        "entity_registry_enabled_default": False,
-    },
-    "comp_use": {
-        "name": "Compressor running",
-        "device_class": "running",
-        "entity_registry_enabled_default": True,
-    },
-    "eev_use": {
-        "name": "EEV active",
-        "device_class": "running",
-        "entity_registry_enabled_default": False,
-    },
-    "eva_fan_use": {
-        "name": "Evaporator fan running",
-        "device_class": "running",
-        "entity_registry_enabled_default": False,
-    },
-    "heat_upper_use": {
-        "name": "Upper electric heating element",
-        "device_class": "heat",
-        "entity_registry_enabled_default": True,
-    },
-    "heat_lower_use": {
-        "name": "Lower electric heating element",
-        "device_class": "heat",
-        "entity_registry_enabled_default": True,
-    },
-    "scald_use": {
-        "name": "Scald protection warning",
-        "device_class": "safety",
-        "entity_registry_enabled_default": False,
-    },
-    "anti_legionella_use": {
-        "name": "Anti-Legionella enabled",
-        "entity_registry_enabled_default": False,
-    },
-    "anti_legionella_operation_busy": {
-        "name": "Anti-Legionella cycle running",
-        "device_class": "running",
-        "entity_registry_enabled_default": False,
-    },
-    "air_filter_alarm_use": {
-        "name": "Air filter alarm enabled",
-        "entity_registry_enabled_default": False,
-    },
-    "error_buzzer_use": {
-        "name": "Error buzzer enabled",
-        "entity_registry_enabled_default": False,
-    },
-    "eco_use": {
-        "name": "Overheat protection enabled",
-        "entity_registry_enabled_default": False,
-    },
-    "program_reservation_use": {
-        "name": "Program reservation active",
-        "device_class": None,
-        "entity_registry_enabled_default": False,
-    },
-    # Recirculation sensors
-    "recirculation_use": {
-        "name": "Recirculation active",
-        "device_class": "running",
-        "entity_registry_enabled_default": False,
-    },
-    "recirculation_pump_operation_status": {
-        "name": "Recirculation pump running",
-        "device_class": "running",
-        "entity_registry_enabled_default": False,
-    },
-    "recirculation_operation_busy": {
-        "name": "Recirculation operation busy",
-        "device_class": "running",
-        "entity_registry_enabled_default": False,
-    },
-    "recirculation_hot_button_ready": {
-        "name": "Recirculation hot button ready",
-        "device_class": None,
-        "entity_registry_enabled_default": False,
-    },
-    "recirculation_reservation_use": {
-        "name": "Recirculation reservation active",
-        "device_class": None,
-        "entity_registry_enabled_default": False,
-    },
-    # Sensor status
-    "con_ovr_sensor_use": {
-        "name": "Condensate overflow sensor active",
-        "entity_registry_enabled_default": False,
-    },
-    "wtr_ovr_sensor_use": {
-        "name": "Water leak detected",
-        "device_class": "safety",
-        "entity_registry_enabled_default": False,
-    },
-    "shut_off_valve_use": {
-        "name": "Shut-off valve status",
-        "entity_registry_enabled_default": False,
-    },
-}
-
-# Data-driven sensor configuration
-# This replaces ~400 lines of repetitive sensor description code
-SENSOR_CONFIGS: Final = {
-    # Temperature sensors
-    "outside_temperature": {
-        "attr": "outside_temperature",
-        "name": "Outside temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": True,
-    },
-    "tank_upper_temperature": {
-        "attr": "tank_upper_temperature",
-        "name": "Tank upper temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": True,
-    },
-    "tank_lower_temperature": {
-        "attr": "tank_lower_temperature",
-        "name": "Tank lower temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": True,
-    },
-    "discharge_temperature": {
-        "attr": "discharge_temperature",
-        "name": "Compressor discharge temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "suction_temperature": {
-        "attr": "suction_temperature",
-        "name": "Compressor suction temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "evaporator_temperature": {
-        "attr": "evaporator_temperature",
-        "name": "Evaporator coil temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "ambient_temperature": {
-        "attr": "ambient_temperature",
-        "name": "Ambient temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
-        "enabled": True,
-    },
-    "dhw_temperature": {
-        "attr": "dhw_temperature",
-        "name": "DHW outlet temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": True,
-    },
-    "dhw_temperature_2": {
-        "attr": "dhw_temperature2",
-        "name": "DHW secondary sensor temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "current_inlet_temperature": {
-        "attr": "current_inlet_temperature",
-        "name": "Cold water inlet temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "freeze_protection_temperature": {
-        "attr": "freeze_protection_temperature",
-        "name": "Freeze protection temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "target_super_heat": {
-        "attr": "target_super_heat",
-        "name": "Target superheat",
-        "device_class": "temperature_delta",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "current_super_heat": {
-        "attr": "current_super_heat",
-        "name": "Current superheat",
-        "device_class": "temperature_delta",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Power and energy sensors
-    "current_inst_power": {
-        "attr": "current_inst_power",
-        "name": "Current power",
-        "device_class": "power",
-        "unit": "W",
-        "state_class": "measurement",
-        "enabled": True,
-    },
-    # Energy drawable from the tank as useful hot water. This is the only one
-    # of the three that behaves like a state of charge: the other two are both
-    # measured from the setpoint, so they move when the setpoint moves even
-    # though the water in the tank does not.
-    "usable_energy": {
-        "attr": "usable_energy",
-        "name": "Usable energy",
-        "device_class": "energy_storage",
-        "unit": "Wh",
-        "state_class": "measurement",
-        "enabled": True,
-    },
-    # Energy needed to bring the tank from its current temperature up to the
-    # setpoint. No device_class: a deficit is not stored energy.
-    "energy_to_setpoint": {
-        "attr": "energy_to_setpoint",
-        "name": "Energy to setpoint",
-        "unit": "Wh",
-        "state_class": "measurement",
-        "precision": 0,
-        # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
-        "enabled": True,
-    },
-    # Energy to recover a fully depleted tank to the current setpoint.
-    "full_recovery_energy": {
-        "attr": "full_recovery_energy",
-        "name": "Full recovery energy",
-        "unit": "Wh",
-        "state_class": "measurement",
-        "precision": 0,
-        "enabled": False,
-    },
-    # Percentage sensors
-    "dhw_charge_per": {
-        "attr": "dhw_charge_per",
-        "name": "DHW charge",
-        "unit": "%",
-        "state_class": "measurement",
-        "enabled": True,
-    },
-    "mixing_rate": {
-        "attr": "mixing_rate",
-        "name": "Mixing rate",
-        "unit": "%",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "fan_pwm": {
-        "attr": "fan_pwm",
-        "name": "Fan PWM",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Signal strength
-    "wifi_rssi": {
-        "attr": "wifi_rssi",
-        "name": "WiFi RSSI",
-        "device_class": "signal_strength",
-        "unit": "dBm",
-        "state_class": "measurement",
-        "enabled": False,
-        "entity_category": "diagnostic",
-    },
-    # Status and error codes
-    "error_code": {
-        "attr": "error_code",
-        "name": "Error code",
-        "special": "enum_name",
-        "enabled": True,
-        "entity_category": "diagnostic",
-    },
-    "sub_error_code": {
-        "attr": "sub_error_code",
-        "name": "Sub error code",
-        "enabled": False,
-        "entity_category": "diagnostic",
-    },
-    # Flow rate sensors
-    "current_dhw_flow_rate": {
-        "attr": "current_dhw_flow_rate",
-        "name": "Current DHW flow rate",
-        "unit": "GPM",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "cumulated_dhw_flow_rate": {
-        "attr": "cumulated_dhw_flow_rate",
-        "name": "Cumulated DHW flow rate",
-        "device_class": "water",
-        "unit": "gal",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    # Fan sensors
-    "target_fan_rpm": {
-        "attr": "target_fan_rpm",
-        "name": "Target fan RPM",
-        "unit": "RPM",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "current_fan_rpm": {
-        "attr": "current_fan_rpm",
-        "name": "Current fan RPM",
-        "unit": "RPM",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Vacation sensors
-    "vacation_day_setting": {
-        "attr": "vacation_day_setting",
-        "name": "Vacation day setting",
-        "unit": "d",
-        "device_class": "duration",
-        "enabled": False,
-    },
-    "vacation_day_elapsed": {
-        "attr": "vacation_day_elapsed",
-        "name": "Vacation day elapsed",
-        "unit": "d",
-        "device_class": "duration",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Heat source sensor
-    "current_heat_use": {
-        "attr": "current_heat_use",
-        "name": "Current heat source",
-        "special": "enum_state",
-        "states": {
-            0: "none",
-            1: "heat_pump",
-            2: "electric",
-            3: "heat_pump_and_electric",
-        },
-        "enabled": True,
-    },
-    # Diagnostic sensors
-    "eev_step": {
-        "attr": "eev_step",
-        "name": "EEV step",
-        "state_class": "measurement",
-        "enabled": False,
-        "entity_category": "diagnostic",
-    },
-    "current_state_num": {
-        "attr": "current_statenum",
-        "name": "Current state number",
-        "enabled": False,
-        "entity_category": "diagnostic",
-    },
-    "smart_diagnostic": {
-        "attr": "smart_diagnostic",
-        "name": "Smart diagnostic",
-        "enabled": False,
-        "entity_category": "diagnostic",
-    },
-    "special_function_status": {
-        "attr": "special_function_status",
-        "name": "Special function status",
-        "enabled": False,
-        "entity_category": "diagnostic",
-    },
-    "fault_status_1": {
-        "attr": "fault_status1",
-        "name": "Fault status 1",
-        "enabled": False,
-        "entity_category": "diagnostic",
-    },
-    "fault_status_2": {
-        "attr": "fault_status2",
-        "name": "Fault status 2",
-        "enabled": False,
-        "entity_category": "diagnostic",
-    },
-    # Operation mode sensors (these have custom value_fn handling)
-    "operation_mode": {
-        "attr": "operation_mode",
-        "name": "Current operation mode",
-        "enabled": True,
-        "special": "enum_name",  # Custom handling for enum.name
-    },
-    "dhw_operation_setting": {
-        "attr": "dhw_operation_setting",
-        "name": "DHW operation setting",
-        "enabled": True,
-        "special": "enum_name",  # Custom handling for enum.name
-    },
-    # DHW temperature settings
-    "dhw_target_temperature_setting": {
-        "attr": "dhw_target_temperature_setting",
-        "name": "DHW target temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "dhw_temperature_setting": {
-        "attr": "dhw_temperature_setting",
-        "name": "DHW target temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
-        "enabled": True,
-    },
-    # Heat pump temperature settings
-    "hp_upper_on_temp_setting": {
-        "attr": "hp_upper_on_temp_setting",
-        "name": "HP upper on temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "hp_lower_on_temp_setting": {
-        "attr": "hp_lower_on_temp_setting",
-        "name": "HP lower on temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "hp_upper_off_temp_setting": {
-        "attr": "hp_upper_off_temp_setting",
-        "name": "HP upper off temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "hp_lower_off_temp_setting": {
-        "attr": "hp_lower_off_temp_setting",
-        "name": "HP lower off temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
-        "enabled": True,
-    },
-    # Differential temperature settings (relative values, not absolute)
-    # Note: device_class is intentionally omitted from differential temp sensors.
-    # Home Assistant applies absolute temperature conversions (including offset) to
-    # entities with device_class: temperature, which is incorrect for relative values.
-    # Differential sensors represent the difference between two temperatures, not
-    # absolute values, so the conversion would produce invalid results.
-    "hp_upper_on_diff_temp_setting": {
-        "attr": "hp_upper_on_diff_temp_setting",
-        "name": "HP upper on diff temperature setting",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "hp_lower_on_diff_temp_setting": {
-        "attr": "hp_lower_on_diff_temp_setting",
-        "name": "HP lower on diff temperature setting",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "hp_upper_off_diff_temp_setting": {
-        "attr": "hp_upper_off_diff_temp_setting",
-        "name": "HP upper off diff temperature setting",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "hp_lower_off_diff_temp_setting": {
-        "attr": "hp_lower_off_diff_temp_setting",
-        "name": "HP lower off diff temperature setting",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Electric heating temperature settings
-    "he_upper_on_temp_setting": {
-        "attr": "he_upper_on_temp_setting",
-        "name": "HE upper on temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "he_lower_on_temp_setting": {
-        "attr": "he_lower_on_temp_setting",
-        "name": "HE lower on temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "he_upper_off_temp_setting": {
-        "attr": "he_upper_off_temp_setting",
-        "name": "HE upper off temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "he_lower_off_temp_setting": {
-        "attr": "he_lower_off_temp_setting",
-        "name": "HE lower off temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "he_upper_on_diff_temp_setting": {
-        "attr": "he_upper_on_diff_temp_setting",
-        "name": "HE upper on diff temperature setting",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "he_lower_on_diff_temp_setting": {
-        "attr": "he_lower_on_diff_temp_setting",
-        "name": "HE lower on diff temperature setting",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "he_upper_off_diff_temp_setting": {
-        "attr": "he_upper_off_diff_temp_setting",
-        "name": "HE upper off diff temperature setting",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "he_lower_off_diff_temp_setting": {
-        "attr": "he_lower_off_diff_temp_setting",
-        "name": "HE lower off diff temperature setting",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Other temperature settings
-    "heat_min_op_temperature": {
-        "attr": "heat_min_op_temperature",
-        "name": "Heat min operating temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "freeze_protection_temp_min": {
-        "attr": "freeze_protection_temp_min",
-        "name": "Freeze protection min temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "freeze_protection_temp_max": {
-        "attr": "freeze_protection_temp_max",
-        "name": "Freeze protection max temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "recirculation_temp_setting": {
-        "attr": "recirc_temp_setting",
-        "name": "Recirculation temperature setting",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "recirculation_temperature": {
-        "attr": "recirc_temperature",
-        "name": "Recirculation temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "recirculation_faucet_temperature": {
-        "attr": "recirc_faucet_temperature",
-        "name": "Recirculation faucet temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Flow rate sensors
-    "recirculation_dhw_flow_rate": {
-        "attr": "recirc_dhw_flow_rate",
-        "name": "Recirculation DHW flow rate",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Operation time sensors
-    "cumulated_evaporator_fan_op_time": {
-        # Hours since the last air-filter reset (nwp500-python 9.5.0); the
-        # lifetime total is evaporator_fan_run_time.
-        "attr": "cumulated_op_time_eva_fan",
-        "name": "Evaporator fan time since filter reset",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    # Anti-legionella and alarm settings
-    "anti_legionella_period": {
-        "attr": "anti_legionella_period",
-        "name": "Anti-Legionella period",
-        "unit": "d",
-        "device_class": "duration",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "air_filter_alarm_period": {
-        "attr": "air_filter_alarm_period",
-        "name": "Air filter alarm period",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "air_filter_alarm_elapsed": {
-        "attr": "air_filter_alarm_elapsed",
-        "name": "Air filter alarm elapsed",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    # Diagnostic and status sensors
-    "temperature_type": {
-        "attr": "temperature_type",
-        "name": "Temperature type",
-        "special": "enum_state",
-        "states": {1: "celsius", 2: "fahrenheit"},
-        "enabled": False,
-    },
-    "temp_formula_type": {
-        "attr": "temp_formula_type",
-        "name": "Temperature formula type",
-        "special": "enum_state",
-        "states": {0: "asymmetric", 1: "standard"},
-        "enabled": False,
-    },
-    "dr_event_status": {
-        "attr": "dr_event_status",
-        "name": "DR event status",
-        "special": "enum_state",
-        "states": {
-            0: "not_applied",
-            1: "run_normal",
-            2: "shed",
-            3: "load_up",
-            4: "advance_load_up",
-            5: "customer_peak_event",
-            6: "grid_emergency",
-        },
-        "enabled": False,
-    },
-    # 0 unknown, 1 off, 2 on: the device's tri-state flag, not hours.
-    "dr_override_status": {
-        "attr": "dr_override_status",
-        "name": "DR override status",
-        "enabled": False,
-    },
-    "recirculation_error_status": {
-        "attr": "recirc_error_status",
-        "name": "Recirculation error status",
-        "enabled": False,
-    },
-    "recirculation_operation_reason": {
-        "attr": "recirc_operation_reason",
-        "name": "Recirculation operation reason",
-        "enabled": False,
-    },
-    "recirculation_operation_mode": {
-        "attr": "recirc_operation_mode",
-        "name": "Recirculation operation mode",
-        "special": "enum_state",
-        "states": {
-            1: "always_on",
-            2: "weekly",
-            3: "hot_button_only",
-            4: "no_recirculation",
-        },
-        "enabled": False,
-    },
-    "recirculation_model_type_code": {
-        "attr": "recirc_model_type_code",
-        "name": "Recirculation model type code",
-        "enabled": False,
-    },
-    "recirculation_sw_version": {
-        "attr": "recirc_sw_version",
-        "name": "Recirculation software version",
-        "enabled": False,
-    },
-    "recirculation_temperature_min": {
-        "attr": "recirc_temperature_min",
-        "name": "Recirculation minimum temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "recirculation_temperature_max": {
-        "attr": "recirc_temperature_max",
-        "name": "Recirculation maximum temperature",
-        "device_class": "temperature",
-        "unit": None,
-        "state_class": "measurement",
-        "enabled": False,
-    },
-    "program_reservation_type": {
-        "attr": "program_reservation_type",
-        "name": "Program reservation type",
-        "enabled": False,
-    },
-}
-
-
-# Installer diagnostics counters (nwp500-python 9.4.0, `DeviceDiagnostics`).
-# These are lifetime totals the device reports only when asked, so they are
-# read from the coordinator's `device_diagnostics` store rather than from the
-# status object. `block` is the model section (`ts_data`, `td_data` or
-# `ta_data`) and `field` the counter within it. Units follow the library's
-# notes: energies are Wh (they match the energy query's lifetime totals),
-# `cumulated_op_time_*` are hours, `cumulated_op_num_*` are start counts.
-# Counters whose units the vendor does not document (demand-response
-# operation times, hot-water draw statistics) are left to the diagnostics
-# dump rather than shown as sensors with a made-up unit.
-INSTALLER_DIAGNOSTICS_SENSORS: Final[dict[str, dict[str, Any]]] = {
-    # The two headline counters. Split lifetime energy by heat source is
-    # what the Energy dashboard wants and nothing else on the device
-    # measures it, so these are on by default and not filed as diagnostic.
-    "lifetime_heat_pump_energy": {
-        "block": "ts_data",
-        "field": "cumulated_pwr_hp",
-        "unit": "Wh",
-        "device_class": "energy",
-        "state_class": "total_increasing",
-        "entity_category": None,
-        "enabled": True,
-    },
-    "lifetime_heat_element_energy": {
-        "block": "ts_data",
-        "field": "cumulated_pwr_he",
-        "unit": "Wh",
-        "device_class": "energy",
-        "state_class": "total_increasing",
-        "entity_category": None,
-        "enabled": True,
-    },
-    "days_since_installation": {
-        "block": "ts_data",
-        "field": "days_since_installation",
-        "unit": "d",
-        "device_class": "duration",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    # Component run times (hours) and start counts.
-    "compressor_run_time": {
-        "block": "ta_data",
-        "field": "cumulated_op_time_comp",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "compressor_start_count": {
-        "block": "ta_data",
-        "field": "cumulated_op_num_comp",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "evaporator_fan_run_time": {
-        "block": "ta_data",
-        "field": "cumulated_op_time_eva_fan",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "evaporator_fan_start_count": {
-        "block": "ta_data",
-        "field": "cumulated_op_num_eva_fan",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "upper_element_run_time": {
-        "block": "ta_data",
-        "field": "cumulated_op_time_uhe",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "upper_element_start_count": {
-        "block": "ta_data",
-        "field": "cumulated_op_num_uhe",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "lower_element_run_time": {
-        "block": "ta_data",
-        "field": "cumulated_op_time_lhe",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "lower_element_start_count": {
-        "block": "ta_data",
-        "field": "cumulated_op_num_lhe",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "recirculation_pump_run_time": {
-        "block": "ta_data",
-        "field": "cumulated_op_time_recirc_pump",
-        "unit": "h",
-        "device_class": "duration",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "recirculation_pump_start_count": {
-        "block": "ta_data",
-        "field": "cumulated_op_num_recirc_pump",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    # Fault and protection event counts.
-    "freeze_protection_event_count": {
-        "block": "ts_data",
-        "field": "num_of_frost_protect_burn",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "dry_fire_event_count": {
-        "block": "ts_data",
-        "field": "cumulated_occ_num_dry_fire",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "condensate_overflow_event_count": {
-        "block": "ts_data",
-        "field": "cumulated_occ_num_con_ovr_flow",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "water_leak_event_count": {
-        "block": "ts_data",
-        "field": "cumulated_occ_num_wtr_ovr_flow",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "heat_pump_error_count": {
-        "block": "ts_data",
-        "field": "cumulated_occ_num_hpo",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "abnormal_discharge_temperature_count": {
-        "block": "ts_data",
-        "field": "cumulated_occ_num_ab_dis_tmp",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-    "abnormal_suction_temperature_count": {
-        "block": "ts_data",
-        "field": "cumulated_occ_num_ab_suc_tmp",
-        "state_class": "total_increasing",
-        "enabled": False,
-    },
-}
-
 
 # External control (issue #158). The option keys live here because the
 # options flow is shared code; everything else about the feature is in the
 # `control` subpackage, which is imported only when the feature is enabled.
 CONF_CONTROL_ENABLED: Final = "control_enabled"
-CONF_CONTROL_MODE: Final = "control_mode"
 CONF_CONTROL_INTENT_ENTITY: Final = "control_intent_entity"
 CONF_CONTROL_LIVE_SEGMENTS: Final = "control_live_segments"
-CONF_CONTROL_RESERVATION_ENTRY_LIMIT: Final = "control_reservation_entry_limit"
-CONF_CONTROL_RESERVATION_ENTRY_RESERVE: Final = (
-    "control_reservation_entry_reserve"
-)
 
 # Options of earlier versions of the feature. They are dropped from an
 # entry's options whenever the control form is saved.
@@ -1362,9 +171,6 @@ CONTROL_OBSOLETE_OPTIONS: Final = (
     "control_owner_program",
 )
 
-CONTROL_MODE_SHADOW: Final = "shadow"
-CONTROL_MODE_LIVE: Final = "live"
-CONTROL_MODE_DISABLED: Final = "disabled"
 CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 
 # Whether live mode can be chosen at all (issue #158, delivery step 5). Live
@@ -1374,28 +180,8 @@ CONTROL_MODES_SELECTABLE: Final = (CONTROL_MODE_SHADOW, CONTROL_MODE_DISABLED)
 # `live`, and a `live` option runs as shadow.
 CONTROL_LIVE_AVAILABLE: Final = True
 
-# The mode names a segment may use (spec section 3.4): every mode a
-# reservation entry can set. An entry has no Vacation; a plan's `vacation`
-# command sets it.
-CONTROL_MODE_NAMES: Final = (
-    "heat_pump",
-    "energy_saver",
-    "high_demand",
-    "electric",
-    "power_off",
-)
 
-DEFAULT_CONTROL_MODE: Final = CONTROL_MODE_SHADOW
-# The unit tested accepted and read back a list of 32 entries (spec
-# section 8); larger lists are untested. The default stays at the library's
-# documented 16, and the option goes no higher than what was measured.
-DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 16
-DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE: Final = 2
 MAX_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 32
-
-# Keys into hass.data[DOMAIN][entry_id].
-DATA_PLATFORMS: Final = "platforms"
-DATA_CONTROL: Final = "control"
 
 # The Repairs issue raised while external control is on but failed to start.
 ISSUE_CONTROL_START_FAILED: Final = "control_start_failed"
@@ -1436,13 +222,14 @@ def control_follows_plan(options: Any) -> bool:
     )
 
 
-def control_feature(hass: Any, entry: Any) -> Any | None:
+def control_feature(entry: Any) -> Any | None:
     """Return the running control feature for an entry, or None.
 
-    Typed loosely on purpose: the feature's class lives in the `control`
-    subpackage, and naming it here would import that package on every path.
+    None too for an entry not loaded. Typed loosely on purpose: the
+    feature's class lives in the `control` subpackage, and naming it here
+    would import that package on every path.
     """
-    return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_CONTROL)
+    return getattr(getattr(entry, "runtime_data", None), "control", None)
 
 
 # The hot water simulator (nwp500-python's `nwp500.sim`). Like external
@@ -1480,11 +267,6 @@ CONF_SIMULATOR_SHOWER_GAL: Final = "shower_gal"
 # water is reckoned at the tank's temperature.
 CONF_SIMULATOR_MIXING_VALVE_F: Final = "mixing_valve_f"
 
-# Keys into hass.data[DOMAIN][entry_id]: the running simulator, and the
-# task starting it.
-DATA_SIMULATOR: Final = "simulator"
-DATA_SIMULATOR_START: Final = "simulator_start"
-
 # The longest walk the simulator's actions run: a week. The answers grow
 # less certain further out, and a week's walk already takes most of a
 # second.
@@ -1517,6 +299,14 @@ def simulator_record_directory(hass: HomeAssistant, entry_id: str) -> Path:
             STORAGE_DIR, DOMAIN, SIMULATOR_RECORD_DIRECTORY, entry_id
         )
     )
+
+
+def simulator_heater_record_directory(
+    hass: HomeAssistant, entry_id: str, mac_address: str
+) -> Path:
+    """Where one heater's record is kept."""
+    slug = "".join(ch for ch in mac_address.lower() if ch.isalnum())
+    return simulator_record_directory(hass, entry_id) / slug
 
 
 # The simulator's entities an earlier version made, by domain and key
@@ -1574,9 +364,9 @@ def simulator_device_options(entry: Any, mac_address: str) -> dict[str, Any]:
     return dict(devices.get(mac_address) or {})
 
 
-def simulator_feature(hass: Any, entry: Any) -> Any | None:
+def simulator_feature(entry: Any) -> Any | None:
     """Return the running simulator for an entry, or None.
 
-    Typed loosely for the same reason as `control_feature`.
+    None too for an entry not loaded; typed loosely, as `control_feature`.
     """
-    return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_SIMULATOR)
+    return getattr(getattr(entry, "runtime_data", None), "simulator", None)

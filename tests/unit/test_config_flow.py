@@ -18,6 +18,7 @@ from custom_components.nwp500.config_flow import (
     InvalidAuth,
 )
 from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.coordinator import NWP500Data
 
 
 class TestConfigFlow:
@@ -576,6 +577,44 @@ class TestReconfigureFlow:
         assert entry.data[CONF_PASSWORD] == "new-password"
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("password", "scheduled"),
+        [("new-password", False), ("old-password", True)],
+    )
+    async def test_reauth_reloads_once(
+        self, hass, enable_custom_integrations, password, scheduled
+    ):
+        """A loaded entry's update listener does the reload on a change.
+
+        The flow schedules a reload itself only when nothing changed:
+        reloading on top of the listener reloads twice, which Home
+        Assistant stops allowing in 2026.12.
+        """
+        entry = self._entry(hass)
+        listener = AsyncMock()
+        entry.add_update_listener(listener)
+        available, auth, api = self._patch_library()
+
+        with (
+            available,
+            auth,
+            api,
+            patch.object(
+                hass.config_entries, "async_schedule_reload"
+            ) as schedule,
+        ):
+            result = await entry.start_reauth_flow(hass)
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {CONF_EMAIL: "test@example.com", CONF_PASSWORD: password},
+            )
+            await hass.async_block_till_done()
+
+        assert result["reason"] == "reauth_successful"
+        assert schedule.called is scheduled
+        assert listener.called is not scheduled
+
+    @pytest.mark.asyncio
     async def test_reauth_different_account_is_rejected(
         self, hass, enable_custom_integrations
     ):
@@ -910,7 +949,7 @@ class TestExternalControlOptions:
         coordinator.reservation_schedules = (
             {"AA:BB": schedule} if schedule is not None else {}
         )
-        entry.runtime_data = coordinator
+        entry.runtime_data = NWP500Data(coordinator)
 
     @pytest.mark.asyncio
     async def test_live_is_offered_once_the_gate_is_open(

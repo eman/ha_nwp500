@@ -4,48 +4,86 @@ A segment is part of a timeline, so a segment that does not fit rejects the
 whole plan.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass, field
+from enum import StrEnum
 from typing import Any
 
-from ..const import CONTROL_MODE_NAMES
+from nwp500.temperature import HalfCelsius
+
+from ..vocabulary import CONTROL_MODE_NAMES
 from .intent import (
     REASON_MODE_NOT_ALLOWED,
+    REASON_SETPOINT_OUT_OF_RANGE,
     IntentRejected,
     Plan,
     mode_is_valid,
 )
 
-# Document states on the ack entity.
-STATE_NONE = "none"
-STATE_SHADOW = "shadow"
-STATE_REJECTED = "rejected"
-STATE_PENDING = "pending"
-STATE_PROGRAMMED = "programmed"
-STATE_PARTLY_PROGRAMMED = "partly_programmed"
 
-# Segment statuses (section 4.2).
-STATUS_SHADOW = "shadow"
-STATUS_SCHEDULED = "scheduled"
-STATUS_PENDING = "pending"
-STATUS_PROGRAMMED = "programmed"
-STATUS_MERGED = "merged"
-STATUS_IN_FORCE = "in_force"
-STATUS_ENDED = "ended"
-STATUS_FAILED = "failed"
-STATUS_REMOVED = "removed"
+class AckState(StrEnum):
+    """The ack entity's state (reference section 8.1)."""
 
-# Reasons a segment is scheduled rather than programmed.
-REASON_BEYOND_HORIZON = "beyond_horizon"
-REASON_ENTRY_BUDGET = "entry_budget"
+    NONE = "none"
+    SHADOW = "shadow"
+    REJECTED = "rejected"
+    PENDING = "pending"
+    PROGRAMMED = "programmed"
+    PARTLY_PROGRAMMED = "partly_programmed"
 
-# Live only (sections 5.4 and 5.11).
-REASON_WRITE_NOT_CONFIRMED = "write_not_confirmed"
-REASON_NOT_APPLIED = "not_applied_on_device"
 
-# Warnings.
-WARNING_MOVED = "moved_1_min"
+class SegmentStatus(StrEnum):
+    """A segment's status on the acknowledgement (reference section 8.2)."""
+
+    SHADOW = "shadow"
+    SCHEDULED = "scheduled"
+    PENDING = "pending"
+    PROGRAMMED = "programmed"
+    MERGED = "merged"
+    IN_FORCE = "in_force"
+    ENDED = "ended"
+    FAILED = "failed"
+    REMOVED = "removed"
+
+
+class SegmentReason(StrEnum):
+    """Why a segment is scheduled, or failed (reference section 8.2)."""
+
+    BEYOND_HORIZON = "beyond_horizon"
+    ENTRY_BUDGET = "entry_budget"
+    # Live only; commands fail for these too (section 8.3).
+    WRITE_NOT_CONFIRMED = "write_not_confirmed"
+    NOT_APPLIED = "not_applied_on_device"
+
+
+class ItemWarning(StrEnum):
+    """A segment's warnings (reference section 8.2)."""
+
+    MOVED = "moved_1_min"
+
+
+STATE_NONE = AckState.NONE
+STATE_SHADOW = AckState.SHADOW
+STATE_REJECTED = AckState.REJECTED
+STATE_PENDING = AckState.PENDING
+STATE_PROGRAMMED = AckState.PROGRAMMED
+STATE_PARTLY_PROGRAMMED = AckState.PARTLY_PROGRAMMED
+
+STATUS_SHADOW = SegmentStatus.SHADOW
+STATUS_SCHEDULED = SegmentStatus.SCHEDULED
+STATUS_PENDING = SegmentStatus.PENDING
+STATUS_PROGRAMMED = SegmentStatus.PROGRAMMED
+STATUS_MERGED = SegmentStatus.MERGED
+STATUS_IN_FORCE = SegmentStatus.IN_FORCE
+STATUS_ENDED = SegmentStatus.ENDED
+STATUS_FAILED = SegmentStatus.FAILED
+STATUS_REMOVED = SegmentStatus.REMOVED
+
+REASON_BEYOND_HORIZON = SegmentReason.BEYOND_HORIZON
+REASON_ENTRY_BUDGET = SegmentReason.ENTRY_BUDGET
+REASON_WRITE_NOT_CONFIRMED = SegmentReason.WRITE_NOT_CONFIRMED
+REASON_NOT_APPLIED = SegmentReason.NOT_APPLIED
+
+WARNING_MOVED = ItemWarning.MOVED
 
 
 @dataclass(frozen=True)
@@ -116,8 +154,15 @@ def rejected_ack(
     )
 
 
-def check_plan(plan: Plan) -> None:
-    """Reject the plan if a segment names a mode an entry cannot set."""
+def check_plan(
+    plan: Plan, setpoint_range: tuple[int, int] | None = None
+) -> None:
+    """Reject the plan if a segment names what an entry cannot set.
+
+    A mode an entry cannot set, or a setpoint outside `setpoint_range`,
+    the heater's own (raw half-degrees Celsius, inclusive). Unknown until
+    the heater's features are read, and then not checked.
+    """
     for segment in plan.segments:
         if not mode_is_valid(segment.mode):
             raise IntentRejected(
@@ -125,3 +170,18 @@ def check_plan(plan: Plan) -> None:
                 f"segment {segment.id!r} mode {segment.mode!r} is not one of "
                 f"{', '.join(CONTROL_MODE_NAMES)}",
             )
+        if setpoint_range is None:
+            continue
+        low, high = setpoint_range
+        if not low <= segment.setpoint_raw <= high:
+            raise IntentRejected(
+                REASON_SETPOINT_OUT_OF_RANGE,
+                f"segment {segment.id!r} setpoint "
+                f"{_shown(segment.setpoint_raw)} is outside the heater's "
+                f"{_shown(low)} to {_shown(high)}",
+            )
+
+
+def _shown(raw: int) -> str:
+    value = HalfCelsius(raw)
+    return f"{value.to_fahrenheit():.1f} °F ({value.to_celsius():.1f} °C)"

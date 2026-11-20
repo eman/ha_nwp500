@@ -26,11 +26,10 @@ simulator stops, each write a gzip member of its own. A day of statuses
 is about 0.3 MB.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import gzip
+import io
 import json
 import logging
 import zlib
@@ -45,7 +44,7 @@ from homeassistant.core import HomeAssistant, State
 from nwp500 import status_history
 from nwp500.status_history import TimedStatus
 
-from ..const import simulator_record_directory
+from ..const import simulator_heater_record_directory
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -62,8 +61,7 @@ _SUFFIX = ".jsonl.gz"
 
 
 def _heater_directory(hass: HomeAssistant, entry_id: str, mac: str) -> Path:
-    slug = "".join(ch for ch in mac.lower() if ch.isalnum())
-    return simulator_record_directory(hass, entry_id) / slug
+    return simulator_heater_record_directory(hass, entry_id, mac)
 
 
 def _name(path: Path) -> tuple[date, int] | None:
@@ -102,14 +100,25 @@ def _sound(path: Path) -> bool:
     return True
 
 
-def _lines(path: Path) -> Iterator[str]:
+# The size each file had when a read began (`HeaterRecord.async_sizes`).
+type Sizes = Mapping[Path, int]
+
+
+def _lines(path: Path, size: int | None = None) -> Iterator[str]:
     """A file's lines, up to any damaged write.
 
     A member cut short (the disk filled, the host stopped mid-write) ends
-    the file there.
+    the file there. With `size`, only the file's first `size` bytes: the
+    members whole when the read began, not one being appended now.
     """
     try:
-        with gzip.open(path, "rt", encoding="utf-8") as f:
+        if size is None:
+            with gzip.open(path, "rt", encoding="utf-8") as f:
+                yield from f
+            return
+        with path.open("rb") as raw:
+            whole = io.BytesIO(raw.read(size))
+        with gzip.open(whole, "rt", encoding="utf-8") as f:
             yield from f
     except (EOFError, OSError, zlib.error, UnicodeDecodeError) as err:
         _LOGGER.debug("%s is read up to a damaged write: %s", path, err)
@@ -301,6 +310,24 @@ class HeaterRecord:
         part = 1 if named is None else named[1] + 1
         return directory / f"{day.isoformat()}.{part}{_SUFFIX}"
 
+    async def async_sizes(self) -> Sizes:
+        """The size of each file now, between writes.
+
+        A read given these takes only the members written whole by then:
+        `_write` appends in a thread, and a member half-appended reads as
+        a damaged write, which would end that day's file there.
+        """
+        async with self._writing:
+            return await self.hass.async_add_executor_job(self._sizes)
+
+    def _sizes(self) -> dict[Path, int]:
+        sizes: dict[Path, int] = {}
+        for name in (_STATUSES, _INPUTS):
+            for _, path in _files(self.directory / name):
+                with contextlib.suppress(OSError):
+                    sizes[path] = path.stat().st_size
+        return sizes
+
     def first(self) -> datetime | None:
         """The instant of the earliest status kept."""
         for _, path in _files(self.directory / _STATUSES):
@@ -308,23 +335,34 @@ class HeaterRecord:
                 return at
         return None
 
-    def readings(self, start: datetime) -> Iterator[TimedStatus]:
+    def readings(
+        self, start: datetime, sizes: Sizes | None = None
+    ) -> Iterator[TimedStatus]:
         """The statuses kept from `start` on, as the calibration takes them.
 
         A file at a time, a status at a time: none is held after it is
-        taken.
+        taken. With `sizes` (`async_sizes`), the files as they were then.
         """
         first_day = start.astimezone(UTC).date()
-        for day, path in _files(self.directory / _STATUSES):
+        for day, path in self._files_in(_STATUSES, sizes):
             if day < first_day:
                 continue
-            for at, status in self._read(path):
+            for at, status in self._read(path, sizes):
                 if at >= start:
                     yield at, status
 
+    def _files_in(
+        self, name: str, sizes: Sizes | None
+    ) -> list[tuple[date, Path]]:
+        """A series' files; with `sizes`, those there when they were taken."""
+        files = _files(self.directory / name)
+        if sizes is None:
+            return files
+        return [(day, path) for day, path in files if path in sizes]
+
     @staticmethod
-    def _read(path: Path) -> Iterator[TimedStatus]:
-        for text in _lines(path):
+    def _read(path: Path, sizes: Sizes | None = None) -> Iterator[TimedStatus]:
+        for text in _lines(path, None if sizes is None else sizes[path]):
             if not text.strip():
                 continue
             try:
@@ -334,19 +372,24 @@ class HeaterRecord:
                 continue
 
     def history_document(
-        self, entities: Iterable[str], start: datetime, end: datetime
+        self,
+        entities: Iterable[str],
+        start: datetime,
+        end: datetime,
+        sizes: Sizes | None = None,
     ) -> list[list[dict[str, Any]]]:
         """The input entities' history from `start` to `end`.
 
         As the recorder's (`/api/history/period`) gives it: each entity's
-        state in force at `start`, dated `start`, then its changes.
+        state in force at `start`, dated `start`, then its changes. With
+        `sizes` (`async_sizes`), the files as they were then.
         """
         names = set(entities)
         # Each row once, by its instant, parsed once: a state kept twice
         # (the day's opening states) is one row.
         rows: dict[str, dict[datetime, dict[str, Any]]] = {n: {} for n in names}
-        for _, path in _files(self.directory / _INPUTS):
-            for text in _lines(path):
+        for _, path in self._files_in(_INPUTS, sizes):
+            for text in _lines(path, None if sizes is None else sizes[path]):
                 try:
                     row = cast(dict[str, Any], json.loads(text))
                     entity = row["entity_id"]

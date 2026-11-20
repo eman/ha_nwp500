@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -25,13 +26,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
+from homeassistant.helpers.typing import UNDEFINED, UndefinedType
 
 from .const import (
     CONF_CONTROL_ENABLED,
     CONF_CONTROL_INTENT_ENTITY,
-    CONF_CONTROL_MODE,
-    CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
-    CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
     CONF_SCAN_INTERVAL,
     CONF_SIMULATOR,
     CONF_SIMULATOR_AIR_ENTITY,
@@ -47,13 +46,8 @@ from .const import (
     CONF_SIMULATOR_SHOWER_GAL,
     CONF_SIMULATOR_WEATHER_ENTITY,
     CONTROL_LIVE_AVAILABLE,
-    CONTROL_MODE_LIVE,
-    CONTROL_MODE_SHADOW,
     CONTROL_MODES_SELECTABLE,
     CONTROL_OBSOLETE_OPTIONS,
-    DEFAULT_CONTROL_MODE,
-    DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
-    DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     DRAW_FLOW_DELIVERED,
@@ -71,6 +65,16 @@ from .simulator_deps import (
     async_ensure,
     async_missing,
     package_names,
+)
+from .vocabulary import (
+    CONF_CONTROL_MODE,
+    CONF_CONTROL_RESERVATION_ENTRY_LIMIT,
+    CONF_CONTROL_RESERVATION_ENTRY_RESERVE,
+    CONTROL_MODE_LIVE,
+    CONTROL_MODE_SHADOW,
+    DEFAULT_CONTROL_MODE,
+    DEFAULT_CONTROL_RESERVATION_ENTRY_LIMIT,
+    DEFAULT_CONTROL_RESERVATION_ENTRY_RESERVE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1070,10 +1074,10 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
                         user_input[CONF_EMAIL].lower()
                     )
                     self._abort_if_unique_id_mismatch(reason="wrong_account")
-                    return self.async_update_reload_and_abort(
+                    return self._async_update_and_reload(
                         self._reauth_entry,
-                        data=user_input,
                         reason="reauth_successful",
+                        data=user_input,
                     )
                 return self.async_abort(reason="reauth_failed")
 
@@ -1087,6 +1091,29 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
                 else "unknown"
             },
         )
+
+    def _async_update_and_reload(
+        self,
+        entry: config_entries.ConfigEntry,
+        *,
+        reason: str,
+        title: str | UndefinedType = UNDEFINED,
+        data: Mapping[str, Any],
+    ) -> config_entries.ConfigFlowResult:
+        """Store the new credentials and reload the entry once.
+
+        A loaded entry's update listener reloads it when the entry changes,
+        so the flow schedules a reload itself only when nothing changed or
+        no listener is registered (set-up failed before registering it).
+        Reloading on top of the listener reloads twice, which Home
+        Assistant reports and stops allowing in 2026.12.
+        """
+        changed = self.hass.config_entries.async_update_entry(
+            entry, title=title, data=data
+        )
+        if not changed or not entry.update_listeners:
+            self.hass.config_entries.async_schedule_reload(entry.entry_id)
+        return self.async_abort(reason=reason)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
@@ -1114,11 +1141,11 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
                 # written -- silently discarding the password change this
                 # flow exists to make.
                 self._abort_if_unique_id_mismatch(reason="wrong_account")
-                return self.async_update_reload_and_abort(
+                return self._async_update_and_reload(
                     self._get_reconfigure_entry(),
+                    reason="reconfigure_successful",
                     title=info["title"],
                     data=user_input,
-                    reason="reconfigure_successful",
                 )
 
         current_data = self._get_reconfigure_entry().data
@@ -1138,7 +1165,8 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
 
 def _entry_devices(entry: config_entries.ConfigEntry) -> list[tuple[str, str]]:
     """(MAC, name) for each heater of a loaded entry."""
-    coordinator = getattr(entry, "runtime_data", None)
+    runtime_data = getattr(entry, "runtime_data", None)
+    coordinator = getattr(runtime_data, "coordinator", None)
     data = getattr(coordinator, "data", None) or {}
     devices: list[tuple[str, str]] = []
     for mac_address, device_data in data.items():
@@ -1262,8 +1290,13 @@ class OptionsFlowHandler(
     async def _async_simulator_done(
         self, devices: dict[str, dict[str, Any]]
     ) -> config_entries.ConfigFlowResult:
+        # Only the heaters loaded now were asked about: one missing from
+        # the account for the moment keeps its sensors.
         return self._save(
-            {CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: devices}
+            {
+                CONF_SIMULATOR_ENABLED: True,
+                CONF_SIMULATOR: {**self._simulator_existing, **devices},
+            }
         )
 
     async def async_step_simulator_without(
@@ -1304,7 +1337,7 @@ async def validate_input(
     if not nwp500_available:
         _LOGGER.error(
             "nwp500-python library not installed. Please install with: "
-            'uv pip install "nwp500-python==9.13.3"'
+            'uv pip install "nwp500-python==9.14.0"'
         )
         raise CannotConnect("nwp500-python library not available")
 

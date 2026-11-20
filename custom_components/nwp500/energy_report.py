@@ -16,8 +16,6 @@ carrying no month, whose list holds a month per item. `build_report`
 shapes the first, `build_monthly_report` the second.
 """
 
-from __future__ import annotations
-
 import calendar
 from typing import Any
 

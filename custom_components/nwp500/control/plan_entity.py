@@ -6,8 +6,6 @@ is back. What the feature does with the plan in force while the entity is
 missing is unchanged (spec section 6.1): it stays in force.
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback

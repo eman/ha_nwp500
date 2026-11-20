@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import time
+from datetime import timedelta
 from unittest.mock import MagicMock
 
+from homeassistant.helpers.typing import UNDEFINED
+
+from custom_components.nwp500.const import STALE_DATA_THRESHOLD
 from custom_components.nwp500.entity import NWP500Entity
 
 
@@ -182,7 +187,7 @@ class TestNWP500Entity:
         mock_device: MagicMock,
         mock_device_status: MagicMock,
     ):
-        """Test extra_state_attributes includes device features."""
+        """The device attributes include the device's features."""
         mac_address = mock_device.device_info.mac_address
 
         # Mock device features with all attributes
@@ -215,7 +220,7 @@ class TestNWP500Entity:
         mock_device.location.longitude = -122.4194
 
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        attrs = entity.extra_state_attributes
+        attrs = entity._device_attributes()
 
         # Verify firmware details
         assert attrs["controller_sw_version"] == "1.2.3"
@@ -240,7 +245,7 @@ class TestNWP500Entity:
         assert attrs["country_code"] == "US"
 
         # Location is account metadata and must never be exposed as entity
-        # state; it belongs in diagnostics. See _build_extra_state_attributes.
+        # state; it belongs in diagnostics. See _device_attributes.
         for key in (
             "address",
             "city",
@@ -303,7 +308,7 @@ class TestRefreshedDeviceMetadata:
         mock_coordinator.data[mac_address]["device"] = refreshed
 
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
-        attrs = entity._build_extra_state_attributes()
+        attrs = entity._device_attributes()
 
         assert attrs["connected"] is False
         assert attrs["model_type_code"] == 7
@@ -321,7 +326,7 @@ class TestRefreshedDeviceMetadata:
 
         entity = NWP500Entity(mock_coordinator, mac_address, mock_device)
 
-        assert entity._build_extra_state_attributes()["home_seq"] == 1
+        assert entity._device_attributes()["home_seq"] == 1
 
 
 class TestDeviceModelId:
@@ -384,3 +389,127 @@ class TestDeviceModelId:
 
         assert device_info is not None
         assert device_info["model_id"] is None
+
+
+class TestAvailability:
+    """Staleness is time since the heater's last status (2026-11 review).
+
+    It used to count coordinator updates, which also come from schedules,
+    replies and other heaters on the account.
+    """
+
+    @staticmethod
+    def _entity(mock_coordinator, mock_device, *, silent_for: float):
+        mac = mock_device.device_info.mac_address
+        mock_coordinator.last_update_success = True
+        mock_coordinator.update_interval = timedelta(seconds=30)
+        mock_coordinator.data = {
+            mac: {
+                "device": mock_device,
+                "last_update": time.time() - silent_for,
+            }
+        }
+        return NWP500Entity(mock_coordinator, mac, mock_device)
+
+    def test_many_updates_without_a_new_status_keep_it_available(
+        self, mock_coordinator, mock_device
+    ):
+        entity = self._entity(mock_coordinator, mock_device, silent_for=20)
+        entity.async_write_ha_state = MagicMock()
+        for _ in range(20):
+            entity._handle_coordinator_update()
+        assert entity.available is True
+
+    def test_silent_for_the_threshold_is_unavailable(
+        self, mock_coordinator, mock_device
+    ):
+        entity = self._entity(
+            mock_coordinator,
+            mock_device,
+            silent_for=STALE_DATA_THRESHOLD * 30 + 1,
+        )
+        assert entity.available is False
+
+    def test_connection_telemetry_stays_available_when_silent(
+        self, mock_coordinator, mock_device
+    ):
+        from custom_components.nwp500.sensor import (
+            NWP500ConsecutiveTimeoutsSensor,
+        )
+
+        self._entity(mock_coordinator, mock_device, silent_for=86400)
+        sensor = NWP500ConsecutiveTimeoutsSensor(
+            mock_coordinator, mock_device.device_info.mac_address, mock_device
+        )
+        sensor.async_write_ha_state = MagicMock()
+        for _ in range(10):
+            sensor._handle_coordinator_update()
+        assert sensor.available is True
+
+
+def test_features_arriving_later_update_the_registry_device(
+    mock_coordinator, mock_device
+):
+    """Home Assistant reads device_info only when the entity is added."""
+    from unittest.mock import patch
+
+    entity = NWP500Entity(
+        mock_coordinator, mock_device.device_info.mac_address, mock_device
+    )
+    entity.hass = MagicMock()
+    entity.async_write_ha_state = MagicMock()
+    registry = MagicMock()
+    features = MagicMock(
+        controller_serial_number="SN1",
+        controller_sw_version="1",
+        wifi_sw_version="2",
+        volume_code=None,
+        model_type_code=None,
+    )
+    mock_coordinator.device_features.get.return_value = features
+    with (
+        patch.object(
+            NWP500Entity,
+            "device_entry",
+            new_callable=lambda: property(lambda self: MagicMock(id="dev1")),
+        ),
+        patch(
+            "custom_components.nwp500.entity.dr.async_get",
+            return_value=registry,
+        ),
+    ):
+        entity._handle_coordinator_update()
+
+    registry.async_update_device.assert_called_once()
+    args, kwargs = registry.async_update_device.call_args
+    assert args == ("dev1",)
+    assert kwargs["serial_number"] == "SN1"
+    assert kwargs["sw_version"] == "1.2"
+    assert kwargs["hw_version"] is UNDEFINED
+
+
+def test_only_the_water_heater_carries_the_device_attributes(
+    mock_coordinator, mock_device, mock_device_status
+):
+    """Every other entity's attributes are its own."""
+    mac = mock_device.device_info.mac_address
+    mock_coordinator.data = {
+        mac: {"device": mock_device, "status": mock_device_status}
+    }
+    entity = NWP500Entity(mock_coordinator, mac, mock_device)
+    assert entity.extra_state_attributes == {}
+
+
+def test_the_recorder_keeps_none_of_the_device_attributes(
+    mock_coordinator, mock_device, mock_device_status
+):
+    from custom_components.nwp500.entity import DEVICE_ATTRIBUTES
+    from custom_components.nwp500.water_heater import NWP500WaterHeater
+
+    mac = mock_device.device_info.mac_address
+    mock_coordinator.data = {
+        mac: {"device": mock_device, "status": mock_device_status}
+    }
+    entity = NWP500WaterHeater(mock_coordinator, mac, mock_device)
+    assert set(entity._device_attributes()) <= DEVICE_ATTRIBUTES
+    assert DEVICE_ATTRIBUTES <= entity._unrecorded_attributes

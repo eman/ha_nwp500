@@ -92,19 +92,6 @@ class TestAcceptedPlans:
         document["issued_at"] = now.replace(tzinfo=None).isoformat() + "Z"
         assert parse(document).issued_at == now
 
-    def test_next_segment_after(self, now, parse):
-        plan = parse(
-            make_document(
-                now,
-                [
-                    segment(now, "a", 10, mode="heat_pump", setpoint_f=130),
-                    segment(now, "b", 20, setpoint_f=140),
-                ],
-            )
-        )
-        assert plan.next_segment_after(now + timedelta(minutes=10)).id == "b"
-        assert plan.next_segment_after(now + timedelta(minutes=20)) is None
-
     def test_as_document_round_trips(self, now, parse):
         document = make_document(
             now,

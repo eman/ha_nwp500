@@ -80,7 +80,8 @@ async def async_get_config_entry_diagnostics(
     Sensitive data (passwords, tokens, MAC addresses) is redacted before
     returning, in accordance with HA diagnostics requirements.
     """
-    coordinator = getattr(config_entry, "runtime_data", None)
+    runtime_data = getattr(config_entry, "runtime_data", None)
+    coordinator = getattr(runtime_data, "coordinator", None)
 
     if not coordinator:
         return {"error": "Integration not initialized"}
@@ -177,6 +178,15 @@ async def async_get_config_entry_diagnostics(
             installer_diagnostics
         ):
             entry["installer_diagnostics"] = installer_diagnostics[mac]
+        # The device's feature data, as read: its firmware, what it
+        # supports and its limits. No entity carries all of it. Its
+        # identifiers are left out.
+        features = coordinator.device_features.get(mac)
+        if features is not None and hasattr(features, "model_dump"):
+            entry["features"] = features.model_dump(
+                mode="json",
+                exclude={"mac_address", "controller_serial_number"},
+            )
         recirculation_schedules = coordinator.recirculation_schedules
         if isinstance(recirculation_schedules, dict) and mac in (
             recirculation_schedules
@@ -218,14 +228,14 @@ async def async_get_config_entry_diagnostics(
 
     # External control, only while it runs: with it off the output is what
     # it was before the feature (spec section 1.1).
-    feature = control_feature(hass, config_entry)
+    feature = control_feature(config_entry)
     if feature is not None:
         diagnostics_data["external_control"] = _external_control(
             config_entry, feature
         )
 
     # The hot water simulator, only while it runs.
-    simulator = simulator_feature(hass, config_entry)
+    simulator = simulator_feature(config_entry)
     if simulator is not None:
         diagnostics_data["simulator"] = _simulator(simulator)
 

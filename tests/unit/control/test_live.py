@@ -20,9 +20,6 @@ from pytest_homeassistant.common import async_fire_time_changed
 
 from custom_components.nwp500.const import (
     CONF_CONTROL_LIVE_SEGMENTS,
-    CONF_CONTROL_MODE,
-    CONTROL_MODE_DISABLED,
-    CONTROL_MODE_LIVE,
 )
 from custom_components.nwp500.control import device as device_module
 from custom_components.nwp500.control.device import (
@@ -43,8 +40,16 @@ from custom_components.nwp500.control.evaluate import (
     REASON_NOT_APPLIED,
     REASON_WRITE_NOT_CONFIRMED,
 )
-from custom_components.nwp500.control.intent import parse_plan
+from custom_components.nwp500.control.intent import (
+    REASON_SETPOINT_OUT_OF_RANGE,
+    parse_plan,
+)
 from custom_components.nwp500.control.store import ControlStore
+from custom_components.nwp500.vocabulary import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
+    CONTROL_MODE_LIVE,
+)
 
 from .conftest import make_document, segment
 from .test_device import (
@@ -1053,14 +1058,6 @@ def _two_segments(now, **kwargs) -> dict:
     )
 
 
-def _entries(schedule: dict[str, Any], **match) -> list[dict[str, int]]:
-    return [
-        e
-        for e in schedule["reservation"]
-        if all(e.get(k) == v for k, v in match.items())
-    ]
-
-
 async def _tick(hass: HomeAssistant, freezer, delta: timedelta) -> None:
     freezer.tick(delta)
     async_fire_time_changed(hass)
@@ -1156,8 +1153,9 @@ class TestLiveWrites:
         assert len(heater.writes) == 1
         written = heater.writes[0]
         assert written["reservation_use"] == 2
-        # Every entry that is not the feature's is kept as read.
-        assert _entries(written, hour=6, min=0) == [OWNER_ENTRY]
+        # Every entry that is not the feature's is kept as read (the
+        # entry itself: the plan's own can share its time).
+        assert OWNER_ENTRY in written["reservation"]
         assert len(written["reservation"]) == 3
         assert control.last_write.simulated is False
         assert control.last_write.confirmed is True
@@ -1188,7 +1186,8 @@ class TestLiveWrites:
         await hass.async_block_till_done()
 
         assert heater.reads >= 1
-        assert _entries(heater.writes[-1], hour=9, min=30) == [FOREIGN_ENTRY]
+        # The person's entry itself: the plan's own can share its time.
+        assert FOREIGN_ENTRY in heater.writes[-1]["reservation"]
 
     @pytest.mark.asyncio
     async def test_nothing_is_sent_when_the_device_already_has_it(
@@ -1263,17 +1262,41 @@ class TestLiveWrites:
         }
 
     @pytest.mark.asyncio
+    async def test_a_setpoint_outside_the_heaters_range_rejects_the_plan(
+        self, hass, live_factory, now
+    ):
+        """Rejected on arrival, naming the segment: nothing is written."""
+        heater, control = await live_factory()
+        writes = len(heater.writes)
+        _publish(
+            hass,
+            make_document(
+                now,
+                [segment(now, "hot", -5, mode="heat_pump", setpoint_c=100)],
+            ),
+        )
+        await hass.async_block_till_done()
+
+        rejected = control.ack.as_attributes()["rejected"]
+        assert rejected["reason"] == REASON_SETPOINT_OUT_OF_RANGE
+        assert "'hot'" in rejected["detail"]
+        assert len(heater.writes) == writes
+        assert heater.schedule == OWNER_LIST
+
+    @pytest.mark.asyncio
     async def test_a_setpoint_the_library_refuses_fails_the_write(
         self, hass, live_factory, now, freezer, monkeypatch
     ):
-        """nwp500-python 9.4.3 checks entries against the heater's range.
+        """Before the heater's range is read, the library's check is all.
 
-        The feature checks no setpoint: the library's refusal is a failed
-        write, reported as any other, and nothing reaches the heater.
+        nwp500-python checks entries against the heater's range: its
+        refusal is a failed write, reported as any other, and nothing
+        reaches the heater.
         """
         from nwp500.exceptions import RangeValidationError
 
         heater, control = await live_factory()
+        control.coordinator.device_features = {}
 
         async def refuse(schedule: dict[str, Any]) -> dict[str, Any] | None:
             raise RangeValidationError(

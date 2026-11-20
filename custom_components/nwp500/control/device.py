@@ -11,8 +11,6 @@ the device holds it (section 5.4). Live is gated by `CONTROL_LIVE_AVAILABLE`;
 without it, it runs as shadow.
 """
 
-from __future__ import annotations
-
 import asyncio
 import logging
 from collections.abc import Mapping
@@ -33,18 +31,25 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_CONTROL_INTENT_ENTITY,
-    CONF_CONTROL_MODE,
     CONF_SCAN_INTERVAL,
     CONTROL_LIVE_AVAILABLE,
-    CONTROL_MODE_DISABLED,
-    CONTROL_MODE_LIVE,
-    CONTROL_MODE_SHADOW,
-    DEFAULT_CONTROL_MODE,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
     control_follows_plan,
 )
-from .capabilities import Capabilities, build_capabilities
+from ..vocabulary import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
+    CONTROL_MODE_LIVE,
+    CONTROL_MODE_SHADOW,
+    DEFAULT_CONTROL_MODE,
+)
+from .capabilities import (
+    WAKE_AFTER,
+    Capabilities,
+    build_capabilities,
+    setpoint_range,
+)
 from .commands import Commands
 from .engine import Planner, Report, State, Write
 from .entries import schedule_hash
@@ -78,6 +83,23 @@ HEARTBEAT_INTERVAL = timedelta(minutes=5)
 WRITE_RETRY = timedelta(seconds=60)
 # After the retry fails too, writing waits this long before trying again.
 WRITE_PAUSE = timedelta(minutes=15)
+
+
+def _same_plan(document: Mapping[str, Any], plan: Plan) -> bool:
+    """Whether a document is `plan`: the same id, issued at the same time.
+
+    A plan is identified by both (section 6.5): a newer document may reuse
+    the id.
+    """
+    issued = document.get("issued_at")
+    issued_at = (
+        dt_util.parse_datetime(issued) if isinstance(issued, str) else None
+    )
+    return (
+        document.get("intent_id") == plan.intent_id
+        and issued_at is not None
+        and issued_at == plan.issued_at
+    )
 
 
 def live_writes(options: Mapping[str, Any]) -> bool:
@@ -304,10 +326,20 @@ class DeviceControl:
         """
         return {**self.entry.options, CONF_CONTROL_MODE: self.mode}
 
+    def _setpoint_range(self) -> tuple[int, int] | None:
+        """The heater's setpoint range, raw half-degrees Celsius.
+
+        None until its features are read.
+        """
+        return setpoint_range(
+            self.coordinator.device_features.get(self.mac_address)
+        )
+
     def _build_capabilities(self) -> Capabilities:
         capabilities = build_capabilities(
             self._effective_options(),
             feature_version=self._feature_version,
+            setpoint_range=self._setpoint_range(),
         )
         observed = self.observe()
         if observed.reservations is None:
@@ -562,6 +594,10 @@ class DeviceControl:
             observed = self.observe()
             write = self.planner.step(now, observed)
             if write is None:
+                if fresh is not None and not self.planner.unconfirmed:
+                    # The list read is what the plan wants, an earlier
+                    # unconfirmed write included: nothing is failing.
+                    self._clear_failures()
                 return
             schedule = self.planner.program(observed, write.result)
             confirmed = False
@@ -572,15 +608,14 @@ class DeviceControl:
                     schedule
                 ):
                     # From here the heater may hold the feature's list,
-                    # confirmed or not.
+                    # confirmed or not: kept before it is sent.
+                    self.planner.sending(write, schedule_hash(schedule))
+                    await self._async_persist()
                     await self.store.async_set_took_over(self.mac_address, True)
                     sent = True
                 confirmed = await self._async_write_list(schedule, observed)
         if confirmed:
-            self._failures = 0
-            self._paused_until = None
-            self.planner.hold_until = None
-            self._cancel_retry_timer()
+            self._clear_failures()
             self._commit(
                 replace(write, simulated=False, confirmed=True),
                 confirmed_at=dt_util.utcnow(),
@@ -614,6 +649,13 @@ class DeviceControl:
         self._cancel_retry = async_track_point_in_utc_time(
             self.hass, self._on_retry, retry_at
         )
+
+    def _clear_failures(self) -> None:
+        """No write is failing: the next lost one is retried (5.4)."""
+        self._failures = 0
+        self._paused_until = None
+        self.planner.hold_until = None
+        self._cancel_retry_timer()
 
     async def _on_retry(self, now: datetime) -> None:
         self._cancel_retry = None
@@ -659,7 +701,7 @@ class DeviceControl:
         if when is None or self.mode == CONTROL_MODE_DISABLED:
             return
         self._cancel_event = async_track_point_in_utc_time(
-            self.hass, self._on_planned_event, when + timedelta(seconds=1)
+            self.hass, self._on_planned_event, when + WAKE_AFTER
         )
 
     async def _on_planned_event(self, now: datetime) -> None:
@@ -675,7 +717,7 @@ class DeviceControl:
     def _parse(self, document: Mapping[str, Any]) -> Plan:
         """Parse and check a document; raises `IntentRejected`."""
         plan = parse_plan(document)
-        check_plan(plan)
+        check_plan(plan, self._setpoint_range())
         return plan
 
     async def _async_adopt_initial(
@@ -684,6 +726,7 @@ class DeviceControl:
         """Take the newer of the stored plan and the entity's document."""
         stored = self.store.stored_intent(self.mac_address)
         stored_plan: Plan | None = None
+        unusable = False
         source = stored.get("source") if stored is not None else None
         other_source = stored is not None and source not in (
             None,
@@ -711,6 +754,7 @@ class DeviceControl:
                     err.reason,
                 )
                 await self.store.async_clear_intent(self.mac_address)
+                unusable = True
 
         entity_document: dict[str, Any] | None = None
         state = self.hass.states.get(self.intent_entity_id or "")
@@ -731,11 +775,14 @@ class DeviceControl:
                 stored=True,
             )
         if entity_document is not None and (
-            stored_plan is None
-            or entity_document.get("intent_id") != stored_plan.intent_id
+            stored_plan is None or not _same_plan(entity_document, stored_plan)
         ):
+            # A newer document published while HA was down, or the
+            # entity's plan when none was stored (section 6.5).
             await self.async_receive(entity_document, now)
-        if other_source and self.plan is None:
+        if (other_source or unusable) and self.plan is None:
+            # No plan to restore: its entries, near-term ones included, are
+            # withdrawn (section 6.5.2).
             self.planner.withdraw_plan()
 
     @callback

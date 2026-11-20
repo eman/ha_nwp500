@@ -7,23 +7,31 @@ A status reports the application only: a person changing the setting later
 does not change it.
 """
 
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from enum import StrEnum
 from typing import Any
-
-from homeassistant.util import dt as dt_util
 
 from .evaluate import REASON_NOT_APPLIED, REASON_WRITE_NOT_CONFIRMED, ItemAck
 from .intent import Command
 from .observed import Observed
 
-STATUS_SHADOW = "shadow"
-STATUS_PENDING = "pending"
-STATUS_APPLIED = "applied"
-STATUS_FAILED = "failed"
-STATUS_REJECTED = "rejected"
+
+class CommandStatus(StrEnum):
+    """A command's status on the acknowledgement (reference section 8.3)."""
+
+    SHADOW = "shadow"
+    PENDING = "pending"
+    APPLIED = "applied"
+    FAILED = "failed"
+    REJECTED = "rejected"
+
+
+STATUS_SHADOW = CommandStatus.SHADOW
+STATUS_PENDING = CommandStatus.PENDING
+STATUS_APPLIED = CommandStatus.APPLIED
+STATUS_FAILED = CommandStatus.FAILED
+STATUS_REJECTED = CommandStatus.REJECTED
 
 
 def reads_back(command: Command, observed: Observed) -> bool | None:
@@ -81,7 +89,7 @@ class _Record:
             status=str(doc["status"]),
             reason=doc.get("reason"),
             detail=doc.get("detail"),
-            sent_at=dt_util.parse_datetime(sent_at) if sent_at else None,
+            sent_at=datetime.fromisoformat(sent_at) if sent_at else None,
         )
 
 
@@ -171,6 +179,14 @@ class Commands:
             elif now >= record.sent_at + self.window:
                 record.status = STATUS_FAILED
                 record.reason = REASON_NOT_APPLIED
+                if (
+                    observed.status_at is None
+                    or observed.status_at < record.sent_at
+                ):
+                    # Judged on a status from before the send: say so.
+                    record.detail = (
+                        "the heater reported no status after it was sent"
+                    )
                 changed = True
         return changed
 

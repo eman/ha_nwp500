@@ -1,7 +1,5 @@
 """The simulator's button: calibrate the heater's parameters now."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, override
 
 from homeassistant.components.button import ButtonEntity
@@ -25,7 +23,6 @@ class SimulatorCalibrateButton(NWP500Entity, ButtonEntity):  # type: ignore[repo
     """
 
     _attr_entity_category = EntityCategory.CONFIG
-    _attr_icon = "mdi:tune-variant"
 
     def __init__(
         self, feature: SimulatorFeature, runner: SimulatorRunner

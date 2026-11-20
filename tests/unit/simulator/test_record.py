@@ -325,3 +325,32 @@ async def test_the_coordinator_hands_raw_statuses_to_the_loop(
     )
     await hass.async_block_till_done()
     assert len(got) == 1
+
+
+async def test_a_read_given_sizes_takes_the_files_as_they_were(
+    hass: HomeAssistant,
+):
+    """A fit reads for minutes while the record goes on being written.
+
+    It takes the statuses whole when it began, and none appended since:
+    not a member half-appended, nor statuses past its inputs' end.
+    """
+    record = _record(hass)
+    await record.async_load()
+    record.add_status(T0, status_dict())
+    await record.async_flush(T0 + FLUSH_EVERY)
+    sizes = await record.async_sizes()
+
+    record.add_status(T0 + timedelta(minutes=20), status_dict(dhwUse=2))
+    await record.async_flush(T0 + 2 * FLUSH_EVERY)
+    statuses = simulator_record_directory(hass, "entry1") / "aabbccddeeff"
+    (path,) = (statuses / "statuses").glob("*.jsonl.gz")
+    with path.open("ab") as f:
+        f.write(gzip.compress(b'{"half": ')[:12])
+
+    then = await hass.async_add_executor_job(
+        lambda: list(record.readings(T0, sizes))
+    )
+    now = await hass.async_add_executor_job(lambda: list(record.readings(T0)))
+    assert [at for at, _ in then] == [T0]
+    assert [at for at, _ in now] == [T0, T0 + timedelta(minutes=20)]

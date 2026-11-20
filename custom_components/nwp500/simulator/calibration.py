@@ -26,8 +26,6 @@ One heater is fitted at a time, across config entries: a fit holds the
 history in memory.
 """
 
-from __future__ import annotations
-
 import asyncio
 import contextlib
 import dataclasses
@@ -35,7 +33,7 @@ import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import partial
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -51,7 +49,7 @@ from nwp500.sim.params import (
 )
 from nwp500.sim_home_assistant import (
     Entities,
-    HomeAssistantClient,
+    HistoryClient,
     HomeAssistantError,
     read_heater_history,
     record_inputs,
@@ -294,14 +292,12 @@ class SimulatorCalibration:
         try:
             if heater_record is not None and record_from is not None:
                 start = record_from
-                client = cast(
-                    "HomeAssistantClient",
-                    RecordClient(self.hass, heater_record),
-                )
+                client: HistoryClient = RecordClient(self.hass, heater_record)
                 record = await record_inputs(client, inputs, start, now)
+                sizes = await heater_record.async_sizes()
                 calibrate = partial(
                     sim_calibrate.calibrate,
-                    heater_record.readings(start),
+                    heater_record.readings(start, sizes),
                     record=record,
                     params=base,
                     keep_better=kept is not None,
@@ -311,7 +307,7 @@ class SimulatorCalibration:
                     "Home Assistant's recorder isn't running"
                 )
             else:
-                client = cast("HomeAssistantClient", InProcessClient(self.hass))
+                client = InProcessClient(self.hass)
                 history = await read_heater_history(client, heater, start, now)
                 record = await record_inputs(client, inputs, start, now)
                 calibrate = partial(
@@ -384,6 +380,14 @@ class SimulatorCalibration:
         record["error"] = error
         self._records[mac_address] = record
         self.hass.async_create_task(self._async_save())
+        self._notify()
+
+    async def async_forget(self, mac_address: str) -> None:
+        """Drop a heater no longer on the account."""
+        if self._records.pop(mac_address, None) is None:
+            return
+        self._params.pop(mac_address, None)
+        await self._async_save()
         self._notify()
 
     async def _async_save(self) -> None:

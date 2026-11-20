@@ -16,9 +16,9 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
-    DATA_SIMULATOR,
     DOMAIN,
 )
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator import (
     SimulatorFeature,
     async_setup_simulator,
@@ -61,9 +61,10 @@ def entry(hass: HomeAssistant) -> MockConfigEntry:
 async def started(
     hass: HomeAssistant, entry: MockConfigEntry, coordinator: MagicMock
 ) -> SimulatorFeature:
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_simulator(hass, entry, coordinator)
     await hass.async_block_till_done()
-    return hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR]
+    return entry.runtime_data.simulator
 
 
 @pytest.mark.asyncio
@@ -78,12 +79,13 @@ async def test_setup_starts_a_runner_per_heater(
     assert runner.answer is not None and runner.answer.ok
 
     await async_unload_simulator(hass, entry)
-    assert DATA_SIMULATOR not in hass.data[DOMAIN][entry.entry_id]
+    assert entry.runtime_data.simulator is None
     assert coordinator.listeners == []
 
 
 @pytest.mark.asyncio
 async def test_unload_without_a_feature_is_a_no_op(hass: HomeAssistant, entry):
+    entry.runtime_data = NWP500Data(MagicMock())
     await async_unload_simulator(hass, entry)
 
 
@@ -433,15 +435,17 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
 ):
     from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-    from custom_components.nwp500 import sensor as sensor_platform
+    from custom_components.nwp500 import (
+        sensor as sensor_platform,
+    )
     from custom_components.nwp500.const import simulator_started_signal
 
-    entry.runtime_data = coordinator
+    entry.runtime_data = NWP500Data(coordinator)
     coordinator.data[MAC]["device"].device_info.mac_address = MAC
     added: list[list] = []
     with (
-        patch.object(sensor_platform, "SENSOR_CONFIGS", {}),
-        patch.object(sensor_platform, "INSTALLER_DIAGNOSTICS_SENSORS", {}),
+        patch.object(sensor_platform, "SENSOR_DESCRIPTIONS", ()),
+        patch.object(sensor_platform, "INSTALLER_DIAGNOSTICS_DESCRIPTIONS", ()),
     ):
         coordinator.supports_recirculation_schedule = MagicMock(
             return_value=False

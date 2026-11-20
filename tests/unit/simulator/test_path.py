@@ -25,16 +25,19 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.setup import async_setup_component
 from homeassistant.util.unit_system import METRIC_SYSTEM
 from nwp500 import sim
+from nwp500.sim.result import CHAINED
 from pytest_homeassistant.common import MockConfigEntry
 
-from custom_components.nwp500 import simulator_ws
+from custom_components.nwp500 import (
+    simulator_ws,
+)
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
-    DATA_SIMULATOR,
     DOMAIN,
     simulator_started_signal,
 )
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator import (
     SimulatorFeature,
     async_setup_simulator,
@@ -42,7 +45,6 @@ from custom_components.nwp500.simulator import (
     create_simulator_sensors,
 )
 from custom_components.nwp500.simulator.runner import (
-    CHAINED,
     Answer,
     SimulatorRunner,
     answer_from,
@@ -67,14 +69,15 @@ async def feature(
     )
     entry.add_to_hass(hass)
     entry.mock_state(hass, ConfigEntryState.LOADED)
-    entry.runtime_data = coordinator
+    entry.runtime_data = NWP500Data(coordinator)
     coordinator.entry = entry
     dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, MAC)}
     )
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_simulator(hass, entry, coordinator)
     await hass.async_block_till_done()
-    yield hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR]
+    yield entry.runtime_data.simulator
     await async_unload_simulator(hass, entry)
 
 
@@ -524,26 +527,3 @@ async def test_an_element_inside_a_longer_compressor_run_ends_nothing(
     assert answer.end == later.end
     assert answer.stop == "cap"
     assert answer.energy_kwh == 1.6
-
-
-async def test_a_write_that_ends_a_heating_at_its_new_setpoint_is_at_temperature(
-    hass: HomeAssistant, feature: SimulatorFeature
-):
-    from custom_components.nwp500.simulator.runner import _at_temperature
-
-    runner = feature.runners[MAC]
-    _, result = await walked(runner)
-    (template,) = result.heating[:1]
-    write = replace(template, stop="write")
-    reached = replace(
-        result,
-        simulation=replace(result.simulation, reached=[(write.end, 140.0)]),
-    )
-    short = replace(result, simulation=replace(result.simulation, reached=[]))
-
-    # The library counts it reached: the tank was at the new setpoint.
-    assert _at_temperature(reached, write)
-    assert not _at_temperature(short, write)
-    assert not _at_temperature(reached, replace(write, stop="mode"))
-    # Inside a TOU period the heater's own target is its cap's.
-    assert _at_temperature(short, replace(write, stop="cap"))

@@ -15,8 +15,6 @@ A weather entity's forecast is its `weather.get_forecasts` answer, as the
 REST client reads it.
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -44,7 +42,7 @@ from nwp500.sim_home_assistant import (
 )
 
 if TYPE_CHECKING:
-    from .record import HeaterRecord
+    from .record import HeaterRecord, Sizes
 
 
 class RecordClient:
@@ -71,9 +69,10 @@ class RecordClient:
         if not names:
             return History({}, {})
         try:
+            sizes = await self._record.async_sizes()
             # Read and parsed off the event loop: weeks of changes.
             return await self._hass.async_add_executor_job(
-                self._history, names, start, end
+                self._history, names, start, end, sizes
             )
         except HomeAssistantError:
             raise
@@ -83,9 +82,13 @@ class RecordClient:
             ) from err
 
     def _history(
-        self, names: list[str], start: datetime, end: datetime
+        self,
+        names: list[str],
+        start: datetime,
+        end: datetime,
+        sizes: Sizes,
     ) -> History:
-        doc = self._record.history_document(names, start, end)
+        doc = self._record.history_document(names, start, end, sizes)
         return history_from_document(doc, names, end)
 
 

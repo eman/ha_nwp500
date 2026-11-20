@@ -6,19 +6,19 @@ names are checked in `evaluate.py`; the superseded check needs the plan in
 force and is made by the device controller.
 """
 
-from __future__ import annotations
-
 import json
 import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Any
 
+from nwp500.heater import COMMAND_KEYS, COMMAND_KEYS_ONLY_WITH, COMMAND_RANGES
 from nwp500.temperature import HalfCelsius
 
-from ..const import CONTROL_MODE_NAMES
+from ..vocabulary import CONTROL_MODE_NAMES
 
 # Protocol 1 is the document format of the revised protocol 0, with the
 # compatibility promises of spec section 1.3. Protocol 0 documents are still
@@ -28,7 +28,7 @@ SUPPORTED_PROTOCOLS: tuple[str, ...] = ("1", "0")
 # (spec section 4.1), so a consumer can check that a minor version's keys
 # are honoured before relying on them. A feature that knew only 1.0 would
 # keep 1.1's keys as opaque.
-PROTOCOL_VERSIONS: tuple[str, ...] = ("1.3", "0")
+PROTOCOL_VERSIONS: tuple[str, ...] = ("1.4", "0")
 # A major version, and optionally a minor one: "1" or "1.1". The schema
 # carries the same pattern.
 _PROTOCOL_PATTERN = re.compile(r"[0-9]+(\.[0-9]+)?")
@@ -39,26 +39,41 @@ ITEM_ID_MAX_LENGTH = 64
 # How far either side of a document's times planning may reach.
 _MARGIN = timedelta(days=8)
 
-# Document-level rejection reasons (spec section 3.5).
-REASON_INVALID_DOCUMENT = "invalid_document"
-REASON_UNSUPPORTED_PROTOCOL = "unsupported_protocol"
-REASON_DUPLICATE_ID = "duplicate_id"
-REASON_UNORDERED_SEGMENTS = "unordered_segments"
-REASON_MODE_NOT_ALLOWED = "mode_not_allowed"
-REASON_SUPERSEDED = "superseded"
-# A command rejected on its own; the plan proceeds (section 3.7).
-REASON_INVALID_COMMAND = "invalid_command"
-REASON_UNSUPPORTED_COMMAND = "unsupported_command"
 
-# Device commands (protocol 1.3, section 3.7): each one's own keys, all
-# required. Anti-Legionella's period is given only when switching it on.
-COMMAND_KEYS: dict[str, dict[str, type]] = {
-    "vacation": {"days": int},
-    "power": {"on": bool},
-    "anti_legionella": {"enabled": bool, "period_days": int},
-    "tou": {"enabled": bool},
-    "demand_response": {"enabled": bool},
-}
+class RejectReason(StrEnum):
+    """Why a whole document is rejected (reference section 4.1)."""
+
+    INVALID_DOCUMENT = "invalid_document"
+    UNSUPPORTED_PROTOCOL = "unsupported_protocol"
+    DUPLICATE_ID = "duplicate_id"
+    UNORDERED_SEGMENTS = "unordered_segments"
+    MODE_NOT_ALLOWED = "mode_not_allowed"
+    # A segment's setpoint is outside the heater's own range (protocol 1.4).
+    SETPOINT_OUT_OF_RANGE = "setpoint_out_of_range"
+    SUPERSEDED = "superseded"
+
+
+class CommandRejectReason(StrEnum):
+    """Why one command is rejected; the plan proceeds (section 4.2)."""
+
+    INVALID_COMMAND = "invalid_command"
+    UNSUPPORTED_COMMAND = "unsupported_command"
+
+
+REASON_INVALID_DOCUMENT = RejectReason.INVALID_DOCUMENT
+REASON_UNSUPPORTED_PROTOCOL = RejectReason.UNSUPPORTED_PROTOCOL
+REASON_DUPLICATE_ID = RejectReason.DUPLICATE_ID
+REASON_UNORDERED_SEGMENTS = RejectReason.UNORDERED_SEGMENTS
+REASON_MODE_NOT_ALLOWED = RejectReason.MODE_NOT_ALLOWED
+REASON_SETPOINT_OUT_OF_RANGE = RejectReason.SETPOINT_OUT_OF_RANGE
+REASON_SUPERSEDED = RejectReason.SUPERSEDED
+REASON_INVALID_COMMAND = CommandRejectReason.INVALID_COMMAND
+REASON_UNSUPPORTED_COMMAND = CommandRejectReason.UNSUPPORTED_COMMAND
+
+# Device commands (protocol 1.3, section 3.7) are the library's heater
+# description (`nwp500.heater`): each one's own keys, all required unless
+# given only with another's value (Anti-Legionella's period, only when
+# switching it on), and the whole-number keys' ranges, inclusive.
 
 # A command's own keys on the acknowledgement. An opaque key with one of
 # these names is not echoed: `detail` is set only on some commands, and an
@@ -183,13 +198,6 @@ class Plan:
     segments: tuple[Segment, ...]
     extra: dict[str, Any] = field(default_factory=dict)
     commands: tuple[Command, ...] = ()
-
-    def next_segment_after(self, when: datetime) -> Segment | None:
-        """The first segment that starts after `when`."""
-        for segment in self.segments:
-            if segment.start > when:
-                return segment
-        return None
 
     def as_document(self) -> dict[str, Any]:
         """The plan as a document, for storage."""
@@ -391,13 +399,15 @@ def _command_problem(
     if keys is None:
         return REASON_UNSUPPORTED_COMMAND, f"command {name!r} is not supported"
     required = dict(keys)
-    if name == "anti_legionella" and raw.get("enabled") is not True:
-        del required["period_days"]
-        if "period_days" in raw:
-            return (
-                REASON_INVALID_COMMAND,
-                "period_days is given only with enabled true",
+    for key, needs in COMMAND_KEYS_ONLY_WITH.get(name, {}).items():
+        if all(raw.get(k) is v for k, v in needs.items()):
+            continue
+        del required[key]
+        if key in raw:
+            given = " and ".join(
+                f"{k} {json.dumps(v)}" for k, v in needs.items()
             )
+            return REASON_INVALID_COMMAND, f"{key} is given only with {given}"
     for key, kind in required.items():
         if key not in raw:
             return REASON_INVALID_COMMAND, f"{name} lacks {key}"
@@ -406,6 +416,13 @@ def _command_problem(
                 REASON_INVALID_COMMAND,
                 f"{name} {key} must be {'a whole number' if kind is int else 'true or false'}",
             )
+        if (limits := COMMAND_RANGES.get(name, {}).get(key)) is not None:
+            low, high = limits
+            if not low <= raw[key] <= high:
+                return (
+                    REASON_INVALID_COMMAND,
+                    f"{name} {key} must be from {low} to {high}",
+                )
     return None
 
 

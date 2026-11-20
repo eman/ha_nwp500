@@ -11,7 +11,15 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.nwp500 import (
+from custom_components.nwp500.const import (
+    DEFAULT_TEMPERATURE_F,
+    DOMAIN,
+)
+from custom_components.nwp500.coordinator import (
+    NWP500Data,
+    NWP500DataUpdateCoordinator,
+)
+from custom_components.nwp500.services import (
     ATTR_DAYS,
     ATTR_DEVICE_ID,
     ATTR_ENABLED,
@@ -42,15 +50,10 @@ from custom_components.nwp500 import (
     SERVICE_TRIGGER_RECIRCULATION,
     SERVICE_UPDATE_RESERVATIONS,
     SERVICE_UPDATE_RESERVATIONS_SCHEMA,
-    _async_setup_services,
     _merge_reservation_entry,
+    async_setup_services,
     validate_reservation_temperature,
 )
-from custom_components.nwp500.const import (
-    DEFAULT_TEMPERATURE_F,
-    DOMAIN,
-)
-from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
 
 
 def _echoed_writes(lock: asyncio.Lock | None = None) -> AsyncMock:
@@ -75,7 +78,7 @@ def stage_coordinator(mock_hass, coordinator):
     """
     entry = MagicMock()
     entry.state = ConfigEntryState.LOADED
-    entry.runtime_data = coordinator
+    entry.runtime_data = NWP500Data(coordinator)
     mock_hass.config_entries.async_entries = MagicMock(return_value=[entry])
     return entry
 
@@ -149,7 +152,7 @@ class TestReservationServices:
     @pytest.mark.asyncio
     async def test_setup_services_registers_all(self, mock_hass):
         """Test that all 23 services are registered."""
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         assert mock_hass.services.async_register.call_count == 23
 
@@ -176,15 +179,6 @@ class TestReservationServices:
         assert SERVICE_RESET_CONDENSER_FAULT in registered_services
 
     @pytest.mark.asyncio
-    async def test_setup_services_skips_if_already_registered(self, mock_hass):
-        """Test that services are not registered twice."""
-        mock_hass.services.has_service = MagicMock(return_value=True)
-
-        await _async_setup_services(mock_hass)
-
-        mock_hass.services.async_register.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_set_reservation_builds_entry_correctly(
         self, mock_hass, mock_device_registry
     ):
@@ -202,7 +196,11 @@ class TestReservationServices:
         mock_coordinator.reservation_schedules = {
             "AA:BB:CC:DD:EE:FF": {"reservation": []}
         }
-        mock_coordinator._reservation_lock = (
+        # set_reservation reads the device's list before every write.
+        mock_coordinator.async_fetch_reservations = AsyncMock(
+            return_value={"reservation": []}
+        )
+        mock_coordinator.reservation_lock = (
             asyncio.Lock()
         )  # Add lock for async context
         mock_coordinator.async_write_reservations = _echoed_writes()
@@ -216,7 +214,7 @@ class TestReservationServices:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         # Get the set_reservation handler
         set_reservation_handler = None
@@ -296,7 +294,7 @@ class TestReservationServices:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         # Get the set_reservation handler
         set_reservation_handler = None
@@ -362,7 +360,7 @@ class TestReservationServices:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         set_reservation_handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -398,7 +396,7 @@ class TestReservationServices:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         set_reservation_handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -442,7 +440,11 @@ class TestReservationServices:
         mock_coordinator.reservation_schedules = {
             "AA:BB:CC:DD:EE:FF": {"reservation": []}
         }
-        mock_coordinator._reservation_lock = (
+        # set_reservation reads the device's list before every write.
+        mock_coordinator.async_fetch_reservations = AsyncMock(
+            return_value={"reservation": []}
+        )
+        mock_coordinator.reservation_lock = (
             asyncio.Lock()
         )  # Add lock for async context
         mock_coordinator.async_write_reservations = _echoed_writes()
@@ -456,7 +458,7 @@ class TestReservationServices:
             return_value=True
         )
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         set_reservation_handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -494,9 +496,9 @@ class TestReservationServices:
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.reservation_lock = asyncio.Lock()
         mock_coordinator.async_write_reservations = _echoed_writes(
-            mock_coordinator._reservation_lock
+            mock_coordinator.reservation_lock
         )
         stage_coordinator(mock_hass, mock_coordinator)
 
@@ -504,7 +506,7 @@ class TestReservationServices:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         clear_handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -538,7 +540,7 @@ class TestReservationServices:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         request_handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -563,9 +565,9 @@ class TestReservationServices:
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.reservation_lock = asyncio.Lock()
         mock_coordinator.async_write_reservations = _echoed_writes(
-            mock_coordinator._reservation_lock
+            mock_coordinator.reservation_lock
         )
         stage_coordinator(mock_hass, mock_coordinator)
 
@@ -573,7 +575,7 @@ class TestReservationServices:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         update_handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -617,13 +619,13 @@ class TestReservationWritesAreConfirmed:
         mock_coordinator = MagicMock(spec=NWP500DataUpdateCoordinator)
         mock_coordinator.unit_change_in_progress = False
         mock_coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
-        mock_coordinator._reservation_lock = asyncio.Lock()
+        mock_coordinator.reservation_lock = asyncio.Lock()
         mock_coordinator.async_write_reservations = write
         stage_coordinator(mock_hass, mock_coordinator)
         device_entry = MagicMock()
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
         handler = next(
             c[0][2]
             for c in mock_hass.services.async_register.call_args_list
@@ -716,7 +718,7 @@ class TestReservationWritesAreConfirmed:
 
         mock_device_registry.async_get = MagicMock(return_value=None)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         request_handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -727,8 +729,14 @@ class TestReservationWritesAreConfirmed:
         call = MagicMock(spec=ServiceCall)
         call.data = {ATTR_DEVICE_ID: "unknown_device"}
 
-        with pytest.raises(HomeAssistantError, match="not found"):
+        from homeassistant.exceptions import ServiceValidationError
+
+        with pytest.raises(ServiceValidationError) as err:
             await request_handler(call)
+        assert err.value.translation_key == "heater_not_found"
+        assert err.value.translation_placeholders == {
+            "target": "unknown_device"
+        }
 
 
 class TestTouAndVacationServices:
@@ -754,7 +762,7 @@ class TestTouAndVacationServices:
         """Test set_vacation_days calls coordinator with correct args."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -778,7 +786,7 @@ class TestTouAndVacationServices:
         """Test set_vacation_days raises HomeAssistantError on failure."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -802,7 +810,7 @@ class TestTouAndVacationServices:
             return_value=True
         )
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -857,7 +865,7 @@ class TestTouAndVacationServices:
             return_value=False
         )
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -894,7 +902,7 @@ class TestTouAndVacationServices:
             return_value=True
         )
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -920,7 +928,7 @@ class TestTouAndVacationServices:
             return_value=False
         )
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -956,7 +964,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test enable_demand_response calls coordinator."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -979,7 +987,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test enable_demand_response raises HomeAssistantError on failure."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1000,7 +1008,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test disable_demand_response calls coordinator."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1023,7 +1031,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test disable_demand_response raises HomeAssistantError on failure."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1044,7 +1052,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test reset_air_filter calls coordinator."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1067,7 +1075,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test reset_air_filter raises HomeAssistantError on failure."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1088,7 +1096,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test set_recirculation_mode calls coordinator with correct mode."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1111,7 +1119,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test set_recirculation_mode raises HomeAssistantError on failure."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1132,7 +1140,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test trigger_recirculation calls coordinator."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=True)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1155,7 +1163,7 @@ class TestDemandResponseAndRecirculationServices:
     ):
         """Test trigger_recirculation raises HomeAssistantError on failure."""
         self.mock_coordinator.async_send_command = AsyncMock(return_value=False)
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         handler = None
         for call in mock_hass.services.async_register.call_args_list:
@@ -1369,7 +1377,7 @@ class TestSetReservationRefusesUnfetchedWrite:
         coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         coordinator.device_features = {}
         coordinator.reservation_schedules = {}  # never fetched
-        coordinator._reservation_lock = asyncio.Lock()
+        coordinator.reservation_lock = asyncio.Lock()
         coordinator.async_write_reservations = _echoed_writes()
         coordinator.async_request_reservations = AsyncMock(return_value=True)
         coordinator.async_fetch_reservations = AsyncMock(
@@ -1393,7 +1401,7 @@ class TestSetReservationRefusesUnfetchedWrite:
 
     @staticmethod
     async def _handler(mock_hass):
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
         for registered in mock_hass.services.async_register.call_args_list:
             if registered[0][1] == SERVICE_SET_RESERVATION:
                 return registered[0][2]
@@ -1460,7 +1468,7 @@ class TestSetReservationPreservesGlobalSwitch:
         coordinator.data = {"AA:BB:CC:DD:EE:FF": {}}
         coordinator.device_features = {}
         coordinator.reservation_schedules = {"AA:BB:CC:DD:EE:FF": schedule}
-        coordinator._reservation_lock = asyncio.Lock()
+        coordinator.reservation_lock = asyncio.Lock()
         coordinator.async_write_reservations = _echoed_writes()
         coordinator.async_request_reservations = AsyncMock(return_value=True)
         coordinator.async_fetch_reservations = AsyncMock(return_value=schedule)
@@ -1473,7 +1481,7 @@ class TestSetReservationPreservesGlobalSwitch:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
         handler = None
         for registered in mock_hass.services.async_register.call_args_list:
             if registered[0][1] == SERVICE_SET_RESERVATION:
@@ -1492,6 +1500,50 @@ class TestSetReservationPreservesGlobalSwitch:
         }
         await handler(call)
         return coordinator
+
+    @pytest.mark.asyncio
+    async def test_writes_from_a_fresh_read_not_the_cache(
+        self, mock_hass, mock_device_registry
+    ):
+        """An entry added since the cached read (e.g. in the app) is kept."""
+        cached = {"reservation": [], "reservation_use": 2}
+        app_entry = {
+            "enable": 2,
+            "week": 2,
+            "hour": 22,
+            "min": 0,
+            "mode": 1,
+            "param": 100,
+        }
+        coordinator = self._coordinator(mock_hass, cached)
+        coordinator.async_fetch_reservations = AsyncMock(
+            return_value={"reservation": [app_entry], "reservation_use": 2}
+        )
+        stage_coordinator(mock_hass, coordinator)
+        device_entry = MagicMock()
+        device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
+        mock_device_registry.async_get = MagicMock(return_value=device_entry)
+        async_setup_services(mock_hass)
+        handler = next(
+            r[0][2]
+            for r in mock_hass.services.async_register.call_args_list
+            if r[0][1] == SERVICE_SET_RESERVATION
+        )
+        call = MagicMock(spec=ServiceCall)
+        call.data = {
+            ATTR_DEVICE_ID: "device_123",
+            ATTR_ENABLED: True,
+            ATTR_DAYS: ["Monday"],
+            ATTR_HOUR: 6,
+            ATTR_MINUTE: 30,
+            ATTR_OP_MODE: "energy_saver",
+            ATTR_TEMPERATURE: 140,
+        }
+        await handler(call)
+
+        args, kwargs = coordinator.async_write_reservations.call_args
+        written = kwargs.get("reservations", args[1] if len(args) > 1 else None)
+        assert app_entry in written
 
     @pytest.mark.asyncio
     async def test_keeps_the_switch_off_when_device_has_it_off(
@@ -1563,7 +1615,7 @@ class TestEnergyUsageService:
         """Home Assistant refuses to return data from a plain service."""
         from homeassistant.core import SupportsResponse
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         for call in mock_hass.services.async_register.call_args_list:
             if call[0][1] == SERVICE_GET_ENERGY_USAGE:
@@ -1595,7 +1647,7 @@ class TestEnergyUsageService:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
         handler = self._handler(mock_hass)
         assert handler is not None
 
@@ -1625,7 +1677,7 @@ class TestEnergyUsageService:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
         handler = self._handler(mock_hass)
 
         call = MagicMock(spec=ServiceCall)
@@ -1647,7 +1699,7 @@ class TestEnergyUsageService:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
         handler = self._handler(mock_hass)
 
         call = MagicMock(spec=ServiceCall)
@@ -1699,7 +1751,7 @@ class TestUnitSystemChangeGuard:
         device_entry.identifiers = {(DOMAIN, "AA:BB:CC:DD:EE:FF")}
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
-        await _async_setup_services(mock_hass)
+        async_setup_services(mock_hass)
 
         for call in mock_hass.services.async_register.call_args_list:
             if call[0][1] == service_name:
@@ -1778,7 +1830,7 @@ class TestNwp500Python940Services:
         mock_device_registry.async_get = MagicMock(return_value=device_entry)
 
     async def _handler(self, service_name):
-        await _async_setup_services(self.mock_hass)
+        async_setup_services(self.mock_hass)
         for call in self.mock_hass.services.async_register.call_args_list:
             if call[0][1] == service_name:
                 return call[0][2]
@@ -1929,3 +1981,49 @@ class TestNwp500Python940Services:
             SERVICE_GET_ENERGY_USAGE_SCHEMA(
                 {ATTR_DEVICE_ID: "device_123", "years": [2026], **period}
             )
+
+
+class TestActionTargets:
+    """A target's ids arrive as lists: one heater is taken as itself."""
+
+    def test_a_target_device_is_one_device(self):
+        validated = SERVICE_GET_ENERGY_USAGE_SCHEMA({"device_id": ["abc"]})
+        assert validated["device_id"] == "abc"
+
+    def test_a_target_entity_is_one_entity(self):
+        validated = SERVICE_GET_ENERGY_USAGE_SCHEMA(
+            {"entity_id": ["water_heater.heater"]}
+        )
+        assert validated["entity_id"] == "water_heater.heater"
+
+    def test_a_plain_id_still_works(self):
+        validated = SERVICE_GET_ENERGY_USAGE_SCHEMA({"device_id": "abc"})
+        assert validated["device_id"] == "abc"
+
+    @pytest.mark.parametrize("ids", [[], ["a", "b"]])
+    def test_a_target_must_name_one_heater(self, ids):
+        with pytest.raises(vol.Invalid, match="one water heater"):
+            SERVICE_GET_ENERGY_USAGE_SCHEMA({"device_id": ids})
+
+
+@pytest.mark.asyncio
+async def test_an_action_for_a_heater_not_loaded_is_the_callers_mistake(
+    mock_hass, mock_device_registry
+):
+    from homeassistant.exceptions import ServiceValidationError
+
+    from custom_components.nwp500.services import NWP500ServiceHandler
+
+    device = MagicMock(name_by_user=None, identifiers={("nwp500", "aabb")})
+    device.name = "Garage heater"
+    mock_device_registry.async_get.return_value = device
+    mock_hass.config_entries.async_entries = MagicMock(return_value=[])
+    call = MagicMock(spec=ServiceCall)
+    call.data = {"device_id": "abc"}
+
+    handler = NWP500ServiceHandler(mock_hass)
+    with pytest.raises(ServiceValidationError) as err:
+        await handler._get_coordinator_and_mac(call)
+
+    assert err.value.translation_key == "heater_not_loaded"
+    assert err.value.translation_placeholders == {"device": "Garage heater"}

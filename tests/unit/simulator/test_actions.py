@@ -24,9 +24,14 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
-    DATA_SIMULATOR,
     DOMAIN,
 )
+from custom_components.nwp500.control.capabilities import (
+    NEAR_TERM_LEAD,
+    WAKE_AFTER,
+)
+from custom_components.nwp500.control.entries import near_term_minute
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator import (
     async_setup_simulator,
     async_unload_simulator,
@@ -47,9 +52,10 @@ async def runner(
         options={CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: {MAC: {}}},
     )
     entry.add_to_hass(hass)
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_simulator(hass, entry, coordinator)
     await hass.async_block_till_done()
-    yield hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR].runners[MAC]
+    yield entry.runtime_data.simulator.runners[MAC]
     await async_unload_simulator(hass, entry)
 
 
@@ -339,10 +345,52 @@ async def test_the_profile_is_the_tanks_the_scenario_gives(
     )
 
     params = walked(document)[1]
-    assert response["result"] == codec.to_document(
-        heater_profile(params.tank, params.readiness.line_f)
-    )
+    profile = heater_profile(params.tank, params.readiness.line_f)
+    assert response["result"] == codec.to_document(profile)
     assert response["result"]["tank_gal"] == 40.0
+    assert response["result"]["revision"] == profile.revision
+
+
+async def test_the_profile_is_the_named_heaters_setpoint_range(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    feature = runner.coordinator.device_features[runner.mac_address]
+    feature.dhw_temperature_min_raw = 81  # 104.9 °F
+    feature.dhw_temperature_max_raw = 120  # 140 °F
+
+    response = await service.async_heater_profile(hass, runner)
+
+    assert response["result"]["setpoint_f"]["max"] == pytest.approx(140.0)
+
+
+async def test_a_heater_range_the_library_cannot_model_fails_with_its_message(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    feature = runner.coordinator.device_features[runner.mac_address]
+    feature.dhw_temperature_min_raw = 10
+    feature.dhw_temperature_max_raw = 20
+
+    with pytest.raises(HomeAssistantError, match="setpoint range"):
+        await service.async_heater_profile(hass, runner)
+
+
+async def test_the_profiles_revision_moves_with_its_facts(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """A consumer re-reads the profile when its revision moves."""
+    document = await snapshot(hass, runner)
+    first = await service.async_heater_profile(
+        hass, runner, scenario=document, use_heater=False
+    )
+    again = await service.async_heater_profile(
+        hass, runner, scenario=document, use_heater=False
+    )
+    document["params"]["tank"]["volume_gal"] = 40.0
+    other = await service.async_heater_profile(
+        hass, runner, scenario=document, use_heater=False
+    )
+    assert first["result"]["revision"] == again["result"]["revision"]
+    assert first["result"]["revision"] != other["result"]["revision"]
 
 
 async def test_tou_periods_not_read_do_not_hold_an_answer_up(
@@ -423,3 +471,197 @@ async def test_empty_writes_clear_the_documents(
 
     setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
     assert not any(abs(value - 125.0) < 0.5 for value in setpoints)
+
+
+def _plan(start: datetime, *, setpoint_f: float = 125.0) -> dict[str, Any]:
+    """A plan: heat pump at 130 °F now, a setpoint half an hour in."""
+    return {
+        "protocol": "1",
+        "intent_id": "i-sim",
+        "issued_at": start.isoformat(),
+        "segments": [
+            {
+                "id": "now",
+                "start": start.isoformat(),
+                "mode": "heat_pump",
+                "setpoint_f": 130,
+            },
+            {
+                "id": "later",
+                "start": (start + timedelta(minutes=30)).isoformat(),
+                "setpoint_f": setpoint_f,
+            },
+        ],
+        "commands": [{"id": "t", "command": "tou", "enabled": False}],
+    }
+
+
+async def test_a_plan_is_walked_as_its_segments_writes(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, plan=_plan(start)
+    )
+
+    setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
+    assert any(abs(value - 125.0) < 0.5 for value in setpoints)
+    # In force at the start: applied once its near-term entry fires.
+    assert any(abs(value - 130.0) < 0.5 for value in setpoints)
+
+
+async def test_a_plans_commands_are_all_walked(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """Each kind, the last of it as adoption leaves it; TOU its own field."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["commands"] += [
+        {"id": "v1", "command": "vacation", "days": 2},
+        {"id": "v2", "command": "vacation", "days": 3},
+        {"id": "d", "command": "demand_response", "enabled": True},
+    ]
+
+    inputs = await service.async_inputs(
+        hass, runner, scenario=document, use_heater=False
+    )
+    walked = service._with_plan(inputs, service._parse_plan(plan, runner))
+
+    commands = walked.scenario.commands
+    assert commands.tou_enabled is False
+    assert commands.vacation is not None and commands.vacation.days == 3
+    assert commands.demand_response is not None
+    assert commands.demand_response.enabled is True
+    assert commands.power is None
+
+
+async def test_what_the_library_does_not_model_is_in_the_reasons(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["commands"].append(
+        {"id": "d", "command": "demand_response", "enabled": True}
+    )
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, plan=plan
+    )
+
+    assert "demand_response_not_modelled" in response["result"]["reasons"]
+
+
+async def test_segments_past_the_walk_are_left_out(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["segments"][1]["start"] = (start + timedelta(days=30)).isoformat()
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, hours=6, plan=plan
+    )
+
+    setpoints = [w["setpoint_f"] for w in response["result"]["writes"]]
+    assert not any(abs(value - 125.0) < 0.5 for value in setpoints)
+
+
+async def test_a_plan_the_adapter_would_reject_is_refused_with_its_reason(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["segments"][0]["mode"] = "vacation"
+
+    with pytest.raises(ServiceValidationError) as err:
+        await service.async_simulate(
+            hass, runner, scenario=document, use_heater=False, plan=plan
+        )
+    assert err.value.translation_key == "simulator_plan_rejected"
+    assert err.value.translation_placeholders["reason"] == "mode_not_allowed"
+
+
+async def test_the_segment_in_force_applies_when_its_near_term_entry_fires(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """Adopted at the walk's start: the entry fires once the lead allows."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, plan=_plan(start)
+    )
+
+    (now,) = [
+        w for w in response["result"]["writes"] if w.get("serves") == "now"
+    ]
+    assert datetime.fromisoformat(str(now["at"])) == near_term_minute(
+        start, NEAR_TERM_LEAD
+    )
+
+
+async def test_a_segment_within_the_lead_applies_the_lead_after_it_begins(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """As the engine asserts it, and the one in force is dropped for it."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    plan = _plan(start)
+    plan["segments"][1]["start"] = (start + timedelta(minutes=1)).isoformat()
+
+    response = await service.async_simulate(
+        hass, runner, scenario=document, use_heater=False, plan=plan
+    )
+
+    writes = {w["serves"]: w["at"] for w in response["result"]["writes"]}
+    # Its near-term entry fires at or after the in-force one's minute.
+    assert "now" not in writes
+    # From when the feature wakes for its start, as parsed: truncated to
+    # the minute. A minute past the lead, since it wakes just after.
+    begins = (start + timedelta(minutes=1)).replace(second=0, microsecond=0)
+    at = datetime.fromisoformat(str(writes["later"]))
+    assert at == near_term_minute(begins + WAKE_AFTER, NEAR_TERM_LEAD)
+    assert at == begins + timedelta(minutes=3)
+
+
+async def test_a_plan_outside_the_heaters_range_is_refused(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    """Checked against the named heater's range, as on publishing."""
+    document = await snapshot(hass, runner)
+    start = datetime.fromisoformat(document["scenario"]["start"])
+    feature = runner.coordinator.device_features[MAC]
+    feature.dhw_temperature_max_raw = 100  # 50 °C, 122 °F
+
+    with pytest.raises(ServiceValidationError) as err:
+        await service.async_simulate(
+            hass, runner, scenario=document, use_heater=False, plan=_plan(start)
+        )
+    assert err.value.translation_placeholders["reason"] == (
+        "setpoint_out_of_range"
+    )
+
+
+def test_a_plan_and_writes_together_are_refused():
+    import voluptuous as vol
+
+    from custom_components.nwp500.services import (
+        SERVICE_SIMULATE_SCHEMA,
+    )
+
+    with pytest.raises(vol.Invalid):
+        SERVICE_SIMULATE_SCHEMA(
+            {
+                "entity_id": "water_heater.heater",
+                "plan": {},
+                "writes": [
+                    {"at": "2026-11-19T12:00:00+00:00", "mode": "heat_pump"}
+                ],
+            }
+        )

@@ -6,22 +6,28 @@ names. The feature's entries each name one weekday, the one of the date
 they are meant for (spec section 5.2).
 """
 
-from __future__ import annotations
-
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, tzinfo
+from enum import StrEnum
 from typing import Any
 
 from nwp500.temperature import HalfCelsius
 
 from .. import schedule_state
-from ..const import RESERVATION_MODE_IDS
+from ..vocabulary import RESERVATION_MODE_IDS
 from .observed import DEVICE_BOOL_OFF, DEVICE_BOOL_ON
 
-# What an owned entry is for.
-KIND_PLAN = "plan"
-KIND_NEAR_TERM = "near_term"
+
+class EntryKind(StrEnum):
+    """What an entry of the feature's is for (reference section 7.1)."""
+
+    PLAN = "plan"
+    NEAR_TERM = "near_term"
+
+
+KIND_PLAN = EntryKind.PLAN
+KIND_NEAR_TERM = EntryKind.NEAR_TERM
 
 # Reservation bitfield: Sunday is bit 7, Saturday bit 1. Python's weekday()
 # has Monday as 0 and Sunday as 6.
@@ -124,25 +130,6 @@ def entry_slot(entry: Mapping[str, int]) -> tuple[int, int, int]:
 def slots_collide(a: tuple[int, int, int], b: tuple[int, int, int]) -> bool:
     """Whether two slots share a weekday and a minute."""
     return bool(a[0] & b[0]) and a[1:] == b[1:]
-
-
-def firings(
-    entry: Mapping[str, int], after: datetime, until: datetime, tz: tzinfo
-) -> list[datetime]:
-    """Each time a weekly device entry fires in (after, until]."""
-    result: list[datetime] = []
-    local_after = after.astimezone(tz)
-    local_until = until.astimezone(tz)
-    day = local_after.replace(hour=0, minute=0, second=0, microsecond=0)
-    while day <= local_until:
-        if int(entry.get("week", 0)) & week_bit(day):
-            fire = day.replace(
-                hour=int(entry["hour"]), minute=int(entry["min"])
-            )
-            if local_after < fire <= local_until:
-                result.append(fire)
-        day += timedelta(days=1)
-    return result
 
 
 def schedule_hash(schedule: Mapping[str, Any]) -> str:

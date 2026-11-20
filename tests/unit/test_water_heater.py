@@ -700,7 +700,10 @@ class TestNWP500WaterHeater:
         mock_device_status: MagicMock,
         mock_hass: MagicMock,
     ):
-        """Test current_operation returns unknown for unmapped value."""
+        """An unmapped setting (e.g. STANDBY) has no operation: None.
+
+        Not the string "unknown", which Home Assistant would show as a mode.
+        """
         # Set to unmapped operation setting value
         mock_device_status.dhw_operation_setting.value = 99
 
@@ -708,7 +711,83 @@ class TestNWP500WaterHeater:
         heater = NWP500WaterHeater(mock_coordinator, mac_address, mock_device)
         heater.hass = mock_hass
 
-        assert heater.current_operation == "unknown"
+        assert heater.current_operation is None
+
+
+class TestPreVacationMode:
+    """The saved mode lives only while the heater is in Vacation."""
+
+    @staticmethod
+    def _heater(mock_coordinator, mock_device, mock_hass):
+        heater = NWP500WaterHeater(
+            mock_coordinator, mock_device.device_info.mac_address, mock_device
+        )
+        heater.hass = mock_hass
+        heater.async_write_ha_state = MagicMock()
+        return heater
+
+    def test_a_vacation_that_ended_drops_the_saved_mode(
+        self, mock_coordinator, mock_device, mock_device_status, mock_hass
+    ):
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+        setting = mock_device_status.dhw_operation_setting
+        setting.value = DhwOperationSetting.VACATION
+        heater._pre_vacation_mode = STATE_HEAT_PUMP
+        heater._handle_coordinator_update()
+        assert heater._pre_vacation_mode == STATE_HEAT_PUMP
+
+        # Vacation runs out on its own; the user picks High Demand.
+        setting.value = DhwOperationSetting.HIGH_DEMAND
+        heater._handle_coordinator_update()
+        assert heater._pre_vacation_mode is None
+        assert "pre_vacation_mode" not in heater.extra_state_attributes
+
+    def test_a_vacation_started_elsewhere_keeps_the_mode_before_it(
+        self, mock_coordinator, mock_device, mock_device_status, mock_hass
+    ):
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+        setting = mock_device_status.dhw_operation_setting
+        setting.value = DhwOperationSetting.HIGH_DEMAND
+        heater._handle_coordinator_update()
+        setting.value = DhwOperationSetting.VACATION
+        heater._handle_coordinator_update()
+        assert heater.current_operation == STATE_HIGH_DEMAND
+
+    def test_a_status_before_the_vacation_starts_keeps_the_mode(
+        self, mock_coordinator, mock_device, mock_device_status, mock_hass
+    ):
+        """A status before the vacation starts keeps the saved mode.
+
+        Right after away mode is turned on, the heater still reports its
+        mode: that is not the end of a vacation.
+        """
+        heater = self._heater(mock_coordinator, mock_device, mock_hass)
+        mock_device_status.dhw_operation_setting.value = (
+            DhwOperationSetting.HEAT_PUMP
+        )
+        heater._pre_vacation_mode = STATE_HEAT_PUMP
+        heater._handle_coordinator_update()
+        assert heater._pre_vacation_mode == STATE_HEAT_PUMP
+
+
+@pytest.mark.asyncio
+async def test_set_temperature_with_a_mode_sets_both(
+    mock_coordinator, mock_device, mock_hass
+):
+    heater = NWP500WaterHeater(
+        mock_coordinator, mock_device.device_info.mac_address, mock_device
+    )
+    heater.hass = mock_hass
+    mock_hass.config.units.temperature_unit = UnitOfTemperature.FAHRENHEIT
+    heater._async_dispatch_command = AsyncMock()
+    heater.async_set_operation_mode = AsyncMock()
+    mock_coordinator.async_request_refresh = AsyncMock()
+
+    await heater.async_set_temperature(
+        temperature=130, operation_mode=STATE_HIGH_DEMAND
+    )
+
+    heater.async_set_operation_mode.assert_awaited_once_with(STATE_HIGH_DEMAND)
 
 
 class TestSetTemperatureRejectsBadInput:
@@ -860,11 +939,15 @@ class TestCommandFailuresAreReported:
         """
         heater = self._heater(mock_coordinator, mock_device, mock_hass)
         heater._pre_vacation_mode = STATE_ELECTRIC
+        # Asked again during a Vacation already seen.
+        heater._seen_vacation = True
 
         with pytest.raises(HomeAssistantError):
             await heater.async_turn_away_mode_on()
 
         assert heater._pre_vacation_mode == STATE_ELECTRIC
+        # So the Vacation's end still clears the saved mode.
+        assert heater._seen_vacation is True
 
     @pytest.mark.asyncio
     async def test_away_mode_off_failure_keeps_restore_mode(

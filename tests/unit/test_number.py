@@ -8,6 +8,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.number import (
     NWP500TargetTemperature,
     async_setup_entry,
@@ -35,7 +36,7 @@ class TestNWP500TargetTemperature:
             }
         }
 
-        mock_config_entry.runtime_data = mock_coordinator
+        mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
         entities_added = []
 

@@ -1,12 +1,13 @@
 """The Disable button (spec section 4.4)."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from homeassistant.components.button import ButtonEntity
 
-from ..const import CONF_CONTROL_MODE, CONTROL_MODE_DISABLED
+from ..vocabulary import (
+    CONF_CONTROL_MODE,
+    CONTROL_MODE_DISABLED,
+)
 from .entity import NWP500ControlEntity
 
 if TYPE_CHECKING:
@@ -19,8 +20,6 @@ class ControlDisableButton(NWP500ControlEntity, ButtonEntity):  # type: ignore[r
     The only control on the dashboard. Enabling and going live happen in
     the options flow.
     """
-
-    _attr_icon = "mdi:hand-back-left-off-outline"
 
     async def async_press(self) -> None:
         """Set the mode option; the entry reloads through its listener."""

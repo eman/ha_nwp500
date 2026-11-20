@@ -9,17 +9,22 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from nwp500.enums import DhwOperationSetting
 
-from .const import get_enum_value
 from .coordinator import (
     NWP500ConfigEntry,
     NWP500DataUpdateCoordinator,
 )
 from .entity import NWP500Entity
+from .vocabulary import (
+    get_enum_value,
+)
 
 if TYPE_CHECKING:
     from nwp500 import Device  # type: ignore[attr-defined]
 
 _LOGGER = logging.getLogger(__name__)
+
+# The period the switch sets when the heater reports none.
+DEFAULT_ANTI_LEGIONELLA_PERIOD_DAYS = 14
 
 
 async def async_setup_entry(
@@ -28,7 +33,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up switch entities from a config entry."""
-    coordinator = config_entry.runtime_data
+    coordinator = config_entry.runtime_data.coordinator
 
     entities: list[SwitchEntity] = []
     for mac_address, device_data in coordinator.data.items():
@@ -63,7 +68,6 @@ class NWP500PowerSwitch(NWP500Entity, SwitchEntity):  # type: ignore[reportIncom
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_power"
         self._attr_translation_key = "power"
-        self._attr_icon = "mdi:power"
 
     @property
     def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -106,7 +110,6 @@ class NWP500TOUOverrideSwitch(NWP500Entity, SwitchEntity):  # type: ignore[repor
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_tou"
         self._attr_translation_key = "tou"
-        self._attr_icon = "mdi:clock-time-four-outline"
 
     @property
     def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -143,7 +146,6 @@ class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[re
         super().__init__(coordinator, mac_address, device)
         self._attr_unique_id = f"{mac_address}_anti_legionella"
         self._attr_translation_key = "anti_legionella"
-        self._attr_icon = "mdi:bacteria-outline"
 
     @property
     def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -159,8 +161,19 @@ class NWP500AntiLegionellaSwitch(NWP500Entity, SwitchEntity):  # type: ignore[re
         return None
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        """Enable anti-legionella with default 14-day period."""
-        await self._async_send_command("enable_anti_legionella", period_days=14)
+        """Enable anti-legionella, keeping the heater's own period.
+
+        The default 14 days only when the heater reports none.
+        """
+        period = DEFAULT_ANTI_LEGIONELLA_PERIOD_DAYS
+        if status := self._status:
+            reported = getattr(status, "anti_legionella_period", None)
+            if isinstance(reported, int) and not isinstance(reported, bool):
+                if reported > 0:
+                    period = reported
+        await self._async_send_command(
+            "enable_anti_legionella", period_days=period
+        )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable anti-legionella."""

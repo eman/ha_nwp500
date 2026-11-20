@@ -6,7 +6,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.nwp500.coordinator import (
@@ -26,14 +26,26 @@ def mock_entry():
 
 @pytest.fixture
 def coordinator(mock_hass, mock_entry):
-    """Create NWP500DataUpdateCoordinator instance."""
-    with patch(
-        "custom_components.nwp500.coordinator.DataUpdateCoordinator.__init__"
+    """Create NWP500DataUpdateCoordinator instance.
+
+    One whose MQTT devices were started, as after a set-up that connected.
+    The base class is not initialised, so its shutdown is stubbed.
+    """
+    with (
+        patch(
+            "custom_components.nwp500.coordinator.DataUpdateCoordinator.__init__"
+        ),
+        patch(
+            "custom_components.nwp500.coordinator.DataUpdateCoordinator"
+            ".async_shutdown",
+            AsyncMock(),
+        ),
     ):
         coordinator = NWP500DataUpdateCoordinator(mock_hass, mock_entry)
         coordinator.hass = mock_hass
         coordinator.data = {}
-        return coordinator
+        coordinator._mqtt_started = True
+        yield coordinator
 
 
 def _make_disconnected_mqtt_manager(
@@ -45,21 +57,6 @@ def _make_disconnected_mqtt_manager(
     mgr.last_reconnect_time = time.time() + last_reconnect_offset
     mgr.force_reconnect = AsyncMock(return_value=True)
     return mgr
-
-
-def test_on_device_status_update_schedules_loop_task(coordinator, mock_hass):
-    """Test that _on_device_status_update schedules a task in the event loop."""
-    mac = "AA:BB:CC:DD:EE:FF"
-    status = MagicMock()
-
-    coordinator._on_device_status_update(mac, status)
-
-    # Verify call_soon_threadsafe was called with the handler
-    mock_hass.loop.call_soon_threadsafe.assert_called_once()
-    args = mock_hass.loop.call_soon_threadsafe.call_args[0]
-    assert args[0] == coordinator._handle_status_update_in_loop
-    assert args[1] == mac
-    assert args[2] == status
 
 
 def test_handle_status_update_in_loop(coordinator):
@@ -76,21 +73,6 @@ def test_handle_status_update_in_loop(coordinator):
     assert coordinator.data[mac]["status"] == status
     assert coordinator.data[mac]["last_update"] is not None
     coordinator.async_update_listeners.assert_called_once()
-
-
-def test_on_device_feature_update_schedules_loop_task(coordinator, mock_hass):
-    """Test that _on_device_feature_update schedules a task in the event loop."""
-    mac = "AA:BB:CC:DD:EE:FF"
-    feature = MagicMock()
-
-    coordinator._on_device_feature_update(mac, feature)
-
-    # Verify call_soon_threadsafe was called with the handler
-    mock_hass.loop.call_soon_threadsafe.assert_called_once()
-    args = mock_hass.loop.call_soon_threadsafe.call_args[0]
-    assert args[0] == coordinator._handle_feature_update_in_loop
-    assert args[1] == mac
-    assert args[2] == feature
 
 
 def test_handle_feature_update_in_loop(coordinator):
@@ -428,14 +410,20 @@ async def test_async_update_triggers_force_reconnect_after_request_timeouts(
     coordinator.mqtt_manager.force_reconnect = AsyncMock(return_value=True)
     coordinator._consecutive_timeouts = 2
     coordinator._reconnect_task = None
+    # The entry owns the reconnect, so an unload cancels it.
+    coordinator.entry.async_create_background_task = MagicMock(
+        side_effect=lambda _hass, coro, _name: asyncio.ensure_future(coro)
+    )
 
     mock_hass.config.units.temperature_unit = "°F"
     coordinator.unit_system = "us_customary"
 
     with patch("nwp500.unit_system.set_unit_system"):
         await coordinator._async_update_data()
+    await coordinator._reconnect_task
 
-    coordinator.mqtt_manager.force_reconnect.assert_called_once()
+    coordinator.entry.async_create_background_task.assert_called_once()
+    coordinator.mqtt_manager.force_reconnect.assert_awaited_once()
     assert coordinator._consecutive_timeouts == 0
 
 
@@ -636,7 +624,6 @@ def wired(coordinator):
         ("async_send_command", (MAC, "set_power")),
         ("async_request_reservations", (MAC,)),
         ("async_configure_tou_schedule", (MAC, [])),
-        ("async_request_device_info", (MAC,)),
     ],
 )
 @pytest.mark.asyncio
@@ -978,67 +965,6 @@ async def test_request_tou_settings_reports_a_failed_read(wired):
 
 
 # ---------------------------------------------------------------------------
-# async_request_device_info
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_targets_a_single_device(wired):
-    """A MAC argument narrows the request to that device alone."""
-    other = _device("11:22:33:44:55:66")
-    wired.devices = [wired._devices_by_mac[MAC], other]
-    wired._update_device_cache()
-
-    assert await wired.async_request_device_info(MAC) is True
-
-    wired.mqtt_manager.request_device_info.assert_awaited_once_with(
-        wired._devices_by_mac[MAC]
-    )
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_fans_out_when_no_mac_given(wired):
-    """Omitting the MAC requests info for every known device."""
-    other = _device("11:22:33:44:55:66")
-    wired.devices = [wired._devices_by_mac[MAC], other]
-    wired._update_device_cache()
-
-    assert await wired.async_request_device_info() is True
-    assert wired.mqtt_manager.request_device_info.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_unknown_mac_requests_nothing(wired):
-    """An unknown MAC must not silently fall back to broadcasting."""
-    assert await wired.async_request_device_info("99:99:99:99:99:99") is False
-    wired.mqtt_manager.request_device_info.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_survives_a_partial_failure(wired):
-    """One device failing does not abort the others, and still reports True."""
-    other = _device("11:22:33:44:55:66")
-    wired.devices = [wired._devices_by_mac[MAC], other]
-    wired._update_device_cache()
-    wired.mqtt_manager.request_device_info = AsyncMock(
-        side_effect=[RuntimeError("boom"), None]
-    )
-
-    assert await wired.async_request_device_info() is True
-    assert wired.mqtt_manager.request_device_info.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_request_device_info_reports_total_failure(wired):
-    """If every device errors the call reports failure rather than success."""
-    wired.mqtt_manager.request_device_info = AsyncMock(
-        side_effect=RuntimeError("boom")
-    )
-
-    assert await wired.async_request_device_info() is False
-
-
-# ---------------------------------------------------------------------------
 # async_fetch_reservations
 #
 # set_reservation does a read-modify-write against a full-list replacement,
@@ -1121,12 +1047,12 @@ async def test_fetch_reservations_removes_only_its_own_waiter(coordinator):
     coordinator.async_request_reservations = AsyncMock(return_value=True)
 
     other: asyncio.Future = asyncio.get_running_loop().create_future()
-    coordinator._reservation_waiters[MAC] = [other]
+    coordinator._reservation_waiters._waiting[MAC] = [other]
 
     assert await coordinator.async_fetch_reservations(MAC, timeout=0.01) is None
 
     # The unrelated waiter survives; only the timed-out one was removed.
-    assert coordinator._reservation_waiters[MAC] == [other]
+    assert coordinator._reservation_waiters._waiting[MAC] == [other]
 
 
 # ---------------------------------------------------------------------------
@@ -1142,7 +1068,7 @@ def test_reservation_update_caches_wakes_waiters_and_fires_event(
     loop = asyncio.new_event_loop()
     try:
         waiter: asyncio.Future = loop.create_future()
-        coordinator._reservation_waiters[MAC] = [waiter]
+        coordinator._reservation_waiters._waiting[MAC] = [waiter]
         response = {"reservation_use": 1, "reservation": [{"hour": 6}]}
 
         coordinator._handle_reservation_update_in_loop(MAC, response)
@@ -1171,7 +1097,7 @@ def test_reservation_update_skips_an_already_resolved_waiter(
     try:
         waiter: asyncio.Future = loop.create_future()
         waiter.set_result({"first": True})
-        coordinator._reservation_waiters[MAC] = [waiter]
+        coordinator._reservation_waiters._waiting[MAC] = [waiter]
 
         coordinator._handle_reservation_update_in_loop(MAC, {"second": True})
 
@@ -1800,12 +1726,10 @@ async def test_invalid_credentials_start_a_reauth_flow(setup_clients_env):
     coordinator, auth, _api, _mqtt = setup_clients_env
     auth.__aenter__ = AsyncMock(side_effect=InvalidCredentialsError("nope"))
 
-    with pytest.raises(UpdateFailed, match="Authentication failed"):
+    # Home Assistant starts the reauth flow and stops retrying the
+    # rejected password.
+    with pytest.raises(ConfigEntryAuthFailed, match="Authentication failed"):
         await coordinator._setup_clients()
-
-    coordinator.entry.async_start_reauth.assert_called_once_with(
-        coordinator.hass
-    )
 
 
 @pytest.mark.asyncio
@@ -1839,12 +1763,8 @@ async def test_non_retriable_auth_error_starts_reauth(setup_clients_env):
         side_effect=AuthenticationError("rejected", retriable=False)
     )
 
-    with pytest.raises(UpdateFailed, match="Authentication error"):
+    with pytest.raises(ConfigEntryAuthFailed, match="Authentication failed"):
         await coordinator._setup_clients()
-
-    coordinator.entry.async_start_reauth.assert_called_once_with(
-        coordinator.hass
-    )
 
 
 @pytest.mark.parametrize(
@@ -2110,28 +2030,6 @@ def test_status_for_an_unknown_device_is_ignored(coordinator):
 
     assert coordinator.data == {}
     coordinator.async_update_listeners.assert_not_called()
-
-
-def test_reservation_push_hops_to_the_event_loop(coordinator, mock_hass):
-    """MQTT callbacks arrive off-loop and must be marshalled onto it."""
-    response = {"reservation": []}
-
-    coordinator._on_reservation_update(MAC, response)
-
-    args = mock_hass.loop.call_soon_threadsafe.call_args[0]
-    assert args[0] == coordinator._handle_reservation_update_in_loop
-    assert args[1:] == (MAC, response)
-
-
-def test_tou_push_hops_to_the_event_loop(coordinator, mock_hass):
-    """The TOU callback is marshalled onto the loop the same way."""
-    response = {"tou_use": 1}
-
-    coordinator._on_tou_update(MAC, response)
-
-    args = mock_hass.loop.call_soon_threadsafe.call_args[0]
-    assert args[0] == coordinator._handle_tou_update_in_loop
-    assert args[1:] == (MAC, response)
 
 
 # ---------------------------------------------------------------------------
@@ -3328,15 +3226,6 @@ def test_diagnostics_reply_is_stored_and_pushed_to_entities(coordinator):
     coordinator.async_update_listeners.assert_called_once()
 
 
-def test_diagnostics_callback_defers_to_the_event_loop(coordinator):
-    """The MQTT thread hands the reply to the loop rather than touching state."""
-    coordinator._on_diagnostics(MAC, {"ts_data": {}})
-
-    coordinator.hass.loop.call_soon_threadsafe.assert_called_once_with(
-        coordinator._handle_diagnostics_in_loop, MAC, {"ts_data": {}}
-    )
-
-
 def test_recirculation_schedule_reply_is_stored_and_announced(coordinator):
     """Stored, fired on the bus, and pushed to entities, like reservations."""
     coordinator.async_update_listeners = MagicMock()
@@ -3696,3 +3585,121 @@ async def test_a_monthly_reply_does_not_answer_a_daily_request(coordinator):
         await coordinator.async_fetch_energy_usage(MAC, 2026, [8], timeout=0.01)
         is None
     )
+
+
+# ---------------------------------------------------------------------------
+# 2026-11 review: a failed first MQTT connect, shutdown, telemetry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_failed_mqtt_setup_is_retried_on_the_update_cycle(
+    coordinator, mock_hass
+):
+    """The library only reconnects a client that once connected."""
+    coordinator.auth_client = AsyncMock()
+    coordinator.mqtt_manager = _make_disconnected_mqtt_manager()
+    coordinator.mqtt_manager.setup = AsyncMock(return_value=False)
+    coordinator._mqtt_started = False
+    coordinator._async_start_mqtt_devices = AsyncMock()
+    mock_hass.config.units.temperature_unit = "°F"
+    coordinator.unit_system = "us_customary"
+
+    with patch("nwp500.unit_system.set_unit_system"):
+        await coordinator._async_update_data()
+        # Within the minute: not tried again.
+        await coordinator._async_update_data()
+        assert coordinator.mqtt_manager.setup.await_count == 1
+        coordinator._async_start_mqtt_devices.assert_not_awaited()
+
+        coordinator._mqtt_setup_retry_at = 0.0
+        coordinator.mqtt_manager.setup = AsyncMock(return_value=True)
+        await coordinator._async_update_data()
+
+    coordinator._async_start_mqtt_devices.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_refresh_after_shutdown_builds_no_clients(coordinator):
+    coordinator._setup_clients = AsyncMock()
+    await coordinator.async_shutdown()
+
+    with pytest.raises(UpdateFailed):
+        await coordinator._async_update_data()
+
+    coordinator._setup_clients.assert_not_awaited()
+
+
+def test_mqtt_telemetry_timeout_history_is_a_list(coordinator):
+    """The timeout history is a list, which diagnostics redaction walks.
+
+    A deque's repr would carry the device's MAC address past redaction.
+    """
+    coordinator._timeout_history.append({"device_mac": "AA:BB:CC:DD:EE:FF"})
+    history = coordinator.get_mqtt_telemetry()["timeout_history"]
+    assert isinstance(history, list)
+
+
+@pytest.mark.parametrize(
+    ("callback_name", "handler_name"),
+    [
+        ("_on_device_status_update", "_handle_status_update_in_loop"),
+        ("_on_device_feature_update", "_handle_feature_update_in_loop"),
+        ("_on_reservation_update", "_handle_reservation_update_in_loop"),
+        ("_on_tou_update", "_handle_tou_update_in_loop"),
+        ("_on_diagnostics", "_handle_diagnostics_in_loop"),
+        (
+            "_on_recirculation_schedule",
+            "_handle_recirculation_schedule_in_loop",
+        ),
+        ("_on_energy_usage", "_handle_energy_usage_in_loop"),
+    ],
+)
+def test_a_message_is_handled_as_it_arrives(
+    coordinator, mock_hass, callback_name, handler_name
+):
+    """The library calls back on the event loop: no hop, no deferral."""
+    payload = MagicMock(name="payload")
+    with patch.object(coordinator, handler_name) as handler:
+        getattr(coordinator, callback_name)(MAC, payload)
+
+    handler.assert_called_once_with(MAC, payload)
+    mock_hass.loop.call_soon_threadsafe.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_task_keeps_the_callers_own_cancellation():
+    """A shutdown cancelled while it waits for a task is still cancelled."""
+    import asyncio
+
+    from custom_components.nwp500.coordinator import _async_cancel
+
+    started = asyncio.Event()
+
+    async def _stubborn() -> None:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            started.set()
+            await asyncio.sleep(3600)
+
+    inner = asyncio.create_task(_stubborn())
+    await asyncio.sleep(0)
+    outer = asyncio.create_task(_async_cancel(inner))
+    await started.wait()
+    outer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await outer
+    inner.cancel()
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_task_ends_its_cancellation_there():
+    import asyncio
+
+    from custom_components.nwp500.coordinator import _async_cancel
+
+    inner = asyncio.create_task(asyncio.sleep(3600))
+    await asyncio.sleep(0)
+    await _async_cancel(inner)
+    assert inner.cancelled()

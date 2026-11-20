@@ -21,6 +21,10 @@ A Home Assistant custom integration for Navien NWP500 Heat Pump Water Heaters. C
   - [Operation Modes](#operation-modes)
   - [Sensors & Entities](#sensors--entities)
   - [Reservation Scheduling](#reservation-scheduling)
+  - [Time of Use, Demand Response and Recirculation](#time-of-use-demand-response-and-recirculation)
+  - [Events](#events)
+  - [Energy Usage Report](#energy-usage-report)
+  - [Maintenance Services](#maintenance-services)
   - [Hot Water Simulator](#hot-water-simulator)
 - [Automation Examples](#automation-examples)
 - [Library Version](#library-version)
@@ -117,7 +121,7 @@ Most sensors are **disabled by default**. Enable them from the device page in Ho
 Schedule recurring mode or temperature changes with the `nwp500.set_reservation` service.
 
 ```yaml
-service: nwp500.set_reservation
+action: nwp500.set_reservation
 target:
   device_id: your_device_id
 data:
@@ -128,6 +132,51 @@ data:
   mode: high_demand
   temperature: 140
 ```
+
+Every action acts on one water heater, named by `device_id` or `entity_id`,
+under `data:` or as the action's `target:`.
+
+The heater's whole list is the Reservation Schedule sensor's. The other
+reservation actions:
+
+- `nwp500.update_reservations` writes the whole list: `reservations`, each
+  entry in the heater's own keys (`enable` 2 on or 1 off, `week` the day
+  bits Sunday 128 to Saturday 2, `hour`, `min`, `mode` 1 Heat Pump,
+  2 Electric, 3 Energy Saver, 4 High Demand or 5 Power Off, and `param`
+  the setpoint in half degrees Celsius), and `enabled` for the schedule as
+  a whole.
+- `nwp500.clear_reservations` removes every entry.
+- `nwp500.request_reservations` asks the heater for its list now, rather
+  than at the next periodic read.
+
+[External control](docs/external-control.md) programs this list from a
+scheduler's plan instead.
+
+### Time of Use, Demand Response and Recirculation
+
+- `nwp500.configure_tou_schedule` writes the heater's time-of-use periods:
+  `periods`, at most 16, each with `season` (the months, a bit each),
+  `week` (the day bits, as above), `start_hour`, `start_minute`,
+  `end_hour`, `end_minute`, `price_min`, `price_max` and `decimal_point`
+  (prices are whole numbers with that many decimals), and `enabled`.
+  `nwp500.request_tou_settings` reads them back. The TOU switch turns the
+  schedule on and off.
+- `nwp500.enable_demand_response` and `nwp500.disable_demand_response` set
+  whether the heater takes part in its utility's demand response.
+- `nwp500.set_recirculation_mode` sets a recirculation pump's mode: `1`
+  Always On, `2` Weekly schedule, `3` Hot Button only, `4` Off.
+  `nwp500.trigger_recirculation` runs the pump now, as the hot button does.
+
+### Events
+
+The integration fires these when the heater reports, for cards and
+automations. Each carries the heater's `mac_address`.
+
+| Event | When | Data |
+|---|---|---|
+| `nwp500_reservations_updated` | The heater reports its reservation list | `reservation_use`, `reservations` (the heater's entries) |
+| `nwp500_recirculation_schedule_updated` | The heater reports its recirculation schedule | `reservation_use`, `reservations` |
+| `nwp500_tou_updated` | The heater reports its time-of-use settings | `tou_data`, the heater's reply |
 
 ### Energy Usage Report
 
@@ -299,12 +348,12 @@ trigger:
     entity_id: sensor.solar_export_power
     above: 1000
 action:
-  - service: water_heater.set_operation_mode
+  - action: water_heater.set_operation_mode
     target:
       entity_id: water_heater.navien_nwp500
     data:
       operation_mode: "high_demand"
-  - service: water_heater.set_temperature
+  - action: water_heater.set_temperature
     target:
       entity_id: water_heater.navien_nwp500
     data:
@@ -325,7 +374,7 @@ trigger:
     entity_id: binary_sensor.navien_nwp500_water_leak_detected
     to: "on"
 action:
-  - service: notify.mobile_app_phone
+  - action: notify.mobile_app_phone
     data:
       message: "CRITICAL: Water leak detected at Water Heater!"
       data:
@@ -348,7 +397,7 @@ trigger:
     entity_id: group.family
     to: "not_home"
 action:
-  - service: water_heater.set_operation_mode
+  - action: water_heater.set_operation_mode
     target:
       entity_id: water_heater.navien_nwp500
     data:
@@ -359,7 +408,7 @@ action:
 
 ## Library Version
 
-Uses **[nwp500-python v9.13.3](https://github.com/eman/nwp500-python/releases/tag/v9.13.3)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
+Uses **[nwp500-python v9.14.0](https://github.com/eman/nwp500-python/releases/tag/v9.14.0)**. See [CHANGELOG.md](CHANGELOG.md#library-dependency-nwp500-python) for version history.
 
 ## License
 

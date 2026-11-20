@@ -14,15 +14,13 @@ The scenario is built in the event loop, where the library's unit
 preference is stable; the walk runs in an executor.
 """
 
-from __future__ import annotations
-
 import asyncio
 import dataclasses
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import partial
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import STATE_ON, UnitOfTemperature
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
@@ -53,6 +51,7 @@ from nwp500.sim_live import (
     compose,
     heater_reading,
     overlay,
+    with_layers,
 )
 
 from ..const import (
@@ -75,9 +74,7 @@ from .ha_client import InProcessClient
 if TYPE_CHECKING:
     from nwp500.models import DeviceStatus
     from nwp500.sim import Readiness
-    from nwp500.sim.engine import HeatingInterval
     from nwp500.sim.result import SimulationResult
-    from nwp500.sim_home_assistant import HomeAssistantClient
 
     from ..coordinator import NWP500DataUpdateCoordinator
 
@@ -104,22 +101,9 @@ STATE_DISABLED = "disabled"
 HEATING_STATES = (STATE_HEATING, STATE_SCHEDULED, STATE_IDLE, STATE_DISABLED)
 #: A heating's `stop` when the walk's horizon cut it, not its own end.
 STOP_HORIZON = "horizon"
-#: A heating's `stop` when the tank reached its target: at temperature.
-STOP_TARGET = "target"
-#: A setpoint write ended it.
-STOP_WRITE = "write"
-#: Inside a TOU period the heater stops a heat pump heating its cap short
-#: of the setpoint, and the tank stays there: the heater's own target
-#: then (nwp500-python's `docs/explanation/tou-recovery-cap.rst`).
-STOP_CAP = "cap"
 
 # What heats in a heating interval, as the library names the heat pump.
 SOURCE_COMPRESSOR = "compressor"
-# Heating intervals one starting within this of another's end are one
-# heating: Electric's lower element after its upper, which the library
-# ends at its target. A compressor can't restart that soon (its lockout).
-CHAINED = timedelta(minutes=1)
-
 # The modes in which nothing heats.
 _HEATING_DISABLED_MODES = frozenset({VACATION, POWER_OFF})
 
@@ -194,11 +178,8 @@ def path_from(result: SimulationResult) -> tuple[PathSample, ...]:
 class Capacity:
     """What the tank's hot water is enough for now: baths, showers.
 
-    Delivered gallons, as the library's readiness gives them. The first
-    bath is the library's own answer (its rounding and margin), and each
-    further whole bath's worth of the water deliverable now is another: a
-    top-up of a filled bath is a fill like any other. Showers are the
-    library's whole showers.
+    Delivered gallons and whole baths and showers, as the library's
+    readiness gives them.
     """
 
     baths: int
@@ -218,19 +199,10 @@ class Capacity:
 
 def capacity_from(readiness: Readiness) -> Capacity:
     """The baths and showers the tank's hot water is enough for."""
-    bath_gal = readiness.bath.volume_gal
-    deliverable = readiness.deliverable_gal
-    # A hair over, as the library's whole showers: gallons rounded to a
-    # tenth divide by a bath's in binary a hair short (86.1 // 28.7 == 2).
-    baths = (
-        max(1, int(deliverable / bath_gal + 1e-9))
-        if readiness.bath.ready
-        else 0
-    )
     return Capacity(
-        baths=baths,
+        baths=readiness.bath.ready_for_whole,
         showers=readiness.showers.ready_for_whole,
-        bath_gal=bath_gal,
+        bath_gal=readiness.bath.volume_gal,
         shower_gal=readiness.showers.volume_gal,
     )
 
@@ -243,7 +215,7 @@ class Answer:
     #: One of HEATING_STATES, or None with `waiting` or `error` set.
     state: str | None = None
     #: The next (or current) heating, and why it ends: its intervals one
-    #: after another (`CHAINED`), from the first's start to the last's
+    #: after another (the library's `heatings`), from the first's start to the last's
     #: end. The source, cause and trigger are the first's.
     start: datetime | None = None
     end: datetime | None = None
@@ -416,53 +388,6 @@ def heater_schedules(
     return schedules, reasons
 
 
-def _at_temperature(
-    result: SimulationResult, interval: HeatingInterval
-) -> bool:
-    """Whether a heating ends with the tank at temperature.
-
-    At its target, or, inside a TOU period, at the heater's own: its cap
-    short of the setpoint.
-    """
-    if interval.stop in (STOP_TARGET, STOP_CAP):
-        return True
-    # A write ending it at the new setpoint: the library counts it reached.
-    return interval.stop == STOP_WRITE and any(
-        at == interval.end for at, _ in result.simulation.reached
-    )
-
-
-def _heatings(
-    result: SimulationResult,
-) -> list[tuple[list[HeatingInterval], HeatingInterval]]:
-    """The walk's heatings, each with the interval that reaches furthest.
-
-    A heating is its intervals one after another (`CHAINED`). An element
-    can run inside a longer compressor run, and end first.
-    """
-    heatings: list[tuple[list[HeatingInterval], HeatingInterval]] = []
-    for interval in result.heating:
-        if heatings and interval.start.at <= heatings[-1][1].end + CHAINED:
-            chain, last = heatings[-1]
-            chain.append(interval)
-            if interval.end >= last.end:
-                heatings[-1] = (chain, interval)
-        else:
-            heatings.append(([interval], interval))
-    return heatings
-
-
-def fully_heated_at(
-    result: SimulationResult,
-    heatings: list[tuple[list[HeatingInterval], HeatingInterval]],
-) -> datetime | None:
-    """The end of the first heating that ends with the tank at temperature."""
-    return next(
-        (last.end for _, last in heatings if _at_temperature(result, last)),
-        None,
-    )
-
-
 def answer_from(
     result: SimulationResult,
     inputs: Inputs,
@@ -472,15 +397,10 @@ def answer_from(
     scenario = inputs.scenario
     state = scenario.state
     first = result.heating[0] if result.heating else None
-    heatings = _heatings(result)
     # The heating it is in, or the next.
-    chain, last = heatings[0] if heatings else ([], None)
-    fully_heated = fully_heated_at(result, heatings)
-    chain_wh = (
-        None
-        if not chain or any(h.input_wh is None for h in chain)
-        else sum(h.input_wh or 0.0 for h in chain)
-    )
+    heating = result.heatings[0] if result.heatings else None
+    last = None if heating is None else heating.last
+    chain_wh = None if heating is None else heating.input_wh
     heating_now = state.compressor_running or state.element_running
     if heating_now:
         heating_state = STATE_HEATING
@@ -507,8 +427,8 @@ def answer_from(
         start=None if first is None else first.start.at,
         end=None if last is None else last.end,
         stop=None if last is None else last.stop,
-        at_temperature=None if last is None else _at_temperature(result, last),
-        fully_heated_at=fully_heated,
+        at_temperature=None if heating is None else heating.at_temperature,
+        fully_heated_at=result.fully_heated_at,
         source=None if first is None else first.source,
         cause=None if first is None else first.start.cause,
         trigger=None if first is None else first.start.trigger,
@@ -528,19 +448,6 @@ def answer_from(
         notes=inputs.notes,
         readiness=readiness,
         capacity=(None if readiness is None else capacity_from(readiness)),
-    )
-
-
-def with_layers(
-    scenario: Scenario, layers_f: tuple[float, ...] | None
-) -> Scenario:
-    """`scenario` starting from the tank's layers, when there are any."""
-    if layers_f is None:
-        return scenario
-    return scenario.model_copy(
-        update={
-            "state": scenario.state.model_copy(update={"layers_f": layers_f})
-        }
     )
 
 
@@ -700,7 +607,7 @@ class SimulatorRunner:
             or tank.entities != others
         ):
             tank = self._tank = HomeAssistantTank(
-                cast("HomeAssistantClient", InProcessClient(self.hass)),
+                InProcessClient(self.hass),
                 heater,
                 flow,
                 others,
@@ -755,7 +662,7 @@ class SimulatorRunner:
         if not any((entities.air, entities.humidity, entities.weather)):
             return None
         return HomeAssistantEnvironment(
-            cast("HomeAssistantClient", InProcessClient(self.hass)),
+            InProcessClient(self.hass),
             entities,
             start=start,
             until=until,
@@ -778,7 +685,7 @@ class SimulatorRunner:
         fit = self.air_fit
         if fit is None or now - fit[0] >= AIR_FIT_REFRESH:
             fitted, notes = await fit_location_air(
-                cast("HomeAssistantClient", InProcessClient(self.hass)),
+                InProcessClient(self.hass),
                 Entities(air=self.entities.air, weather=weather),
                 now=now,
                 heater=self.heater_entities(),
@@ -924,7 +831,8 @@ class SimulatorRunner:
             *layer_notes,
         )
         return Inputs(
-            scenario=with_layers(built.scenario, layers),
+            # Its own scenario: the layers are its tank's.
+            scenario=with_layers(built, built, layers).scenario,
             params=built.params,
             reasons=reasons,
             notes=(*live_notes, *built.notes),
@@ -940,23 +848,13 @@ class SimulatorRunner:
     def with_valve(self, built: Built) -> Built:
         """`built` with the mixing valve chosen, if any: the heater's.
 
-        The library's line is intercept + slope x the tank's upper zone,
-        never above the tank: a valve set to deliver T is T flat.
+        A valve set to deliver T: the library's `with_valve`.
         """
         valve = self.options.get(CONF_SIMULATOR_MIXING_VALVE_F)
         if valve is None:
             return built
-        params = built.params
         return dataclasses.replace(
-            built,
-            params=dataclasses.replace(
-                params,
-                draw=dataclasses.replace(
-                    params.draw,
-                    delivery_intercept_f=float(valve),
-                    delivery_slope=0.0,
-                ),
-            ),
+            built, params=sim.with_valve(built.params, float(valve))
         )
 
     async def _async_inlet(
@@ -976,7 +874,7 @@ class SimulatorRunner:
         if cached is not None and now - cached[0] < INLET_REFRESH:
             return cached[1], cached[2]
         source = HomeAssistantEnvironment(
-            cast("HomeAssistantClient", InProcessClient(self.hass)),
+            InProcessClient(self.hass),
             Entities(
                 inlet=entities.inlet,
                 demand=entities.demand,

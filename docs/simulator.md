@@ -417,7 +417,7 @@ nothing on the heater. Each is one of nwp500-python's calls on a scenario:
 | `nwp500.time_to_ready` | `sim.time_to_ready` | `kind: readiness` |
 | `nwp500.next_recovery` | `sim.next_recovery` | `kind: recovery` |
 | `nwp500.forecast` | `sim.forecast` | `kind: forecast` |
-| `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile` |
+| `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile`, its facts and `revision` |
 
 `nwp500.calibrate_simulator`, which calibrates the heater, is not one of
 these: see Calibration above.
@@ -490,6 +490,25 @@ response_variable: snapshot
     `power_off`), or both. The library doesn't model a change into
     Vacation or Power Off: it leaves that write out and its `reasons` say
     `write_mode_not_modelled`.
+  - `plan`: an [external control](external-control.md) plan document
+    (protocol 1), in place of `writes`; the two can't be given together.
+    It is parsed and checked as the plan entity's would be, against the
+    heater's setpoint range when a heater is named, and one that would be
+    rejected is refused with its reason. The plan is adopted at the walk's
+    start, and each segment's setpoint and mode is written when external
+    control's entry for it would fire: the segment in force then at the
+    first minute at least 2 minutes away (its near-term entry); a segment
+    starting within those 2 minutes at the first minute at least 2 minutes
+    after external control wakes for its start, a second after it; each later one at its start, truncated to the minute.
+    A near-term entry is left out when the next change of state starts by
+    then, as external control leaves it out. Segments after the walk's end
+    are left out. The walk doesn't model the entry budget, which only
+    delays when an entry is written, nor a write that fails. The plan's
+    commands apply at the start, as the adapter sends them when it is
+    adopted: `tou`, `vacation`, `power`, `anti_legionella` and
+    `demand_response`, the last of each kind as adoption leaves it. What
+    the library doesn't model it names in the result's `reasons` (for
+    example `demand_response_not_modelled`).
   - `include_points`: also return the tank's path. Default off.
 - `time_to_ready`: `bath_gal` and `shower_gal`, a bath's and a shower's
   volume in US gallons. Without them, the heater's own sizes (its Bath
@@ -536,7 +555,14 @@ Each response has two parts:
   - `reasons` and `defaults_used`, the library's own.
 
   The others' carry a `kind` and the library answer's fields
-  (`nwp500.sim.codec.to_document`).
+  (`nwp500.sim.codec.to_document`). `heater_profile`'s are the library's
+  facts about the heater, its own setpoint range when a heater is named,
+  and their `revision`, which changes when, and only when, a fact does:
+  re-read the profile on a new revision. These are the facts the
+  simulation runs by. What a plan may
+  ask of the heater (its modes, its own setpoint range, the commands and
+  their ranges) is the external control capabilities entity's declaration
+  ([reference](external-control-protocol-1.md)).
 - `inputs` holds the integration's notes on what it gave the library:
   `reasons` (such as `reservations_unknown`, when the heater's reservation
   schedule hasn't been read yet) and `notes` (what the air and humidity

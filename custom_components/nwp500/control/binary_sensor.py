@@ -1,7 +1,5 @@
 """The feature's binary sensors (spec section 4.2)."""
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -21,8 +19,6 @@ class ControlInSyncBinarySensor(  # type: ignore[reportIncompatibleVariableOverr
     In shadow nothing is written, so this is off whenever the program has
     entries of its own. That comparison is the shadow audit.
     """
-
-    _attr_icon = "mdi:sync"
 
     @property
     def is_on(self) -> bool | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -47,8 +43,6 @@ class ControlOverrideBinarySensor(  # type: ignore[reportIncompatibleVariableOve
     NWP500ControlEntity, BinarySensorEntity
 ):
     """On while a person's change is being reported (spec section 5.10)."""
-
-    _attr_icon = "mdi:account-wrench"
 
     @property
     def is_on(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]

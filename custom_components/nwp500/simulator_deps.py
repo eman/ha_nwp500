@@ -15,8 +15,6 @@ This module imports nothing heavy, so the setup flow and the options flow
 can use it with the simulator off.
 """
 
-from __future__ import annotations
-
 import asyncio
 import importlib.util
 import logging

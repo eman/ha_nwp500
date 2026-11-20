@@ -2,10 +2,10 @@
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final, override
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -15,9 +15,12 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
     UnitOfEnergy,
     UnitOfPower,
     UnitOfTime,
+    UnitOfVolume,
+    UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -26,8 +29,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import schedule_state
 from .const import (
-    INSTALLER_DIAGNOSTICS_SENSORS,
-    SENSOR_CONFIGS,
     control_feature,
     simulator_enabled,
     simulator_feature,
@@ -49,180 +50,700 @@ _LOGGER = logging.getLogger(__name__)
 _LIBRARY_UNITS: dict[str, str] = {
     "days": UnitOfTime.DAYS,
     "hours": UnitOfTime.HOURS,
+    # The library's flow units, as Home Assistant names them.
+    "LPM": UnitOfVolumeFlowRate.LITERS_PER_MINUTE,
+    "GPM": UnitOfVolumeFlowRate.GALLONS_PER_MINUTE,
 }
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class NWP500SensorEntityDescription(SensorEntityDescription):
-    """Describes NWP500 sensor entity."""
+    """A device status field's sensor.
+
+    The field is `attr_name`, the key when not given; `value_fn` turns its
+    value into the state, the value itself when not given. A field the
+    status lacks, or None, is unknown.
+    """
 
     attr_name: str | None = None
     value_fn: Callable[[Any], Any] | None = None
 
+    @property
+    def field(self) -> str:
+        """The status field the sensor reads."""
+        return self.attr_name or self.key
 
-def create_sensor_descriptions() -> tuple[NWP500SensorEntityDescription, ...]:
-    """Create sensor descriptions from configuration data.
 
-    This function creates all sensor entity descriptions from the SENSOR_CONFIGS
-    data structure, eliminating ~400 lines of repetitive code.
+def _enum_name(value: Any) -> str:
+    """A library enum's name; anything else as text."""
+    name = getattr(value, "name", None)
+    return name if isinstance(name, str) else str(value)
+
+
+def _on_off(value: Any) -> str:
+    return "On" if value else "Off"
+
+
+def _coded(states: Mapping[int, str]) -> Callable[[Any], str | None]:
+    """The translated state of a device code.
+
+    A code with no state (the protocol's own "unknown", or one the
+    library does not know) reads unknown.
     """
-    descriptions: list[NWP500SensorEntityDescription] = []
 
-    # Unit mapping for string-based units to HA constants
-    unit_map: dict[str, str] = {
-        "W": UnitOfPower.WATT,
-        "Wh": UnitOfEnergy.WATT_HOUR,
-        "%": PERCENTAGE,
-    }
+    def value_fn(value: Any) -> str | None:
+        try:
+            return states.get(int(value))
+        except TypeError, ValueError:
+            return None
 
-    # Device class mapping for string-based device classes
-    device_class_map: dict[str, SensorDeviceClass] = {
-        "temperature": SensorDeviceClass.TEMPERATURE,
-        "temperature_delta": SensorDeviceClass.TEMPERATURE_DELTA,
-        "power": SensorDeviceClass.POWER,
-        "energy": SensorDeviceClass.ENERGY,
-        "energy_storage": SensorDeviceClass.ENERGY_STORAGE,
-        "signal_strength": SensorDeviceClass.SIGNAL_STRENGTH,
-        "water": SensorDeviceClass.WATER,
-        "duration": SensorDeviceClass.DURATION,
-    }
-
-    # Entity category mapping
-    entity_category_map: dict[str, EntityCategory] = {
-        "diagnostic": EntityCategory.DIAGNOSTIC,
-        "config": EntityCategory.CONFIG,
-    }
-
-    # State class mapping
-    state_class_map: dict[str, SensorStateClass] = {
-        "measurement": SensorStateClass.MEASUREMENT,
-        "total_increasing": SensorStateClass.TOTAL_INCREASING,
-        "total": SensorStateClass.TOTAL,
-    }
-
-    for key, config in SENSOR_CONFIGS.items():
-        if not isinstance(config, dict):
-            continue
-        attr_name: str = config["attr"]
-
-        # Check if this is a text/enum sensor (no numeric value)
-        is_enum_sensor = config.get("special") in ("enum_name", "enum_state")
-        is_boolean_sensor = config.get("special") == "boolean"
-        # An enum sensor with translated states, keyed by the device's code.
-        states: dict[int, str] | None = config.get("states")
-
-        # Determine the value function based on special handling needs
-        if states is not None:
-
-            def _make_state_value_fn(
-                attr: str, by_code: dict[int, str]
-            ) -> Callable[[Any], str | None]:
-                def value_fn(status: Any) -> str | None:
-                    val = getattr(status, attr, None)
-                    if val is None:
-                        return None
-                    try:
-                        code = int(val)
-                    except TypeError, ValueError:
-                        return None
-                    # A code with no state (the protocol's own "unknown",
-                    # or one the library does not know) reads unknown.
-                    return by_code.get(code)
-
-                return value_fn  # noqa: B023
-
-            value_fn = _make_state_value_fn(attr_name, states)
-        elif is_enum_sensor:
-            # Special handling for enum types that need .name extraction
-            def _make_enum_value_fn(attr: str) -> Callable[[Any], str | None]:
-                def value_fn(status: Any) -> str | None:
-                    val = getattr(status, attr, None)
-                    if val is not None and hasattr(val, "name"):
-                        return val.name  # type: ignore[no-any-return]
-                    elif val is not None:
-                        return str(val)
-                    return None
-
-                return value_fn  # noqa: B023
-
-            value_fn = _make_enum_value_fn(attr_name)
-        elif is_boolean_sensor:
-            # Special handling for boolean sensors - return "On"/"Off"
-            def _make_boolean_value_fn(
-                attr: str,
-            ) -> Callable[[Any], str | None]:
-                def value_fn(status: Any) -> str | None:
-                    val = getattr(status, attr, None)
-                    if val is None:
-                        return None
-                    return "On" if val else "Off"
-
-                return value_fn  # noqa: B023
-
-            value_fn = _make_boolean_value_fn(attr_name)
-        else:
-            # Standard attribute getter
-            def _make_standard_value_fn(attr: str) -> Callable[[Any], Any]:
-                def value_fn(status: Any) -> Any:
-                    return getattr(status, attr, None)
-
-                return value_fn  # noqa: B023
-
-            value_fn = _make_standard_value_fn(attr_name)
-
-        # Get unit - None for enum/boolean sensors to prevent numeric interpretation
-        unit = config.get("unit")
-        if is_enum_sensor or is_boolean_sensor or not unit:
-            native_unit = None
-        else:
-            native_unit = unit_map.get(str(unit), str(unit))
-
-        # Default precision by device class if not explicitly set
-        default_precision: dict[str, int] = {
-            "temperature": 1,
-            "temperature_delta": 1,
-            "power": 0,
-            "energy": 0,
-            "energy_storage": 0,
-        }
-        precision: int | None = config.get(
-            "precision",
-            default_precision.get(str(config.get("device_class", ""))),
-        )
-
-        descriptions.append(
-            NWP500SensorEntityDescription(
-                key=key,
-                attr_name=attr_name,
-                translation_key=key,
-                device_class=(
-                    SensorDeviceClass.ENUM
-                    if states is not None
-                    else device_class_map.get(
-                        str(config.get("device_class", ""))
-                    )
-                ),
-                options=None if states is None else list(states.values()),
-                state_class=state_class_map.get(
-                    str(config.get("state_class", ""))
-                ),
-                native_unit_of_measurement=native_unit,
-                entity_registry_enabled_default=bool(
-                    config.get("enabled", False)
-                ),
-                suggested_display_precision=precision,
-                entity_category=entity_category_map.get(
-                    str(config.get("entity_category", ""))
-                ),
-                value_fn=value_fn,
-            )
-        )
-
-    return tuple(descriptions)
+    return value_fn
 
 
-# Create sensor descriptions once at module load time
-SENSOR_DESCRIPTIONS = create_sensor_descriptions()
+# The enum sensors' states, keyed by the device's code.
+_CURRENT_HEAT_USE_STATES: Final = {
+    0: "none",
+    1: "heat_pump",
+    2: "electric",
+    3: "heat_pump_and_electric",
+}
+_TEMPERATURE_TYPE_STATES: Final = {1: "celsius", 2: "fahrenheit"}
+_TEMP_FORMULA_TYPE_STATES: Final = {0: "asymmetric", 1: "standard"}
+_DR_EVENT_STATUS_STATES: Final = {
+    0: "not_applied",
+    1: "run_normal",
+    2: "shed",
+    3: "load_up",
+    4: "advance_load_up",
+    5: "customer_peak_event",
+    6: "grid_emergency",
+}
+_RECIRCULATION_OPERATION_MODE_STATES: Final = {
+    1: "always_on",
+    2: "weekly",
+    3: "hot_button_only",
+    4: "no_recirculation",
+}
+
+
+SENSOR_DESCRIPTIONS: tuple[NWP500SensorEntityDescription, ...] = (
+    # Temperature sensors
+    NWP500SensorEntityDescription(
+        key="outside_temperature",
+        translation_key="outside_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    NWP500SensorEntityDescription(
+        key="tank_upper_temperature",
+        translation_key="tank_upper_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    NWP500SensorEntityDescription(
+        key="tank_lower_temperature",
+        translation_key="tank_lower_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    NWP500SensorEntityDescription(
+        key="discharge_temperature",
+        translation_key="discharge_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="suction_temperature",
+        translation_key="suction_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="evaporator_temperature",
+        translation_key="evaporator_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="ambient_temperature",
+        translation_key="ambient_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+    NWP500SensorEntityDescription(
+        key="dhw_temperature",
+        translation_key="dhw_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    NWP500SensorEntityDescription(
+        key="dhw_temperature_2",
+        translation_key="dhw_temperature_2",
+        attr_name="dhw_temperature2",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="current_inlet_temperature",
+        translation_key="current_inlet_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="freeze_protection_temperature",
+        translation_key="freeze_protection_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="target_super_heat",
+        translation_key="target_super_heat",
+        device_class=SensorDeviceClass.TEMPERATURE_DELTA,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="current_super_heat",
+        translation_key="current_super_heat",
+        device_class=SensorDeviceClass.TEMPERATURE_DELTA,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    # Power and energy sensors
+    NWP500SensorEntityDescription(
+        key="current_inst_power",
+        translation_key="current_inst_power",
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        suggested_display_precision=0,
+    ),
+    # Energy drawable from the tank as useful hot water. This is the only one
+    # of the three that behaves like a state of charge: the other two are both
+    # measured from the setpoint, so they move when the setpoint moves even
+    # though the water in the tank does not.
+    NWP500SensorEntityDescription(
+        key="usable_energy",
+        translation_key="usable_energy",
+        device_class=SensorDeviceClass.ENERGY_STORAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        suggested_display_precision=0,
+    ),
+    # Energy needed to bring the tank from its current temperature up to the
+    # setpoint. No device_class: a deficit is not stored energy.
+    NWP500SensorEntityDescription(
+        key="energy_to_setpoint",
+        translation_key="energy_to_setpoint",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        suggested_display_precision=0,
+    ),
+    # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+    # Energy to recover a fully depleted tank to the current setpoint.
+    NWP500SensorEntityDescription(
+        key="full_recovery_energy",
+        translation_key="full_recovery_energy",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        suggested_display_precision=0,
+        entity_registry_enabled_default=False,
+    ),
+    # Percentage sensors
+    NWP500SensorEntityDescription(
+        key="dhw_charge_per",
+        translation_key="dhw_charge_per",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+    ),
+    NWP500SensorEntityDescription(
+        key="mixing_rate",
+        translation_key="mixing_rate",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=PERCENTAGE,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="fan_pwm",
+        translation_key="fan_pwm",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    # Signal strength
+    NWP500SensorEntityDescription(
+        key="wifi_rssi",
+        translation_key="wifi_rssi",
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    # Status and error codes
+    NWP500SensorEntityDescription(
+        key="error_code",
+        translation_key="error_code",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=_enum_name,
+    ),
+    NWP500SensorEntityDescription(
+        key="sub_error_code",
+        translation_key="sub_error_code",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    # Flow rate sensors
+    NWP500SensorEntityDescription(
+        key="current_dhw_flow_rate",
+        translation_key="current_dhw_flow_rate",
+        device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfVolumeFlowRate.GALLONS_PER_MINUTE,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="cumulated_dhw_flow_rate",
+        translation_key="cumulated_dhw_flow_rate",
+        device_class=SensorDeviceClass.WATER,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfVolume.GALLONS,
+        entity_registry_enabled_default=False,
+    ),
+    # Fan sensors
+    NWP500SensorEntityDescription(
+        key="target_fan_rpm",
+        translation_key="target_fan_rpm",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="RPM",
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="current_fan_rpm",
+        translation_key="current_fan_rpm",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement="RPM",
+        entity_registry_enabled_default=False,
+    ),
+    # Vacation sensors
+    NWP500SensorEntityDescription(
+        key="vacation_day_setting",
+        translation_key="vacation_day_setting",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="vacation_day_elapsed",
+        translation_key="vacation_day_elapsed",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        entity_registry_enabled_default=False,
+    ),
+    # Heat source sensor
+    NWP500SensorEntityDescription(
+        key="current_heat_use",
+        translation_key="current_heat_use",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_CURRENT_HEAT_USE_STATES.values()),
+        value_fn=_coded(_CURRENT_HEAT_USE_STATES),
+    ),
+    # Diagnostic sensors
+    NWP500SensorEntityDescription(
+        key="eev_step",
+        translation_key="eev_step",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="current_state_num",
+        translation_key="current_state_num",
+        attr_name="current_statenum",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="smart_diagnostic",
+        translation_key="smart_diagnostic",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="special_function_status",
+        translation_key="special_function_status",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="fault_status_1",
+        translation_key="fault_status_1",
+        attr_name="fault_status1",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="fault_status_2",
+        translation_key="fault_status_2",
+        attr_name="fault_status2",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    # Operation mode sensors (these have custom value_fn handling)
+    NWP500SensorEntityDescription(
+        key="operation_mode",
+        translation_key="operation_mode",
+        value_fn=_enum_name,
+    ),
+    NWP500SensorEntityDescription(
+        key="dhw_operation_setting",
+        translation_key="dhw_operation_setting",
+        value_fn=_enum_name,
+    ),
+    # DHW temperature settings
+    NWP500SensorEntityDescription(
+        key="dhw_target_temperature_setting",
+        translation_key="dhw_target_temperature_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="dhw_temperature_setting",
+        translation_key="dhw_temperature_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+    # Heat pump temperature settings
+    NWP500SensorEntityDescription(
+        key="hp_upper_on_temp_setting",
+        translation_key="hp_upper_on_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="hp_lower_on_temp_setting",
+        translation_key="hp_lower_on_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="hp_upper_off_temp_setting",
+        translation_key="hp_upper_off_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="hp_lower_off_temp_setting",
+        translation_key="hp_lower_off_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+    ),
+    # The simulator reads its history (SIMULATOR_HEATER_ENTITIES).
+    # Differential temperature settings (relative values, not absolute)
+    # Note: device_class is intentionally omitted from differential temp sensors.
+    # Home Assistant applies absolute temperature conversions (including offset) to
+    # entities with device_class: temperature, which is incorrect for relative values.
+    # Differential sensors represent the difference between two temperatures, not
+    # absolute values, so the conversion would produce invalid results.
+    NWP500SensorEntityDescription(
+        key="hp_upper_on_diff_temp_setting",
+        translation_key="hp_upper_on_diff_temp_setting",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="hp_lower_on_diff_temp_setting",
+        translation_key="hp_lower_on_diff_temp_setting",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="hp_upper_off_diff_temp_setting",
+        translation_key="hp_upper_off_diff_temp_setting",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="hp_lower_off_diff_temp_setting",
+        translation_key="hp_lower_off_diff_temp_setting",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    # Electric heating temperature settings
+    NWP500SensorEntityDescription(
+        key="he_upper_on_temp_setting",
+        translation_key="he_upper_on_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="he_lower_on_temp_setting",
+        translation_key="he_lower_on_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="he_upper_off_temp_setting",
+        translation_key="he_upper_off_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="he_lower_off_temp_setting",
+        translation_key="he_lower_off_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="he_upper_on_diff_temp_setting",
+        translation_key="he_upper_on_diff_temp_setting",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="he_lower_on_diff_temp_setting",
+        translation_key="he_lower_on_diff_temp_setting",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="he_upper_off_diff_temp_setting",
+        translation_key="he_upper_off_diff_temp_setting",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="he_lower_off_diff_temp_setting",
+        translation_key="he_lower_off_diff_temp_setting",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
+    ),
+    # Other temperature settings
+    NWP500SensorEntityDescription(
+        key="heat_min_op_temperature",
+        translation_key="heat_min_op_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="freeze_protection_temp_min",
+        translation_key="freeze_protection_temp_min",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="freeze_protection_temp_max",
+        translation_key="freeze_protection_temp_max",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_temp_setting",
+        translation_key="recirculation_temp_setting",
+        attr_name="recirc_temp_setting",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_temperature",
+        translation_key="recirculation_temperature",
+        attr_name="recirc_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_faucet_temperature",
+        translation_key="recirculation_faucet_temperature",
+        attr_name="recirc_faucet_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    # Flow rate sensors
+    NWP500SensorEntityDescription(
+        key="recirculation_dhw_flow_rate",
+        translation_key="recirculation_dhw_flow_rate",
+        attr_name="recirc_dhw_flow_rate",
+        device_class=SensorDeviceClass.VOLUME_FLOW_RATE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfVolumeFlowRate.GALLONS_PER_MINUTE,
+        entity_registry_enabled_default=False,
+    ),
+    # Operation time sensors
+    NWP500SensorEntityDescription(
+        key="cumulated_evaporator_fan_op_time",
+        translation_key="cumulated_evaporator_fan_op_time",
+        attr_name="cumulated_op_time_eva_fan",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_registry_enabled_default=False,
+    ),
+    # Hours since the last air-filter reset (nwp500-python 9.5.0); the
+    # lifetime total is evaporator_fan_run_time.
+    # Anti-legionella and alarm settings
+    NWP500SensorEntityDescription(
+        key="anti_legionella_period",
+        translation_key="anti_legionella_period",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="air_filter_alarm_period",
+        translation_key="air_filter_alarm_period",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="air_filter_alarm_elapsed",
+        translation_key="air_filter_alarm_elapsed",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_registry_enabled_default=False,
+    ),
+    # Diagnostic and status sensors
+    NWP500SensorEntityDescription(
+        key="temperature_type",
+        translation_key="temperature_type",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_TEMPERATURE_TYPE_STATES.values()),
+        entity_registry_enabled_default=False,
+        value_fn=_coded(_TEMPERATURE_TYPE_STATES),
+    ),
+    NWP500SensorEntityDescription(
+        key="temp_formula_type",
+        translation_key="temp_formula_type",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_TEMP_FORMULA_TYPE_STATES.values()),
+        entity_registry_enabled_default=False,
+        value_fn=_coded(_TEMP_FORMULA_TYPE_STATES),
+    ),
+    NWP500SensorEntityDescription(
+        key="dr_event_status",
+        translation_key="dr_event_status",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_DR_EVENT_STATUS_STATES.values()),
+        entity_registry_enabled_default=False,
+        value_fn=_coded(_DR_EVENT_STATUS_STATES),
+    ),
+    # 0 unknown, 1 off, 2 on: the device's tri-state flag, not hours.
+    NWP500SensorEntityDescription(
+        key="dr_override_status",
+        translation_key="dr_override_status",
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_error_status",
+        translation_key="recirculation_error_status",
+        attr_name="recirc_error_status",
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_operation_reason",
+        translation_key="recirculation_operation_reason",
+        attr_name="recirc_operation_reason",
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_operation_mode",
+        translation_key="recirculation_operation_mode",
+        attr_name="recirc_operation_mode",
+        device_class=SensorDeviceClass.ENUM,
+        options=list(_RECIRCULATION_OPERATION_MODE_STATES.values()),
+        entity_registry_enabled_default=False,
+        value_fn=_coded(_RECIRCULATION_OPERATION_MODE_STATES),
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_model_type_code",
+        translation_key="recirculation_model_type_code",
+        attr_name="recirc_model_type_code",
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_sw_version",
+        translation_key="recirculation_sw_version",
+        attr_name="recirc_sw_version",
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_temperature_min",
+        translation_key="recirculation_temperature_min",
+        attr_name="recirc_temperature_min",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="recirculation_temperature_max",
+        translation_key="recirculation_temperature_max",
+        attr_name="recirc_temperature_max",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500SensorEntityDescription(
+        key="program_reservation_type",
+        translation_key="program_reservation_type",
+        entity_registry_enabled_default=False,
+    ),
+)
 
 
 async def async_setup_entry(
@@ -231,7 +752,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensor entities from a config entry."""
-    coordinator = config_entry.runtime_data
+    coordinator = config_entry.runtime_data.coordinator
 
     entities: list[SensorEntity] = []
     # Devices that have a Recirculation Schedule sensor, so a later feature
@@ -268,9 +789,9 @@ async def async_setup_entry(
         # Lifetime counters from the installer diagnostics query
         entities.extend(
             NWP500InstallerDiagnosticsSensor(
-                coordinator, mac_address, device, key, config
+                coordinator, mac_address, device, description
             )
-            for key, config in INSTALLER_DIAGNOSTICS_SENSORS.items()
+            for description in INSTALLER_DIAGNOSTICS_DESCRIPTIONS
         )
         # When this heater last answered with its status
         entities.append(
@@ -311,7 +832,7 @@ async def async_setup_entry(
 
     # The external control feature's sensors, when it is on. The import is
     # inside the branch: nothing of the feature loads while it is off.
-    if (feature := control_feature(hass, config_entry)) is not None:
+    if (feature := control_feature(config_entry)) is not None:
         from .control.sensor import create_control_sensors
 
         entities.extend(create_control_sensors(feature))
@@ -327,7 +848,7 @@ async def async_setup_entry(
 
         @callback
         def _add_simulator_sensors() -> None:
-            simulator = simulator_feature(hass, config_entry)
+            simulator = simulator_feature(config_entry)
             if simulator is None:
                 return
             from .simulator.sensor import create_simulator_sensors
@@ -376,6 +897,8 @@ async def async_setup_entry(
 class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Navien NWP500 sensor entity."""
 
+    entity_description: NWP500SensorEntityDescription  # pyright: ignore[reportIncompatibleVariableOverride]
+
     def __init__(
         self,
         coordinator: NWP500DataUpdateCoordinator,
@@ -385,7 +908,7 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, mac_address, device)
-        self.entity_description = description
+        self.entity_description = description  # pyright: ignore[reportIncompatibleVariableOverride]
         self._attr_unique_id = f"{mac_address}_{description.key}"
 
     @property
@@ -401,15 +924,9 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         if status:
             # Use the actual attribute name for unit lookup in the library,
             # not the entity key which might be different.
-            field_name = (
-                self.entity_description.attr_name
-                if isinstance(
-                    self.entity_description, NWP500SensorEntityDescription
-                )
-                and self.entity_description.attr_name
-                else self.entity_description.key
+            unit = self.coordinator.get_field_unit_safe(
+                status, self.entity_description.field
             )
-            unit = self.coordinator.get_field_unit_safe(status, field_name)
             if unit:
                 return _LIBRARY_UNITS.get(unit, unit)
 
@@ -426,21 +943,16 @@ class NWP500Sensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatib
         if not (status := self._status):
             return None
         description = self.entity_description
-        if (
-            isinstance(description, NWP500SensorEntityDescription)
-            and description.value_fn
-        ):
-            try:
-                return description.value_fn(status)
-            except AttributeError, TypeError:
-                return None
-        return None
+        value = getattr(status, description.field, None)
+        if value is None or description.value_fn is None:
+            return value
+        return description.value_fn(value)
 
 
 class NWP500DiagnosticSensor(NWP500Entity, SensorEntity):  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
     """Base class for diagnostic sensors that report coordinator telemetry."""
 
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_category: EntityCategory | None = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,
@@ -486,8 +998,28 @@ class NWP500LastStatusSensor(NWP500Entity, SensorEntity):  # type: ignore[report
             return None
         return datetime.fromtimestamp(last_update, tz=UTC)
 
+    @property
+    @override
+    def available(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Available while the heater is silent: its silences show here."""
+        return self.coordinator.last_update_success
 
-class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
+
+class NWP500TelemetrySensor(NWP500DiagnosticSensor):
+    """A sensor about the connection itself.
+
+    It stays available while the device is silent: an outage is exactly
+    when the connection's state and counters are worth reading.
+    """
+
+    @property
+    @override
+    def available(self) -> bool:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
+        """Return True while the coordinator itself is healthy."""
+        return self.coordinator.last_update_success
+
+
+class NWP500LastResponseTimeSensor(NWP500TelemetrySensor):
     """Sensor showing timestamp of last MQTT response."""
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
@@ -531,7 +1063,7 @@ class NWP500LastResponseTimeSensor(NWP500DiagnosticSensor):
         return attrs
 
 
-class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
+class NWP500MQTTRequestCountSensor(NWP500TelemetrySensor):
     """Sensor showing total MQTT requests sent."""
 
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
@@ -558,7 +1090,7 @@ class NWP500MQTTRequestCountSensor(NWP500DiagnosticSensor):
         return int(value) if value is not None else 0
 
 
-class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
+class NWP500MQTTResponseCountSensor(NWP500TelemetrySensor):
     """Sensor showing total MQTT responses received."""
 
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
@@ -585,7 +1117,7 @@ class NWP500MQTTResponseCountSensor(NWP500DiagnosticSensor):
         return int(value) if value is not None else 0
 
 
-class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
+class NWP500MQTTConnectedSensor(NWP500TelemetrySensor):
     """Sensor showing MQTT connection status and duration."""
 
     def __init__(
@@ -623,7 +1155,7 @@ class NWP500MQTTConnectedSensor(NWP500DiagnosticSensor):
         return attrs
 
 
-class NWP500ConsecutiveTimeoutsSensor(NWP500DiagnosticSensor):
+class NWP500ConsecutiveTimeoutsSensor(NWP500TelemetrySensor):
     """Sensor showing consecutive MQTT timeouts."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -776,14 +1308,219 @@ class NWP500RecirculationScheduleSensor(NWP500ScheduleSensor):
         )
 
 
-_DIAGNOSTICS_DEVICE_CLASSES: dict[str, SensorDeviceClass] = {
-    "energy": SensorDeviceClass.ENERGY,
-    "duration": SensorDeviceClass.DURATION,
-}
-_DIAGNOSTICS_STATE_CLASSES: dict[str, SensorStateClass] = {
-    "total_increasing": SensorStateClass.TOTAL_INCREASING,
-    "measurement": SensorStateClass.MEASUREMENT,
-}
+@dataclass(frozen=True, kw_only=True)
+class NWP500InstallerDiagnosticsDescription(SensorEntityDescription):
+    """A lifetime counter: `field` of the installer diagnostics' `block`."""
+
+    block: str
+    field: str
+
+
+INSTALLER_DIAGNOSTICS_DESCRIPTIONS: tuple[
+    NWP500InstallerDiagnosticsDescription, ...
+] = (
+    # The two headline counters. Split lifetime energy by heat source is
+    # what the Energy dashboard wants and nothing else on the device
+    # measures it, so these are on by default and not filed as diagnostic.
+    NWP500InstallerDiagnosticsDescription(
+        key="lifetime_heat_pump_energy",
+        translation_key="lifetime_heat_pump_energy",
+        block="ts_data",
+        field="cumulated_pwr_hp",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        suggested_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        entity_category=None,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="lifetime_heat_element_energy",
+        translation_key="lifetime_heat_element_energy",
+        block="ts_data",
+        field="cumulated_pwr_he",
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfEnergy.WATT_HOUR,
+        suggested_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        entity_category=None,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="days_since_installation",
+        translation_key="days_since_installation",
+        block="ts_data",
+        field="days_since_installation",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfTime.DAYS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    # Component run times (hours) and start counts.
+    NWP500InstallerDiagnosticsDescription(
+        key="compressor_run_time",
+        translation_key="compressor_run_time",
+        block="ta_data",
+        field="cumulated_op_time_comp",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="compressor_start_count",
+        translation_key="compressor_start_count",
+        block="ta_data",
+        field="cumulated_op_num_comp",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="evaporator_fan_run_time",
+        translation_key="evaporator_fan_run_time",
+        block="ta_data",
+        field="cumulated_op_time_eva_fan",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="evaporator_fan_start_count",
+        translation_key="evaporator_fan_start_count",
+        block="ta_data",
+        field="cumulated_op_num_eva_fan",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="upper_element_run_time",
+        translation_key="upper_element_run_time",
+        block="ta_data",
+        field="cumulated_op_time_uhe",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="upper_element_start_count",
+        translation_key="upper_element_start_count",
+        block="ta_data",
+        field="cumulated_op_num_uhe",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="lower_element_run_time",
+        translation_key="lower_element_run_time",
+        block="ta_data",
+        field="cumulated_op_time_lhe",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="lower_element_start_count",
+        translation_key="lower_element_start_count",
+        block="ta_data",
+        field="cumulated_op_num_lhe",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="recirculation_pump_run_time",
+        translation_key="recirculation_pump_run_time",
+        block="ta_data",
+        field="cumulated_op_time_recirc_pump",
+        device_class=SensorDeviceClass.DURATION,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        native_unit_of_measurement=UnitOfTime.HOURS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="recirculation_pump_start_count",
+        translation_key="recirculation_pump_start_count",
+        block="ta_data",
+        field="cumulated_op_num_recirc_pump",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    # Fault and protection event counts.
+    NWP500InstallerDiagnosticsDescription(
+        key="freeze_protection_event_count",
+        translation_key="freeze_protection_event_count",
+        block="ts_data",
+        field="num_of_frost_protect_burn",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="dry_fire_event_count",
+        translation_key="dry_fire_event_count",
+        block="ts_data",
+        field="cumulated_occ_num_dry_fire",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="condensate_overflow_event_count",
+        translation_key="condensate_overflow_event_count",
+        block="ts_data",
+        field="cumulated_occ_num_con_ovr_flow",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="water_leak_event_count",
+        translation_key="water_leak_event_count",
+        block="ts_data",
+        field="cumulated_occ_num_wtr_ovr_flow",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="heat_pump_error_count",
+        translation_key="heat_pump_error_count",
+        block="ts_data",
+        field="cumulated_occ_num_hpo",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="abnormal_discharge_temperature_count",
+        translation_key="abnormal_discharge_temperature_count",
+        block="ts_data",
+        field="cumulated_occ_num_ab_dis_tmp",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+    NWP500InstallerDiagnosticsDescription(
+        key="abnormal_suction_temperature_count",
+        translation_key="abnormal_suction_temperature_count",
+        block="ts_data",
+        field="cumulated_occ_num_ab_suc_tmp",
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+    ),
+)
 
 
 class NWP500InstallerDiagnosticsSensor(NWP500DiagnosticSensor):
@@ -797,34 +1534,20 @@ class NWP500InstallerDiagnosticsSensor(NWP500DiagnosticSensor):
     "not read yet" stays distinguishable from a counter at zero.
     """
 
+    entity_description: NWP500InstallerDiagnosticsDescription  # pyright: ignore[reportIncompatibleVariableOverride]
+
     def __init__(
         self,
         coordinator: NWP500DataUpdateCoordinator,
         mac_address: str,
         device: Device,
-        key: str,
-        config: dict[str, Any],
+        description: NWP500InstallerDiagnosticsDescription,
     ) -> None:
-        """Initialize the sensor from its INSTALLER_DIAGNOSTICS_SENSORS entry."""
-        super().__init__(coordinator, mac_address, device, key)
-        self._block: str = config["block"]
-        self._field: str = config["field"]
-        self._attr_native_unit_of_measurement = config.get("unit")
-        if device_class := config.get("device_class"):
-            self._attr_device_class = _DIAGNOSTICS_DEVICE_CLASSES[device_class]
-        if state_class := config.get("state_class"):
-            self._attr_state_class = _DIAGNOSTICS_STATE_CLASSES[state_class]
-        if config.get("device_class") == "energy":
-            # The device counts whole watt-hours; a lifetime figure reads
-            # better in kWh, which is also what the Energy dashboard shows.
-            self._attr_suggested_unit_of_measurement = (
-                UnitOfEnergy.KILO_WATT_HOUR
-            )
-        if "entity_category" in config:
-            self._attr_entity_category = config["entity_category"]
-        self._attr_entity_registry_enabled_default = bool(
-            config.get("enabled", False)
-        )
+        """Initialize the sensor from its description."""
+        super().__init__(coordinator, mac_address, device, description.key)
+        self.entity_description = description  # pyright: ignore[reportIncompatibleVariableOverride]
+        # The headline counters are not diagnostic: the description says.
+        self._attr_entity_category = description.entity_category
 
     @property
     def native_value(self) -> int | None:  # type: ignore[reportIncompatibleVariableOverride,unused-ignore]
@@ -832,10 +1555,10 @@ class NWP500InstallerDiagnosticsSensor(NWP500DiagnosticSensor):
         diagnostics = self.coordinator.device_diagnostics.get(self.mac_address)
         if diagnostics is None:
             return None
-        block = diagnostics.get(self._block)
+        block = diagnostics.get(self.entity_description.block)
         if not isinstance(block, dict):
             return None
-        value = block.get(self._field)
+        value = block.get(self.entity_description.field)
         if value is None:
             return None
         try:

@@ -14,41 +14,165 @@ Wh, US gallons); the integration's notes on the inputs are beside it under
 `inputs`.
 """
 
-from __future__ import annotations
-
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
+from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import UnitOfTemperature
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
+from pydantic import BaseModel
 
 from nwp500 import sim
 from nwp500.sim import codec
 from nwp500.sim.engine import SimulationError
+from nwp500.sim.inputs import (
+    AntiLegionellaCommand,
+    DemandResponseCommand,
+    PowerCommand,
+    VacationCommand,
+    Write,
+)
 from nwp500.sim.profile import heater_profile
-from nwp500.sim_live import overlay
+from nwp500.sim_live import Built, overlay, with_layers
+from nwp500.temperature import HalfCelsius
 
 from ..const import (
     CONF_SIMULATOR_BATH_GAL,
     CONF_SIMULATOR_SHOWER_GAL,
     DOMAIN,
     MAX_SIMULATE_HOURS,
+)
+from ..control.capabilities import NEAR_TERM_LEAD, WAKE_AFTER, setpoint_range
+from ..control.entries import near_term_minute
+from ..control.evaluate import check_plan
+from ..control.intent import IntentRejected, Plan, Segment, parse_plan
+from ..vocabulary import (
     MODE_TO_DHW_ID,
 )
-from .runner import Inputs, with_layers
+from .runner import Inputs
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
     from .runner import SimulatorRunner
 
+# A plan's commands as the scenario takes them; `tou` is its own field.
+_COMMANDS: dict[str, type[BaseModel]] = {
+    "vacation": VacationCommand,
+    "power": PowerCommand,
+    "anti_legionella": AntiLegionellaCommand,
+    "demand_response": DemandResponseCommand,
+}
+
 # One walk at a time: a week's walk takes a CPU for a while.
 _LOCK = asyncio.Lock()
+
+
+def _parse_plan(
+    document: Mapping[str, Any], runner: SimulatorRunner | None
+) -> Plan:
+    """An external control plan, parsed and checked as on arrival.
+
+    Against the heater's setpoint range when a heater is named and its
+    features are read, as the plan entity's would be.
+    """
+    limits = (
+        None
+        if runner is None
+        else setpoint_range(
+            runner.coordinator.device_features.get(runner.mac_address)
+        )
+    )
+    try:
+        plan = parse_plan(document)
+        check_plan(plan, limits)
+    except IntentRejected as err:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="simulator_plan_rejected",
+            translation_placeholders={
+                "reason": err.reason,
+                "detail": err.detail,
+            },
+        ) from err
+    return plan
+
+
+def _plan_writes(
+    plan: Plan, start: datetime, until: datetime
+) -> list[tuple[Segment, datetime]]:
+    """Each segment with when external control's entry for it fires.
+
+    The plan is adopted at `start`. The segment in force then gets a
+    near-term entry at the first minute the lead allows; a segment
+    starting within the lead is asserted when it begins, by a near-term
+    entry the lead after the feature wakes for it (`WAKE_AFTER` past its
+    start); each later one fires at its start's minute. A near-term entry is dropped when the next segment that
+    changes the state starts by then, as the engine drops it.
+    """
+    segments = plan.segments
+    changes = [
+        b.start
+        for a, b in pairwise(segments)
+        if (a.mode, a.setpoint_raw) != (b.mode, b.setpoint_raw)
+    ]
+    in_force = [i for i, s in enumerate(segments) if s.start <= start]
+    out: list[tuple[Segment, datetime]] = []
+    for i, segment in enumerate(segments):
+        if segment.start <= start:
+            if i != in_force[-1]:
+                continue
+            at = near_term_minute(start, NEAR_TERM_LEAD)
+        elif segment.start < start + NEAR_TERM_LEAD:
+            at = near_term_minute(segment.start + WAKE_AFTER, NEAR_TERM_LEAD)
+        else:
+            out.append(
+                (segment, segment.start.replace(second=0, microsecond=0))
+            )
+            continue
+        after = max(segment.start, start)
+        nxt = next((c for c in changes if c > after), None)
+        if nxt is not None and nxt <= at:
+            continue
+        out.append((segment, at))
+    return [(segment, at) for segment, at in out if at < until]
+
+
+def _with_plan(inputs: Inputs, plan: Plan) -> Inputs:
+    """The scenario with the plan's segments as its writes (`_plan_writes`).
+
+    The plan's commands apply at the start, as the adapter sends them on
+    adoption; the result's reasons say which the library does not model.
+    """
+    scenario = inputs.scenario
+    writes = tuple(
+        Write(
+            at=at,
+            setpoint_f=HalfCelsius(segment.setpoint_raw).to_fahrenheit(),
+            mode=MODE_TO_DHW_ID[segment.mode],
+            id=segment.id,
+        )
+        for segment, at in _plan_writes(plan, scenario.start, scenario.until)
+    )
+    update: dict[str, Any] = {"writes": writes}
+    # Applied in order on adoption: the last of each kind is the one left.
+    for command in plan.commands:
+        if command.rejection is not None:
+            continue
+        if command.command == "tou":
+            update["tou_enabled"] = bool(command.params["enabled"])
+        elif (model := _COMMANDS.get(command.command)) is not None:
+            update[command.command] = model.model_validate(command.params)
+    commands = scenario.commands.model_copy(update=update)
+    return replace(
+        inputs, scenario=scenario.model_copy(update={"commands": commands})
+    )
 
 
 def _writes(
@@ -136,61 +260,24 @@ async def async_inputs(
             translation_placeholders={"hours": str(MAX_SIMULATE_HOURS)},
         )
     # The heater's layers are its tank now: only for a scenario that
-    # starts then, from the heater's state, with its parameters. A
-    # document that names `state.layers_f` gives its own, as given: a
-    # list, or null to walk from the two probes.
-    raw_state = ((scenario or {}).get("scenario") or {}).get("state") or {}
-    layer_notes: tuple[str, ...] = ()
-    scenario_out = built.scenario
-    # The heater's scenario as composed, before the layers were laid on.
-    heaters = None if live is None or live.live is None else live.live.scenario
-    own = built.scenario.state.layers_f
-    # The scenario is the heater's now: its start, its state (whatever its
-    # layers) and its parameters.
-    heaters_now = (
-        live is not None
-        and heaters is not None
-        and built.scenario.start == heaters.start
-        and built.params == live.params
-        and built.scenario.state.model_copy(update={"layers_f": None})
-        == heaters.state
+    # starts then, from the heater's state, with its parameters
+    # (`with_layers`). A document that names `state.layers_f` gives its
+    # own, as given: a list, or null to walk from the two probes.
+    heater = (
+        None
+        if live is None or live.live is None
+        else Built(live.live.scenario, live.params)
     )
-    if own is not None and not (
-        heaters_now and live is not None and own == live.layers_f
-    ):
-        # A document's own layers, such as the scenario action's from an
-        # earlier walk or with its probes edited: the library reads the
-        # tank from them, not from the probes beside them.
-        layer_notes = (
-            (
-                "layers: the document's own; the walk reads the tank from "
-                "them, not from its probes (layers_f null walks from the "
-                "probes)"
-            ),
-        )
-    if (
-        live is not None
-        and live.layers_f is not None
-        and "layers_f" not in raw_state
-    ):
-        if heaters_now:
-            scenario_out = with_layers(built.scenario, live.layers_f)
-        else:
-            layer_notes = (
-                (
-                    "layers: not used; the scenario's start, state or "
-                    "parameters are not the heater's"
-                ),
-            )
+    layered = with_layers(
+        built, heater, None if live is None else live.layers_f
+    )
+    scenario_out = layered.scenario
+    raw_state = ((scenario or {}).get("scenario") or {}).get("state") or {}
     return Inputs(
         scenario=scenario_out,
         params=built.params,
         reasons=() if live is None else live.reasons,
-        notes=(
-            *(() if live is None else live.live_notes),
-            *built.notes,
-            *layer_notes,
-        ),
+        notes=(*(() if live is None else live.live_notes), *layered.notes),
         layers_f=scenario_out.state.layers_f,
         # The heater's inlet is measured; one the document gives is not
         # known to be.
@@ -257,21 +344,26 @@ async def async_simulate(
     use_heater: bool = True,
     hours: int | None = None,
     writes: list[dict[str, Any]] | None = None,
+    plan: Mapping[str, Any] | None = None,
     include_points: bool = False,
 ) -> dict[str, Any]:
     """Walk the scenario (`sim.simulate`).
 
     `hours` and `writes` are laid over the document's: an empty `writes`
-    clears its writes, an omitted one keeps them.
+    clears its writes, an omitted one keeps them. `plan`, an external
+    control plan, gives the writes instead (`_with_plan`).
     """
     over: dict[str, Any] = {}
     if hours is not None:
         over["horizon"] = timedelta(hours=hours)
-    if writes is not None:
+    parsed = None if plan is None else _parse_plan(plan, runner)
+    if writes is not None and parsed is None:
         over["commands"] = {"writes": _writes(hass, writes)}
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater, over=over
     )
+    if parsed is not None:
+        inputs = _with_plan(inputs, parsed)
     result = await _async_call(
         hass,
         partial(
@@ -395,13 +487,27 @@ async def async_heater_profile(
 ) -> dict[str, Any]:
     """The modes, setpoints and tank the simulation runs by.
 
-    For the scenario's parameters (`nwp500.sim.profile.heater_profile`).
+    For the scenario's parameters and a named heater's own setpoint range
+    (`nwp500.sim.profile.heater_profile`): the library's facts and their
+    `revision`, which moves when, and only when, a fact does, so a
+    consumer re-reads on a new revision.
     """
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater
     )
     params = inputs.params
-    return _response(
-        codec.to_document(heater_profile(params.tank, params.readiness.line_f)),
-        inputs,
+    feature = (
+        None
+        if runner is None
+        else runner.coordinator.device_features.get(runner.mac_address)
     )
+    try:
+        profile = heater_profile(
+            params.tank,
+            params.readiness.line_f,
+            feature=feature if setpoint_range(feature) is not None else None,
+        )
+    except ValueError as err:
+        # The heater's range is outside what the library models.
+        raise HomeAssistantError(str(err)) from err
+    return _response(codec.to_document(profile), inputs)

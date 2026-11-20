@@ -4,6 +4,23 @@
 
 ### Added
 
+- **External control declares what the heater accepts.** The capabilities
+  entity gives the modes, the setpoint range and step (from the heater's
+  own range) and each command's keys and value ranges. A plan with a
+  setpoint outside the range is rejected as `setpoint_out_of_range`,
+  rather than failing its write. `docs/external-control-protocol-1.md` is
+  the reference a scheduler is written from, and
+  `docs/external-control-scheduler-guide.md` walks through one.
+- **The simulator simulates a plan.** `nwp500.simulate` takes `plan`, an
+  external control plan document, checked as external control would
+  check it: each segment takes effect when external control's entry for
+  it would fire, and its commands are simulated, or named in the result's
+  reasons where the library doesn't model them. `heater_profile` returns the library's facts
+  about the heater, its own setpoint range among them, with a `revision`
+  that changes when they do.
+- **A heater gone from the account can be deleted**, with the simulator's
+  record and calibration of it.
+- **Icons for every entity and action.**
 - **The simulator calibrates itself to your heater.** nwp500-python's
   calibration (`sim_calibrate.calibrate_changes`) fits the heater's
   tank (its losses and probes), heat pump heat and power to its history
@@ -209,6 +226,19 @@
 
 ### Changed
 
+- **Flow rates are in Home Assistant's units.** Current and recirculation
+  flow are volume flow rates in gal/min or L/min. Their long-term
+  statistics change unit, and the recorder offers once, in Repairs, to
+  fix them.
+- **The device attributes are on the water heater only**, and are not
+  recorded. The other entities carried the same firmware and feature
+  attributes; a template that read them there reads the water heater.
+  Diagnostics hold the heater's full feature data.
+- **Actions are always there.** They are registered when Home Assistant
+  starts, so an automation that names one no longer fails while no heater
+  is loaded. They take a target as well as a `device_id`, as the README's
+  examples always did, and an unknown or unloaded heater is a validation
+  error that says which. The README documents every action and event.
 - **External control's entities are named, and their ids made, for what
   they say.** Plan ID (was Plan), Heater matches plan (was Plan written to
   heater, easily taken for Plan status's Written to heater), Plan
@@ -278,6 +308,11 @@
 - **A renamed plan entity is followed**, and a missing one raises a
   Repairs issue until it is back.
 
+- **Library Dependency: nwp500-python**: Upgraded to 9.14.0. The library
+  reads the reservation lists the heater sends on its own topic, which the
+  integration did itself before, so each list is handed over once. The
+  simulator's upper element heats the tank as a rising plume, so walks
+  where it runs differ from 9.13.3's.
 - **Library Dependency: nwp500-python**: Upgraded to 9.13.3. What the
   integration did before is kept; the library's corrections change these:
   - **The simulator's model is replaced.** The tank is stacked layers in
@@ -437,6 +472,33 @@
   program. With it off the output is unchanged. (#197)
 
 ### Fixed
+- **Reauthentication and reconfiguring reload the entry once**, in the way
+  Home Assistant 2026.12 requires.
+- **A failed first MQTT connect is retried**, at most once a minute; bad
+  credentials start reauthentication instead of being retried forever;
+  and a shut-down entry stays shut down.
+- **`set_reservation` writes from a fresh read** of the heater's list.
+- **Availability follows the time since the heater's last status.**
+- **The water heater** restores the mode from before Vacation only after a
+  Vacation, honours `operation_mode` in `set_temperature`, and reports
+  values in the unit the library uses.
+- **The setpoint number** takes the water heater's limits and step, and
+  **turning anti-legionella on** keeps the heater's period.
+- **Device information that arrives later** is written to the device
+  registry.
+- **The simulator**: switching it off stops it once and forgets it, its
+  record is read as it was between writes, and the options of heaters not
+  loaded now are kept.
+- **External control**: a segment a newer plan moves inside the lead is
+  put in force; a landed write of an older plan does not count for the
+  new one; a refused segment stays refused across a restart; a retry that
+  finds its write landed clears the failures; a plan republished while
+  Home Assistant was down is adopted; an unusable stored plan is
+  withdrawn; a write is recorded before it is sent; a command judged on
+  an old status says so; and a removed segment is never named as in
+  force.
+- **Unloading cancels a forced MQTT reconnect**, and cancelling a waiting
+  call is no longer swallowed.
 - **The plan fingerprint is unknown until the heater's list is read.**
   After a restart or a reload, External control's plan fingerprint could
   show its program before the heater's reservation list had been read, as

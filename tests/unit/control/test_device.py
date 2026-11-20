@@ -36,6 +36,7 @@ from custom_components.nwp500.control.intent import (
 )
 from custom_components.nwp500.control.sensor import ControlProgramHashSensor
 from custom_components.nwp500.control.store import ControlStore
+from custom_components.nwp500.coordinator import NWP500Data
 
 from .conftest import FakeFeatures, make_document, segment
 
@@ -660,7 +661,6 @@ class TestDiagnostics:
     async def test_a_running_feature_reports_its_plan_and_writes(
         self, hass, control_factory, now
     ):
-        from custom_components.nwp500.const import DATA_CONTROL
         from custom_components.nwp500.diagnostics import (
             async_get_config_entry_diagnostics,
         )
@@ -672,12 +672,9 @@ class TestDiagnostics:
         coordinator.data = {}
         coordinator.get_mqtt_telemetry.return_value = {}
         coordinator.get_performance_stats.return_value = {}
-        control.entry.runtime_data = coordinator
         feature = MagicMock()
         feature.devices = {MAC: control}
-        hass.data.setdefault(DOMAIN, {})[control.entry.entry_id] = {
-            DATA_CONTROL: feature
-        }
+        control.entry.runtime_data = NWP500Data(coordinator, control=feature)
 
         result = await async_get_config_entry_diagnostics(hass, control.entry)
 
@@ -708,7 +705,7 @@ class TestDiagnostics:
         coordinator.data = {}
         coordinator.get_mqtt_telemetry.return_value = {}
         coordinator.get_performance_stats.return_value = {}
-        entry.runtime_data = coordinator
+        entry.runtime_data = NWP500Data(coordinator)
 
         result = await async_get_config_entry_diagnostics(hass, entry)
 

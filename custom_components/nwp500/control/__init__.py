@@ -4,13 +4,11 @@ The feature is optional and additive. This package is imported only when
 the option is on; `control_enabled` in the shared constants is the whole of
 the check the integration makes while it is off.
 
-The specification is issue #158, kept in `docs/external-control-spec.md`.
+The specification is issue #158, kept in `docs/external-control-design.md`.
 Shadow, the default, reads the device, plans the reservation list it would
 program, and reports it, writing nothing. Live writes the list;
 `CONTROL_LIVE_AVAILABLE` is its kill switch.
 """
-
-from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
@@ -21,8 +19,6 @@ from homeassistant.helpers import issue_registry as ir
 
 from ..const import (
     CONTROL_UNIQUE_ID_MARKER,
-    DATA_CONTROL,
-    DATA_PLATFORMS,
     DOMAIN,
 )
 from .device import DeviceControl
@@ -154,14 +150,12 @@ async def async_setup_control(
 ) -> list[Platform]:
     """Start the feature and return the platforms it needs forwarded.
 
-    The set-up hook. Registers the feature in `hass.data` so the entity
-    platforms can find it without importing this package themselves.
+    The set-up hook. Keeps the feature on the entry's runtime data, where
+    the entity platforms find it without importing this package themselves.
     """
     feature = ControlFeature(hass, entry, coordinator)
     await feature.async_start()
-    hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})[
-        DATA_CONTROL
-    ] = feature
+    entry.runtime_data.control = feature
     _LOGGER.info(
         "External control is on in %s mode for %d device(s)",
         feature.devices[next(iter(feature.devices))].mode
@@ -176,15 +170,14 @@ async def async_unload_control(
     hass: HomeAssistant, entry: NWP500ConfigEntry
 ) -> None:
     """Stop the feature on entry unload."""
-    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-    feature: ControlFeature | None = entry_data.pop(DATA_CONTROL, None)
+    feature: ControlFeature | None = entry.runtime_data.control
+    entry.runtime_data.control = None
     if feature is not None:
         await feature.async_stop()
 
 
 __all__ = [
     "CONTROL_PLATFORMS",
-    "DATA_PLATFORMS",
     "ControlFeature",
     "async_setup_control",
     "async_unload_control",

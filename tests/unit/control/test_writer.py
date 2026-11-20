@@ -17,9 +17,10 @@ SCHEDULE = {"reservation_use": 2, "reservation": [ENTRY]}
 
 def _coordinator(unit_system: str = "us_customary") -> MagicMock:
     coordinator = MagicMock()
-    coordinator._reservation_lock = asyncio.Lock()
+    coordinator.reservation_lock = asyncio.Lock()
     coordinator.mqtt_manager.mqtt_client = MagicMock(name="client")
-    coordinator._devices_by_mac = {MAC: MagicMock(name="device")}
+    devices = {MAC: MagicMock(name="device")}
+    coordinator.get_device.side_effect = devices.get
     coordinator.reservation_schedules = {
         MAC: {"reservation_use": 1, "reservation": [], "other": "kept"}
     }
@@ -66,7 +67,7 @@ async def test_no_confirmation_comes_back_as_none():
 def test_locked_is_the_reservation_services_lock():
     coordinator = _coordinator()
     writer = CoordinatorWriter(coordinator, MAC)
-    assert writer.locked() is coordinator._reservation_lock
+    assert writer.locked() is coordinator.reservation_lock
 
 
 @pytest.mark.asyncio
@@ -137,7 +138,7 @@ async def test_each_command_makes_its_one_library_call(raw, method, args):
 
     await writer.async_send_command(_command(raw))
 
-    device = coordinator._devices_by_mac[MAC]
+    device = coordinator.get_device(MAC)
     getattr(client, method).assert_awaited_once_with(device, *args)
     called = [
         name

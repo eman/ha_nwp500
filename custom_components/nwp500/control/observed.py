@@ -5,14 +5,12 @@ and the stored reservation schedule, so the planner never touches Home
 Assistant objects.
 """
 
-from __future__ import annotations
-
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from ..const import MODE_TO_DHW_ID, get_enum_value
+from ..vocabulary import MODE_TO_DHW_ID, get_enum_value
 
 _DHW_ID_TO_MODE = {v: k for k, v in MODE_TO_DHW_ID.items()}
 

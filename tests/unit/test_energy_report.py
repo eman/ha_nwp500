@@ -7,7 +7,9 @@ the response readable without knowing the protocol.
 
 from __future__ import annotations
 
-from custom_components.nwp500 import energy_report
+from custom_components.nwp500.services import (
+    energy_report,
+)
 
 # One day of heat pump use, one day where the elements did the work.
 RESPONSE = {

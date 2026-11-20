@@ -7,9 +7,7 @@ so a restart does not apply one again; and whether the feature has written
 the heater's list.
 """
 
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from homeassistant.helpers.storage import Store
 
@@ -19,6 +17,32 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 STORAGE_VERSION = 1
+
+
+class StoredIntent(TypedDict):
+    """The last accepted plan document, when it came, and its entity."""
+
+    document: dict[str, Any]
+    #: ISO 8601.
+    received_at: str
+    source: str | None
+
+
+class DeviceRecord(TypedDict):
+    """What the file keeps for one heater; each part once it is set."""
+
+    intent: NotRequired[StoredIntent]
+    #: The planner's `as_document`.
+    engine: NotRequired[dict[str, Any]]
+    #: The command runner's document, by command id.
+    commands: NotRequired[dict[str, Any]]
+    took_over: NotRequired[bool]
+
+
+class StoreData(TypedDict):
+    """The file: each heater's record, by MAC address."""
+
+    devices: dict[str, DeviceRecord]
 
 
 def storage_key(entry_id: str) -> str:
@@ -31,10 +55,10 @@ class ControlStore:
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
         """Bind to the entry's file; nothing is read until `async_load`."""
-        self._store: Store[dict[str, Any]] = Store(
+        self._store: Store[StoreData] = Store(
             hass, STORAGE_VERSION, storage_key(entry_id)
         )
-        self._data: dict[str, Any] = {"devices": {}}
+        self._data: StoreData = {"devices": {}}
 
     async def async_load(self) -> None:
         """Read the file, if there is one."""
@@ -43,14 +67,13 @@ class ControlStore:
             self._data = loaded
             self._data.setdefault("devices", {})
 
-    def _device(self, mac_address: str) -> dict[str, Any]:
-        devices: dict[str, dict[str, Any]] = self._data["devices"]
-        return devices.setdefault(mac_address, {})
+    def _device(self, mac_address: str) -> DeviceRecord:
+        return self._data["devices"].setdefault(mac_address, {})
 
-    def stored_intent(self, mac_address: str) -> dict[str, Any] | None:
+    def stored_intent(self, mac_address: str) -> StoredIntent | None:
         """The stored document and its receipt time, or None."""
         record = self._device(mac_address).get("intent")
-        return dict(record) if record else None
+        return StoredIntent(**record) if record else None
 
     async def async_set_intent(
         self,

@@ -9,12 +9,11 @@ the device confirmed, and a write the device did not take is handed back
 through `reject`.
 """
 
-from __future__ import annotations
-
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta, tzinfo
+from enum import StrEnum
 from typing import Any
 
 from .capabilities import (
@@ -70,12 +69,21 @@ MODE_POWER_OFF = "power_off"
 # How many unconfirmed writes are kept for reconciling.
 UNCONFIRMED_KEPT = 5
 
-# Why a list write was made (the last write entity's `reason`).
-WRITE_PLAN = "plan"
-WRITE_CLEANUP = "cleanup"
-WRITE_NEAR_TERM = "near_term"
-# The first live write: the reservation switch on (5.1).
-WRITE_TAKEOVER = "takeover"
+
+class WriteReason(StrEnum):
+    """Why a list write was made: the last write's `reason` (section 8.4)."""
+
+    PLAN = "plan"
+    CLEANUP = "cleanup"
+    NEAR_TERM = "near_term"
+    # The first live write: the reservation switch on (5.1).
+    TAKEOVER = "takeover"
+
+
+WRITE_PLAN = WriteReason.PLAN
+WRITE_CLEANUP = WriteReason.CLEANUP
+WRITE_NEAR_TERM = WriteReason.NEAR_TERM
+WRITE_TAKEOVER = WriteReason.TAKEOVER
 
 # People's changes, as the override entity reports them (section 5.10).
 REPORT_REMOVED = "removed"
@@ -483,14 +491,10 @@ class Planner:
             }
             # The entries on the heater that are what the new plan wants,
             # judged against the list they were placed on.
-            self._plan_entries = set()
-            for e in sorted(
-                (e for e in self.owned if e.kind == KIND_PLAN),
-                key=lambda e: _instant(e.fires_at),
-            ):
-                if self._placed_as_planned(e, observed):
-                    self._plan_entries.add(self._check_key(e))
-        self.failed = {}
+            self._recognise_plan_entries(observed)
+            # The statuses were the old plan's. A restored plan keeps its
+            # own: a refused or unconfirmed segment stays so (section 6.5).
+            self.failed = {}
         # A near-term entry still serves the new plan if the new plan has
         # the same segment in force now, in the same state. Any other served
         # the old plan only.
@@ -502,19 +506,27 @@ class Planner:
             if e.kind != KIND_NEAR_TERM
             or (e.serves, State(e.mode, e.setpoint_raw)) == keep
         ]
-        # A plan entry already programmed with the same state serves the
-        # new plan's segment of the same id too.
+        # A plan entry already programmed where the new plan places it, in
+        # the same state, serves the new plan's segment of the same id too.
+        # One elsewhere does not: the new plan's entry is a different one
+        # (a segment moved inside the lead gets its near-term entry).
         states = {s.id: self.resolve(s) for s in plan.segments}
-        self.asserted = {
+        asserted = {
             e.serves
             for e in self.owned
             if e.kind == KIND_PLAN
             and e.serves is not None
+            and self._check_key(e) in self._plan_entries
             and states.get(e.serves) == State(e.mode, e.setpoint_raw)
         }
-        self.readback = {
-            k: v for k, v in self.readback.items() if k in self.asserted
-        }
+        if restored:
+            # The same plan: what it asserted and read back stays.
+            self.asserted |= asserted
+        else:
+            self.asserted = asserted
+            self.readback = {
+                k: v for k, v in self.readback.items() if k in self.asserted
+            }
 
         if keep is None or keep[0] in self.removed_segments:
             # Nothing of the plan's is in force yet, or a person deleted
@@ -572,21 +584,36 @@ class Planner:
         return write
 
     def commit(
-        self, write: Write, *, confirmed_at: datetime | None = None
+        self,
+        write: Write,
+        *,
+        confirmed_at: datetime | None = None,
+        observed: Observed | None = None,
     ) -> None:
         """Record a write as done: confirmed in live, simulated in shadow.
 
         A near-term entry confirmed only after its minute never fired; it is
         issued again for the next minute it can make (section 5.2).
+
+        `observed` is the device's list when the write was planned for
+        another plan (an unconfirmed write found to have landed): its plan
+        entries are the plan in force's only where it places them.
         """
         self.owned = list(write.result)
         self.last_write = write
-        # A write's plan entries are the plan in force's.
-        self._plan_entries = {
-            self._check_key(e) for e in self.owned if e.kind == KIND_PLAN
-        }
+        if observed is None:
+            # A write's plan entries are the plan in force's.
+            self._plan_entries = {
+                self._check_key(e) for e in self.owned if e.kind == KIND_PLAN
+            }
+        else:
+            self._recognise_plan_entries(observed)
         for entry in write.added:
-            if entry.kind == KIND_PLAN and entry.serves:
+            if (
+                entry.kind == KIND_PLAN
+                and entry.serves
+                and self._check_key(entry) in self._plan_entries
+            ):
                 self.asserted.add(entry.serves)
         if not write.simulated:
             # The device holds the whole wanted list now.
@@ -639,9 +666,7 @@ class Planner:
         """
         self.last_write = replace(write, simulated=False, confirmed=False)
         if sent:
-            self.unconfirmed = [*self.unconfirmed, (write, written_hash)][
-                -UNCONFIRMED_KEPT:
-            ]
+            self.sending(write, written_hash)
         for entry in write.added:
             if entry in self.owned:
                 continue
@@ -709,6 +734,18 @@ class Planner:
             for o in self.owned
         )
 
+    def sending(self, write: Write, written_hash: str | None) -> None:
+        """Keep a write about to be sent as unconfirmed until confirmed.
+
+        Recorded before it is sent, so a write that lands just before HA
+        is killed is still recognised as the feature's at the next start.
+        """
+        if (write, written_hash) in self.unconfirmed:
+            return
+        self.unconfirmed = [*self.unconfirmed, (write, written_hash)][
+            -UNCONFIRMED_KEPT:
+        ]
+
     def reconcile_unconfirmed(self, observed: Observed) -> None:
         """Settle a write that was not confirmed, against the device's list.
 
@@ -724,7 +761,12 @@ class Planner:
         for write, written_hash in reversed(self.unconfirmed):
             if written_hash is not None and device_hash == written_hash:
                 _LOGGER.info("An unconfirmed %s write had landed", write.reason)
-                self.commit(replace(write, simulated=False, confirmed=True))
+                # The plan in force may have been replaced since it was
+                # planned: its entries are judged against the list.
+                self.commit(
+                    replace(write, simulated=False, confirmed=True),
+                    observed=observed,
+                )
                 return
         on_device = [dict(e) for e in schedule["reservation"]]
         for write, _hash in self.unconfirmed:
@@ -816,6 +858,19 @@ class Planner:
         if entry.kind == KIND_PLAN:
             return self._check_key(entry) in self._plan_entries
         return entry.kind == KIND_NEAR_TERM
+
+    def _recognise_plan_entries(self, observed: Observed) -> None:
+        """The owned plan entries the plan in force places where they are.
+
+        In time order, so a cascade of moves past each other is followed.
+        """
+        self._plan_entries = set()
+        for e in sorted(
+            (e for e in self.owned if e.kind == KIND_PLAN),
+            key=lambda e: _instant(e.fires_at),
+        ):
+            if self._placed_as_planned(e, observed):
+                self._plan_entries.add(self._check_key(e))
 
     def _placed_as_planned(self, entry: OwnedEntry, observed: Observed) -> bool:
         """Whether a plan entry is where the plan in force places it now.
@@ -1029,14 +1084,26 @@ class Planner:
 
     def _desired(self, now: datetime, observed: Observed) -> list[OwnedEntry]:
         """The owned entries the device should hold now (sections 5.2-5.3)."""
-        cap = self.capabilities
         others = self.others(observed)
-        occupied = self._occupied(others)
         extra = [e.localised(self.tz) for e in self.extra]
+        candidates, info = self._plan_candidates(now, self._occupied(others))
+        desired = self._within_budget(candidates, info, others, extra)
+        desired = self._with_extra(desired, others, extra)
+        self._info = info
+        self._note_scheduled(now, info)
+        return desired
+
+    def _plan_candidates(
+        self, now: datetime, occupied: list[tuple[int, int, int]]
+    ) -> tuple[list[tuple[Segment, OwnedEntry]], dict[str, _SegmentInfo]]:
+        """The plan's entries to write, in order, and each segment's info.
+
+        Each entry is placed past the minutes `occupied` holds, which it
+        then holds itself.
+        """
         owned_now = {
             e for e in self.owned if _later(e.fires_at, FIRED_GRACE) > now
         }
-
         info: dict[str, _SegmentInfo] = {}
         candidates: list[tuple[Segment, OwnedEntry]] = []
         for segment, state, merged in self._timeline():
@@ -1088,20 +1155,40 @@ class Planner:
             info[segment.id] = _SegmentInfo(
                 True, warnings=tuple(warnings), fires_at=placed.fires_at
             )
+        return candidates, info
 
+    def _within_budget(
+        self,
+        candidates: list[tuple[Segment, OwnedEntry]],
+        info: dict[str, _SegmentInfo],
+        others: list[dict[str, int]],
+        extra: list[OwnedEntry],
+    ) -> list[OwnedEntry]:
+        """The candidates the entry budget has room for, earliest first.
+
+        The rest are marked in `info` as left out for the budget.
+        """
+        cap = self.capabilities
         room = min(
             cap.entry_limit - len(others) - cap.entry_reserve,
             cap.entry_limit - len(others) - len(extra),
         )
         room = max(room, 0)
-        chosen = candidates[:room]
         for segment, _entry in candidates[room:]:
             previous = info[segment.id]
             info[segment.id] = replace(
                 previous, candidate=False, reason=REASON_ENTRY_BUDGET
             )
+        return [e for _, e in candidates[:room]]
 
-        desired: list[OwnedEntry] = [e for _, e in chosen]
+    def _with_extra(
+        self,
+        desired: list[OwnedEntry],
+        others: list[dict[str, int]],
+        extra: list[OwnedEntry],
+    ) -> list[OwnedEntry]:
+        """`desired` and the near-term entries, each placed past the rest."""
+        desired = list(desired)
         # Slots of the plan entries that will not be written go free again.
         occupied = self._occupied(others) + [e.slot for e in desired]
         for entry in extra:
@@ -1121,7 +1208,12 @@ class Planner:
             self._swap_extra(entry, placed)
             occupied.append(placed.slot)
             desired.append(placed)
-        self._info = info
+        return desired
+
+    def _note_scheduled(
+        self, now: datetime, info: dict[str, _SegmentInfo]
+    ) -> None:
+        """How much of the plan is programmed, and until when."""
         scheduled = [
             s
             for s, _state, merged in self._timeline()
@@ -1139,7 +1231,6 @@ class Planner:
             self._programmed_until = self.plan.segments[-1].start
         else:
             self._programmed_until = None
-        return desired
 
     @staticmethod
     def _occupied(
@@ -1373,88 +1464,96 @@ class Planner:
     def ack(self, intent_id: str | None) -> Ack:
         """The acknowledgement of the plan in force."""
         now = self.last_step
-        plan = self.plan
-        if plan is None or now is None:
+        if self.plan is None or now is None:
             return Ack(intent_id=intent_id, state="none")
         owned = set(self.owned)
         anchor = self._anchor(now)
-        segments: list[ItemAck] = []
-        statuses: list[str] = []
-        for segment, _state, merged in self._timeline():
-            info = self._info.get(segment.id, _SegmentInfo(False))
-            fires_at = info.fires_at
-            if fires_at is None:
-                # A segment put in force by a near-term entry.
-                fires_at = next(
-                    (
-                        e.fires_at
-                        for e in (*self.owned, *self.extra)
-                        if e.kind == KIND_NEAR_TERM and e.serves == segment.id
-                    ),
-                    None,
-                )
-            # Not one whose entry a person deleted (section 5.10).
-            in_force = (
-                anchor is not None
-                and anchor[0].id == segment.id
-                and segment.id not in self.removed_segments
-            )
-            detail: dict[str, Any] = {
-                "fires_at": fires_at.isoformat() if fires_at else None,
-                "in_force": in_force,
-            }
-            reason = info.reason
-            if segment.id in self.removed_segments:
-                status = STATUS_REMOVED
-            elif merged:
-                status = STATUS_MERGED
-            elif segment.start <= now:
-                # Begun, and not the plan's segment in force: a later one
-                # has started.
-                if not in_force:
-                    status = STATUS_ENDED
-                elif self.shadow:
-                    status = STATUS_SHADOW
-                else:
-                    status = self._begun_status(segment.id, now)
-            elif info.candidate:
-                programmed = any(
-                    e.kind == KIND_PLAN and e.serves == segment.id
-                    for e in owned
-                )
-                if self.shadow:
-                    status = STATUS_SHADOW
-                else:
-                    status = STATUS_PROGRAMMED if programmed else STATUS_PENDING
-            else:
-                status = STATUS_SCHEDULED
-            if not self.shadow:
-                status, reason = self._live_status(segment.id, status, reason)
-            statuses.append(status)
-            segments.append(
-                ItemAck(
-                    id=segment.id,
-                    status=status,
-                    reason=reason,
-                    warnings=info.warnings,
-                    extra=segment.extra,
-                    detail=detail,
-                )
-            )
+        segments = tuple(
+            self._segment_ack(segment, merged, now, owned, anchor)
+            for segment, _state, merged in self._timeline()
+        )
+        return Ack(
+            intent_id=intent_id,
+            state=self._ack_state([s.status for s in segments]),
+            segments=segments,
+        )
 
+    def _segment_ack(
+        self,
+        segment: Segment,
+        merged: bool,
+        now: datetime,
+        owned: set[OwnedEntry],
+        anchor: tuple[Segment, State] | None,
+    ) -> ItemAck:
+        """One segment's acknowledgement: its status, reason and timing."""
+        info = self._info.get(segment.id, _SegmentInfo(False))
+        fires_at = info.fires_at
+        if fires_at is None:
+            # A segment put in force by a near-term entry.
+            fires_at = next(
+                (
+                    e.fires_at
+                    for e in (*self.owned, *self.extra)
+                    if e.kind == KIND_NEAR_TERM and e.serves == segment.id
+                ),
+                None,
+            )
+        # Not one whose entry a person deleted (section 5.10).
+        in_force = (
+            anchor is not None
+            and anchor[0].id == segment.id
+            and segment.id not in self.removed_segments
+        )
+        detail: dict[str, Any] = {
+            "fires_at": fires_at.isoformat() if fires_at else None,
+            "in_force": in_force,
+        }
+        reason = info.reason
+        status: str
+        if segment.id in self.removed_segments:
+            status = STATUS_REMOVED
+        elif merged:
+            status = STATUS_MERGED
+        elif segment.start <= now:
+            # Begun, and not the plan's segment in force: a later one
+            # has started.
+            if not in_force:
+                status = STATUS_ENDED
+            elif self.shadow:
+                status = STATUS_SHADOW
+            else:
+                status = self._begun_status(segment.id, now)
+        elif info.candidate:
+            programmed = any(
+                e.kind == KIND_PLAN and e.serves == segment.id for e in owned
+            )
+            if self.shadow:
+                status = STATUS_SHADOW
+            else:
+                status = STATUS_PROGRAMMED if programmed else STATUS_PENDING
+        else:
+            status = STATUS_SCHEDULED
+        if not self.shadow:
+            status, reason = self._live_status(segment.id, status, reason)
+        return ItemAck(
+            id=segment.id,
+            status=status,
+            reason=reason,
+            warnings=info.warnings,
+            extra=segment.extra,
+            detail=detail,
+        )
+
+    def _ack_state(self, statuses: list[str]) -> str:
+        """The plan's state from its segments' statuses."""
         if self.shadow:
-            state = STATE_SHADOW
-        elif STATUS_PENDING in statuses or any(
+            return STATE_SHADOW
+        if STATUS_PENDING in statuses or any(
             e in self.owned for e in self._withdrawing
         ):
             # Or entries the plan wants off the heater are still on it.
-            state = STATE_PENDING
-        elif STATUS_REMOVED in statuses or STATUS_FAILED in statuses:
-            state = STATE_PARTLY_PROGRAMMED
-        else:
-            state = STATE_PROGRAMMED
-        return Ack(
-            intent_id=intent_id,
-            state=state,
-            segments=tuple(segments),
-        )
+            return STATE_PENDING
+        if STATUS_REMOVED in statuses or STATUS_FAILED in statuses:
+            return STATE_PARTLY_PROGRAMMED
+        return STATE_PROGRAMMED

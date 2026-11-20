@@ -13,7 +13,7 @@ set_reservation:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
@@ -115,7 +115,7 @@ update_reservations:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
@@ -155,7 +155,7 @@ clear_reservations:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
@@ -178,7 +178,7 @@ request_reservations:
     device_id:
       name: Device
       description: The target NWP500 water heater device
-      required: true
+      required: false
       selector:
         device:
           integration: nwp500
@@ -657,6 +657,19 @@ simulate:
           min: 1
           max: 168
           mode: box
+    plan:
+      name: External control plan
+      description: >-
+        An external control plan document (protocol 1), instead of changes to
+        try. Checked as the plan entity's would be; one that would be rejected
+        is refused with its reason. Each segment's setpoint and mode is applied
+        when external control's entry for it would fire: the segment in force,
+        and one starting within 2 minutes, at least 2 minutes later; each later
+        one at its start. Its commands apply at the start; the result's reasons
+        name those the simulator doesn't model.
+      required: false
+      selector:
+        object:
     writes:
       name: Changes to try
       description: >-

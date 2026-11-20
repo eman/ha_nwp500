@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.nwp500.mqtt_manager import (
     NWP500MqttManager,
-    _DeviceKeyedScheduleHandler,
 )
 
 
@@ -212,123 +210,9 @@ async def test_subscribe_device(manager, mock_mqtt_client, mock_device):
     ):
         subscribe.assert_called_once()
         assert subscribe.call_args[0][0] == mock_device
-    # The device-keyed copy of the reservation replies.
-    (handler,) = [
-        c[0][1]
-        for c in mock_mqtt_client.subscribe_device.call_args_list
-        if isinstance(c[0][1], _DeviceKeyedScheduleHandler)
-    ]
-    assert mock_mqtt_client.subscribe_device.call_args[0][0] == mock_device
-    assert handler.mac_address == mock_device.device_info.mac_address
-
-
-_LIST_REPLY = {
-    "clientID": "response-reservation-1794317739765",
-    "protocolVersion": 2,
-    "requestTopic": "cmd/52/navilink-aabbccddeeff/st/rsv/rd",
-    "response": {
-        "additionalValue": "5322",
-        "deviceType": 52,
-        "macAddress": "aabbccddeeff",
-        "reservation": [
-            {
-                "enable": 2,
-                "hour": 15,
-                "min": 34,
-                "mode": 1,
-                "param": 120,
-                "week": 2,
-            }
-        ],
-        "reservationUse": 1,
-    },
-}
-
-
-@pytest.mark.asyncio
-async def test_a_list_reply_on_the_device_topic_is_received(
-    mock_auth_client, mock_mqtt_client, mock_device
-):
-    """The heater sometimes answers on its own topic, not the client's."""
-    received: list[tuple[str, dict[str, Any]]] = []
-    manager = NWP500MqttManager(
-        hass_loop=MagicMock(),
-        auth_client=mock_auth_client,
-        on_status_update=MagicMock(),
-        on_feature_update=MagicMock(),
-        on_reservation_update=lambda mac, r: received.append((mac, r)),
-    )
-    await manager.setup()
-    await manager.subscribe_device(mock_device)
-    (handler,) = [
-        c[0][1]
-        for c in mock_mqtt_client.subscribe_device.call_args_list
-        if isinstance(c[0][1], _DeviceKeyedScheduleHandler)
-    ]
-
-    handler("cmd/52/navilink-aabbccddeeff/res/rsv/rd", _LIST_REPLY)
-
-    ((mac, reply),) = received
-    assert mac == mock_device.device_info.mac_address
-    assert reply["reservation_use"] == 1
-    assert [
-        (e["hour"], e["min"], e["param"]) for e in reply["reservation"]
-    ] == [(15, 34, 120)]
-
-
-@pytest.mark.parametrize(
-    ("topic", "message"),
-    [
-        # The heater's own answer, a hex string the cloud then converts.
-        (
-            "cmd/52/navilink-aabbccddeeff/res/rsv",
-            {"response": {"reservation": "02020f2201780000"}},
-        ),
-        # Another schedule's reply.
-        ("cmd/52/navilink-aabbccddeeff/res/recirc-rsv/rd", _LIST_REPLY),
-        # A client's request, seen on the device topic.
-        (
-            "cmd/52/navilink-aabbccddeeff/st/rsv/rd",
-            {"request": {"command": 16777222}},
-        ),
-        # A status.
-        (
-            "cmd/52/navilink-aabbccddeeff/res/rsv/rd",
-            {"response": {"status": {}}},
-        ),
-    ],
-)
-def test_only_list_replies_on_the_device_topic_are_taken(topic, message):
-    got: list[Any] = []
-    handler = _DeviceKeyedScheduleHandler(
-        "aabbccddeeff", lambda *a: got.append(a)
-    )
-
-    handler(topic, message)
-
-    assert got == []
-
-
-def test_an_unreadable_list_on_the_device_topic_is_dropped(caplog):
-    got: list[Any] = []
-    handler = _DeviceKeyedScheduleHandler(
-        "aabbccddeeff", lambda *a: got.append(a)
-    )
-
-    handler(
-        "cmd/52/navilink-aabbccddeeff/res/rsv/rd",
-        {"response": {"reservation": "not a list", "reservationUse": 1}},
-    )
-
-    assert got == []
-    assert "unreadable reservation list" in caplog.text
-
-
-def test_the_device_topic_handler_registers_once():
-    callback = MagicMock()
-    assert _DeviceKeyedScheduleHandler("m", callback) == (
-        _DeviceKeyedScheduleHandler("m", callback)
-    )
+    # The library takes the lists sent on the device topic too: a second
+    # reader there would hand each list over twice.
+    mock_mqtt_client.subscribe_device.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -1034,7 +918,9 @@ async def test_force_reconnect_gives_up_on_repeated_credential_rejection(
     attempt. Retrying without limit looked exactly like working: warnings
     every 60s, no reauth prompt, and nothing that ever escalated.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed
@@ -1075,7 +961,9 @@ async def test_force_reconnect_keeps_retrying_through_a_network_outage(
     credentials that are perfectly valid, and stop retrying the one thing
     that does recover on its own.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed
@@ -1118,7 +1006,9 @@ async def test_force_reconnect_resets_credential_run_on_a_transport_failure(
     A credential failure followed by an outage is not evidence the password
     is wrong, so the run restarts rather than accumulating toward reauth.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed
@@ -1200,7 +1090,9 @@ async def test_credential_run_does_not_survive_a_successful_reconnect(
     threshold, so the first rejection of some later outage escalated
     straight to reauth.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed
@@ -1241,7 +1133,9 @@ async def test_a_setup_failure_before_connect_is_not_counted_as_credentials(
     rejection followed by unrelated setup failures would reach the
     threshold and prompt for reauthentication.
     """
-    from custom_components.nwp500 import mqtt_manager as mm
+    from custom_components.nwp500 import (
+        mqtt_manager as mm,
+    )
 
     failed = MagicMock()
     manager._on_reconnection_failed_callback = failed

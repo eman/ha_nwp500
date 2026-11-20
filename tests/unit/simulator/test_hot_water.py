@@ -18,9 +18,9 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
-    DATA_SIMULATOR,
     DOMAIN,
 )
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator import (
     async_setup_simulator,
     async_unload_simulator,
@@ -58,9 +58,10 @@ async def started(
         options={CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: {MAC: options}},
     )
     entry.add_to_hass(hass)
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_simulator(hass, entry, coordinator)
     await hass.async_block_till_done()
-    return hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR].runners[MAC]
+    return entry.runtime_data.simulator.runners[MAC]
 
 
 async def stop(hass: HomeAssistant) -> None:
@@ -153,7 +154,9 @@ async def test_the_hot_water_entities_report_the_answer(
     hass: HomeAssistant, hass_storage, coordinator
 ):
     runner = await started(hass, coordinator, {})
-    feature = hass.data[DOMAIN]["entry1"][DATA_SIMULATOR]
+    feature = hass.config_entries.async_get_entry(
+        "entry1"
+    ).runtime_data.simulator
     by_type = {
         type(entity): entity for entity in create_simulator_sensors(feature)
     }
@@ -229,7 +232,9 @@ async def test_the_hot_water_entities_wait_with_the_others(
 ):
     coordinator.data[MAC]["status"] = None
     await started(hass, coordinator, {})
-    feature = hass.data[DOMAIN]["entry1"][DATA_SIMULATOR]
+    feature = hass.config_entries.async_get_entry(
+        "entry1"
+    ).runtime_data.simulator
 
     from custom_components.nwp500.simulator.sensor import (
         SimulatorCalibrationSensor,
@@ -334,15 +339,26 @@ async def test_a_mixing_valve_is_given_to_the_library(
     await stop(hass)
 
 
-def _readiness(deliverable: float, *, bath: float = 28.7, shower: float = 12.0):
+def _readiness(
+    deliverable: float,
+    *,
+    bath: float = 28.7,
+    shower: float = 12.0,
+    ready: bool | None = None,
+):
     """A readiness answer with `deliverable` gallons, as the library's."""
     from types import SimpleNamespace
 
-    from nwp500.sim.ready import showers_ready_for, whole_showers
+    from nwp500.sim.ready import showers_ready_for, whole_baths, whole_showers
 
+    ready = deliverable >= bath if ready is None else ready
     return SimpleNamespace(
         deliverable_gal=deliverable,
-        bath=SimpleNamespace(volume_gal=bath, ready=deliverable >= bath),
+        bath=SimpleNamespace(
+            volume_gal=bath,
+            ready=ready,
+            ready_for_whole=whole_baths(deliverable, bath, ready),
+        ),
         showers=SimpleNamespace(
             volume_gal=shower,
             ready_for_whole=whole_showers(
@@ -384,8 +400,7 @@ def test_the_first_bath_is_the_librarys_answer():
 
     # The library says not ready within its probe resolution: no bath,
     # whatever the gallons.
-    readiness = _readiness(30.0)
-    readiness.bath.ready = False
+    readiness = _readiness(30.0, ready=False)
 
     capacity = capacity_from(readiness)  # type: ignore[arg-type]
 

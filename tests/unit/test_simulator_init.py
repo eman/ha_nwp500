@@ -17,7 +17,6 @@ from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.nwp500 import (
-    NWP500ServiceHandler,
     _async_enable_simulator_inputs,
     _async_remove_retired_simulator_entities,
     async_reload_entry,
@@ -25,6 +24,10 @@ from custom_components.nwp500 import (
     async_setup_entry,
 )
 from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.coordinator import NWP500Data
+from custom_components.nwp500.services import (
+    NWP500ServiceHandler,
+)
 from custom_components.nwp500.simulator_deps import DepsResult
 
 MAC = "AA:BB:CC:DD:EE:FF"
@@ -139,9 +142,8 @@ async def test_setup_with_the_simulator_off_imports_nothing_of_it(
     mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
         mock_entry, _PLATFORMS
     )
-    assert mock_hass.data[DOMAIN][mock_entry.entry_id] == {
-        "platforms": _PLATFORMS
-    }
+    assert mock_entry.runtime_data.platforms == _PLATFORMS
+    assert mock_entry.runtime_data.simulator_start is None
     assert started == []
     enable, retire = _no_registry_on_mock_hass
     enable.assert_not_called()
@@ -279,7 +281,9 @@ async def test_a_simulator_that_cannot_start_is_reported_in_repairs(
 
 @pytest.mark.asyncio
 async def test_unload_stops_a_simulator_still_starting(hass: HomeAssistant):
-    from custom_components.nwp500 import async_unload_entry
+    from custom_components.nwp500 import (
+        async_unload_entry,
+    )
 
     never = asyncio.Event()
 
@@ -289,10 +293,11 @@ async def test_unload_stops_a_simulator_still_starting(hass: HomeAssistant):
     start = hass.async_create_task(starting())
     await asyncio.sleep(0)
     mock_entry = _entry({"simulator_enabled": True})
-    mock_entry.runtime_data.async_shutdown = AsyncMock()
-    hass.data[DOMAIN] = {
-        mock_entry.entry_id: {"platforms": _PLATFORMS, "simulator_start": start}
-    }
+    mock_entry.runtime_data = NWP500Data(
+        MagicMock(async_shutdown=AsyncMock()),
+        platforms=_PLATFORMS,
+        simulator_start=start,
+    )
 
     with patch.object(
         hass.config_entries,
@@ -313,15 +318,18 @@ def test_every_entity_the_simulator_reads_is_enabled_by_default():
     from custom_components.nwp500.binary_sensor import (
         BINARY_SENSOR_DESCRIPTIONS,
     )
-    from custom_components.nwp500.const import (
-        SENSOR_CONFIGS,
-        SIMULATOR_HEATER_ENTITIES,
+    from custom_components.nwp500.const import SIMULATOR_HEATER_ENTITIES
+    from custom_components.nwp500.sensor import (
+        SENSOR_DESCRIPTIONS,
+        NWP500LastStatusSensor,
     )
-    from custom_components.nwp500.sensor import NWP500LastStatusSensor
 
     binary = {
         d.key: d.entity_registry_enabled_default
         for d in BINARY_SENSOR_DESCRIPTIONS
+    }
+    sensors = {
+        d.key: d.entity_registry_enabled_default for d in SENSOR_DESCRIPTIONS
     }
     for domain, key in SIMULATOR_HEATER_ENTITIES:
         if domain == "binary_sensor":
@@ -332,7 +340,7 @@ def test_every_entity_the_simulator_reads_is_enabled_by_default():
                 is not False
             )
         else:
-            assert SENSOR_CONFIGS[key].get("enabled") is True, key
+            assert sensors[key] is True, key
 
 
 @pytest.mark.asyncio
@@ -563,12 +571,27 @@ async def test_the_service_says_when_the_simulator_is_off(
         (
             "async_simulate",
             {"hours": 6, "writes": [], "include_points": True},
-            {"hours": 6, "writes": [], "include_points": True},
+            {"hours": 6, "writes": [], "plan": None, "include_points": True},
         ),
         (
             "async_simulate",
             {"include_points": False},
-            {"hours": None, "writes": None, "include_points": False},
+            {
+                "hours": None,
+                "writes": None,
+                "plan": None,
+                "include_points": False,
+            },
+        ),
+        (
+            "async_simulate",
+            {"plan": {"protocol": "1"}, "include_points": False},
+            {
+                "hours": None,
+                "writes": None,
+                "plan": {"protocol": "1"},
+                "include_points": False,
+            },
         ),
         (
             "async_time_to_ready",
@@ -611,7 +634,8 @@ async def test_each_action_passes_its_fields_to_the_library_call(
             AsyncMock(return_value=(coordinator, MAC)),
         ),
         patch(
-            "custom_components.nwp500.simulator_feature", return_value=feature
+            "custom_components.nwp500.services.simulator_feature",
+            return_value=feature,
         ),
         patch.object(service, action, AsyncMock(return_value=answer)) as fn,
     ):
@@ -652,7 +676,7 @@ async def test_a_document_alone_needs_no_heater(hass: HomeAssistant, action):
             MagicMock(return_value=[entry]),
         ),
         patch(
-            "custom_components.nwp500.simulator_feature",
+            "custom_components.nwp500.services.simulator_feature",
             return_value=MagicMock(runners={}),
         ),
         patch.object(service, action, AsyncMock(return_value=answer)) as fn,
@@ -670,7 +694,10 @@ async def test_a_document_alone_needs_no_heater(hass: HomeAssistant, action):
             "async_loaded_entries",
             MagicMock(return_value=[entry]),
         ),
-        patch("custom_components.nwp500.simulator_feature", return_value=None),
+        patch(
+            "custom_components.nwp500.services.simulator_feature",
+            return_value=None,
+        ),
         pytest.raises(ServiceValidationError) as err,
     ):
         await getattr(handler, action)(call)
@@ -680,7 +707,7 @@ async def test_a_document_alone_needs_no_heater(hass: HomeAssistant, action):
 def test_the_action_schemas_need_a_heater_unless_the_document_is_alone():
     import voluptuous as vol
 
-    from custom_components.nwp500 import (
+    from custom_components.nwp500.services import (
         SERVICE_SCENARIO_SCHEMA,
         SERVICE_SIMULATE_SCHEMA,
     )
@@ -695,7 +722,9 @@ def test_the_action_schemas_need_a_heater_unless_the_document_is_alone():
 
 
 def test_the_service_schema_fills_its_defaults():
-    from custom_components.nwp500 import SERVICE_SIMULATE_SCHEMA
+    from custom_components.nwp500.services import (
+        SERVICE_SIMULATE_SCHEMA,
+    )
 
     data = SERVICE_SIMULATE_SCHEMA({"entity_id": "water_heater.heater"})
 
@@ -720,14 +749,18 @@ def test_the_service_schema_fills_its_defaults():
 def test_the_service_schema_refuses_what_cannot_be_simulated(data):
     import voluptuous as vol
 
-    from custom_components.nwp500 import SERVICE_SIMULATE_SCHEMA
+    from custom_components.nwp500.services import (
+        SERVICE_SIMULATE_SCHEMA,
+    )
 
     with pytest.raises(vol.Invalid):
         SERVICE_SIMULATE_SCHEMA({"entity_id": "water_heater.heater", **data})
 
 
 def test_the_service_schema_takes_a_write():
-    from custom_components.nwp500 import SERVICE_SIMULATE_SCHEMA
+    from custom_components.nwp500.services import (
+        SERVICE_SIMULATE_SCHEMA,
+    )
 
     data = SERVICE_SIMULATE_SCHEMA(
         {
@@ -755,7 +788,7 @@ def test_the_service_schema_takes_a_write():
 def test_the_action_schemas_refuse_what_cannot_be_asked(schema, data):
     import voluptuous as vol
 
-    import custom_components.nwp500 as integration
+    import custom_components.nwp500.services as integration
 
     with pytest.raises(vol.Invalid):
         getattr(integration, schema)(
@@ -764,7 +797,7 @@ def test_the_action_schemas_refuse_what_cannot_be_asked(schema, data):
 
 
 def test_the_action_schemas_take_a_document():
-    from custom_components.nwp500 import (
+    from custom_components.nwp500.services import (
         SERVICE_FORECAST_SCHEMA,
         SERVICE_SCENARIO_SCHEMA,
     )
@@ -778,3 +811,99 @@ def test_the_action_schemas_take_a_document():
         {"device_id": "abc", "target_time": "2026-10-21T14:00:00"}
     )
     assert data["target_time"].hour == 14
+
+
+@needs_sim
+@pytest.mark.asyncio
+async def test_switching_it_off_stops_it_once_and_forgets_it(
+    hass: HomeAssistant, hass_storage, tmp_path
+):
+    """The reload's unload must not stop it again after its files are gone.
+
+    A second stop closes the records and calibration, writing them back.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        options={"simulator_enabled": False, "simulator": {}},
+    )
+    entry.add_to_hass(hass)
+    await _leftovers(hass, hass_storage, entry, tmp_path)
+    feature = MagicMock(async_stop=AsyncMock())
+    never = asyncio.Event()
+    start = hass.async_create_task(never.wait())
+    entry.runtime_data = NWP500Data(
+        MagicMock(), simulator=feature, simulator_start=start
+    )
+
+    with patch.object(hass.config_entries, "async_reload", AsyncMock()):
+        await async_reload_entry(hass, entry)
+
+    feature.async_stop.assert_awaited_once()
+    assert entry.runtime_data.simulator is None
+    assert entry.runtime_data.simulator_start is None
+    assert start.cancelled()
+
+
+def _device(hass: HomeAssistant, entry: MockConfigEntry, mac: str):
+    from homeassistant.helpers import device_registry as dr
+
+    return dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, mac)}
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_heater_still_on_the_account_cannot_be_deleted(
+    hass: HomeAssistant,
+):
+    from custom_components.nwp500 import (
+        async_remove_config_entry_device,
+    )
+
+    entry = MockConfigEntry(domain=DOMAIN, options={})
+    entry.add_to_hass(hass)
+    entry.runtime_data = NWP500Data(MagicMock(data={MAC: {}}))
+
+    assert not await async_remove_config_entry_device(
+        hass, entry, _device(hass, entry, MAC)
+    )
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_heater_gone_from_the_account_drops_its_data(
+    hass: HomeAssistant, hass_storage, tmp_path
+):
+    from custom_components.nwp500 import (
+        async_remove_config_entry_device,
+    )
+    from custom_components.nwp500.const import (
+        simulator_heater_record_directory,
+    )
+
+    hass.config.config_dir = str(tmp_path)
+    gone, kept = "11:22:33:44:55:66", MAC
+    entry = MockConfigEntry(domain=DOMAIN, options={})
+    entry.add_to_hass(hass)
+    entry.runtime_data = NWP500Data(MagicMock(data={kept: {}}))
+    key = f"nwp500.simulator_calibration.{entry.entry_id}"
+    hass_storage[key] = {
+        "version": 1,
+        "key": key,
+        "data": {"heaters": {gone: {"error": None}, kept: {"error": None}}},
+    }
+    for mac in (gone, kept):
+        directory = simulator_heater_record_directory(hass, entry.entry_id, mac)
+        directory.mkdir(parents=True)
+
+    assert await async_remove_config_entry_device(
+        hass, entry, _device(hass, entry, gone)
+    )
+    await hass.async_block_till_done()
+
+    assert set(hass_storage[key]["data"]["heaters"]) == {kept}
+    assert not simulator_heater_record_directory(
+        hass, entry.entry_id, gone
+    ).exists()
+    assert simulator_heater_record_directory(
+        hass, entry.entry_id, kept
+    ).exists()
