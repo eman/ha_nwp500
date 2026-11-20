@@ -133,7 +133,7 @@ def _commands() -> dict[str, dict[str, dict[str, Any]]]:
             spec: dict[str, Any] = {
                 "type": "integer" if kind is int else "boolean"
             }
-            if (limits := COMMAND_RANGES.get((name, key))) is not None:
+            if (limits := COMMAND_RANGES.get(name, {}).get(key)) is not None:
                 spec["min"], spec["max"] = limits
             described[key] = spec
         commands[name] = described

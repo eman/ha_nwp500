@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
+from nwp500.heater import COMMAND_KEYS, COMMAND_KEYS_ONLY_WITH, COMMAND_RANGES
 from nwp500.temperature import HalfCelsius
 
 from ..vocabulary import CONTROL_MODE_NAMES
@@ -69,21 +70,10 @@ REASON_SUPERSEDED = RejectReason.SUPERSEDED
 REASON_INVALID_COMMAND = CommandRejectReason.INVALID_COMMAND
 REASON_UNSUPPORTED_COMMAND = CommandRejectReason.UNSUPPORTED_COMMAND
 
-# Device commands (protocol 1.3, section 3.7): each one's own keys, all
-# required. Anti-Legionella's period is given only when switching it on.
-COMMAND_KEYS: dict[str, dict[str, type]] = {
-    "vacation": {"days": int},
-    "power": {"on": bool},
-    "anti_legionella": {"enabled": bool, "period_days": int},
-    "tou": {"enabled": bool},
-    "demand_response": {"enabled": bool},
-}
-# The whole-number keys' ranges, inclusive: the library's own checks on
-# the commands they are sent as (vacation days, the Anti-Legionella period).
-COMMAND_RANGES: dict[tuple[str, str], tuple[int, int]] = {
-    ("vacation", "days"): (1, 99),
-    ("anti_legionella", "period_days"): (1, 30),
-}
+# Device commands (protocol 1.3, section 3.7) are the library's heater
+# description (`nwp500.heater`): each one's own keys, all required unless
+# given only with another's value (Anti-Legionella's period, only when
+# switching it on), and the whole-number keys' ranges, inclusive.
 
 # A command's own keys on the acknowledgement. An opaque key with one of
 # these names is not echoed: `detail` is set only on some commands, and an
@@ -409,13 +399,15 @@ def _command_problem(
     if keys is None:
         return REASON_UNSUPPORTED_COMMAND, f"command {name!r} is not supported"
     required = dict(keys)
-    if name == "anti_legionella" and raw.get("enabled") is not True:
-        del required["period_days"]
-        if "period_days" in raw:
-            return (
-                REASON_INVALID_COMMAND,
-                "period_days is given only with enabled true",
+    for key, needs in COMMAND_KEYS_ONLY_WITH.get(name, {}).items():
+        if all(raw.get(k) is v for k, v in needs.items()):
+            continue
+        del required[key]
+        if key in raw:
+            given = " and ".join(
+                f"{k} {json.dumps(v)}" for k, v in needs.items()
             )
+            return REASON_INVALID_COMMAND, f"{key} is given only with {given}"
     for key, kind in required.items():
         if key not in raw:
             return REASON_INVALID_COMMAND, f"{name} lacks {key}"
@@ -424,7 +416,7 @@ def _command_problem(
                 REASON_INVALID_COMMAND,
                 f"{name} {key} must be {'a whole number' if kind is int else 'true or false'}",
             )
-        if (limits := COMMAND_RANGES.get((name, key))) is not None:
+        if (limits := COMMAND_RANGES.get(name, {}).get(key)) is not None:
             low, high = limits
             if not low <= raw[key] <= high:
                 return (
