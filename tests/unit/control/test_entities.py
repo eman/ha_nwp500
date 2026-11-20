@@ -23,8 +23,6 @@ from custom_components.nwp500 import (
     sensor as sensor_platform,
 )
 from custom_components.nwp500.const import (
-    DATA_CONTROL,
-    DOMAIN,
     MAX_CONTROL_RESERVATION_ENTRY_LIMIT,
 )
 from custom_components.nwp500.control import ENTITY_KEYS
@@ -61,6 +59,7 @@ from custom_components.nwp500.control.sensor import (
     ControlWantedSetpointSensor,
     create_control_sensors,
 )
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.vocabulary import (
     CONF_CONTROL_MODE,
     CONTROL_MODE_DISABLED,
@@ -528,9 +527,9 @@ class TestPlatformHooks:
         hass = MagicMock()
         feature = MagicMock()
         feature.devices = {MAC: control}
-        hass.data = {
-            DOMAIN: {mock_config_entry.entry_id: {DATA_CONTROL: feature}}
-        }
+        mock_config_entry.runtime_data = NWP500Data(
+            MagicMock(), control=feature
+        )
         add_entities = MagicMock()
         await button_platform.async_setup_entry(
             hass, mock_config_entry, add_entities
@@ -557,12 +556,11 @@ class TestPlatformHooks:
         mock_coordinator.data = {
             MAC: {"device": mock_device, "status": mock_device_status}
         }
-        mock_config_entry.runtime_data = mock_coordinator
         feature = MagicMock()
         feature.devices = {MAC: control}
-        hass.data[DOMAIN] = {
-            mock_config_entry.entry_id: {DATA_CONTROL: feature}
-        }
+        mock_config_entry.runtime_data = NWP500Data(
+            mock_coordinator, control=feature
+        )
         add_entities = MagicMock()
 
         await platform.async_setup_entry(hass, mock_config_entry, add_entities)

@@ -111,7 +111,7 @@ def _runner(
 ) -> SimulatorRunner | None:
     """The heater's runner, while the simulator runs for it."""
     entry: ConfigEntry | None = hass.config_entries.async_get_entry(entry_id)
-    feature = None if entry is None else simulator_feature(hass, entry)
+    feature = None if entry is None else simulator_feature(entry)
     return None if feature is None else feature.runners.get(mac)
 
 

@@ -24,6 +24,7 @@ from custom_components.nwp500 import (
     async_setup_entry,
 )
 from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.services import (
     NWP500ServiceHandler,
 )
@@ -141,9 +142,8 @@ async def test_setup_with_the_simulator_off_imports_nothing_of_it(
     mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
         mock_entry, _PLATFORMS
     )
-    assert mock_hass.data[DOMAIN][mock_entry.entry_id] == {
-        "platforms": _PLATFORMS
-    }
+    assert mock_entry.runtime_data.platforms == _PLATFORMS
+    assert mock_entry.runtime_data.simulator_start is None
     assert started == []
     enable, retire = _no_registry_on_mock_hass
     enable.assert_not_called()
@@ -293,10 +293,11 @@ async def test_unload_stops_a_simulator_still_starting(hass: HomeAssistant):
     start = hass.async_create_task(starting())
     await asyncio.sleep(0)
     mock_entry = _entry({"simulator_enabled": True})
-    mock_entry.runtime_data.async_shutdown = AsyncMock()
-    hass.data[DOMAIN] = {
-        mock_entry.entry_id: {"platforms": _PLATFORMS, "simulator_start": start}
-    }
+    mock_entry.runtime_data = NWP500Data(
+        MagicMock(async_shutdown=AsyncMock()),
+        platforms=_PLATFORMS,
+        simulator_start=start,
+    )
 
     with patch.object(
         hass.config_entries,
@@ -827,15 +828,16 @@ async def test_switching_it_off_stops_it_once_and_forgets_it(
     feature = MagicMock(async_stop=AsyncMock())
     never = asyncio.Event()
     start = hass.async_create_task(never.wait())
-    hass.data[DOMAIN] = {
-        entry.entry_id: {"simulator": feature, "simulator_start": start}
-    }
+    entry.runtime_data = NWP500Data(
+        MagicMock(), simulator=feature, simulator_start=start
+    )
 
     with patch.object(hass.config_entries, "async_reload", AsyncMock()):
         await async_reload_entry(hass, entry)
 
     feature.async_stop.assert_awaited_once()
-    assert "simulator" not in hass.data[DOMAIN][entry.entry_id]
+    assert entry.runtime_data.simulator is None
+    assert entry.runtime_data.simulator_start is None
     assert start.cancelled()
 
 
@@ -857,7 +859,7 @@ async def test_a_heater_still_on_the_account_cannot_be_deleted(
 
     entry = MockConfigEntry(domain=DOMAIN, options={})
     entry.add_to_hass(hass)
-    entry.runtime_data = MagicMock(data={MAC: {}})
+    entry.runtime_data = NWP500Data(MagicMock(data={MAC: {}}))
 
     assert not await async_remove_config_entry_device(
         hass, entry, _device(hass, entry, MAC)
@@ -879,7 +881,7 @@ async def test_deleting_a_heater_gone_from_the_account_drops_its_data(
     gone, kept = "11:22:33:44:55:66", MAC
     entry = MockConfigEntry(domain=DOMAIN, options={})
     entry.add_to_hass(hass)
-    entry.runtime_data = MagicMock(data={kept: {}})
+    entry.runtime_data = NWP500Data(MagicMock(data={kept: {}}))
     key = f"nwp500.simulator_calibration.{entry.entry_id}"
     hass_storage[key] = {
         "version": 1,

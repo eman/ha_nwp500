@@ -6,12 +6,18 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final
 
 from awscrt.exceptions import AwsCrtError
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_EMAIL, CONF_PASSWORD, UnitOfTemperature
+from homeassistant.const import (
+    CONF_EMAIL,
+    CONF_PASSWORD,
+    Platform,
+    UnitOfTemperature,
+)
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import instance_id as ha_instance_id
@@ -123,9 +129,28 @@ _DISCONNECTED_WARNING_SECONDS: Final = 120.0
 _MQTT_SETUP_RETRY_SECONDS: Final = 60.0
 
 
-# Typed config entry: the coordinator lives on entry.runtime_data, which HA
-# scopes to the entry's lifetime and tears down automatically on unload.
-type NWP500ConfigEntry = ConfigEntry["NWP500DataUpdateCoordinator"]
+@dataclass
+class NWP500Data:
+    """What a loaded entry holds, as its runtime_data.
+
+    HA scopes it to the entry's lifetime. The optional features are typed
+    loosely: naming their classes would import their packages on every
+    path, and they are imported only when switched on.
+    """
+
+    coordinator: NWP500DataUpdateCoordinator
+    # The platforms forwarded, so that unload undoes exactly that set: an
+    # options change reloads the entry after the options have changed.
+    platforms: list[Platform] = field(default_factory=list)
+    # The running external control feature (control.ControlFeature).
+    control: Any = None
+    # The running simulator (simulator.SimulatorFeature), and the task
+    # starting it.
+    simulator: Any = None
+    simulator_start: asyncio.Task[Any] | None = None
+
+
+type NWP500ConfigEntry = ConfigEntry[NWP500Data]
 
 
 async def _async_cancel(task: asyncio.Task[Any]) -> None:

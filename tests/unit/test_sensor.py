@@ -9,6 +9,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.nwp500.const import INSTALLER_DIAGNOSTICS_SENSORS
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.sensor import (
     NWP500CloudErrorSensor,
     NWP500DescalingSensor,
@@ -42,7 +43,7 @@ class TestNWP500Sensor:
             }
         }
 
-        mock_config_entry.runtime_data = mock_coordinator
+        mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
         entities_added = []
 
@@ -401,7 +402,7 @@ class TestNWP500Sensor:
                 "status": mock_device_status,
             },
         }
-        mock_config_entry.runtime_data = mock_coordinator
+        mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
         added: list = []
 
         await async_setup_entry(
@@ -1192,7 +1193,7 @@ class TestRecirculationScheduleSensorCreation:
         mock_coordinator.supports_recirculation_schedule = MagicMock(
             return_value=supported
         )
-        mock_config_entry.runtime_data = mock_coordinator
+        mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
         added = []
 
         await async_setup_entry(
@@ -1228,7 +1229,7 @@ class TestRecirculationScheduleSensorCreation:
         mock_coordinator.supports_recirculation_schedule = MagicMock(
             return_value=False
         )
-        mock_config_entry.runtime_data = mock_coordinator
+        mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
         batches: list[list] = []
 
         await async_setup_entry(

@@ -1165,7 +1165,8 @@ class ConfigFlow(  # type: ignore[call-arg,unused-ignore]
 
 def _entry_devices(entry: config_entries.ConfigEntry) -> list[tuple[str, str]]:
     """(MAC, name) for each heater of a loaded entry."""
-    coordinator = getattr(entry, "runtime_data", None)
+    runtime_data = getattr(entry, "runtime_data", None)
+    coordinator = getattr(runtime_data, "coordinator", None)
     data = getattr(coordinator, "data", None) or {}
     devices: list[tuple[str, str]] = []
     for mac_address, device_data in data.items():

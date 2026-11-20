@@ -654,8 +654,8 @@ class NWP500ServiceHandler:
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.state is not ConfigEntryState.LOADED:
                 continue
-            coordinator = entry.runtime_data
-            if not coordinator or not coordinator.data:
+            coordinator = entry.runtime_data.coordinator
+            if not coordinator.data:
                 continue
             for mac_address in coordinator.data:
                 # Check if device identifiers match
@@ -954,14 +954,14 @@ class NWP500ServiceHandler:
         runner = None
         if call.data.get(ATTR_DEVICE_ID) or call.data.get(ATTR_ENTITY_ID):
             coordinator, mac_address = await self._get_coordinator_and_mac(call)
-            feature = simulator_feature(self.hass, coordinator.entry)
+            feature = simulator_feature(coordinator.entry)
             runner = (
                 None if feature is None else feature.runners.get(mac_address)
             )
             running = runner is not None
         else:
             running = any(
-                simulator_feature(self.hass, entry) is not None
+                simulator_feature(entry) is not None
                 for entry in self.hass.config_entries.async_loaded_entries(
                     DOMAIN
                 )
@@ -1033,7 +1033,7 @@ class NWP500ServiceHandler:
         library's report on each term, and its notes.
         """
         coordinator, mac_address = await self._get_coordinator_and_mac(call)
-        feature = simulator_feature(self.hass, coordinator.entry)
+        feature = simulator_feature(coordinator.entry)
         if feature is None or mac_address not in feature.runners:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,

@@ -24,7 +24,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up button entities from a config entry."""
-    if (feature := control_feature(hass, config_entry)) is not None:
+    if (feature := control_feature(config_entry)) is not None:
         from .control.button import create_control_buttons
 
         async_add_entities(create_control_buttons(feature))
@@ -35,7 +35,7 @@ async def async_setup_entry(
 
         @callback
         def _add_simulator_buttons() -> None:
-            simulator = simulator_feature(hass, config_entry)
+            simulator = simulator_feature(config_entry)
             if simulator is None:
                 return
             from .simulator.button import create_simulator_buttons

@@ -33,10 +33,10 @@ from custom_components.nwp500 import (
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
-    DATA_SIMULATOR,
     DOMAIN,
     simulator_started_signal,
 )
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator import (
     SimulatorFeature,
     async_setup_simulator,
@@ -69,14 +69,15 @@ async def feature(
     )
     entry.add_to_hass(hass)
     entry.mock_state(hass, ConfigEntryState.LOADED)
-    entry.runtime_data = coordinator
+    entry.runtime_data = NWP500Data(coordinator)
     coordinator.entry = entry
     dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, MAC)}
     )
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_simulator(hass, entry, coordinator)
     await hass.async_block_till_done()
-    yield hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR]
+    yield entry.runtime_data.simulator
     await async_unload_simulator(hass, entry)
 
 

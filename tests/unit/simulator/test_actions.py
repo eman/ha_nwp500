@@ -24,9 +24,9 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
-    DATA_SIMULATOR,
     DOMAIN,
 )
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.simulator import (
     async_setup_simulator,
     async_unload_simulator,
@@ -47,9 +47,10 @@ async def runner(
         options={CONF_SIMULATOR_ENABLED: True, CONF_SIMULATOR: {MAC: {}}},
     )
     entry.add_to_hass(hass)
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_simulator(hass, entry, coordinator)
     await hass.async_block_till_done()
-    yield hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR].runners[MAC]
+    yield entry.runtime_data.simulator.runners[MAC]
     await async_unload_simulator(hass, entry)
 
 

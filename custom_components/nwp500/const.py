@@ -980,10 +980,6 @@ CONTROL_LIVE_AVAILABLE: Final = True
 
 MAX_CONTROL_RESERVATION_ENTRY_LIMIT: Final = 32
 
-# Keys into hass.data[DOMAIN][entry_id].
-DATA_PLATFORMS: Final = "platforms"
-DATA_CONTROL: Final = "control"
-
 # The Repairs issue raised while external control is on but failed to start.
 ISSUE_CONTROL_START_FAILED: Final = "control_start_failed"
 # The Repairs issue raised while external control's plan entity is missing.
@@ -1023,13 +1019,14 @@ def control_follows_plan(options: Any) -> bool:
     )
 
 
-def control_feature(hass: Any, entry: Any) -> Any | None:
+def control_feature(entry: Any) -> Any | None:
     """Return the running control feature for an entry, or None.
 
-    Typed loosely on purpose: the feature's class lives in the `control`
-    subpackage, and naming it here would import that package on every path.
+    None too for an entry not loaded. Typed loosely on purpose: the
+    feature's class lives in the `control` subpackage, and naming it here
+    would import that package on every path.
     """
-    return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_CONTROL)
+    return getattr(getattr(entry, "runtime_data", None), "control", None)
 
 
 # The hot water simulator (nwp500-python's `nwp500.sim`). Like external
@@ -1066,11 +1063,6 @@ CONF_SIMULATOR_SHOWER_GAL: Final = "shower_gal"
 # in Home Assistant's temperature unit. Without it, no valve: the hot
 # water is reckoned at the tank's temperature.
 CONF_SIMULATOR_MIXING_VALVE_F: Final = "mixing_valve_f"
-
-# Keys into hass.data[DOMAIN][entry_id]: the running simulator, and the
-# task starting it.
-DATA_SIMULATOR: Final = "simulator"
-DATA_SIMULATOR_START: Final = "simulator_start"
 
 # The longest walk the simulator's actions run: a week. The answers grow
 # less certain further out, and a week's walk already takes most of a
@@ -1169,9 +1161,9 @@ def simulator_device_options(entry: Any, mac_address: str) -> dict[str, Any]:
     return dict(devices.get(mac_address) or {})
 
 
-def simulator_feature(hass: Any, entry: Any) -> Any | None:
+def simulator_feature(entry: Any) -> Any | None:
     """Return the running simulator for an entry, or None.
 
-    Typed loosely for the same reason as `control_feature`.
+    None too for an entry not loaded; typed loosely, as `control_feature`.
     """
-    return hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get(DATA_SIMULATOR)
+    return getattr(getattr(entry, "runtime_data", None), "simulator", None)

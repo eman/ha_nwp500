@@ -11,6 +11,7 @@ from custom_components.nwp500.binary_sensor import (
     NWP500BinarySensor,
     async_setup_entry,
 )
+from custom_components.nwp500.coordinator import NWP500Data
 
 
 class TestNWP500BinarySensor:
@@ -34,7 +35,7 @@ class TestNWP500BinarySensor:
             }
         }
 
-        mock_config_entry.runtime_data = mock_coordinator
+        mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
         entities_added = []
 

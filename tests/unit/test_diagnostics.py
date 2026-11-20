@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -49,7 +50,7 @@ async def test_diagnostics_reports_location_keys_but_redacts_values(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -96,7 +97,7 @@ async def test_diagnostics_omits_unpopulated_location_fields(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -112,7 +113,7 @@ async def test_async_get_config_entry_diagnostics_no_mqtt_manager(
     """Test diagnostics when MQTT manager not available."""
     mock_coordinator.mqtt_manager = None
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -148,7 +149,7 @@ async def test_async_get_config_entry_diagnostics_with_mqtt_diagnostics(
         "error_count": 2,
     }
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -180,7 +181,7 @@ async def test_async_get_config_entry_diagnostics_invalid_json(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -206,7 +207,7 @@ async def test_async_get_config_entry_diagnostics_export_exception(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -229,7 +230,7 @@ async def test_async_get_config_entry_diagnostics_no_diagnostics_collector(
     mock_coordinator.get_mqtt_telemetry.return_value = {}
     mock_coordinator.get_performance_stats.return_value = {}
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -274,7 +275,7 @@ async def test_diagnostics_reports_the_cloud_recorded_fault_and_descaling(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -318,7 +319,7 @@ async def test_diagnostics_reports_a_null_error_code_as_null(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -349,7 +350,7 @@ async def test_diagnostics_omits_blocks_the_cloud_did_not_send(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -383,7 +384,7 @@ async def test_diagnostics_omits_an_installer_id_the_cloud_did_not_send(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
 
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -472,7 +473,7 @@ async def test_diagnostics_includes_the_on_demand_mqtt_reads(
     mock_coordinator.recirculation_schedules = {
         "AA:BB:CC:DD:EE:FF": {"reservation_use": 1, "reservation": []}
     }
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -508,7 +509,7 @@ async def test_diagnostics_omits_on_demand_reads_the_device_has_not_answered(
     mock_coordinator.devices = [device]
     mock_coordinator.device_diagnostics = {}
     mock_coordinator.recirculation_schedules = {}
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 
@@ -532,7 +533,7 @@ async def test_diagnostics_hold_the_device_features_without_identifiers(
     mock_coordinator.mqtt_manager = None
     mock_coordinator.devices = [device]
     mock_coordinator.device_features = {"AA:BB:CC:DD:EE:FF": features}
-    mock_config_entry.runtime_data = mock_coordinator
+    mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
     result = await async_get_config_entry_diagnostics(hass, mock_config_entry)
 

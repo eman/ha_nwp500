@@ -236,7 +236,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up sensor entities from a config entry."""
-    coordinator = config_entry.runtime_data
+    coordinator = config_entry.runtime_data.coordinator
 
     entities: list[SensorEntity] = []
     # Devices that have a Recirculation Schedule sensor, so a later feature
@@ -316,7 +316,7 @@ async def async_setup_entry(
 
     # The external control feature's sensors, when it is on. The import is
     # inside the branch: nothing of the feature loads while it is off.
-    if (feature := control_feature(hass, config_entry)) is not None:
+    if (feature := control_feature(config_entry)) is not None:
         from .control.sensor import create_control_sensors
 
         entities.extend(create_control_sensors(feature))
@@ -332,7 +332,7 @@ async def async_setup_entry(
 
         @callback
         def _add_simulator_sensors() -> None:
-            simulator = simulator_feature(hass, config_entry)
+            simulator = simulator_feature(config_entry)
             if simulator is None:
                 return
             from .simulator.sensor import create_simulator_sensors

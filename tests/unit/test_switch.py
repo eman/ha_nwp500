@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from nwp500.enums import DhwOperationSetting
 
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.switch import (
     NWP500AntiLegionellaSwitch,
     NWP500PowerSwitch,
@@ -38,7 +39,7 @@ class TestNWP500PowerSwitch:
             }
         }
 
-        mock_config_entry.runtime_data = mock_coordinator
+        mock_config_entry.runtime_data = NWP500Data(mock_coordinator)
 
         entities_added = []
 

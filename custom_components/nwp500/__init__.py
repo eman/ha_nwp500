@@ -39,10 +39,6 @@ from .const import (
     CONF_CONTROL_ENABLED,
     CONF_SIMULATOR_ENABLED,
     CONTROL_UNIQUE_ID_MARKER,
-    DATA_CONTROL,
-    DATA_PLATFORMS,
-    DATA_SIMULATOR,
-    DATA_SIMULATOR_START,
     DOMAIN,
     ISSUE_CONTROL_PLAN_ENTITY_MISSING,
     ISSUE_CONTROL_START_FAILED,
@@ -63,7 +59,11 @@ from .const import (
     simulator_record_directory,
     simulator_started_signal,
 )
-from .coordinator import NWP500ConfigEntry, NWP500DataUpdateCoordinator
+from .coordinator import (
+    NWP500ConfigEntry,
+    NWP500Data,
+    NWP500DataUpdateCoordinator,
+)
 from .services import async_setup_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -218,7 +218,7 @@ async def async_setup_entry(
             _LOGGER.error("Failed to connect to NWP500: %s", err)
         raise
 
-    entry.runtime_data = coordinator
+    entry.runtime_data = NWP500Data(coordinator)
 
     # A change to Home Assistant's unit system takes effect at the next
     # update: refresh now, so the library's unit and the entities' agree.
@@ -271,8 +271,7 @@ async def async_setup_entry(
         # Its Calibrate simulator button, added once it runs.
         platforms.append(Platform.BUTTON)
 
-    entry_data = hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})
-    entry_data[DATA_PLATFORMS] = platforms
+    entry.runtime_data.platforms = platforms
 
     if simulator_enabled(entry):
         # Before the platforms, so the entities come up enabled.
@@ -289,7 +288,7 @@ async def async_setup_entry(
     # heater's platforms, in the background: installing its packages can
     # take minutes, and the water heater must not wait for it.
     if simulator_enabled(entry):
-        entry_data[DATA_SIMULATOR_START] = entry.async_create_background_task(
+        entry.runtime_data.simulator_start = entry.async_create_background_task(
             hass,
             _async_start_simulator_and_report(hass, entry),
             f"{DOMAIN} simulator start",
@@ -361,7 +360,9 @@ async def _async_start_simulator(
         module = await hass.async_add_import_executor_job(
             importlib.import_module, f"{__name__}.simulator"
         )
-        await module.async_setup_simulator(hass, entry, entry.runtime_data)
+        await module.async_setup_simulator(
+            hass, entry, entry.runtime_data.coordinator
+        )
     except Exception as err:
         # Optional, like external control: the rest of the integration
         # runs without it.
@@ -379,7 +380,7 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # entities and its stored data -- before the entry comes back without
     # it. It happens here rather than on the next set-up, which must not
     # touch the feature at all.
-    feature = control_feature(hass, entry)
+    feature = control_feature(entry)
     if feature is not None and not control_enabled(entry):
         await feature.async_remove()
     elif (
@@ -394,12 +395,8 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         # it was running. It is stopped and forgotten first: a start still
         # running, or the reload's unload stopping it again, would write
         # its record and calibration back after they are removed.
-        entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-        if (start := entry_data.pop(DATA_SIMULATOR_START, None)) is not None:
-            start.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await start
-        if simulator_feature(hass, entry) is not None:
+        await _async_cancel_simulator_start(entry)
+        if simulator_feature(entry) is not None:
             from .simulator import async_unload_simulator
 
             await async_unload_simulator(hass, entry)
@@ -530,11 +527,12 @@ async def async_remove_config_entry_device(
     macs = {
         ident for domain, ident in device_entry.identifiers if domain == DOMAIN
     }
-    coordinator = getattr(entry, "runtime_data", None)
+    runtime_data = getattr(entry, "runtime_data", None)
+    coordinator = getattr(runtime_data, "coordinator", None)
     on_account = set((coordinator.data or {}) if coordinator else {})
     if macs & on_account:
         return False
-    simulator = simulator_feature(hass, entry)
+    simulator = simulator_feature(entry)
     for mac_address in macs:
         if simulator is not None:
             await simulator.calibration.async_forget(mac_address)
@@ -604,28 +602,32 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: NWP500ConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    entry_data: dict[str, Any] = hass.data.get(DOMAIN, {}).get(
-        entry.entry_id, {}
-    )
-    platforms = entry_data.get(DATA_PLATFORMS, PLATFORMS)
+    data = entry.runtime_data
     # A simulator still starting stops starting; its packages' install, if
     # one runs, goes on (simulator_deps).
-    if (start := entry_data.pop(DATA_SIMULATOR_START, None)) is not None:
-        start.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await start
+    await _async_cancel_simulator_start(entry)
     if unload_ok := await hass.config_entries.async_unload_platforms(
-        entry, platforms
+        entry, data.platforms or PLATFORMS
     ):
-        if DATA_CONTROL in entry_data:
+        if data.control is not None:
             from .control import async_unload_control
 
             await async_unload_control(hass, entry)
-        if DATA_SIMULATOR in entry_data:
+        if data.simulator is not None:
             from .simulator import async_unload_simulator
 
             await async_unload_simulator(hass, entry)
-        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
-        await entry.runtime_data.async_shutdown()
+        await data.coordinator.async_shutdown()
 
     return unload_ok
+
+
+async def _async_cancel_simulator_start(entry: NWP500ConfigEntry) -> None:
+    """Stop a simulator start still running, and forget it."""
+    data = getattr(entry, "runtime_data", None)
+    if data is None or (start := data.simulator_start) is None:
+        return
+    data.simulator_start = None
+    start.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await start

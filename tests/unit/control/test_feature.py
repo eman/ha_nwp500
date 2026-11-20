@@ -13,7 +13,6 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.nwp500.const import (
     CONF_CONTROL_ENABLED,
     CONF_CONTROL_INTENT_ENTITY,
-    DATA_CONTROL,
     DOMAIN,
 )
 from custom_components.nwp500.control import (
@@ -22,6 +21,7 @@ from custom_components.nwp500.control import (
     async_unload_control,
 )
 from custom_components.nwp500.control.store import storage_key
+from custom_components.nwp500.coordinator import NWP500Data
 
 MAC = "AA:BB:CC:DD:EE:FF"
 
@@ -56,21 +56,23 @@ def coordinator(mock_device) -> MagicMock:
 async def test_setup_starts_a_controller_per_device(
     hass: HomeAssistant, hass_storage, entry, coordinator
 ):
+    entry.runtime_data = NWP500Data(coordinator)
     platforms = await async_setup_control(hass, entry, coordinator)
 
     assert platforms == [Platform.BUTTON]
-    feature = hass.data[DOMAIN][entry.entry_id][DATA_CONTROL]
+    feature = entry.runtime_data.control
     assert isinstance(feature, ControlFeature)
     assert list(feature.devices) == [MAC]
     assert feature.devices[MAC].mode == "shadow"
 
     await async_unload_control(hass, entry)
-    assert DATA_CONTROL not in hass.data[DOMAIN][entry.entry_id]
+    assert entry.runtime_data.control is None
     assert feature.devices == {}
 
 
 @pytest.mark.asyncio
 async def test_unload_without_a_feature_is_a_no_op(hass: HomeAssistant, entry):
+    entry.runtime_data = NWP500Data(MagicMock())
     await async_unload_control(hass, entry)
 
 
@@ -88,8 +90,9 @@ async def test_remove_deletes_entities_and_storage(
     other_entity = entity_registry.async_get_or_create(
         "sensor", DOMAIN, f"{MAC}_tank_upper_temperature", config_entry=entry
     )
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_control(hass, entry, coordinator)
-    feature: ControlFeature = hass.data[DOMAIN][entry.entry_id][DATA_CONTROL]
+    feature: ControlFeature = entry.runtime_data.control
     await feature.store.async_set_intent(MAC, {"intent_id": "i"}, "t")
     assert storage_key(entry.entry_id) in hass_storage
 
@@ -115,6 +118,7 @@ async def test_start_removes_entities_of_an_earlier_version(
     current = entity_registry.async_get_or_create(
         "sensor", DOMAIN, f"{MAC}_control_ack", config_entry=entry
     )
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_control(hass, entry, coordinator)
 
     assert entity_registry.async_get(stale.entity_id) is None

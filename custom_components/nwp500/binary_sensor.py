@@ -344,7 +344,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up binary sensor entities from a config entry."""
-    coordinator = config_entry.runtime_data
+    coordinator = config_entry.runtime_data.coordinator
 
     entities: list[BinarySensorEntity] = []
     for mac_address, device_data in coordinator.data.items():
@@ -359,7 +359,7 @@ async def async_setup_entry(
     # The external control feature's binary sensors, when it is on. The
     # import is inside the branch: nothing of the feature loads while it
     # is off.
-    if (feature := control_feature(hass, config_entry)) is not None:
+    if (feature := control_feature(config_entry)) is not None:
         from .control.binary_sensor import create_control_binary_sensors
 
         entities.extend(create_control_binary_sensors(feature))

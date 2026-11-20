@@ -15,6 +15,7 @@ from custom_components.nwp500 import (
     async_unload_entry,
 )
 from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.services import (
     RESERVATION_MODE_IDS,
     SERVICE_CLEAR_RESERVATIONS,
@@ -125,7 +126,7 @@ async def test_async_setup_entry_stores_coordinator():
         result = await async_setup_entry(mock_hass, mock_entry)
 
         assert result is True
-        assert mock_entry.runtime_data is mock_coordinator
+        assert mock_entry.runtime_data.coordinator is mock_coordinator
 
 
 def test_removes_energy_entities_dropped_in_9_3_0():
@@ -238,7 +239,7 @@ async def test_async_unload_entry_cleanup():
 
     mock_coordinator = MagicMock()
     mock_coordinator.async_shutdown = AsyncMock()
-    mock_entry.runtime_data = mock_coordinator
+    mock_entry.runtime_data = NWP500Data(mock_coordinator)
 
     # Mock successful platform unload
     mock_hass.config_entries.async_unload_platforms = AsyncMock(
@@ -259,7 +260,7 @@ async def test_async_unload_entry_keeps_the_actions():
     mock_hass.data = {}
     mock_entry = MagicMock()
     mock_entry.entry_id = "test_entry"
-    mock_entry.runtime_data.async_shutdown = AsyncMock()
+    mock_entry.runtime_data = NWP500Data(MagicMock(async_shutdown=AsyncMock()))
     mock_hass.config_entries.async_entries = MagicMock(
         return_value=[mock_entry]
     )
@@ -544,9 +545,8 @@ async def test_setup_with_control_off_is_the_pre_feature_setup(options):
     mock_hass.config_entries.async_forward_entry_setups.assert_awaited_once_with(
         mock_entry, _PRE_FEATURE_PLATFORMS
     )
-    assert mock_hass.data[DOMAIN][mock_entry.entry_id] == {
-        "platforms": _PRE_FEATURE_PLATFORMS
-    }
+    assert mock_entry.runtime_data.platforms == _PRE_FEATURE_PLATFORMS
+    assert mock_entry.runtime_data.control is None
     mock_entry.add_update_listener.assert_called_once()
 
 
@@ -668,15 +668,14 @@ async def test_unload_undoes_the_platforms_that_were_forwarded():
     )
     mock_hass.services.async_remove = MagicMock()
     mock_entry = _entry({"control_enabled": False})
-    mock_entry.runtime_data.async_shutdown = AsyncMock()
     feature = MagicMock()
     feature.async_stop = AsyncMock()
     forwarded = [*_PRE_FEATURE_PLATFORMS, Platform.BUTTON]
-    mock_hass.data = {
-        DOMAIN: {
-            mock_entry.entry_id: {"platforms": forwarded, "control": feature}
-        }
-    }
+    mock_entry.runtime_data = NWP500Data(
+        MagicMock(async_shutdown=AsyncMock()),
+        platforms=forwarded,
+        control=feature,
+    )
 
     assert await async_unload_entry(mock_hass, mock_entry) is True
 
@@ -684,8 +683,8 @@ async def test_unload_undoes_the_platforms_that_were_forwarded():
         mock_entry, forwarded
     )
     feature.async_stop.assert_awaited_once()
-    assert mock_entry.entry_id not in mock_hass.data[DOMAIN]
-    mock_entry.runtime_data.async_shutdown.assert_awaited_once()
+    assert mock_entry.runtime_data.control is None
+    mock_entry.runtime_data.coordinator.async_shutdown.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -700,7 +699,7 @@ async def test_switching_the_feature_off_removes_it_before_the_reload():
     mock_entry = _entry({"control_enabled": False})
     feature = MagicMock()
     feature.async_remove = AsyncMock()
-    mock_hass.data = {DOMAIN: {mock_entry.entry_id: {"control": feature}}}
+    mock_entry.runtime_data = NWP500Data(MagicMock(), control=feature)
 
     await async_reload_entry(mock_hass, mock_entry)
 
@@ -721,7 +720,7 @@ async def test_an_options_change_with_the_feature_on_keeps_it():
     mock_entry = _entry({"control_enabled": True})
     feature = MagicMock()
     feature.async_remove = AsyncMock()
-    mock_hass.data = {DOMAIN: {mock_entry.entry_id: {"control": feature}}}
+    mock_entry.runtime_data = NWP500Data(MagicMock(), control=feature)
 
     await async_reload_entry(mock_hass, mock_entry)
 

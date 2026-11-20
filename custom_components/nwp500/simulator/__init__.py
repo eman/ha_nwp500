@@ -33,8 +33,6 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from ..const import (
-    DATA_SIMULATOR,
-    DOMAIN,
     simulator_device_options,
     simulator_stopped_signal,
 )
@@ -242,9 +240,7 @@ async def async_setup_simulator(
     """Start the simulator and register it where the platforms find it."""
     feature = SimulatorFeature(hass, entry, coordinator)
     await feature.async_start()
-    hass.data.setdefault(DOMAIN, {}).setdefault(entry.entry_id, {})[
-        DATA_SIMULATOR
-    ] = feature
+    entry.runtime_data.simulator = feature
     _LOGGER.info(
         "The hot water simulator is on for %d heater(s)", len(feature.runners)
     )
@@ -254,8 +250,8 @@ async def async_unload_simulator(
     hass: HomeAssistant, entry: NWP500ConfigEntry
 ) -> None:
     """Stop the simulator on entry unload."""
-    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-    feature: SimulatorFeature | None = entry_data.pop(DATA_SIMULATOR, None)
+    feature: SimulatorFeature | None = entry.runtime_data.simulator
+    entry.runtime_data.simulator = None
     if feature is not None:
         await feature.async_stop()
 

@@ -18,6 +18,7 @@ from custom_components.nwp500.config_flow import (
     InvalidAuth,
 )
 from custom_components.nwp500.const import DOMAIN
+from custom_components.nwp500.coordinator import NWP500Data
 
 
 class TestConfigFlow:
@@ -948,7 +949,7 @@ class TestExternalControlOptions:
         coordinator.reservation_schedules = (
             {"AA:BB": schedule} if schedule is not None else {}
         )
-        entry.runtime_data = coordinator
+        entry.runtime_data = NWP500Data(coordinator)
 
     @pytest.mark.asyncio
     async def test_live_is_offered_once_the_gate_is_open(

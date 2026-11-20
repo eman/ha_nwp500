@@ -30,10 +30,10 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.nwp500.const import (
     CONF_SIMULATOR,
     CONF_SIMULATOR_ENABLED,
-    DATA_SIMULATOR,
     DOMAIN,
     SIMULATOR_HEATER_ENTITIES,
 )
+from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.services import (
     NWP500ServiceHandler,
 )
@@ -86,9 +86,10 @@ async def _started(
     entry.add_to_hass(hass)
     # The recorder is the history's; `_Library` stands in for its reads.
     hass.config.components.add("recorder")
+    entry.runtime_data = NWP500Data(coordinator)
     await async_setup_simulator(hass, entry, coordinator)
     await hass.async_block_till_done()
-    return hass.data[DOMAIN][entry.entry_id][DATA_SIMULATOR]
+    return entry.runtime_data.simulator
 
 
 async def _stop(hass: HomeAssistant) -> None:
@@ -747,6 +748,8 @@ async def test_the_button_platform_adds_the_button_once_it_starts(
         hass, entry, lambda entities, *a: added.append(list(entities))
     )
     assert added == []
+
+    entry.runtime_data = NWP500Data(coordinator)
 
     await async_setup_simulator(hass, entry, coordinator)
     async_dispatcher_send(hass, simulator_started_signal(entry.entry_id))

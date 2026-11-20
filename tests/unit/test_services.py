@@ -15,7 +15,10 @@ from custom_components.nwp500.const import (
     DEFAULT_TEMPERATURE_F,
     DOMAIN,
 )
-from custom_components.nwp500.coordinator import NWP500DataUpdateCoordinator
+from custom_components.nwp500.coordinator import (
+    NWP500Data,
+    NWP500DataUpdateCoordinator,
+)
 from custom_components.nwp500.services import (
     ATTR_DAYS,
     ATTR_DEVICE_ID,
@@ -75,7 +78,7 @@ def stage_coordinator(mock_hass, coordinator):
     """
     entry = MagicMock()
     entry.state = ConfigEntryState.LOADED
-    entry.runtime_data = coordinator
+    entry.runtime_data = NWP500Data(coordinator)
     mock_hass.config_entries.async_entries = MagicMock(return_value=[entry])
     return entry
 
