@@ -1047,12 +1047,12 @@ async def test_fetch_reservations_removes_only_its_own_waiter(coordinator):
     coordinator.async_request_reservations = AsyncMock(return_value=True)
 
     other: asyncio.Future = asyncio.get_running_loop().create_future()
-    coordinator._reservation_waiters[MAC] = [other]
+    coordinator._reservation_waiters._waiting[MAC] = [other]
 
     assert await coordinator.async_fetch_reservations(MAC, timeout=0.01) is None
 
     # The unrelated waiter survives; only the timed-out one was removed.
-    assert coordinator._reservation_waiters[MAC] == [other]
+    assert coordinator._reservation_waiters._waiting[MAC] == [other]
 
 
 # ---------------------------------------------------------------------------
@@ -1068,7 +1068,7 @@ def test_reservation_update_caches_wakes_waiters_and_fires_event(
     loop = asyncio.new_event_loop()
     try:
         waiter: asyncio.Future = loop.create_future()
-        coordinator._reservation_waiters[MAC] = [waiter]
+        coordinator._reservation_waiters._waiting[MAC] = [waiter]
         response = {"reservation_use": 1, "reservation": [{"hour": 6}]}
 
         coordinator._handle_reservation_update_in_loop(MAC, response)
@@ -1097,7 +1097,7 @@ def test_reservation_update_skips_an_already_resolved_waiter(
     try:
         waiter: asyncio.Future = loop.create_future()
         waiter.set_result({"first": True})
-        coordinator._reservation_waiters[MAC] = [waiter]
+        coordinator._reservation_waiters._waiting[MAC] = [waiter]
 
         coordinator._handle_reservation_update_in_loop(MAC, {"second": True})
 
