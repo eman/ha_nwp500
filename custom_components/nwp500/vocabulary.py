@@ -6,6 +6,8 @@ Home Assistant import these from here; `const` re-exports them.
 
 from typing import Any, Final
 
+from nwp500.heater import MODES
+
 
 def get_enum_value(obj: Any) -> Any:
     """Get the value of an enum or return the object itself.
@@ -43,15 +45,11 @@ RESERVATION_MODE_IDS: Final = {
     "power_off": 5,
 }
 
-# The mode names a segment may use (spec section 3.4): every mode a
-# reservation entry can set. An entry has no Vacation; a plan's `vacation`
-# command sets it.
-CONTROL_MODE_NAMES: Final = (
-    "heat_pump",
-    "energy_saver",
-    "high_demand",
-    "electric",
-    "power_off",
+# The mode names a segment may use (spec section 3.4): the library's
+# heater modes (`nwp500.heater.MODES`) a reservation entry can set. An
+# entry has no Vacation; a plan's `vacation` command sets it.
+CONTROL_MODE_NAMES: Final = tuple(
+    mode.name for mode in MODES if mode.name != "vacation"
 )
 
 # External control's options, and their values and defaults.
