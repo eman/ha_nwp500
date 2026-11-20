@@ -8,9 +8,9 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.core import HomeAssistant
 
-from custom_components.nwp500.const import INSTALLER_DIAGNOSTICS_SENSORS
 from custom_components.nwp500.coordinator import NWP500Data
 from custom_components.nwp500.sensor import (
+    INSTALLER_DIAGNOSTICS_DESCRIPTIONS,
     NWP500CloudErrorSensor,
     NWP500DescalingSensor,
     NWP500InstallerDiagnosticsSensor,
@@ -20,6 +20,8 @@ from custom_components.nwp500.sensor import (
     NWP500TOUScheduleSensor,
     async_setup_entry,
 )
+
+_INSTALLER = {d.key: d for d in INSTALLER_DIAGNOSTICS_DESCRIPTIONS}
 
 
 class TestNWP500Sensor:
@@ -66,9 +68,9 @@ class TestNWP500Sensor:
         mock_device_status: MagicMock,
     ):
         """Test DHW temperature sensor."""
-        from custom_components.nwp500.sensor import create_sensor_descriptions
+        from custom_components.nwp500.sensor import SENSOR_DESCRIPTIONS
 
-        descriptions = create_sensor_descriptions()
+        descriptions = SENSOR_DESCRIPTIONS
         # Use the first temperature sensor we can find
         temp_desc = next(
             (d for d in descriptions if "temperature" in d.key.lower()),
@@ -98,9 +100,9 @@ class TestNWP500Sensor:
         """
         from homeassistant.components.sensor import SensorDeviceClass
 
-        from custom_components.nwp500.sensor import create_sensor_descriptions
+        from custom_components.nwp500.sensor import SENSOR_DESCRIPTIONS
 
-        by_key = {d.key: d for d in create_sensor_descriptions()}
+        by_key = {d.key: d for d in SENSOR_DESCRIPTIONS}
 
         assert "total_energy_capacity" not in by_key
         assert "available_energy_capacity" not in by_key
@@ -142,9 +144,9 @@ class TestNWP500Sensor:
         mock_device_status: MagicMock,
     ):
         """Test sensor with missing value."""
-        from custom_components.nwp500.sensor import create_sensor_descriptions
+        from custom_components.nwp500.sensor import SENSOR_DESCRIPTIONS
 
-        descriptions = create_sensor_descriptions()
+        descriptions = SENSOR_DESCRIPTIONS
         # Use any sensor description
         desc = descriptions[0]
 
@@ -167,9 +169,9 @@ class TestNWP500Sensor:
         mock_device: MagicMock,
     ):
         """Test sensor when status is unavailable."""
-        from custom_components.nwp500.sensor import create_sensor_descriptions
+        from custom_components.nwp500.sensor import SENSOR_DESCRIPTIONS
 
-        descriptions = create_sensor_descriptions()
+        descriptions = SENSOR_DESCRIPTIONS
         desc = descriptions[0]
 
         # Remove status from coordinator data
@@ -191,9 +193,9 @@ class TestNWP500Sensor:
         mock_device_status: MagicMock,
     ):
         """Test sensor returns a value."""
-        from custom_components.nwp500.sensor import create_sensor_descriptions
+        from custom_components.nwp500.sensor import SENSOR_DESCRIPTIONS
 
-        descriptions = create_sensor_descriptions()
+        descriptions = SENSOR_DESCRIPTIONS
         # Find a sensor that should have a value
         desc = next(
             (
@@ -423,17 +425,13 @@ class TestNWP500Sensor:
         mock_hass: MagicMock,
     ):
         """Test that sensors correctly call and use get_field_unit."""
-        from custom_components.nwp500.const import SENSOR_CONFIGS
-        from custom_components.nwp500.sensor import NWP500Sensor
+        from custom_components.nwp500.sensor import (
+            SENSOR_DESCRIPTIONS,
+            NWP500Sensor,
+            NWP500SensorEntityDescription,
+        )
 
-        # Find a temperature sensor description
-        temp_sensor_config = None
-        for key, config in SENSOR_CONFIGS.items():
-            if "temperature" in key.lower() and "dhw_temperature" == key:
-                temp_sensor_config = config
-                break
-
-        assert temp_sensor_config is not None
+        assert any(d.key == "dhw_temperature" for d in SENSOR_DESCRIPTIONS)
 
         # Setup coordinator data with mock device status
         mock_coordinator.data = {
@@ -448,13 +446,7 @@ class TestNWP500Sensor:
 
         mac_address = mock_device.device_info.mac_address
 
-        # Create a sensor description from the config
-        from homeassistant.components.sensor import SensorEntityDescription
-
-        sensor_desc = SensorEntityDescription(
-            key="dhw_temperature",
-            name="DHW Temperature",
-        )
+        sensor_desc = NWP500SensorEntityDescription(key="dhw_temperature")
 
         # Create sensor
         sensor = NWP500Sensor(
@@ -480,13 +472,13 @@ class TestNWP500Sensor:
         mock_device_status: MagicMock,
     ):
         """Test that temperature sensors trust the device's reported unit."""
-        from homeassistant.components.sensor import (
-            SensorDeviceClass,
-            SensorEntityDescription,
-        )
+        from homeassistant.components.sensor import SensorDeviceClass
         from homeassistant.const import UnitOfTemperature
 
-        from custom_components.nwp500.sensor import NWP500Sensor
+        from custom_components.nwp500.sensor import (
+            NWP500Sensor,
+            NWP500SensorEntityDescription,
+        )
 
         # Configure HA to use Celsius
         mock_hass.config.units.temperature_unit = UnitOfTemperature.CELSIUS
@@ -506,9 +498,8 @@ class TestNWP500Sensor:
         mock_coordinator.get_field_unit_safe = MagicMock(return_value="°F")
 
         # Create a temperature sensor description
-        desc = SensorEntityDescription(
+        desc = NWP500SensorEntityDescription(
             key="test_temp",
-            name="Test Temperature",
             device_class=SensorDeviceClass.TEMPERATURE,
             native_unit_of_measurement=None,
         )
@@ -633,38 +624,47 @@ class TestNWP500Sensor:
 
         assert sensor.native_unit_of_measurement == UnitOfTemperature.FAHRENHEIT
 
-    def test_sensor_value_fn_exception_returns_none(
+    def test_sensor_value_fn_reads_the_fields_value(
         self,
         mock_coordinator: MagicMock,
         mock_device: MagicMock,
         mock_device_status: MagicMock,
     ):
-        """Test that value_fn raising AttributeError/TypeError returns None."""
+        """`value_fn` gets the field's value; a missing field is unknown."""
         from custom_components.nwp500.sensor import (
             NWP500Sensor,
             NWP500SensorEntityDescription,
         )
 
-        def bad_value_fn(status: object) -> str:
-            raise AttributeError("no such attribute")
-
-        desc = NWP500SensorEntityDescription(
-            key="dhw_temperature",
-            name="DHW Temperature",
-            value_fn=bad_value_fn,
-        )
-
+        mock_device_status.dhw_temperature = 120.0
+        del mock_device_status.no_such_field
         mock_coordinator.data = {
             mock_device.device_info.mac_address: {
                 "device": mock_device,
                 "status": mock_device_status,
             }
         }
-
         mac_address = mock_device.device_info.mac_address
-        sensor = NWP500Sensor(mock_coordinator, mac_address, mock_device, desc)
 
-        assert sensor.native_value is None
+        doubled = NWP500SensorEntityDescription(
+            key="dhw_temperature", value_fn=lambda value: value * 2
+        )
+        missing = NWP500SensorEntityDescription(
+            key="missing", attr_name="no_such_field", value_fn=str
+        )
+
+        assert (
+            NWP500Sensor(
+                mock_coordinator, mac_address, mock_device, doubled
+            ).native_value
+            == 240.0
+        )
+        assert (
+            NWP500Sensor(
+                mock_coordinator, mac_address, mock_device, missing
+            ).native_value
+            is None
+        )
 
 
 class TestScheduleSensors:
@@ -1000,8 +1000,7 @@ class TestInstallerDiagnosticsSensors:
             mock_coordinator,
             self.MAC,
             mock_device,
-            key,
-            INSTALLER_DIAGNOSTICS_SENSORS[key],
+            _INSTALLER[key],
         )
 
     def test_unknown_until_the_device_has_answered(
@@ -1100,19 +1099,20 @@ class TestInstallerDiagnosticsSensors:
         """A typo in the table would silently read as unknown forever."""
         from nwp500.models import DeviceDiagnostics
 
-        for key, config in INSTALLER_DIAGNOSTICS_SENSORS.items():
-            block_model = DeviceDiagnostics.model_fields[config["block"]]
+        for description in INSTALLER_DIAGNOSTICS_DESCRIPTIONS:
+            key = description.key
+            block_model = DeviceDiagnostics.model_fields[description.block]
             block_type = block_model.default_factory
             assert block_type is not None, key
-            assert config["field"] in block_type.model_fields, key
+            assert description.field in block_type.model_fields, key
 
     def test_unique_ids_are_distinct(self, mock_coordinator, mock_device):
         ids = {
             self._sensor(mock_coordinator, mock_device, key).unique_id
-            for key in INSTALLER_DIAGNOSTICS_SENSORS
+            for key in _INSTALLER
         }
 
-        assert len(ids) == len(INSTALLER_DIAGNOSTICS_SENSORS)
+        assert len(ids) == len(_INSTALLER)
 
 
 class TestRecirculationScheduleSensor:
@@ -1271,9 +1271,9 @@ def test_enum_state_sensors_are_enum_sensors_with_translated_states(key):
 
     from homeassistant.components.sensor import SensorDeviceClass
 
-    from custom_components.nwp500.sensor import create_sensor_descriptions
+    from custom_components.nwp500.sensor import SENSOR_DESCRIPTIONS
 
-    desc = {d.key: d for d in create_sensor_descriptions()}[key]
+    desc = {d.key: d for d in SENSOR_DESCRIPTIONS}[key]
     assert desc.device_class == SensorDeviceClass.ENUM
     assert desc.options
     component = Path(__file__).parents[2] / "custom_components" / "nwp500"
@@ -1305,9 +1305,9 @@ def test_heat_source_reads_its_state_by_code(
     """0 is no heat source running, not unknown; a code with no state is."""
     from nwp500.enums import HeatSource
 
-    from custom_components.nwp500.sensor import create_sensor_descriptions
+    from custom_components.nwp500.sensor import SENSOR_DESCRIPTIONS
 
-    desc = {d.key: d for d in create_sensor_descriptions()}["current_heat_use"]
+    desc = {d.key: d for d in SENSOR_DESCRIPTIONS}["current_heat_use"]
     mac_address = mock_device.device_info.mac_address
     mock_coordinator.data = {
         mac_address: {"device": mock_device, "status": mock_device_status}
@@ -1329,9 +1329,9 @@ def test_heat_source_states_are_the_ones_the_simulator_reads():
 
     sim_home_assistant = pytest.importorskip("nwp500.sim_home_assistant")
 
-    from custom_components.nwp500.const import SENSOR_CONFIGS
+    from custom_components.nwp500.sensor import _CURRENT_HEAT_USE_STATES
 
-    states = SENSOR_CONFIGS["current_heat_use"]["states"]
+    states = _CURRENT_HEAT_USE_STATES
     for code, key in states.items():
         assert sim_home_assistant._member(key, HeatSource) == HeatSource(code)
 
@@ -1348,9 +1348,9 @@ def test_flow_sensors_are_volume_flow_rates_in_ha_units(
     """The library's GPM and LPM are Home Assistant's gal/min and L/min."""
     from homeassistant.components.sensor import SensorDeviceClass
 
-    from custom_components.nwp500.sensor import create_sensor_descriptions
+    from custom_components.nwp500.sensor import SENSOR_DESCRIPTIONS
 
-    (desc,) = [d for d in create_sensor_descriptions() if d.key == key]
+    (desc,) = [d for d in SENSOR_DESCRIPTIONS if d.key == key]
     assert desc.device_class is SensorDeviceClass.VOLUME_FLOW_RATE
     mac = mock_device.device_info.mac_address
     mock_coordinator.data = {

@@ -318,15 +318,18 @@ def test_every_entity_the_simulator_reads_is_enabled_by_default():
     from custom_components.nwp500.binary_sensor import (
         BINARY_SENSOR_DESCRIPTIONS,
     )
-    from custom_components.nwp500.const import (
-        SENSOR_CONFIGS,
-        SIMULATOR_HEATER_ENTITIES,
+    from custom_components.nwp500.const import SIMULATOR_HEATER_ENTITIES
+    from custom_components.nwp500.sensor import (
+        SENSOR_DESCRIPTIONS,
+        NWP500LastStatusSensor,
     )
-    from custom_components.nwp500.sensor import NWP500LastStatusSensor
 
     binary = {
         d.key: d.entity_registry_enabled_default
         for d in BINARY_SENSOR_DESCRIPTIONS
+    }
+    sensors = {
+        d.key: d.entity_registry_enabled_default for d in SENSOR_DESCRIPTIONS
     }
     for domain, key in SIMULATOR_HEATER_ENTITIES:
         if domain == "binary_sensor":
@@ -337,7 +340,7 @@ def test_every_entity_the_simulator_reads_is_enabled_by_default():
                 is not False
             )
         else:
-            assert SENSOR_CONFIGS[key].get("enabled") is True, key
+            assert sensors[key] is True, key
 
 
 @pytest.mark.asyncio

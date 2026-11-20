@@ -444,8 +444,8 @@ async def test_the_sensor_platform_adds_the_sensors_once_it_starts(
     coordinator.data[MAC]["device"].device_info.mac_address = MAC
     added: list[list] = []
     with (
-        patch.object(sensor_platform, "SENSOR_CONFIGS", {}),
-        patch.object(sensor_platform, "INSTALLER_DIAGNOSTICS_SENSORS", {}),
+        patch.object(sensor_platform, "SENSOR_DESCRIPTIONS", ()),
+        patch.object(sensor_platform, "INSTALLER_DIAGNOSTICS_DESCRIPTIONS", ()),
     ):
         coordinator.supports_recirculation_schedule = MagicMock(
             return_value=False
