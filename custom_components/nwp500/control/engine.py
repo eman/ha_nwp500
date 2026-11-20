@@ -1084,14 +1084,26 @@ class Planner:
 
     def _desired(self, now: datetime, observed: Observed) -> list[OwnedEntry]:
         """The owned entries the device should hold now (sections 5.2-5.3)."""
-        cap = self.capabilities
         others = self.others(observed)
-        occupied = self._occupied(others)
         extra = [e.localised(self.tz) for e in self.extra]
+        candidates, info = self._plan_candidates(now, self._occupied(others))
+        desired = self._within_budget(candidates, info, others, extra)
+        desired = self._with_extra(desired, others, extra)
+        self._info = info
+        self._note_scheduled(now, info)
+        return desired
+
+    def _plan_candidates(
+        self, now: datetime, occupied: list[tuple[int, int, int]]
+    ) -> tuple[list[tuple[Segment, OwnedEntry]], dict[str, _SegmentInfo]]:
+        """The plan's entries to write, in order, and each segment's info.
+
+        Each entry is placed past the minutes `occupied` holds, which it
+        then holds itself.
+        """
         owned_now = {
             e for e in self.owned if _later(e.fires_at, FIRED_GRACE) > now
         }
-
         info: dict[str, _SegmentInfo] = {}
         candidates: list[tuple[Segment, OwnedEntry]] = []
         for segment, state, merged in self._timeline():
@@ -1143,20 +1155,40 @@ class Planner:
             info[segment.id] = _SegmentInfo(
                 True, warnings=tuple(warnings), fires_at=placed.fires_at
             )
+        return candidates, info
 
+    def _within_budget(
+        self,
+        candidates: list[tuple[Segment, OwnedEntry]],
+        info: dict[str, _SegmentInfo],
+        others: list[dict[str, int]],
+        extra: list[OwnedEntry],
+    ) -> list[OwnedEntry]:
+        """The candidates the entry budget has room for, earliest first.
+
+        The rest are marked in `info` as left out for the budget.
+        """
+        cap = self.capabilities
         room = min(
             cap.entry_limit - len(others) - cap.entry_reserve,
             cap.entry_limit - len(others) - len(extra),
         )
         room = max(room, 0)
-        chosen = candidates[:room]
         for segment, _entry in candidates[room:]:
             previous = info[segment.id]
             info[segment.id] = replace(
                 previous, candidate=False, reason=REASON_ENTRY_BUDGET
             )
+        return [e for _, e in candidates[:room]]
 
-        desired: list[OwnedEntry] = [e for _, e in chosen]
+    def _with_extra(
+        self,
+        desired: list[OwnedEntry],
+        others: list[dict[str, int]],
+        extra: list[OwnedEntry],
+    ) -> list[OwnedEntry]:
+        """`desired` and the near-term entries, each placed past the rest."""
+        desired = list(desired)
         # Slots of the plan entries that will not be written go free again.
         occupied = self._occupied(others) + [e.slot for e in desired]
         for entry in extra:
@@ -1176,7 +1208,12 @@ class Planner:
             self._swap_extra(entry, placed)
             occupied.append(placed.slot)
             desired.append(placed)
-        self._info = info
+        return desired
+
+    def _note_scheduled(
+        self, now: datetime, info: dict[str, _SegmentInfo]
+    ) -> None:
+        """How much of the plan is programmed, and until when."""
         scheduled = [
             s
             for s, _state, merged in self._timeline()
@@ -1194,7 +1231,6 @@ class Planner:
             self._programmed_until = self.plan.segments[-1].start
         else:
             self._programmed_until = None
-        return desired
 
     @staticmethod
     def _occupied(
@@ -1428,89 +1464,96 @@ class Planner:
     def ack(self, intent_id: str | None) -> Ack:
         """The acknowledgement of the plan in force."""
         now = self.last_step
-        plan = self.plan
-        if plan is None or now is None:
+        if self.plan is None or now is None:
             return Ack(intent_id=intent_id, state="none")
         owned = set(self.owned)
         anchor = self._anchor(now)
-        segments: list[ItemAck] = []
-        statuses: list[str] = []
-        for segment, _state, merged in self._timeline():
-            info = self._info.get(segment.id, _SegmentInfo(False))
-            fires_at = info.fires_at
-            if fires_at is None:
-                # A segment put in force by a near-term entry.
-                fires_at = next(
-                    (
-                        e.fires_at
-                        for e in (*self.owned, *self.extra)
-                        if e.kind == KIND_NEAR_TERM and e.serves == segment.id
-                    ),
-                    None,
-                )
-            # Not one whose entry a person deleted (section 5.10).
-            in_force = (
-                anchor is not None
-                and anchor[0].id == segment.id
-                and segment.id not in self.removed_segments
-            )
-            detail: dict[str, Any] = {
-                "fires_at": fires_at.isoformat() if fires_at else None,
-                "in_force": in_force,
-            }
-            reason = info.reason
-            status: str
-            if segment.id in self.removed_segments:
-                status = STATUS_REMOVED
-            elif merged:
-                status = STATUS_MERGED
-            elif segment.start <= now:
-                # Begun, and not the plan's segment in force: a later one
-                # has started.
-                if not in_force:
-                    status = STATUS_ENDED
-                elif self.shadow:
-                    status = STATUS_SHADOW
-                else:
-                    status = self._begun_status(segment.id, now)
-            elif info.candidate:
-                programmed = any(
-                    e.kind == KIND_PLAN and e.serves == segment.id
-                    for e in owned
-                )
-                if self.shadow:
-                    status = STATUS_SHADOW
-                else:
-                    status = STATUS_PROGRAMMED if programmed else STATUS_PENDING
-            else:
-                status = STATUS_SCHEDULED
-            if not self.shadow:
-                status, reason = self._live_status(segment.id, status, reason)
-            statuses.append(status)
-            segments.append(
-                ItemAck(
-                    id=segment.id,
-                    status=status,
-                    reason=reason,
-                    warnings=info.warnings,
-                    extra=segment.extra,
-                    detail=detail,
-                )
-            )
+        segments = tuple(
+            self._segment_ack(segment, merged, now, owned, anchor)
+            for segment, _state, merged in self._timeline()
+        )
+        return Ack(
+            intent_id=intent_id,
+            state=self._ack_state([s.status for s in segments]),
+            segments=segments,
+        )
 
+    def _segment_ack(
+        self,
+        segment: Segment,
+        merged: bool,
+        now: datetime,
+        owned: set[OwnedEntry],
+        anchor: tuple[Segment, State] | None,
+    ) -> ItemAck:
+        """One segment's acknowledgement: its status, reason and timing."""
+        info = self._info.get(segment.id, _SegmentInfo(False))
+        fires_at = info.fires_at
+        if fires_at is None:
+            # A segment put in force by a near-term entry.
+            fires_at = next(
+                (
+                    e.fires_at
+                    for e in (*self.owned, *self.extra)
+                    if e.kind == KIND_NEAR_TERM and e.serves == segment.id
+                ),
+                None,
+            )
+        # Not one whose entry a person deleted (section 5.10).
+        in_force = (
+            anchor is not None
+            and anchor[0].id == segment.id
+            and segment.id not in self.removed_segments
+        )
+        detail: dict[str, Any] = {
+            "fires_at": fires_at.isoformat() if fires_at else None,
+            "in_force": in_force,
+        }
+        reason = info.reason
+        status: str
+        if segment.id in self.removed_segments:
+            status = STATUS_REMOVED
+        elif merged:
+            status = STATUS_MERGED
+        elif segment.start <= now:
+            # Begun, and not the plan's segment in force: a later one
+            # has started.
+            if not in_force:
+                status = STATUS_ENDED
+            elif self.shadow:
+                status = STATUS_SHADOW
+            else:
+                status = self._begun_status(segment.id, now)
+        elif info.candidate:
+            programmed = any(
+                e.kind == KIND_PLAN and e.serves == segment.id for e in owned
+            )
+            if self.shadow:
+                status = STATUS_SHADOW
+            else:
+                status = STATUS_PROGRAMMED if programmed else STATUS_PENDING
+        else:
+            status = STATUS_SCHEDULED
+        if not self.shadow:
+            status, reason = self._live_status(segment.id, status, reason)
+        return ItemAck(
+            id=segment.id,
+            status=status,
+            reason=reason,
+            warnings=info.warnings,
+            extra=segment.extra,
+            detail=detail,
+        )
+
+    def _ack_state(self, statuses: list[str]) -> str:
+        """The plan's state from its segments' statuses."""
         if self.shadow:
-            state = STATE_SHADOW
-        elif STATUS_PENDING in statuses or any(
+            return STATE_SHADOW
+        if STATUS_PENDING in statuses or any(
             e in self.owned for e in self._withdrawing
         ):
             # Or entries the plan wants off the heater are still on it.
-            state = STATE_PENDING
-        elif STATUS_REMOVED in statuses or STATUS_FAILED in statuses:
-            state = STATE_PARTLY_PROGRAMMED
-        else:
-            state = STATE_PROGRAMMED
-        return Ack(
-            intent_id=intent_id,
-            state=state,
-            segments=tuple(segments),
-        )
+            return STATE_PENDING
+        if STATUS_REMOVED in statuses or STATUS_FAILED in statuses:
+            return STATE_PARTLY_PROGRAMMED
+        return STATE_PROGRAMMED
