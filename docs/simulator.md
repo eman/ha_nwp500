@@ -417,7 +417,7 @@ nothing on the heater. Each is one of nwp500-python's calls on a scenario:
 | `nwp500.time_to_ready` | `sim.time_to_ready` | `kind: readiness` |
 | `nwp500.next_recovery` | `sim.next_recovery` | `kind: recovery` |
 | `nwp500.forecast` | `sim.forecast` | `kind: forecast` |
-| `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile`, with `facts` and `revision` |
+| `nwp500.heater_profile` | `sim.profile.heater_profile` | `kind: heater_profile`, its facts and `revision` |
 
 `nwp500.calibrate_simulator`, which calibrates the heater, is not one of
 these: see Calibration above.
@@ -555,10 +555,11 @@ Each response has two parts:
   - `reasons` and `defaults_used`, the library's own.
 
   The others' carry a `kind` and the library answer's fields
-  (`nwp500.sim.codec.to_document`). `heater_profile`'s also has the
-  library's `facts` (`HeaterProfile.facts()`) and their `revision`, which
-  changes when, and only when, a fact does: re-read the profile on a new
-  revision. These are the facts the simulation runs by. What a plan may
+  (`nwp500.sim.codec.to_document`). `heater_profile`'s are the library's
+  facts about the heater, its own setpoint range when a heater is named,
+  and their `revision`, which changes when, and only when, a fact does:
+  re-read the profile on a new revision. These are the facts the
+  simulation runs by. What a plan may
   ask of the heater (its modes, its own setpoint range, the commands and
   their ranges) is the external control capabilities entity's declaration
   ([reference](external-control-protocol-1.md)).

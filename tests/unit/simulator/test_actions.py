@@ -346,13 +346,32 @@ async def test_the_profile_is_the_tanks_the_scenario_gives(
 
     params = walked(document)[1]
     profile = heater_profile(params.tank, params.readiness.line_f)
-    assert response["result"] == {
-        **codec.to_document(profile),
-        "facts": profile.facts(),
-        "revision": profile.revision,
-    }
+    assert response["result"] == codec.to_document(profile)
     assert response["result"]["tank_gal"] == 40.0
-    assert response["result"]["facts"]["tank_gal"] == 40.0
+    assert response["result"]["revision"] == profile.revision
+
+
+async def test_the_profile_is_the_named_heaters_setpoint_range(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    feature = runner.coordinator.device_features[runner.mac_address]
+    feature.dhw_temperature_min_raw = 81  # 104.9 °F
+    feature.dhw_temperature_max_raw = 120  # 140 °F
+
+    response = await service.async_heater_profile(hass, runner)
+
+    assert response["result"]["setpoint_f"]["max"] == pytest.approx(140.0)
+
+
+async def test_a_heater_range_the_library_cannot_model_fails_with_its_message(
+    hass: HomeAssistant, runner: SimulatorRunner
+):
+    feature = runner.coordinator.device_features[runner.mac_address]
+    feature.dhw_temperature_min_raw = 10
+    feature.dhw_temperature_max_raw = 20
+
+    with pytest.raises(HomeAssistantError, match="setpoint range"):
+        await service.async_heater_profile(hass, runner)
 
 
 async def test_the_profiles_revision_moves_with_its_facts(

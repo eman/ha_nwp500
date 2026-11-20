@@ -487,20 +487,27 @@ async def async_heater_profile(
 ) -> dict[str, Any]:
     """The modes, setpoints and tank the simulation runs by.
 
-    For the scenario's parameters (`nwp500.sim.profile.heater_profile`).
-    With the library's `facts` and their `revision`, which moves when,
-    and only when, a fact does: a consumer re-reads on a new revision.
+    For the scenario's parameters and a named heater's own setpoint range
+    (`nwp500.sim.profile.heater_profile`): the library's facts and their
+    `revision`, which moves when, and only when, a fact does, so a
+    consumer re-reads on a new revision.
     """
     inputs = await async_inputs(
         hass, runner, scenario=scenario, use_heater=use_heater
     )
     params = inputs.params
-    profile = heater_profile(params.tank, params.readiness.line_f)
-    return _response(
-        {
-            **codec.to_document(profile),
-            "facts": profile.facts(),
-            "revision": profile.revision,
-        },
-        inputs,
+    feature = (
+        None
+        if runner is None
+        else runner.coordinator.device_features.get(runner.mac_address)
     )
+    try:
+        profile = heater_profile(
+            params.tank,
+            params.readiness.line_f,
+            feature=feature if setpoint_range(feature) is not None else None,
+        )
+    except ValueError as err:
+        # The heater's range is outside what the library models.
+        raise HomeAssistantError(str(err)) from err
+    return _response(codec.to_document(profile), inputs)
