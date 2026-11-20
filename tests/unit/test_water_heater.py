@@ -939,11 +939,15 @@ class TestCommandFailuresAreReported:
         """
         heater = self._heater(mock_coordinator, mock_device, mock_hass)
         heater._pre_vacation_mode = STATE_ELECTRIC
+        # Asked again during a Vacation already seen.
+        heater._seen_vacation = True
 
         with pytest.raises(HomeAssistantError):
             await heater.async_turn_away_mode_on()
 
         assert heater._pre_vacation_mode == STATE_ELECTRIC
+        # So the Vacation's end still clears the saved mode.
+        assert heater._seen_vacation is True
 
     @pytest.mark.asyncio
     async def test_away_mode_off_failure_keeps_restore_mode(

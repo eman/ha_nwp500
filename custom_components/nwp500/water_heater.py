@@ -487,15 +487,16 @@ class NWP500WaterHeater(NWP500Entity, WaterHeaterEntity, RestoreEntity):  # type
 
         For a custom duration use the nwp500.set_vacation_days service instead.
         """
-        previous_mode = self._pre_vacation_mode
+        previous = (self._pre_vacation_mode, self._seen_vacation)
         self._pre_vacation_mode = self.current_operation
         self._seen_vacation = False
         try:
             await self._async_dispatch_command("set_vacation_days", days=1)
         except HomeAssistantError:
             # The device never entered vacation mode, so the mode saved by
-            # an earlier request is still the one to restore.
-            self._pre_vacation_mode = previous_mode
+            # an earlier request is still the one to restore, and a
+            # Vacation already seen still clears it when it ends.
+            self._pre_vacation_mode, self._seen_vacation = previous
             raise
         await self.coordinator.async_request_refresh()
 
