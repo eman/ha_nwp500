@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/eman/ha_nwp500/docs/external-control-protocol-1.schema.json",
   "title": "NWP500 external control plan, protocol 1",
-  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, the horizon and the entry budget) are applied by the feature and are listed in docs/external-control-protocol-1.md. The $defs named *_attributes, and entry_item, program_item, segment_ack and command_ack, describe what the feature's entities report (spec section 4.2), not the plan.",
+  "description": "A plan tells the integration's external control feature what state the heater should be in, and when. The feature programs it into the heater's reservation list. Top-level keys are attributes of the intent entity. Rules that span documents or depend on the device (superseded plans, the horizon and the entry budget) are applied by the feature and are listed in docs/external-control-protocol-1.md. The $defs named *_attributes, and entry_item, program_item, segment_ack and command_ack, describe what the feature's entities report (reference section 7), not the plan.",
   "type": "object",
   "required": ["protocol", "intent_id", "issued_at", "segments"],
   "properties": {
     "protocol": {
       "type": "string",
       "pattern": "^[01](\\.[0-9]+)?$",
-      "description": "Protocol version: \"1\", or \"1.x\" for a later minor version. \"0\" and \"0.x\" are still accepted, and mean the same as 1 (spec section 1.3). Within major version 1 changes are additive (spec section 1.3). A major version the feature does not support rejects the document (unsupported_protocol)."
+      "description": "Protocol version: \"1\", or \"1.x\" for a later minor version. \"0\" and \"0.x\" are still accepted, and mean the same as 1 (reference section 1). Within major version 1 changes are additive (reference section 1). A major version the feature does not support rejects the document (unsupported_protocol)."
     },
     "intent_id": {
       "type": "string",
@@ -19,7 +19,7 @@
     },
     "issued_at": {
       "$ref": "#/$defs/timestamp",
-      "description": "When the scheduler made the plan, compared at full precision: not truncated. A plan is its intent_id and issued_at (spec section 6.5): a document with the id in force and a later issued_at replaces it; an older document never replaces a newer one (superseded)."
+      "description": "When the scheduler made the plan, compared at full precision: not truncated. A plan is its intent_id and issued_at (reference section 3.7): a document with the id in force and a later issued_at replaces it; an older document never replaces a newer one (superseded)."
     },
     "segments": {
       "type": "array",
@@ -31,7 +31,7 @@
     },
     "commands": {
       "type": "array",
-      "description": "Protocol 1.3. Device commands, each applied once when the plan is adopted, in order, after its entries are written (spec section 3.7). Only a non-list, an item that is not an object, an item without a valid id, or an id shared with another command or a segment (duplicate_id) rejects the document; a malformed or unknown command is rejected on its own, so this schema describes the commands the feature applies.",
+      "description": "Protocol 1.3. Device commands, each applied once when the plan is adopted, in order, after its entries are written (reference sections 3.4 and 6.7). Only a non-list, an item that is not an object, an item without a valid id, or an id shared with another command or a segment (duplicate_id) rejects the document; a malformed or unknown command is rejected on its own, so this schema describes the commands the feature applies.",
       "items": { "$ref": "#/$defs/command" }
     }
   },
@@ -117,7 +117,7 @@
     },
     "entry_item": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: one of the feature's own entries, as an item of external_control_last_write's added and removed (spec section 4.2). New keys may be added (spec section 1.3).",
+      "description": "Entity attributes, not part of a plan: one of the feature's own entries, as an item of external_control_last_write's added and removed (reference section 7.1). New keys may be added (reference section 1).",
       "required": ["kind", "owner", "serves", "fires_at", "mode", "setpoint_f", "setpoint_c", "setpoint_raw", "week", "hour", "min"],
       "properties": {
         "kind": {
@@ -244,7 +244,7 @@
     },
     "override_report": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: a person's removal of one of the plan's entries, on plan_entry_removed (spec section 4.2). One report per key: field; for removed, field, segment and value's kind.",
+      "description": "Entity attributes, not part of a plan: a person's removal of one of the plan's entries, on plan_entry_removed (reference sections 6.8 and 7.1). One report per key: field; for removed, field, segment and value's kind.",
       "required": ["field", "value", "detected_at", "segment"],
       "properties": {
         "field": {
@@ -308,14 +308,14 @@
     },
     "ack_attributes": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: plan_status's attributes (spec section 4.2). The entity's state is none, rejected, shadow, pending, partly_programmed or programmed.",
+      "description": "Entity attributes, not part of a plan: plan_status's attributes (reference sections 7.1 and 8.1). The entity's state is none, rejected, shadow, pending, partly_programmed or programmed.",
       "required": ["intent_id", "reason", "detail", "segments", "commands", "rejected"],
       "properties": {
         "intent_id": {"type": ["string", "null"], "description": "The plan in force's, or, with none in force, the rejected document's."},
-        "reason": {"type": ["string", "null"], "description": "Set only in the rejected state: why the document was rejected whole (section 3.5)."},
+        "reason": {"type": ["string", "null"], "description": "Set only in the rejected state: why the document was rejected whole (reference section 4.1)."},
         "detail": {"type": ["string", "null"], "description": "Set only in the rejected state: a readable explanation."},
         "segments": {"type": "array", "items": {"$ref": "#/$defs/segment_ack"}, "description": "The plan in force's segments, in its order; empty in the rejected state."},
-        "commands": {"type": "array", "items": {"$ref": "#/$defs/command_ack"}, "description": "Protocol 1.3. The plan in force's device commands, in its order (section 3.7)."},
+        "commands": {"type": "array", "items": {"$ref": "#/$defs/command_ack"}, "description": "Protocol 1.3. The plan in force's device commands, in its order (reference section 8.3)."},
         "rejected": {
           "type": ["object", "null"],
           "description": "The most recent document rejected whole, or null. Cleared when a document received after it is accepted.",
@@ -332,7 +332,7 @@
     },
     "segment_ack": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: one segment on plan_status (spec section 4.2), with the segment's opaque keys.",
+      "description": "Entity attributes, not part of a plan: one segment on plan_status (reference section 8.2), with the segment's opaque keys.",
       "required": ["id", "status", "reason", "warnings", "fires_at", "in_force"],
       "properties": {
         "id": {"type": "string"},
@@ -346,7 +346,7 @@
     },
     "command_ack": {
       "type": "object",
-      "description": "Entity attributes, not part of a plan: one device command on plan_status (spec sections 3.7 and 4.2), with the command's opaque keys, which never include its own keys' names. A command that is not supported has its other keys echoed as opaque.",
+      "description": "Entity attributes, not part of a plan: one device command on plan_status (reference section 8.3), with the command's opaque keys, which never include its own keys' names. A command that is not supported has its other keys echoed as opaque.",
       "required": ["id", "command", "status", "reason", "warnings"],
       "properties": {
         "id": {"type": "string"},
