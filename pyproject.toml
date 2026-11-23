@@ -61,7 +61,7 @@ dev = [
     "mypy>=2.4.1",
     "basedpyright>=1.40.2",
     "tox>=4.67.15",
-    "tox-uv>=1.37.7",
+    "tox-uv>=1.37.9",
 ]
 
 [tool.ruff]
