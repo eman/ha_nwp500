@@ -31,7 +31,7 @@ test-nosim = [
     "jsonschema>=4.26.0",
     "pytest>=9.0.3",
     "pytest-cov>=7.1.0",
-    "pytest-homeassistant>=2026.11.1",
+    "pytest-homeassistant>=2026.11.2",
     "pytest-timeout>=2.4.0",
 ]
 test = [
